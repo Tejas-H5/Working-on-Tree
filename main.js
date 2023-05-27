@@ -468,12 +468,15 @@ const NoteRowInput = (mountPoint) => {
             const note = state.notes[noteIndex];
             const isEditing = state.currentNoteIndex === noteIndex;
             const isHighlighted = !note.isDone || note.isSelected;
-            const selection = isEditing ? 0 : 1;
-            displayOne(selection, [ inputRoot, showRoot ]);
-            
+
+            if (isEditing) {
+                show(inputRoot); hide(showRoot);
+            } else {
+                hide(inputRoot); show(showRoot);
+            }
             const timingText = getSecondPartOfRow(state, noteIndex);
 
-            if (selection === 0) {
+            if (isEditing) {
                 // input
 
                 component.args.note = note;
@@ -513,7 +516,6 @@ const NoteRowInput = (mountPoint) => {
                     root.style.background = "#FFF";
 
                     stickyPxRef.val += root.getBoundingClientRect().height;
-                    console.log(root.getBoundingClientRect().height);
                 } else {
                     root.style.zIndex = 0;
                     root.style.position = "initial";
@@ -546,6 +548,46 @@ const NoteRowInput = (mountPoint) => {
 
     return component;
 };
+
+
+/**
+ * list rendering
+ * 
+ * data = []
+ * elements = []
+ * components = []
+ * def rerender():
+ *      for i from 0 to data.length:
+ *          renderComponent(i)
+ *  
+ * def renderComponent(i):
+*       if i === data.length:
+*           elements[i], components[i] = initializeComponent()
+*        
+        components[i].update()
+
+    const elements = []
+
+    rerenderComponents(mountPoint, data, (i) => {
+        component = createComponent(elements, `<blah />`);
+
+        return {
+            update: () => {
+                component.update();
+            }
+        }
+    })
+
+const elements = [];
+
+x.forEach((data, i) => {
+    if (i === elements.length) {
+        // initialize
+        createComponent(elements, `<div></div>`);
+    }
+})
+
+**/
 
 const App = (mountPoint) => {
     const { 
@@ -681,34 +723,30 @@ const App = (mountPoint) => {
     const elements = [];
     const inputs = [];
     const rerender = () => {
-        resize(elements, state.notes.length);
-        resize(inputs, state.notes.length);
         fixNoteTree(state);
 
-        let stickyPxRef = { val: 0 };
-        for (let i = 0; i < state.notes.length; i++) {
-            if (elements.length === i) {
-                // initialize new notes in the list
+        stickyPxRef = { val: 0 };
+        
+        resizeListRenderPool(state.notes, elements, inputs, () => {
+            const noteRowInput = NoteRowInput(elements);
+            inputs.push(noteRowInput);
 
-                const noteRowInput = NoteRowInput(elements);
-                inputs.push(noteRowInput);
+            noteRowInput.onClick = () => {
+                state.currentNoteIndex = i;
+                rerender();
+            };
 
-                noteRowInput.onClick = () => {
-                    state.currentNoteIndex = i;
+            noteRowInput.onKeyDown = (e) => {
+                if (handleNoteInputKeyDown(state, e)) {
                     rerender();
-                };
+                }
+        
+                // handle saving state with a debounce
+                debouncedSave();
+            };
+        });
 
-                noteRowInput.onKeyDown = (e) => {
-                    if (handleNoteInputKeyDown(state, e)) {
-                        rerender();
-                    }
-            
-                    // handle saving state with a debounce
-                    debouncedSave();
-                };
-            }
-
-            // update the thing. this is the real code here, actually
+        for (let i = 0; i < inputs.length; i++) {
             inputs[i].update(state, i, stickyPxRef);
         }
 

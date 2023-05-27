@@ -10,6 +10,7 @@ const remove = (arr, obj) => {
 const resize = (arr, newSize) => arr.splice(newSize, arr.length - newSize);
 const clear = (arr) => arr.splice(0, arr.length)
 const clearChildren = (mountPoint) => mountPoint.replaceChildren();
+const assert = (trueVal, msg) => {if (!trueVal) { throw new Error(msg); } };
 
 const replaceChildren = (mountPoint, children) => {
     if (!mountPoint) return;
@@ -35,11 +36,7 @@ const appendChildren = (mountPoint, children) => {
     }
 }
 
-const assert = (trueVal, msg) => {
-    if (!trueVal) {
-        throw new Error(msg);
-    }
-};
+
 
 /** @returns {Object<string, HTMLElement>} */
 const createComponent = (mountPoint, html) => {
@@ -62,83 +59,6 @@ const createComponent = (mountPoint, html) => {
     return selectedNodes;
 };
 
-const createEvent = () => {
-    const handlers = [];
-
-    // Remove events for dom nodes that have disconnected themselves.
-    // I wasn't able to find a good way to observe a component and disconnect it via an event,
-    // so I am doing it like this.
-    const cleanHandlers = () => {
-        for (let i = handlers.length - 1; i >= 0; i--) {
-            if (!handlers[i][0].isConnected) {
-                handlers.splice(i, 1);
-            }
-        }
-    };
-
-    const invoke = (...args) => {
-        if (invokingEvent) {
-            return;
-        }
-
-        invokingEvent = true;
-        try {
-            cleanHandlers();
-            for (let i = handlers.length - 1; i >= 0; i--) {
-                handlers[i][1](...args);
-            }
-        } finally {
-            invokingEvent = false;
-        }
-    };
-
-    // if several dom nodes get unsubscribed but this event is never invoked later, then we have leaked memory
-    const subscribe = (domNode, callback, ...args) => {
-        assert(
-            domNode instanceof HTMLElement,
-            "events must be subscribed to dom elements, so they can be automatically unsubscribed"
-        );
-
-        // Avoid the case where UI elements are constantly created and destroyed, and
-        // they keep subscribing to an event that is never fired and therefore never cleaned.
-        cleanHandlers();
-
-        handlers.push([domNode, callback]);
-        invokingEvent = true;
-        try {
-            callback(...args);
-        } finally {
-            invokingEvent = false;
-        }
-    };
-
-    return [subscribe, invoke];
-};
-
-const createState = (initialState) => {
-    let state = initialState,
-        invokingEvent = false;
-
-    const [subscribe, invoke] = createEvent();
-
-    const get = () => state;
-
-    const set = (val) => {
-        if (invokingEvent) {
-            // prevent infinite loops.
-            return;
-        }
-
-        state = val;
-        invoke(state);
-    };
-
-    const subscribeWrapper = (domNode, callback) => {
-        subscribe(domNode, callback, state);
-    };
-
-    return [get, set, subscribeWrapper];
-};
 
 const createAnimation = (animateFunc) => {
     let t0,
@@ -276,12 +196,29 @@ const onDrag = (domNode, { onDragStart, onDrag, onDragEnd }) => {
     }
 };
 
-const displayOne = (num, choices) => {
-    for(let i = 0; i < choices.length; i++) {
-        if (i == num) {
-            choices[i].classList.remove("hidden");
-        } else {
-            choices[i].classList.add("hidden");
+
+const show = (el) => {
+    el.classList.remove("hidden");
+}
+
+const hide = (el) => {
+    el.classList.add("hidden");
+}
+
+
+/** 
+ * This function ensures there is 1 element and 1 component for every object in the data array, instantiating
+ * elements and components with the createFn if needed.
+ */
+const resizeListRenderPool = (data, elements, components, createFn) => {
+    resize(elements, data.length);
+    resize(components, data.length);
+
+    for(let i = 0; i < data.length; i++) {
+        if (elements.length === i) { // initialize new notes in the list
+            createFn();
+            assert(i === elements.length - 1, 'it ')
+            assert(i === components.length - 1, 'it  2')
         }
     }
 }
