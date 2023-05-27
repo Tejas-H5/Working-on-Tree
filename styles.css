@@ -11,6 +11,11 @@ body {
     flex-direction: row;
 }
 
+.col {
+    display: flex;
+    flex-direction: column;
+}
+
 .flex-1 {
     flex: 1
 }
@@ -60,6 +65,11 @@ textarea {
     width: 100%;
 }
 
+.h-100 {
+    height: 100%;
+}
+
+
 button {
     all: unset;
 
@@ -67,17 +77,17 @@ button {
     border: 2px solid black;
     border-radius: 6px;
 
-    background: #FFF;
+    background-color: #FFF;
     user-select: none;
     cursor: pointer;
 }
 
 button:hover {
-    background: #DDD;
+    background-color: #DDD;
 }
 
 button:active {
-    background: #555;
+    background-color: #555;
 }
 
 .align-items-center {
@@ -97,11 +107,23 @@ button:active {
 }
 
 .info-button:hover {
-    background: #AAF;
+    background-color: #AAF;
 }
 
 
 .info-button:active {
-    background: #00F;
+    background-color: #00F;
     color: #FFF;
+}
+
+.bring-to-front {
+    z-index: 100000;
+}
+
+.relative {
+    position: relative;
+}
+
+.text-align-center {
+    text-align: center;
 }

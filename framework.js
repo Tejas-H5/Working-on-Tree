@@ -197,14 +197,13 @@ const onDrag = (domNode, { onDragStart, onDrag, onDragEnd }) => {
 };
 
 
-const show = (el) => {
-    el.classList.remove("hidden");
+const setVisible = (el, state) => {
+    if (state) {
+        el.classList.remove("hidden");
+    } else {
+        el.classList.add("hidden");
+    }
 }
-
-const hide = (el) => {
-    el.classList.add("hidden");
-}
-
 
 /** 
  * This function ensures there is 1 element and 1 component for every object in the data array, instantiating
@@ -216,7 +215,7 @@ const resizeListRenderPool = (data, elements, components, createFn) => {
 
     for(let i = 0; i < data.length; i++) {
         if (elements.length === i) { // initialize new notes in the list
-            createFn();
+            createFn(i);
             assert(i === elements.length - 1, 'it ')
             assert(i === components.length - 1, 'it  2')
         }

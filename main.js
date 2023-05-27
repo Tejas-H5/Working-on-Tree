@@ -1,13 +1,3 @@
-/**
- * TODO:
- *
- * - add a todo list at the bottom to schedule tasks. Probably its just a freetext
- * - add statistics breakdowns
- * - add the second part at the end of the current line we're on
- * -
- *
- */
-
 const INDENT_BASE_WIDTH = 100;
 const INDENT_WIDTH_PX = 50;
 const SAVE_DEBOUNCE = 500;
@@ -37,12 +27,25 @@ const iterateChildNotes = (state, noteIndex, fn) => {
     }
 };
 
+const iterateChildNotesOneLevel = (state, noteIndex, fn) => {
+    // process all notes 1 level of indent underneath this one
+    const childIndent = noteIndex >= 0 ? state.notes[noteIndex].indent + 1 : 0;
+    for (let i = noteIndex + 1; i < state.notes.length; i++) {
+        if (state.notes[i].indent > childIndent) 
+            continue;
+        if (state.notes[i].indent < childIndent) 
+            break;
+
+        fn(state.notes[i], i);
+    }
+};
+
 const markNoteAsDone = (note) => {
     note.isDone = true;
     note.closedAt = getTimestamp(new Date());
 };
 
-const formatNoteDuration = (ms) => {
+const formatDuration = (ms) => {
     if (ms === "still-working") {
         return "...";
     }
@@ -81,7 +84,7 @@ const formatNoteDuration = (ms) => {
     return str.join(", ");
 };
 
-const getDuration = (a, b) => {
+const getDurationMS = (a, b) => {
     if (b === null) {
         return "still-working";
     }
@@ -102,10 +105,10 @@ const moveToLastNote = (state) => {
     return true;
 };
 
-const getNextSiblingIndex = (state, noteIndex) => {
+const getNextNoteOnSameOrPreviousLevelIndex = (state, noteIndex) => {
     let currentIndent = state.notes[noteIndex].indent;
     for (let i = noteIndex + 1; i < state.notes.length; i++) {
-        if (state.notes[i].indent === currentIndent) {
+        if (state.notes[i].indent <= currentIndent) {
             return i;
         }
     }
@@ -367,15 +370,26 @@ const getIndentStr = (note) => {
     );
 };
 
-const getSecondPartOfRow = (state, i) => {
+
+const getNoteDuration = (state, i) => {
+    if (i < 0) {
+        return getDurationMS(state.notes[0].openedAt, getTimestamp(new Date()));
+    }
+
     const note = state.notes[i];
-    const nextSiblingIndex = getNextSiblingIndex(state, i);
+    const nextSiblingIndex = getNextNoteOnSameOrPreviousLevelIndex(state, i);
 
     const nextSibling = state.notes[nextSiblingIndex];
     const duration = nextSibling
-        ? getDuration(note.openedAt, nextSibling.openedAt)
-        : getDuration(note.openedAt, getTimestamp(new Date()));
-    const durationStr = formatNoteDuration(duration);
+        ? getDurationMS(note.openedAt, nextSibling.openedAt)
+        : getDurationMS(note.openedAt, getTimestamp(new Date()));
+    return duration;
+}
+
+const getSecondPartOfRow = (state, i) => {
+    const note = state.notes[i];
+    const duration = getNoteDuration(state, i);
+    const durationStr = formatDuration(duration);
     const secondPart = note.isDone ? ` took ${durationStr}` : ` taking ${durationStr} ...`;
     return secondPart;
 };
@@ -418,6 +432,110 @@ const exportAsText = (state) => {
     return events + "\n\n---------------- Notes ----------------\n" + scratchPad;
 };
 
+const RectView = (mountPoint, getState) => {
+    const { root } = createComponent(mountPoint, `
+        <div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>
+    `);
+    
+    const component = {
+        onSelectNote: (i) => {},
+        rerender: () => {}
+    };
+
+    let maxIndent = 0;
+
+    const rerender = () => {
+        const state = getState();
+
+        maxIndent = 0;
+        for (let i = 0; i < state.notes.length; i++) { 
+            if (maxIndent < state.notes[i].indent) {
+                maxIndent = state.notes[i].indent;
+            }
+        }
+
+        clearChildren(root);
+        const parentRect = root.getBoundingClientRect();
+        recursiveRectPack(root, -1, [parentRect.width, parentRect.height], true);
+    }
+    component.rerender = rerender;
+    
+    const recursiveRectPack = (mountPoint, i, thisRectSize, isParentRow) => {
+        const state = getState();
+        const duration = getNoteDuration(state, i)
+        
+        const tasksOnThisLevel = [];
+        iterateChildNotesOneLevel(state, i, (note, i) => {
+            const childDuration = getNoteDuration(state, i);
+            tasksOnThisLevel.push({
+                text: note.text,
+                indent: note.indent,
+                duration: childDuration,
+                duration01: childDuration / duration,
+                i: i,
+                isSelected : note.isSelected
+            });
+        });
+
+        if (tasksOnThisLevel.length === 0) {
+            // createComponent(mountPoint, 
+            //     // center a text vertically and horizontally. challenge level: impossible
+            //     `<div class="col align-items-center w-100 h-100">
+            //         <div class="text-align-center">${formatDuration(duration)}</div>
+            //     </div>`
+            // );
+            return;
+        }
+
+
+        tasksOnThisLevel.sort((t1, t2) => t2.duration01 - t1.duration01);
+
+        for(let i = 0; i < tasksOnThisLevel.length; i++) {
+            const task = tasksOnThisLevel[i];
+            const isCurrentlySelectedTask = task.i === state.currentNoteIndex;
+            
+            // const bgColor = `hsl(${360 * task.indent / maxIndent} 100% ${task.isSelected ? "80%" : "50%"})`;
+            // const bgColor = task.isSelected ? "red" : "blue";
+            const bgColor = `rgba(${task.isSelected ? "0, 255" : "255, 0" }, 0, ${1 / maxIndent})`;
+            const outlineColor = task.isSelected ?(
+                isCurrentlySelectedTask ? `rgb(0, 0 ,255)` : `rgb(0,255,0)`
+            ) : `rgb(0,0,0)`;
+            
+            let childRectSize;
+            if (isParentRow) {
+                childRectSize = [thisRectSize[0] * task.duration01, thisRectSize[1]];
+            } else {
+                childRectSize = [thisRectSize[0], thisRectSize[1] * task.duration01];
+            }
+            const isRow = childRectSize[0] > childRectSize[1];
+
+            // const outline = isCurrentlySelectedTask ? maxIndent : maxIndent - task.indent;
+            const outline = task.indent === 0 ? 5 : 1;
+            const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
+
+            const { root } = createComponent(mountPoint, 
+                `<div 
+                    class="${isRow ? "row" : "col"}" 
+                    style="flex:${task.duration01}; outline: ${outline}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
+                    title="${task.text}"
+                ></div>`
+            );
+            
+            root.addEventListener("click", (e) => {
+                e.stopPropagation();
+                component.onSelectNote(task.i);
+                rerender();
+            })
+
+            recursiveRectPack(root, task.i, childRectSize, isRow);
+        }
+    }
+
+    rerender();
+
+    return component;
+}
+
 const ScratchPad = (mountPoint, getState) => {
     const { textInput } = createComponent(mountPoint,`
         <textarea --id="textInput"></textarea>
@@ -448,7 +566,7 @@ const ScratchPad = (mountPoint, getState) => {
 const NoteRowInput = (mountPoint) => {
     const { root, input, inputStatus, inputTimings, inputRoot, showRoot, showText, showTime } = createComponent(mountPoint,`
         <div>
-            <div --id="inputRoot" class="row" style="background:#DDD">
+            <div --id="inputRoot" class="row" style="background-color:#DDD">
                 <div --id="inputStatus" class="pre-wrap"></div>
                 <div class="flex-1">
                     <input --id="input" class="w-100"></input>
@@ -464,16 +582,14 @@ const NoteRowInput = (mountPoint) => {
 
     const component = {
         args: {},
-        update: (state, noteIndex, stickyPxRef) => {
+        update: (state, noteIndex, stickyPxRef, shouldSroll, isRectViewOpen) => {
             const note = state.notes[noteIndex];
             const isEditing = state.currentNoteIndex === noteIndex;
             const isHighlighted = !note.isDone || note.isSelected;
 
-            if (isEditing) {
-                show(inputRoot); hide(showRoot);
-            } else {
-                hide(inputRoot); show(showRoot);
-            }
+            setVisible(inputRoot, isEditing);
+            setVisible(showRoot, !isEditing);
+            
             const timingText = getSecondPartOfRow(state, noteIndex);
 
             if (isEditing) {
@@ -490,12 +606,14 @@ const NoteRowInput = (mountPoint) => {
                 setTimeout(() => {
                     input.focus({ preventScroll : true });
                 
-                    const wantedY = root.getBoundingClientRect().height * noteIndex;
-                    window.scrollTo({
-                        left: 0,
-                        top: wantedY - window.innerHeight / 2,
-                        behavior: "instant"
-                    });
+                    if (shouldSroll) {
+                        const wantedY = root.getBoundingClientRect().height * noteIndex;
+                        window.scrollTo({
+                            left: 0,
+                            top: wantedY - window.innerHeight / 2,
+                            behavior: "instant"
+                        });
+                    }
                 }, 1);
             } else {
                 // show
@@ -509,18 +627,18 @@ const NoteRowInput = (mountPoint) => {
 
             // ensure active notes are sticky
             setTimeout(() => {
-                if (isHighlighted) {
+                if (isHighlighted && !isRectViewOpen) {
                     root.style.position = "sticky";
                     root.style.top = stickyPxRef.val + "px";
                     root.style.zIndex = 10;
-                    root.style.background = "#FFF";
+                    root.style.backgroundColor = "#FFF";
 
                     stickyPxRef.val += root.getBoundingClientRect().height;
                 } else {
                     root.style.zIndex = 0;
                     root.style.position = "initial";
                     root.style.top = "none";
-                    root.style.background = "#FFF";
+                    root.style.backgroundColor = "#FFF";
                 }
             }, 1);
         }
@@ -549,55 +667,17 @@ const NoteRowInput = (mountPoint) => {
     return component;
 };
 
-
-/**
- * list rendering
- * 
- * data = []
- * elements = []
- * components = []
- * def rerender():
- *      for i from 0 to data.length:
- *          renderComponent(i)
- *  
- * def renderComponent(i):
-*       if i === data.length:
-*           elements[i], components[i] = initializeComponent()
-*        
-        components[i].update()
-
-    const elements = []
-
-    rerenderComponents(mountPoint, data, (i) => {
-        component = createComponent(elements, `<blah />`);
-
-        return {
-            update: () => {
-                component.update();
-            }
-        }
-    })
-
-const elements = [];
-
-x.forEach((data, i) => {
-    if (i === elements.length) {
-        // initialize
-        createComponent(elements, `<div></div>`);
-    }
-})
-
-**/
-
 const App = (mountPoint) => {
     const { 
         notesMountPoint, 
         scratchPad, 
-        statusTextIndicator, textCopyButton, jsonCopyButton, clearAllButton, 
+        rectViewRoot,
+        statusTextIndicator, rectViewToggleButton, textCopyButton, jsonCopyButton, clearAllButton, 
         infoButton, info1, info2
     } =
         createComponent(mountPoint,`
-            <div>
+            <div class="relative">
+                <div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>
                 <div class="row align-items-center">
                     <h2>Currently working on</h2>
                     <div class="flex-1"></div>
@@ -628,16 +708,46 @@ const App = (mountPoint) => {
                 <div style="height: 300px"></div>
                 <div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
                     <div --id="statusTextIndicator" class="pre-wrap"></div>
-                    <button --id="clearAllButton" type="button">Clear all</button>
-                    <button --id="textCopyButton" type="button">Copy as text</button>
-                    <button --id="jsonCopyButton" type="button">Copy as JSON</button>
+                    <button --id="rectViewToggleButton" class="bring-to-front" type="button">Area view</button>
+                    <button --id="clearAllButton" class="bring-to-front" type="button">Clear all</button>
+                    <button --id="textCopyButton" class="bring-to-front" type="button">Copy as text</button>
+                    <button --id="jsonCopyButton" class="bring-to-front" type="button">Copy as JSON</button>
                 </div>
             </div>
         `);
 
     let state = loadState();
 
-    ScratchPad(scratchPad, () => state);
+    // scratch pad
+    {
+        ScratchPad(scratchPad, () => state);
+    }
+
+    
+    // rect view
+    let isRectViewOpen = false;
+    const rectViewComponent = RectView(rectViewRoot, () => state);
+    const toggleRectView = () => {
+        isRectViewOpen = !isRectViewOpen;
+        rerender({shouldScroll: false});
+    }
+    
+    {
+        rectViewComponent.onSelectNote = (i) => {
+            state.currentNoteIndex = i;
+            rerender({shouldScroll: false});
+        }
+        
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && isRectViewOpen) {
+                toggleRectView();
+            }
+        })
+    }
+
+    rectViewToggleButton.addEventListener("click", () => {
+        toggleRectView();
+    });
 
     textCopyButton.addEventListener("click", () => {
         handleErrors(() => {
@@ -722,12 +832,12 @@ const App = (mountPoint) => {
 
     const elements = [];
     const inputs = [];
-    const rerender = () => {
+    const rerender = (options = { shouldScroll: true}) => {
         fixNoteTree(state);
 
         stickyPxRef = { val: 0 };
-        
-        resizeListRenderPool(state.notes, elements, inputs, () => {
+
+        resizeListRenderPool(state.notes, elements, inputs, (i) => {
             const noteRowInput = NoteRowInput(elements);
             inputs.push(noteRowInput);
 
@@ -747,10 +857,14 @@ const App = (mountPoint) => {
         });
 
         for (let i = 0; i < inputs.length; i++) {
-            inputs[i].update(state, i, stickyPxRef);
+            inputs[i].update(state, i, stickyPxRef, options.shouldScroll, isRectViewOpen);
         }
 
         replaceChildren(notesMountPoint, elements);
+
+        // handle rendering 'child' components
+        rectViewComponent.rerender();
+        setVisible(rectViewRoot, isRectViewOpen);
     };
 
     rerender();
