@@ -460,22 +460,37 @@ const RectView = (mountPoint, getState) => {
     }
     component.rerender = rerender;
     
+    component.rerender = () => {
+        setTimeout(() => {
+            rerender();
+        }, 0);
+    }
+    
     const recursiveRectPack = (mountPoint, i, thisRectSize, isParentRow) => {
         const state = getState();
         const duration = getNoteDuration(state, i)
         
         const tasksOnThisLevel = [];
-        iterateChildNotesOneLevel(state, i, (note, i) => {
-            const childDuration = getNoteDuration(state, i);
-            tasksOnThisLevel.push({
-                text: note.text,
-                indent: note.indent,
-                duration: childDuration,
-                duration01: childDuration / duration,
-                i: i,
-                isSelected : note.isSelected
+        {
+            let childDurations = 0;
+            iterateChildNotesOneLevel(state, i, (note, i) => {
+                const childDuration = getNoteDuration(state, i);
+                childDurations += childDuration;
+                tasksOnThisLevel.push({
+                    text: note.text,
+                    indent: note.indent,
+              //       duration: childDuration,
+                    duration01: childDuration / duration,
+                    i: i,
+                    isSelected : note.isSelected,
+                });
             });
-        });
+    
+            if (tasksOnThisLevel.length !== 0) {
+                // need to insert a task for the gap between the start of the first task, and the parent task
+                tasksOnThisLevel[0].padding =  1 - (childDurations / duration);
+            }
+        }
 
         if (tasksOnThisLevel.length === 0) {
             // createComponent(mountPoint, 
@@ -487,20 +502,20 @@ const RectView = (mountPoint, getState) => {
             return;
         }
 
-
-        tasksOnThisLevel.sort((t1, t2) => t2.duration01 - t1.duration01);
+        // tasksOnThisLevel.sort((t1, t2) => t2.duration01 - t1.duration01);
 
         for(let i = 0; i < tasksOnThisLevel.length; i++) {
             const task = tasksOnThisLevel[i];
             const isCurrentlySelectedTask = task.i === state.currentNoteIndex;
             
-            // const bgColor = `hsl(${360 * task.indent / maxIndent} 100% ${task.isSelected ? "80%" : "50%"})`;
-            // const bgColor = task.isSelected ? "red" : "blue";
-            const bgColor = `rgba(${task.isSelected ? "0, 255" : "255, 0" }, 0, ${1 / maxIndent})`;
             const outlineColor = task.isSelected ?(
-                isCurrentlySelectedTask ? `rgb(0, 0 ,255)` : `rgb(0,255,0)`
-            ) : `rgb(0,0,0)`;
+                isCurrentlySelectedTask ? `rgba(0, 0, 255, 1)` : `rgba(0,255,0, 1)`
+            ) : `rgba(255,0,0, 1)`;
             
+            const bgColor = task.isSelected ? (
+                isCurrentlySelectedTask ? `rgba(0, 255, 0, ${0.5 / maxIndent})` : `rgba(0, 0, 255, ${0.5 / maxIndent})`
+            ) : `rgba(255,0,0, ${0.5 / maxIndent})`;
+
             let childRectSize;
             if (isParentRow) {
                 childRectSize = [thisRectSize[0] * task.duration01, thisRectSize[1]];
@@ -508,11 +523,16 @@ const RectView = (mountPoint, getState) => {
                 childRectSize = [thisRectSize[0], thisRectSize[1] * task.duration01];
             }
             const isRow = childRectSize[0] > childRectSize[1];
+            // const isRow = task.indent % 2 === 0;
 
-            // const outline = isCurrentlySelectedTask ? maxIndent : maxIndent - task.indent;
-            const outline = task.indent === 0 ? 5 : 1;
+            const outline = isCurrentlySelectedTask ? maxIndent : maxIndent - task.indent;
             const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
 
+            if (task.padding) {
+                createComponent(mountPoint, 
+                    `<div style="flex:${task.padding};z-index:${zIndex};user-select:none"></div>`
+                );      
+            }
             const { root } = createComponent(mountPoint, 
                 `<div 
                     class="${isRow ? "row" : "col"}" 
@@ -521,13 +541,16 @@ const RectView = (mountPoint, getState) => {
                 ></div>`
             );
             
-            root.addEventListener("click", (e) => {
-                e.stopPropagation();
-                component.onSelectNote(task.i);
-                rerender();
-            })
+            if (task.i != null) {
+                root.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    component.onSelectNote(task.i);
+                    rerender();
+                })
+    
 
-            recursiveRectPack(root, task.i, childRectSize, isRow);
+                recursiveRectPack(root, task.i, childRectSize, isRow);
+            }
         }
     }
 
