@@ -10,7 +10,6 @@ const remove = (arr, obj) => {
 const resize = (arr, newSize) => arr.splice(newSize, arr.length - newSize);
 const clear = (arr) => arr.splice(0, arr.length)
 const clearChildren = (mountPoint) => mountPoint.replaceChildren();
-const assert = (trueVal, msg) => {if (!trueVal) { throw new Error(msg); } };
 
 const replaceChildren = (mountPoint, children) => {
     if (!mountPoint) return;

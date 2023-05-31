@@ -690,23 +690,43 @@ const NoteRowInput = (mountPoint) => {
     return component;
 };
 
+const button = (text, fn) => {
+    const btn = printf(`<button type="button">${text}</button>`);
+    btn.el.addEventListener("click", fn);
+    return btn;
+}
+
 const App = (mountPoint) => {
-    const { 
-        notesMountPoint, 
-        scratchPad, 
-        rectViewRoot,
-        statusTextIndicator, rectViewToggleButton, textCopyButton, jsonCopyButton, clearAllButton, 
-        infoButton, info1, info2
-    } =
-        createComponent(mountPoint,`
-            <div class="relative">
-                <div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>
-                <div class="row align-items-center">
-                    <h2>Currently working on</h2>
-                    <div class="flex-1"></div>
-                    <button --id="infoButton" class="info-button" title="click for help">help?</button>
-                </div>
-                <div --id="info1">
+    const areaView = areaView();
+
+    let isHelpVisible = false;
+    let info1, info2, notesMountPoint, scratchPad, rectViewRoot;
+    const toggleHelp = () => {
+        isHelpVisible = !isHelpVisible;
+        setVisible(info1.el, isHelpVisible);
+        setVisible(info2.el, isHelpVisible);
+    }
+    const parent = printf(`<div>%a</div>`, [
+        // rect view modal
+        printf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`, areaView),
+        // title
+        printf(
+            `<div class="row align-items-center">
+                <h2>Currently working on</h2>
+                <div class="flex-1"></div>
+                %c
+            </div>`,
+            (() => {
+                const helpButton = printf(`<button class="info-button" title="click for help">help?</button>`)
+                helpButton.el.addEventListener("click", () => {
+                    toggleHelp();
+                })
+                return helpButton;
+            })()
+        ),
+        (() => {
+            info1 = printf(
+                `<div --id="info1">
                     <p>
                         Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
                         You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
@@ -717,29 +737,98 @@ const App = (mountPoint) => {
                         <li>Tab or Shift+Tab to indent/unindent a note</li>
                         <li>Also look at the buttons in the bottom right there</li>
                     </ul>
-                </div>
-                <div --id="notesMountPoint" class="notes-root"></div>
-                <div style="height: 20px"></div>
-
-                <h2>Scratch Pad</h2>
-                <div --id="info2">
+                </div>`
+            );
+            return info1;
+        })(),
+        // notes
+        (() => {
+            notesMountPoint = printf(`<div class="notes-root"></div>`);
+            return notesMountPoint;
+        })(),
+        printf(`<div style="height: 20px"></div>`), // seperator
+        printf(`<h2>Scratch Pad</h2>`),
+        (() => {
+            info2 = printf(
+                `<div --id="info2">
                     <p>
                         Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
                     </p>
-                </div>
-                <div --id="scratchPad"></div>
-                <div style="height: 300px"></div>
-                <div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
-                    <div --id="statusTextIndicator" class="pre-wrap"></div>
-                    <button --id="rectViewToggleButton" class="bring-to-front" type="button">Area view</button>
-                    <button --id="clearAllButton" class="bring-to-front" type="button">Clear all</button>
-                    <button --id="textCopyButton" class="bring-to-front" type="button">Copy as text</button>
-                    <button --id="jsonCopyButton" class="bring-to-front" type="button">Copy as JSON</button>
-                </div>
+                </div>`
+            );
+            return info2;
+        })(),
+        (() => {
+            scratchPad = printf(`<div></div>`);
+            return scratchPad;
+        })(),
+        printf(`<div style="height: 300px"></div>`),     // allows overscroll
+        (() => {
+            fixedButtonsMountPoint = printf(`<div></div>`)
+            return fixedButtonsMountPoint;
+        })(),
+    ])
+
+    const { 
+        fixedButtonsMountPoint,
+        notesMountPoint, 
+        scratchPad, 
+        rectViewRoot,
+        infoButton, info1, info2,
+        parent
+    } =
+        createComponent(mountPoint,`
+            <div class="relative" --id="parent">
+                
+                
+                
+                
+                
+
+                
+                
+                
+                
+                
             </div>
         `);
 
     let state = loadState();
+
+    const statusTextIndicator = printf(`<div class="pre-wrap"></div>`)
+    const fixedButtons = printf(
+        `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
+            %c %a
+        </div>`,
+        statusTextIndicator, [
+            button("Area view", () => toggleRectView()),
+            button("Clear all", () => {
+                if (!confirm("Are you sure you want to delete all your notes?")) {
+                    return;
+                }
+        
+                localStorage.clear();
+                state = loadState();
+                rerender();
+        
+                showStatusText("Cleared notes");
+            }),
+            button("Copy as text", () => {
+                handleErrors(() => {
+                    navigator.clipboard.writeText(exportAsText(state));
+                    showStatusText("Copied as text");
+                });
+            }),
+            button("Copy as JSON", () => {
+                handleErrors(() => {
+                    navigator.clipboard.writeText(JSON.stringify(state));
+                    showStatusText("Copied JSON");
+                });
+            })
+        ]
+    );
+
+    parent.replaceChild(fixedButtons.el, fixedButtonsMountPoint);
 
     // scratch pad
     {
@@ -768,38 +857,8 @@ const App = (mountPoint) => {
         })
     }
 
-    rectViewToggleButton.addEventListener("click", () => {
-        toggleRectView();
-    });
-
-    textCopyButton.addEventListener("click", () => {
-        handleErrors(() => {
-            navigator.clipboard.writeText(exportAsText(state));
-            showStatusText("Copied as text");
-        });
-    });
-
-    jsonCopyButton.addEventListener("click", () => {
-        handleErrors(() => {
-            navigator.clipboard.writeText(JSON.stringify(state));
-            showStatusText("Copied JSON");
-        });
-    });
-
-    clearAllButton.addEventListener("click", () => {
-        if (!confirm("Are you sure you want to delete all your notes?")) {
-            return;
-        }
-
-        localStorage.clear();
-        state = loadState();
-        rerender();
-
-        showStatusText("Cleared notes");
-    });
-
     let showInfo = false;
-    const updateHelp= () => {
+    const updateHelp = () => {
         if (showInfo) {
             info1.classList.remove("hidden");
             info2.classList.remove("hidden");
@@ -820,12 +879,12 @@ const App = (mountPoint) => {
             clearTimeout(statusTextClearTimeout);
         }
 
-        statusTextIndicator.textContent = text;
+        statusTextIndicator.el.textContent = text;
 
         const timeoutAmount = timeout || STATUS_TEXT_PERSIST_TIME;
         if (timeoutAmount) {
             statusTextClearTimeout = setTimeout(() => {
-                statusTextIndicator.textContent = "";
+                statusTextIndicator.el.textContent = "";
             }, timeoutAmount)
         }
     }
