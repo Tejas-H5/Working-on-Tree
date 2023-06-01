@@ -433,9 +433,10 @@ const exportAsText = (state) => {
 };
 
 const RectView = (mountPoint, getState) => {
-    const { root } = createComponent(mountPoint, `
-        <div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>
-    `);
+    const root = printf(
+        `<div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>`
+    ).el;
+    mountPoint.appendChild(root);
     
     const component = {
         onSelectNote: (i) => {},
@@ -456,7 +457,9 @@ const RectView = (mountPoint, getState) => {
 
         clearChildren(root);
         const parentRect = root.getBoundingClientRect();
-        recursiveRectPack(root, -1, [parentRect.width, parentRect.height], true);
+        const parentRectSize = [parentRect.width, parentRect.height];
+        console.log(parentRectSize);
+        recursiveRectPack(root, -1, parentRectSize, true);
     }
     component.rerender = rerender;
     
@@ -493,12 +496,6 @@ const RectView = (mountPoint, getState) => {
         }
 
         if (tasksOnThisLevel.length === 0) {
-            // createComponent(mountPoint, 
-            //     // center a text vertically and horizontally. challenge level: impossible
-            //     `<div class="col align-items-center w-100 h-100">
-            //         <div class="text-align-center">${formatDuration(duration)}</div>
-            //     </div>`
-            // );
             return;
         }
 
@@ -529,17 +526,19 @@ const RectView = (mountPoint, getState) => {
             const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
 
             if (task.padding) {
-                createComponent(mountPoint, 
+                mountPoint.appendChild(printf(
                     `<div style="flex:${task.padding};z-index:${zIndex};user-select:none"></div>`
-                );      
+                ).el);
             }
-            const { root } = createComponent(mountPoint, 
+
+            const root = printf(
                 `<div 
                     class="${isRow ? "row" : "col"}" 
                     style="flex:${task.duration01}; outline: ${outline}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
                     title="${task.text}"
                 ></div>`
-            );
+            ).el
+            mountPoint.appendChild(root);
             
             if (task.i != null) {
                 root.addEventListener("click", (e) => {
@@ -560,9 +559,10 @@ const RectView = (mountPoint, getState) => {
 }
 
 const ScratchPad = (mountPoint, getState) => {
-    const { textInput } = createComponent(mountPoint,`
-        <textarea --id="textInput"></textarea>
-    `);
+    const textInput = printf(
+        `<textarea --id="textInput"></textarea>`
+    ).el;
+    mountPoint.appendChild(textInput);
 
     const state = getState();
     textInput.value = state.scratchPad;
@@ -697,78 +697,6 @@ const button = (text, fn) => {
 }
 
 const App = (mountPoint) => {
-    const areaView = areaView();
-
-    let isHelpVisible = false;
-    let info1, info2, notesMountPoint, scratchPad, rectViewRoot;
-    const toggleHelp = () => {
-        isHelpVisible = !isHelpVisible;
-        setVisible(info1.el, isHelpVisible);
-        setVisible(info2.el, isHelpVisible);
-    }
-    const parent = printf(`<div>%a</div>`, [
-        // rect view modal
-        printf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`, areaView),
-        // title
-        printf(
-            `<div class="row align-items-center">
-                <h2>Currently working on</h2>
-                <div class="flex-1"></div>
-                %c
-            </div>`,
-            (() => {
-                const helpButton = printf(`<button class="info-button" title="click for help">help?</button>`)
-                helpButton.el.addEventListener("click", () => {
-                    toggleHelp();
-                })
-                return helpButton;
-            })()
-        ),
-        (() => {
-            info1 = printf(
-                `<div --id="info1">
-                    <p>
-                        Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
-                        You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
-                    </p>
-                    <ul>
-                        <li>[Enter] to create a new entry</li>
-                        <li>Arrows to move around</li>
-                        <li>Tab or Shift+Tab to indent/unindent a note</li>
-                        <li>Also look at the buttons in the bottom right there</li>
-                    </ul>
-                </div>`
-            );
-            return info1;
-        })(),
-        // notes
-        (() => {
-            notesMountPoint = printf(`<div class="notes-root"></div>`);
-            return notesMountPoint;
-        })(),
-        printf(`<div style="height: 20px"></div>`), // seperator
-        printf(`<h2>Scratch Pad</h2>`),
-        (() => {
-            info2 = printf(
-                `<div --id="info2">
-                    <p>
-                        Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-                    </p>
-                </div>`
-            );
-            return info2;
-        })(),
-        (() => {
-            scratchPad = printf(`<div></div>`);
-            return scratchPad;
-        })(),
-        printf(`<div style="height: 300px"></div>`),     // allows overscroll
-        (() => {
-            fixedButtonsMountPoint = printf(`<div></div>`)
-            return fixedButtonsMountPoint;
-        })(),
-    ])
-
     const { 
         fixedButtonsMountPoint,
         notesMountPoint, 
@@ -779,17 +707,36 @@ const App = (mountPoint) => {
     } =
         createComponent(mountPoint,`
             <div class="relative" --id="parent">
-                
-                
-                
-                
-                
+                <div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>
+                <div class="row align-items-center">
+                    <h2>Currently working on</h2>
+                    <div class="flex-1"></div>
+                    <button --id="infoButton" class="info-button" title="click for help">help?</button>
+                </div>
+                <div --id="info1">
+                    <p>
+                        Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
+                        You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
+                    </p>
+                    <ul>
+                        <li>[Enter] to create a new entry</li>
+                        <li>Arrows to move around</li>
+                        <li>Tab or Shift+Tab to indent/unindent a note</li>
+                        <li>Also look at the buttons in the bottom right there</li>
+                    </ul>
+                </div>
+                <div --id="notesMountPoint" class="notes-root"></div>
+                <div style="height: 20px"></div>
 
-                
-                
-                
-                
-                
+                <h2>Scratch Pad</h2>
+                <div --id="info2">
+                    <p>
+                        Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
+                    </p>
+                </div>
+                <div --id="scratchPad"></div>
+                <div style="height: 300px"></div>
+                <div --id="fixedButtonsMountPoint"></div>
             </div>
         `);
 

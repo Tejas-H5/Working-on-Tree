@@ -12,16 +12,37 @@ const __textNodesUnder = (el) => {
 
 
 /** @returns { HTMLElement } */
-const __createHtmlElement = (dst, html) => {
-    if (!dst) {
-        dst = document.createElement("div");
-    }
-
+const __createHtmlElement = (html) => {
+    let dst = document.createElement("div");
     dst.innerHTML = html.trim();
+
     assert(dst.childNodes.length === 1, "print html must only have 1 root node");
 
     return dst.childNodes[0];
 }
+
+
+// /** @returns {Object<string, HTMLElement>} */
+// const createComponent = (mountPoint, html) => {
+//     const createDiv = document.createElement("div");
+//     createDiv.innerHTML = html.trim();
+
+//     const selectedNodes = {};
+//     createDiv.querySelectorAll("[--id]").forEach((sel) => {
+//         const names = sel.getAttribute("--id");
+//         sel.removeAttribute("--id");
+//         names.split(' ').forEach(name => {
+//             selectedNodes[name] = sel;
+//         });
+//     });
+
+//     selectedNodes["root"] = createDiv.childNodes[0];
+
+//     appendChildren(mountPoint, createDiv.childNodes);
+
+//     return selectedNodes;
+// };
+
 
 
 const __textAt = (str, pos, comparison) => {
@@ -46,8 +67,8 @@ const __getPrintfArg = (args, i, copyFunc) => {
 // I hate that this is actually a good API, the more I use it
 
 /** @augments printf */
-const printfto = (dst, html, ...args) => {
-    const element = __createHtmlElement(dst, html);
+const printf_internal = (html, ...args) => {
+    const element = __createHtmlElement(html);
     if (args.length === 0) {
         return { el: element };
     }
@@ -89,6 +110,7 @@ const printfto = (dst, html, ...args) => {
             const node2 = node.splitText(i);
             if (Array.isArray(thingToInsert)) {
                 for(const thing of thingToInsert) {
+                    if (thing === null) continue;
                     node2.parentNode.insertBefore(thing.el, node2);
                 }
             } else {
@@ -127,7 +149,7 @@ const printf = (html, ...args) => {
         return { el: document.createElement("span") };
     }
 
-    return printfto(null, html, ...args);
+    return printf_internal(html, ...args);
 }
 
 // I am still debating whether this is even needed or not
@@ -170,7 +192,7 @@ const replaceChildren2 = (comp, children) => {
         }
 
         if (i < existing.length) {
-            parent.replaceChild(existing[i], child);
+            parent.replaceChild(child, existing[i]);
         } else {
             parent.appendChild(child);
         }
