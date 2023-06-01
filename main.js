@@ -435,8 +435,8 @@ const exportAsText = (state) => {
 const RectView = (mountPoint, getState) => {
     const root = printf(
         `<div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>`
-    ).el;
-    mountPoint.appendChild(root);
+    );
+    mountPoint.appendChild(root.el);
     
     const component = {
         onSelectNote: (i) => {},
@@ -456,7 +456,8 @@ const RectView = (mountPoint, getState) => {
         }
 
         clearChildren(root);
-        const parentRect = root.getBoundingClientRect();
+
+        const parentRect = root.el.getBoundingClientRect();
         const parentRectSize = [parentRect.width, parentRect.height];
         console.log(parentRectSize);
         recursiveRectPack(root, -1, parentRectSize, true);
@@ -527,9 +528,12 @@ const RectView = (mountPoint, getState) => {
             const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
 
             if (task.padding) {
-                mountPoint.appendChild(printf(
-                    `<div style="flex:${task.padding};z-index:${zIndex};user-select:none"></div>`
-                ).el);
+                appendChildren(
+                    mountPoint, 
+                    printf(
+                        `<div style="flex:${task.padding};z-index:${zIndex};user-select:none"></div>`
+                    )
+                );
             }
 
             const root = printf(
@@ -538,17 +542,16 @@ const RectView = (mountPoint, getState) => {
                     style="flex:${task.duration01}; outline: ${outlineThickness}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
                     title="${task.text}"
                 ></div>`
-            ).el
-            mountPoint.appendChild(root);
+            )
+            appendChildren(mountPoint, root);
             
             if (task.i != null) {
-                root.addEventListener("click", (e) => {
+                addEventListener(root, "click", (e) => {
                     e.stopPropagation();
                     component.onSelectNote(task.i);
                     rerender();
-                })
+                });
     
-
                 recursiveRectPack(root, task.i, childRectSize, isRow);
             }
         }
@@ -627,7 +630,7 @@ const NoteRowInput = (mountPoint) => {
         inputRoot, showRoot
     ).el;
 
-    appendChildren(mountPoint, [ root ]);
+    appendChildrenWWW(mountPoint, [ root ]);
 
 
     const component = {
@@ -637,8 +640,8 @@ const NoteRowInput = (mountPoint) => {
             const isEditing = state.currentNoteIndex === noteIndex;
             const isHighlighted = !note.isDone || note.isSelected;
 
-            setVisible(inputRoot, isEditing);
-            setVisible(showRoot, !isEditing);
+            setVisibleWWW(inputRoot, isEditing);
+            setVisibleWWW(showRoot, !isEditing);
             
             const timingText = getSecondPartOfRow(state, noteIndex);
 
@@ -915,7 +918,7 @@ const App = (mountPoint) => {
 
         stickyPxRef = { val: 0 };
 
-        resizeListRenderPool(state.notes, elements, inputs, (i) => {
+        resizeListRenderPoolWWWW(state.notes, elements, inputs, (i) => {
             const noteRowInput = NoteRowInput(elements);
             inputs.push(noteRowInput);
 
@@ -938,11 +941,11 @@ const App = (mountPoint) => {
             inputs[i].update(state, i, stickyPxRef, options.shouldScroll, isRectViewOpen);
         }
 
-        replaceChildren(notesMountPoint, elements);
+        replaceChildrenWW(notesMountPoint, elements);
 
         // handle rendering 'child' components
         rectViewComponent.rerender();
-        setVisible(rectViewRoot, isRectViewOpen);
+        setVisibleWWW(rectViewRoot, isRectViewOpen);
     };
 
     rerender();

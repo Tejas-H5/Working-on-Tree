@@ -1,5 +1,5 @@
 // ---- helpers
-const remove = (arr, obj) => {
+const removWWWW = (arr, obj) => {
     const index = arr.indexOf(obj);
     if (index === -1) return null;
 
@@ -7,23 +7,23 @@ const remove = (arr, obj) => {
     return obj;
 };
 
-const resize = (arr, newSize) => arr.splice(newSize, arr.length - newSize);
-const clear = (arr) => arr.splice(0, arr.length)
-const clearChildren = (mountPoint) => mountPoint.replaceChildren();
+const resizeCDCDD = (arr, newSize) => arr.splice(newSize, arr.length - newSize);
+const clearXDXDXD = (arr) => arr.splice(0, arr.length)
+const clearChildrenOLDBAD = (mountPoint) => mountPoint.replaceChildren();
 
-const replaceChildren = (mountPoint, children) => {
+const replaceChildrenWW = (mountPoint, children) => {
     if (!mountPoint) return;
 
     if (Array.isArray(mountPoint)) {
-        clear(mountPoint)
+        clearXDXDXD(mountPoint)
         mountPoint.push(...children);
     } else {
-        clearChildren(mountPoint);
+        clearChildrenOLDBAD(mountPoint);
         mountPoint.replaceChildren(...children);
     }
 }
 
-const appendChildren = (mountPoint, children) => {
+const appendChildrenWWW = (mountPoint, children) => {
     if (!mountPoint) return;
     
     if (Array.isArray(mountPoint)) {
@@ -38,7 +38,7 @@ const appendChildren = (mountPoint, children) => {
 
 
 /** @returns {Object<string, HTMLElement>} */
-const createComponent = (mountPoint, html) => {
+const createComponentww = (mountPoint, html) => {
     const createDiv = document.createElement("div");
     createDiv.innerHTML = html.trim();
 
@@ -59,38 +59,38 @@ const createComponent = (mountPoint, html) => {
 };
 
 
-const createAnimation = (animateFunc) => {
-    let t0,
-        started = false;
+// const createAnimation = (animateFunc) => {
+//     let t0,
+//         started = false;
 
-    const animate = (t) => {
-        if (t0 === null) {
-            t0 = t;
-        } else {
-            let deltaTimeSeconds = (t - t0) / 1000;
-            t0 = t;
+//     const animate = (t) => {
+//         if (t0 === null) {
+//             t0 = t;
+//         } else {
+//             let deltaTimeSeconds = (t - t0) / 1000;
+//             t0 = t;
 
-            if (animateFunc(deltaTimeSeconds)) {
-                started = false;
-                return;
-            }
-        }
+//             if (animateFunc(deltaTimeSeconds)) {
+//                 started = false;
+//                 return;
+//             }
+//         }
 
-        window.requestAnimationFrame(animate);
-    };
+//         window.requestAnimationFrame(animate);
+//     };
 
-    const startAnimation = () => {
-        if (started) return;
-        started = true;
-        t0 = null;
+//     const startAnimation = () => {
+//         if (started) return;
+//         started = true;
+//         t0 = null;
 
-        window.requestAnimationFrame(animate);
-    };
+//         window.requestAnimationFrame(animate);
+//     };
 
-    return startAnimation;
-};
+//     return startAnimation;
+// };
 
-const renderList = (mountPoint, wantedCount, renderFn, ...args) => {
+const renderListWWW = (mountPoint, wantedCount, renderFn, ...args) => {
     while (mountPoint.childNodes.length < wantedCount) {
         renderFn(mountPoint, ...args);
     }
@@ -100,7 +100,7 @@ const renderList = (mountPoint, wantedCount, renderFn, ...args) => {
     }
 };
 
-const renderKeyedList = (
+const renderKeyedListWW = (
     mountPoint,
     listElements,
     newElementsBuffer,
@@ -114,7 +114,7 @@ const renderKeyedList = (
         data.shouldDelete = true;
     }
 
-    clear(newElementsBuffer)
+    clearXDXDXD(newElementsBuffer)
 
     for (const obj of listElements) {
         const key = keyFn(obj);
@@ -145,7 +145,7 @@ const renderKeyedList = (
     mountPoint.replaceChildren(...newElementsBuffer);
 };
 
-const onResize = (domNode, callback) => {
+const onResizeWWW = (domNode, callback) => {
     const resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
             if (entry.borderBoxSize) {
@@ -162,7 +162,7 @@ const onResize = (domNode, callback) => {
 
 // An oldie but goodie: https://www.w3schools.com/howto/howto_js_draggable.asp
 // I changed it a bit, but it is mostly the same
-const onDrag = (domNode, { onDragStart, onDrag, onDragEnd }) => {
+const onDragWWW = (domNode, { onDragStart, onDrag, onDragEnd }) => {
     let startX, startY, deltaX, deltaY;
 
     domNode.addEventListener("mousedown", dragMouseDown);
@@ -196,7 +196,7 @@ const onDrag = (domNode, { onDragStart, onDrag, onDragEnd }) => {
 };
 
 
-const setVisible = (el, state) => {
+const setVisibleWWW = (el, state) => {
     if (state) {
         el.classList.remove("hidden");
     } else {
@@ -208,9 +208,9 @@ const setVisible = (el, state) => {
  * This function ensures there is 1 element and 1 component for every object in the data array, instantiating
  * elements and components with the createFn if needed.
  */
-const resizeListRenderPool = (data, elements, components, createFn) => {
-    resize(elements, data.length);
-    resize(components, data.length);
+const resizeListRenderPoolWWWW = (data, elements, components, createFn) => {
+    resizeCDCDD(elements, data.length);
+    resizeCDCDD(components, data.length);
 
     for(let i = 0; i < data.length; i++) {
         if (elements.length === i) { // initialize new notes in the list

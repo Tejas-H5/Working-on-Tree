@@ -156,6 +156,12 @@ const printf = (html, ...args) => {
     return printf_internal(html, ...args);
 }
 
+/** @returns {{ el: HTMLElement }} */
+const __assertIsComponent = (obj) => {
+    assert(obj && obj.el, `assertion obj.el && obj.el instanceof HTMLElement failed for obj: ${obj} [typeof ${typeof obj}] `);
+    return obj;
+}
+
 // I am still debating whether this is even needed or not
 // /** @returns {{ el: HTMLElement, selected: Object<string, HTMLElement> }} */
 // const create = (html, initFn) => {
@@ -202,6 +208,23 @@ const replaceChildren2 = (comp, children) => {
         }
     }
 }
+
+const appendChildren = (mountPoint, ...children) => {
+    const mountComponent = __assertIsComponent(mountPoint);
+    
+    for(const c of children) {
+        mountComponent.el.appendChild(c.el);
+    }
+}
+
+const clearChildren = (mountPoint) => {
+    mountPoint.el.replaceChildren();
+}
+
+const addEventListener = (mountPoint, event, fn) => {
+    mountPoint.el.addEventListener(event, fn);
+}
+
 
 // const __truncateArray = (arr, newMaxSize) => arr.splice(newMaxSize, arr.length - newMaxSize);
 
