@@ -522,7 +522,8 @@ const RectView = (mountPoint, getState) => {
             const isRow = childRectSize[0] > childRectSize[1];
             // const isRow = task.indent % 2 === 0;
 
-            const outline = isCurrentlySelectedTask ? maxIndent : maxIndent - task.indent;
+            // const outlineThickness = isCurrentlySelectedTask ? maxIndent : maxIndent - task.indent;
+            const outlineThickness = isCurrentlySelectedTask ? 5 : 1;
             const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
 
             if (task.padding) {
@@ -534,7 +535,7 @@ const RectView = (mountPoint, getState) => {
             const root = printf(
                 `<div 
                     class="${isRow ? "row" : "col"}" 
-                    style="flex:${task.duration01}; outline: ${outline}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
+                    style="flex:${task.duration01}; outline: ${outlineThickness}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
                     title="${task.text}"
                 ></div>`
             ).el
@@ -587,21 +588,47 @@ const ScratchPad = (mountPoint, getState) => {
 };
 
 const NoteRowInput = (mountPoint) => {
-    const { root, input, inputStatus, inputTimings, inputRoot, showRoot, showText, showTime } = createComponent(mountPoint,`
-        <div>
-            <div --id="inputRoot" class="row" style="background-color:#DDD">
-                <div --id="inputStatus" class="pre-wrap"></div>
-                <div class="flex-1">
-                    <input --id="input" class="w-100"></input>
-                </div>
-                <div --id="inputTimings" class="pre-wrap"></div>
-            </div>
-            <div --id="showRoot" class="row">
-                <div --id="showText" class="pre-wrap flex-1"></div>
-                <div --id="showTime" class="pre-wrap"></div>
-            </div>
-        </div>
-    `);
+    const showText = printf(
+        `<div class="pre-wrap flex-1"></div>`
+    ).el;
+
+    const showTime = printf(
+        `<div class="pre-wrap"></div>`
+    ).el;
+
+    const showRoot = printf(
+        `<div class="row">%r%r</div>`,
+        showText, showTime
+    ).el;
+
+
+    const inputStatus = printf(
+        `<div class="pre-wrap"></div>`
+    ).el;
+    const input = printf(
+        `<input class="w-100"></input>`
+    ).el;
+    const inputTimings = printf(
+        `<div class="pre-wrap"></div>`
+    ).el;
+    const inputRoot = printf(
+        `<div class="row" style="background-color:#DDD">
+            %r
+            <div class="flex-1">%r</div>
+            %r
+        </div>`,
+        inputStatus, 
+        input, 
+        inputTimings
+    ).el;
+
+    const root = printf(
+        `<div>%r%r</div>`,
+        inputRoot, showRoot
+    ).el;
+
+    appendChildren(mountPoint, [ root ]);
+
 
     const component = {
         args: {},
@@ -697,48 +724,70 @@ const button = (text, fn) => {
 }
 
 const App = (mountPoint) => {
-    const { 
-        fixedButtonsMountPoint,
-        notesMountPoint, 
-        scratchPad, 
-        rectViewRoot,
-        infoButton, info1, info2,
-        parent
-    } =
-        createComponent(mountPoint,`
-            <div class="relative" --id="parent">
-                <div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>
-                <div class="row align-items-center">
-                    <h2>Currently working on</h2>
-                    <div class="flex-1"></div>
-                    <button --id="infoButton" class="info-button" title="click for help">help?</button>
-                </div>
-                <div --id="info1">
-                    <p>
-                        Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
-                        You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
-                    </p>
-                    <ul>
-                        <li>[Enter] to create a new entry</li>
-                        <li>Arrows to move around</li>
-                        <li>Tab or Shift+Tab to indent/unindent a note</li>
-                        <li>Also look at the buttons in the bottom right there</li>
-                    </ul>
-                </div>
-                <div --id="notesMountPoint" class="notes-root"></div>
-                <div style="height: 20px"></div>
-
-                <h2>Scratch Pad</h2>
-                <div --id="info2">
-                    <p>
-                        Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-                    </p>
-                </div>
-                <div --id="scratchPad"></div>
-                <div style="height: 300px"></div>
-                <div --id="fixedButtonsMountPoint"></div>
+    const rectViewRoot = printf(`<div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>`).el;
+    const infoButton = printf(
+        `<button --id="infoButton" class="info-button" title="click for help">help?</button>`
+    ).el;
+    const info1 = printf(
+        `<div --id="info1">
+            <p>
+                Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
+                You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
+            </p>
+            <ul>
+                <li>[Enter] to create a new entry</li>
+                <li>Arrows to move around</li>
+                <li>Tab or Shift+Tab to indent/unindent a note</li>
+                <li>Also look at the buttons in the bottom right there</li>
+            </ul>
+        </div>`
+    ).el;
+    const notesMountPoint = printf(
+        `<div --id="notesMountPoint" class="notes-root"></div>`
+    ).el;
+    const info2 = printf(
+        `<div --id="info2">
+            <p>
+                Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
+            </p>
+        </div>`
+    ).el;
+    const scratchPad = printf(
+        `<div --id="scratchPad"></div>`
+    ).el;
+    const fixedButtonsMountPoint = printf(
+        `<div --id="fixedButtonsMountPoint"></div>`
+    ).el;
+    
+    const app = printf(
+        `<div class="relative" --id="parent">
+            %r
+            <div class="row align-items-center">
+                <h2>Currently working on</h2>
+                <div class="flex-1"></div>
+                %r
             </div>
-        `);
+            %r
+            %r
+            <div style="height: 20px"></div>
+
+            <h2>Scratch Pad</h2>
+            %r
+            %r
+            <div style="height: 300px"></div>
+            %r
+        </div>`,
+        rectViewRoot,
+        infoButton,
+        info1,
+        notesMountPoint,
+        info2,
+        scratchPad,
+        fixedButtonsMountPoint,
+    ).el;
+    mountPoint.appendChild(app);
+
+    const parent = app;
 
     let state = loadState();
 

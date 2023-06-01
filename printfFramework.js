@@ -82,9 +82,10 @@ const printf_internal = (html, ...args) => {
 
             const formattingDirective = text[i + 1];
             if (
-                formattingDirective !== "s" &&
-                formattingDirective !== "c" &&
-                formattingDirective !== "a"
+                formattingDirective !== "s" &&  // string. gets escaped with document.createTextNode
+                formattingDirective !== "c" &&  // component, (any JS object with { el: HTMLElement } shape).
+                formattingDirective !== "a" &&  // array. inserts multiple things to the dom
+                formattingDirective !== "r"     // raw. just throw it in and see what happens. useful for inserting raw dom nodes when inter-operating with other things
             ) {
                 throw new Error(`invalid formatting directive - %${formattingDirective || "<end of string>"}`);
             }
@@ -101,6 +102,9 @@ const printf_internal = (html, ...args) => {
                 thingToInsert = arg.el;
             } else if(formattingDirective === "a") {
                 assert(Array.isArray(arg), `%a wants an array of { el: html element, ... }, instead we got ${typeof arg} [${arg}]`);
+                thingToInsert = arg;
+            } else if (formattingDirective === "r") {
+                // who knows what this could be ? :thinking:
                 thingToInsert = arg;
             } else {
                 unreachable();
