@@ -803,8 +803,8 @@ const App = () => {
         ], 
         [info1], 
         notesList,
-        [info2], 
         _1, 
+        [info2], 
         scratchPad,
         [fixedButtons, [
             [statusTextIndicator],
@@ -833,6 +833,9 @@ const App = () => {
                         Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
                         You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
                     </p>
+                    <p>
+                        In the future, I might add the ability to have multiple of these.
+                    </p?
                     <ul>
                         <li>[Enter] to create a new entry</li>
                         <li>Arrows to move around</li>
@@ -843,6 +846,8 @@ const App = () => {
             ),
             // notesList
             NotesList(),
+            // _1
+            htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
             // info2
             htmlf(
                 `<div>
@@ -851,8 +856,6 @@ const App = () => {
                     </p>
                 </div>`
             ),
-            // _1
-            htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
             // scratchPad
             ScratchPad(),
             // fixedButtons
