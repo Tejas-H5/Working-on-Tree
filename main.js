@@ -3,6 +3,7 @@ const INDENT_BASE_WIDTH = 100;
 const INDENT_WIDTH_PX = 50;
 const SAVE_DEBOUNCE = 500;
 const STATUS_TEXT_PERSIST_TIME = 1000;
+const ERROR_TIMEOUT_TIME = 5000;
 
 const pad2 = (num) => (num < 10 ? "0" + num : "" + num);
 const repeatSafe = (str, len) => {
@@ -365,14 +366,18 @@ const iterateParentNotes = (state, noteIndex, fn) => {
 }
 
 
-const getTimeStr = (note) => {
-    const { openedAt } = note;
-
-    const date = new Date(openedAt);
+const formatDate = (date) => {
     const hours = date.getHours();
     const minutes = date.getMinutes();
 
     return `${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${hours < 12 ? "am" : "pm"}`;
+}
+
+const getTimeStr = (note) => {
+    const { openedAt } = note;
+
+    const date = new Date(openedAt);
+    return formatDate(date);
 }
 
 const getIndentStr = (note) => {
@@ -619,7 +624,7 @@ const NoteRowText = () => {
         [indent],
         [whenNotEditing],
         [whenEditing]
-    ]] = htmlf(`<div class="pre-wrap flex-1" style="padding-left: 20px;"><div class="row v-align-bottom">%c%c%c</div></div>`,
+    ]] = htmlf(`<div class="pre-wrap flex-1" style="margin-left: 10px; padding-left: 10px;border-left: 1px solid black;"><div class="row v-align-bottom">%c%c%c</div></div>`,
         htmlf(`<div class="pre-wrap"></div>`),
         htmlf(`<div class="pre-wrap"></div>`),
         htmlf(`<input class="flex-1" style="background-color: #DDD"></input>`)
@@ -656,6 +661,7 @@ const NoteRowText = () => {
         debouncedSave();
     });
 
+    let isEditing = false;
     return {
         el: cell.el,
         setColor: function(col) {
@@ -671,25 +677,28 @@ const NoteRowText = () => {
             const dashChar = note.isSelected ? ">" : "-"
             setTextContent(indent, `${getIndentStr(note)} ${getNoteStateString(note)} ${dashChar} `);
 
-            const isEditing = state.currentNoteIndex === noteIndex;
+            const wasEditing = isEditing;
+            isEditing = state.currentNoteIndex === noteIndex;
             setVisible(whenEditing, isEditing);
             setVisible(whenNotEditing, !isEditing);
             if (isEditing) {
                 setInputValue(whenEditing, state.notes[noteIndex].text);
 
-                setTimeout(() => {
-                    whenEditing.el.focus({ preventScroll : true });
-                
-                    if (shouldScroll) {
-                        const wantedY = whenEditing.el.getBoundingClientRect().height * noteIndex;
-                        
-                        window.scrollTo({
-                            left: 0,
-                            top: wantedY - window.innerHeight / 2,
-                            behavior: "instant"
-                        });
-                    }
-                }, 1);
+                if (!wasEditing) {
+                    setTimeout(() => {
+                        whenEditing.el.focus({ preventScroll : true });
+                    
+                        if (shouldScroll) {
+                            const wantedY = whenEditing.el.getBoundingClientRect().height * noteIndex;
+                            
+                            window.scrollTo({
+                                left: 0,
+                                top: wantedY - window.innerHeight / 2,
+                                behavior: "instant"
+                            });
+                        }
+                    }, 1);
+                }
             } else {
                 setTextContent(whenNotEditing, state.notes[noteIndex].text);
             }
@@ -699,7 +708,99 @@ const NoteRowText = () => {
 
 const NoteRowTimestamp = () => {
     // const [root] = htmlf(`<div class="pre-wrap table-cell-min v-align-bottom"></div>`);
-    const [root] = htmlf(`<div class="pre-wrap"></div>`);
+    // const [root] = htmlf(`<div class="pre-wrap"></div>`);
+    const [root, [
+        [input]
+    ]] = htmlf(`<div class="pre-wrap">%c</div>`,
+        htmlf(`<input class="w-100"></input>`)
+    );
+
+    const args = {};
+
+    const rerender = () => {
+        const { state } = args.val;
+        const note = state.notes[args.noteIndex];
+
+        // setTextContent(root, timeStr);
+        setInputValue(input, getTimeStr(note));
+        input.el.setAttribute("size", input.el.value.length);
+    }
+
+    eventListener(input, "change", () => {
+        const { state, rerenderApp, handleErrors } = args.val;
+        const noteIndex = args.noteIndex;
+        const note = state.notes[noteIndex];
+
+        let previousTime = null;
+        let nextTime = null;
+        if (noteIndex > 0) {
+            previousTime = new Date(state.notes[noteIndex - 1].openedAt);
+        }
+
+        if (noteIndex < state.notes.length - 1) {
+            nextTime = new Date(state.notes[noteIndex + 1].openedAt);
+        }
+
+        handleErrors(() => {
+            // editing the time was a lot more code than I thought it would be, smh
+
+            const [hStr, mmStr] = input.el.value.split(':');
+            if (!mmStr) {
+                throw new Error("Times must be in the format <hh><colon(:)><mm><space><am or pm>");
+            }
+
+            const [mStr, amPmStr] = mmStr.split(" ");
+            if (!amPmStr) {
+                throw new Error("Times must be in the format <hh><colon(:)><mm><space><am or pm>");
+            }
+
+            if (!["am", "pm"].includes(amPmStr.toLowerCase())) {
+                throw new Error(`Invalid am/pm - ${amPmStr}`);
+            }
+
+            let hours = parseInt(hStr, 10);
+            if (isNaN(hours) || hours < 0 || hours > 12) {
+                throw new Error(`Invalid hours - ${hours}`);
+            }
+
+            const minutes = parseInt(mStr);
+            if (isNaN(minutes) || minutes < 0 || minutes >= 60) {
+                throw new Error(`Invalid minutes - ${minutes}`);
+            }
+
+            if (amPmStr == "pm" && hours !== 12) {
+                hours += 12;
+            }
+
+            let newTime = new Date(note.openedAt);
+            if (isNaN(newTime)) {
+                newTime = new Date();
+            }
+            newTime.setHours(hours);
+            newTime.setMinutes(minutes);
+            newTime.setSeconds(0);
+            newTime.setMilliseconds(0);
+
+            if (previousTime != null && newTime <= previousTime) {
+                throw new Error(`Can't set this task's time to be before the previous task's time (${formatDate(previousTime)})`);
+            }
+
+            if (nextTime != null && newTime >= nextTime) {
+                throw new Error(`Can't set this task's time to be after the next task's time (${formatDate(nextTime)})`);
+            }
+
+            const now = new Date();
+            if (nextTime == null && newTime > now) {
+                throw new Error(`Can't set this task's time to be after the current time (${formatDate(now)})`);
+            }
+
+            note.openedAt = newTime;
+            rerenderApp();
+        }, () => {
+            setInputValue(input, getTimeStr(note));
+            rerenderApp();
+        });
+    });
 
     return {
         el: root.el,
@@ -707,8 +808,10 @@ const NoteRowTimestamp = () => {
             this.el.style.color = col;
         },
         rerender: function(argsIn, noteIndex) {
-            const { state } = argsIn;
-            setTextContent(root, getTimeStr(state.notes[noteIndex]));
+            args.val = argsIn;
+            args.noteIndex = noteIndex;
+
+            rerender();
         }
     }
 }
@@ -752,14 +855,15 @@ const NoteRowInput = () => {
 
     return {
         el: root.el,
-        rerender: (argsIn,  noteIndex) => {
+        rerender: function(argsIn,  noteIndex) {
             args.val = argsIn;
             args.noteIndex = noteIndex;
 
-            const { state } = argsIn;
+            const { state, stickyPxRef, isRectViewOpen } = argsIn;
             const note = state.notes[noteIndex];
+
             const textColor = note.isSelected ? "black" : 
-                (!note.isDone ? "red" : "gray");
+                (!note.isDone ? "black" : "gray");
 
             timestamp.setColor(textColor);
             text.setColor(textColor);
@@ -768,13 +872,29 @@ const NoteRowInput = () => {
             timestamp.rerender(argsIn, noteIndex);
             text.rerender(argsIn, noteIndex);
             statistic.rerender(argsIn, noteIndex);
+
+            if (!isRectViewOpen && (note.isSelected || !note.isDone)) {
+                setTimeout(() => {
+                    // sticky. do it
+                    let top = stickyPxRef.val;
+                    stickyPxRef.val += this.el.getBoundingClientRect().height;
+
+                    this.el.style.backgroundColor = "#FFF";
+                    this.el.style.position = "sticky";
+                    this.el.style.top = top + "px";
+                }, 1);
+            } else {
+                this.el.style.position = "static";
+                this.el.style.top = undefined;
+                this.el.style.backgroundColor = "transparent";
+            }
         }
     };
 };
 
 const NotesList = () => {
     let pool = [];
-    const [root] = htmlf(`<div class="w-100"></div>`);
+    const [root] = htmlf(`<div class="w-100" style="border-top: 1px solid black;border-bottom: 1px solid black;"></div>`);
 
     return {
         el: root.el,
@@ -835,7 +955,7 @@ const App = () => {
                     </p>
                     <p>
                         In the future, I might add the ability to have multiple of these.
-                    </p?
+                    </p>
                     <ul>
                         <li>[Enter] to create a new entry</li>
                         <li>Arrows to move around</li>
@@ -919,14 +1039,16 @@ const App = () => {
     updateHelp();
 
     let statusTextClearTimeout = 0;
-    const showStatusText = (text, timeout) => {
+    
+    const showStatusText = (text, color = "#000", timeout = STATUS_TEXT_PERSIST_TIME) => {
         if (statusTextClearTimeout) {
             clearTimeout(statusTextClearTimeout);
         }
 
         statusTextIndicator.el.textContent = text;
+        statusTextIndicator.el.style.color = color;
 
-        const timeoutAmount = timeout || STATUS_TEXT_PERSIST_TIME;
+        const timeoutAmount = timeout;
         if (timeoutAmount > 0) {
             statusTextClearTimeout = setTimeout(() => {
                 statusTextIndicator.el.textContent = "";
@@ -934,11 +1056,12 @@ const App = () => {
         }
     }
 
-    const handleErrors = (fn) => {
+    const handleErrors = (fn, onError) => {
         try {
             fn();
         } catch (err) {
-            showStatusText(`${err}`);
+            showStatusText(`${err}`, "#F00", ERROR_TIMEOUT_TIME);
+            onError && onError(err);
         }
     }
 
@@ -949,10 +1072,10 @@ const App = () => {
             clearTimeout(saveTimeout);
         }
         
-        showStatusText("Saving...", -1);
+        showStatusText("Saving...", "#000", -1);
         saveTimeout = setTimeout(() => {
             saveState(state);
-            showStatusText("Saved   ", SAVE_DEBOUNCE);
+            showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
         }, SAVE_DEBOUNCE);
     };
 
@@ -968,7 +1091,8 @@ const App = () => {
                 isRectViewOpen,
                 stickyPxRef,
                 rerenderApp: appComponent.rerender,
-                debouncedSave
+                debouncedSave,
+                handleErrors
             };
     
             // rerender the things
