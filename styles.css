@@ -27,8 +27,16 @@ input {
     white-space: pre-wrap;
 }
 
-.center {
+.text-align-center {
     text-align: center;
+}
+
+.text-align-right {
+    text-align: right;
+}
+
+.text-align-left {
+    text-align: left;
 }
 
 div {
@@ -48,6 +56,9 @@ textarea {
 
     font-family: monospace;
     white-space: pre-wrap;
+}
+
+.scratch-pad {
     border: 1px black solid;
     width: 100%;
     height: 400px;
@@ -126,4 +137,25 @@ button:active {
 
 .text-align-center {
     text-align: center;
+}
+
+.table {
+    display: table;
+}
+
+.table > * {
+    display: table-row;
+}
+
+.table > * > * {
+    display: table-cell;
+}
+
+.table-cell-min {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.v-align-bottom {
+    vertical-align: bottom;
 }

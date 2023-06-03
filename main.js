@@ -263,7 +263,7 @@ const deIndentNote = (state) => {
 
 const handleNoteInputKeyDown = (state, keyDownEvent) => {
     const key = keyDownEvent.key;
-    if (key === "Enter") {
+    if (key === "Enter" && !keyDownEvent.shiftKey) {
         return appendNoteOrMoveDown(state);
     }
 
@@ -321,10 +321,14 @@ const fixNoteTree = (state) => {
     // remove all empty notes that we aren't editing
     for (let i = 0; i < state.notes.length; i++) {
         const note = state.notes[i];
-        if (i !== state.currentNoteIndex && !note.text) {
+        if (i !== state.currentNoteIndex && !note.text.trim()) {
             state.notes.splice(i, 1);
             i--; // developers hate me because of this one simple trick
         }
+    }
+
+    if (state.currentNoteIndex >= state.notes.length) {
+        state.currentNoteIndex = state.notes.length - 1;
     }
 
     // It is assumed that the very last note that was made is what is being currently worked on. 
@@ -361,16 +365,19 @@ const iterateParentNotes = (state, noteIndex, fn) => {
 }
 
 
-const getIndentStr = (note) => {
-    const { indent: repeats, openedAt } = note;
+const getTimeStr = (note) => {
+    const { openedAt } = note;
 
     const date = new Date(openedAt);
     const hours = date.getHours();
     const minutes = date.getMinutes();
-    return (
-        `${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${hours < 12 ? "am" : "pm"} |` +
-        "     ".repeat(repeats)
-    );
+
+    return `${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${hours < 12 ? "am" : "pm"}`;
+}
+
+const getIndentStr = (note) => {
+    const { indent: repeats } = note;
+    return "     ".repeat(repeats);
 };
 
 
@@ -407,7 +414,7 @@ const getFirstPartOfRow = (state, i, isSelected) => {
 
     const dashChar = isSelected ? ">" : "-"
 
-    return `${getRowIndentPrefix(state, i)} ${dashChar} ${note.text || " "}`;
+    return `${getTimeStr(note)} | ${getRowIndentPrefix(state, i)} ${dashChar} ${note.text || " "}`;
 };
 
 const exportAsText = (state) => {
@@ -555,7 +562,7 @@ const RectView = () => {
 }
 
 const ScratchPad = () => {
-    const [textInput] = htmlf(`<textarea></textarea>`);
+    const [textInput] = htmlf(`<textarea class="scratch-pad"></textarea>`);
 
     const args = {};
 
@@ -596,51 +603,31 @@ const ScratchPad = () => {
     };
 };
 
-const NoteRowView = () => {
-    const [showRoot, [
-        [showText], [showTime]
-    ]] = htmlf(
-        `<div class="row">%c%c</div>`,
-        htmlf(`<div class="pre-wrap flex-1"></div>`),
-        htmlf(`<div class="pre-wrap"></div>`),
-    );
+const TextArea = () => {
+    const [root] = htmlf(`<textarea class="flex-1"></textarea>`);
 
-    const component = {
-        el: showRoot.el, 
-        rerender: function (args, noteIndex) {
-            const { state } = args;
-            const note = state.notes[noteIndex];
-            const firstPart = getFirstPartOfRow(state, noteIndex, note.isSelected);
-            const timingText = getSecondPartOfRow(state, noteIndex);
-            const secondPart = timingText;
-            // const isHighlighted = note.isSelected || ;
-
-            this.el.style.color = note.isSelected ? "black" : 
-                (!note.isDone ? "red" : "gray");
-            setTextContent(showText, firstPart);
-            setTextContent(showTime, secondPart);
-        }
-    }
-
-    return component;
+    // https://stackoverflow.com/questions/2803880/is-there-a-way-to-get-a-textarea-to-stretch-to-fit-its-content-without-using-php
+    eventListener(root, "input", () => {
+        root.el.style.height = "";
+        root.el.style.height = root.el.scrollHeight + "px";
+    })
+    return root;
 }
 
-const NoteRowEdit = () => {
-    const [inputRoot, [
-        [inputStatus],[input],[inputTimings]
-    ]] = htmlf(
-        `<div class="row" style="background-color:#DDD">
-            %c
-            <div class="flex-1">%c</div>
-            %c
-        </div>`,
+const NoteRowText = () => {
+    const [cell, [
+        [indent],
+        [whenNotEditing],
+        [whenEditing]
+    ]] = htmlf(`<div class="pre-wrap flex-1" style="padding-left: 20px;"><div class="row v-align-bottom">%c%c%c</div></div>`,
         htmlf(`<div class="pre-wrap"></div>`),
-        htmlf(`<input class="w-100"></input>`),
-        htmlf(`<div class="pre-wrap"></div>`)
-    )
+        htmlf(`<div class="pre-wrap"></div>`),
+        htmlf(`<input class="flex-1" style="background-color: #DDD"></input>`)
+    );
 
     let args = {};
-    eventListener(input, "input", () => {
+
+    eventListener(whenEditing, "input", () => {
         if (!args.val) return;
 
         const { state } = args.val;
@@ -648,63 +635,17 @@ const NoteRowEdit = () => {
 
         const note = state.notes[noteIndex];
         if (note.text === "" && 
-            !!input.el.value && 
+            !!whenEditing.el.value && 
             noteIndex === state.notes.length - 1 // only allow the final note to be 'restarted'
         ) {
             // refresh this timestamp if the note was empty before
             note.openedAt = getTimestamp(new Date());
         }
 
-        note.text = input.el.value;
+        note.text = whenEditing.el.value;
     });
 
-    const component = {
-        el: inputRoot.el,
-        onKeyDown: (fn) => eventListener(input, "keydown", fn),
-        rerender: function (argsIn, noteIndex) {
-            args.val = argsIn;
-            args.noteIndex = noteIndex;
-            
-            const { state, shouldScroll } = argsIn;
-
-            const note = state.notes[noteIndex];
-            input.el.value = note.text;
-
-            setTextContent(inputStatus, `${getRowIndentPrefix(state, noteIndex)} > `);
-            setTextContent(inputTimings, getSecondPartOfRow(state, noteIndex));
-    
-            setTimeout(() => {
-                input.el.focus({ preventScroll : true });
-            
-                if (shouldScroll) {
-                    const wantedY = input.el.getBoundingClientRect().height * noteIndex;
-                    
-                    window.scrollTo({
-                        left: 0,
-                        top: wantedY - window.innerHeight / 2,
-                        behavior: "instant"
-                    });
-                }
-            }, 1);
-        }
-    };
-    return component;
-}
-
-
-const NoteRowInput = () => {
-    const [root, [showRoot, inputRoot]] = htmlf(
-        `<div>%c%c</div>`, NoteRowView(), NoteRowEdit()
-    );
-
-    const args = {};
-    eventListener(root, "click", () => {
-        const { state, rerenderApp } = args.val;
-        state.currentNoteIndex = args.noteIndex;
-        rerenderApp();
-    });
-
-    inputRoot.onKeyDown((e) => {
+    eventListener(whenEditing, "keydown", (e) => {
         const { state, rerenderApp, debouncedSave } = args.val;
 
         if (handleNoteInputKeyDown(state, e)) {
@@ -716,30 +657,124 @@ const NoteRowInput = () => {
     });
 
     return {
+        el: cell.el,
+        setColor: function(col) {
+            this.el.style.color = col;
+        },
+        rerender: function(argsIn, noteIndex) {
+            args.val = argsIn;
+            args.noteIndex = noteIndex;
+
+            const { state, rerenderApp, shouldScroll } = args.val;
+            const note = state.notes[noteIndex];
+
+            const dashChar = note.isSelected ? ">" : "-"
+            setTextContent(indent, `${getIndentStr(note)} ${getNoteStateString(note)} ${dashChar} `);
+
+            const isEditing = state.currentNoteIndex === noteIndex;
+            setVisible(whenEditing, isEditing);
+            setVisible(whenNotEditing, !isEditing);
+            if (isEditing) {
+                setInputValue(whenEditing, state.notes[noteIndex].text);
+
+                setTimeout(() => {
+                    whenEditing.el.focus({ preventScroll : true });
+                
+                    if (shouldScroll) {
+                        const wantedY = whenEditing.el.getBoundingClientRect().height * noteIndex;
+                        
+                        window.scrollTo({
+                            left: 0,
+                            top: wantedY - window.innerHeight / 2,
+                            behavior: "instant"
+                        });
+                    }
+                }, 1);
+            } else {
+                setTextContent(whenNotEditing, state.notes[noteIndex].text);
+            }
+        }
+    }
+}
+
+const NoteRowTimestamp = () => {
+    // const [root] = htmlf(`<div class="pre-wrap table-cell-min v-align-bottom"></div>`);
+    const [root] = htmlf(`<div class="pre-wrap"></div>`);
+
+    return {
+        el: root.el,
+        setColor: function(col) {
+            this.el.style.color = col;
+        },
+        rerender: function(argsIn, noteIndex) {
+            const { state } = argsIn;
+            setTextContent(root, getTimeStr(state.notes[noteIndex]));
+        }
+    }
+}
+
+const NoteRowStatistic = () => {
+    // const [root] = htmlf(`<div class="text-align-right pre-wrap table-cell-min v-align-bottom"></div>`);
+    const [root] = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+
+    return {
+        el: root.el,
+        setColor: function(col) {
+            this.el.style.color = col;
+        },
+        rerender: function(argsIn, noteIndex) {
+            const { state } = argsIn;
+            ;
+
+            setTextContent(root, getSecondPartOfRow(state, noteIndex));
+        }
+    }
+}
+
+const NoteRowInput = () => {
+    const [root, [
+        timestamp, 
+        text, 
+        statistic
+    ]] = htmlf(
+        `<div class="row">%c%c%c</div>`,
+        NoteRowTimestamp(),
+        NoteRowText(),
+        NoteRowStatistic()
+    );
+
+    const args = {};
+    eventListener(root, "click", () => {
+        const { state, rerenderApp } = args.val;
+        state.currentNoteIndex = args.noteIndex;
+        rerenderApp();
+    });
+
+    return {
         el: root.el,
         rerender: (argsIn,  noteIndex) => {
             args.val = argsIn;
             args.noteIndex = noteIndex;
 
-            const { state } = args.val;
+            const { state } = argsIn;
             const note = state.notes[noteIndex];
-            const isEditing = state.currentNoteIndex === noteIndex;
+            const textColor = note.isSelected ? "black" : 
+                (!note.isDone ? "red" : "gray");
 
-            setVisible(inputRoot, isEditing);
-            setVisible(showRoot, !isEditing);
-            
-            if (isEditing) {
-                inputRoot.rerender(argsIn, noteIndex);
-            } else {
-                showRoot.rerender(argsIn, noteIndex);
-            }
+            timestamp.setColor(textColor);
+            text.setColor(textColor);
+            statistic.setColor(textColor);
+
+            timestamp.rerender(argsIn, noteIndex);
+            text.rerender(argsIn, noteIndex);
+            statistic.rerender(argsIn, noteIndex);
         }
     };
 };
 
 const NotesList = () => {
     let pool = [];
-    const [ root ] = htmlf("<div></div>");
+    const [root] = htmlf(`<div class="w-100"></div>`);
 
     return {
         el: root.el,
@@ -760,7 +795,7 @@ const Button = (text, fn) => {
     return btn;
 }
 
-const App = (mountPoint) => {
+const App = () => {
     const [appRoot, [[
         [rectViewRoot, [rectView]], 
         [_0, [
@@ -857,9 +892,6 @@ const App = (mountPoint) => {
             ),
         ]
     );
-    mountPoint.appendChild(appRoot.el);
-    const parent = appRoot.el;
-    const app = parent;
 
     let state = loadState();
 
@@ -949,8 +981,13 @@ const App = (mountPoint) => {
         }
     };
 
-    appendChild({ el: mountPoint }, appComponent);
-    appComponent.rerender();
+    return appComponent;
 };
 
-App(document.getElementById("app"));
+const root = {
+    el: document.getElementById("app")
+};
+
+const app = App();
+appendChild(root, app);
+app.rerender();

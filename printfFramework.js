@@ -1,4 +1,12 @@
-const assert = (trueVal, msg) => {if (!trueVal) { throw new Error(msg); } };
+const assert = (trueVal, ...msg) => {
+    if (!trueVal) { 
+        console.error(...msg); 
+        throw new Error("assertion failed!"); 
+    } 
+};
+const assertEqual = (a, b, ...msg) => {
+    assert(a === b, `${a} !== ${b}, fucking hell` ,...msg)
+}
 const unreachable = () => assert(false, "Unreachable code was reached!");
 
 // https://stackoverflow.com/questions/10730309/find-all-text-nodes-in-html-page
@@ -10,15 +18,22 @@ const __textNodesUnder = (el) => {
     return a;
 }
 
+const getCreateElement = (html) => {
+    return document.createElement("div");
+}
 
+// It doesn't work with tables. 
+// I haven't tried it, but it probably doesn't work with list items either
 /** @returns { HTMLElement } */
 const __createHtmlElement = (html) => {
-    let dst = document.createElement("div");
-    dst.innerHTML = html.trim();
+    html = html.trim();
+    const createEl = getCreateElement(html);
 
-    assert(dst.childNodes.length === 1, "print html must only have 1 root node");
+    createEl.innerHTML = html;
 
-    return dst.childNodes[0];
+    assert(createEl.childNodes.length === 1, `print html must exactly have 1 root node - "${html}"`, createEl.childNodes);
+
+    return createEl.childNodes[0];
 }
 
 const __textAt = (str, pos, comparison) => {
@@ -74,7 +89,7 @@ const htmlf_internal = (html, ...args) => {
                 throw new Error(`invalid formatting directive - %${formattingDirective || "<end of string>"}`);
             }
 
-            assert(currentArgIdx < args.length, "Too few format args provided to printf - " + `${args}`);
+            assert(currentArgIdx < args.length, "Too few format args provided to htmlf - " + `${args}`);
 
             let arg = args[currentArgIdx];
 
@@ -127,10 +142,14 @@ const htmlf_internal = (html, ...args) => {
 
 /** 
  * Place components in a html tree with surgical precision using printf-like semantics.
+ * Just stay away from anything table related, and you should be good. 
+ * 
  * %c -> inserts a component or a string.
  *      A component is any object with the shape { el: HTMLNode }.
  *      Arrays like [ { el: HTMLNode }] will also get unwrapped 1 level, because we often want to feed the result of htmlf back into itself.
+ * 
  * %a -> inserts an array of components
+ * 
  * %r -> inserts a raw html dom node
  * 
  * 
@@ -145,6 +164,8 @@ const htmlf_internal = (html, ...args) => {
  * const [root, [bold]] = htmlf("<div>Hello, %c</div>", htmlf("<b>%s</b>", userInput));     
  * // this won't work, because %s is inside a tag.
  * const [root] = htmlf(`<div style="color:%s">hello</div>`, userInputtedColor)             
+ * 
+ * @returns {[{ el: HTMLElement }, [args]]}
  *  */
 const htmlf = (html, ...args) => {
     return htmlf_internal(html, ...args);
@@ -219,12 +240,19 @@ const resizeComponentPool = (root, compPool, newLength, createFn) => {
     }
 }
 
-const eventListener = (mountPoint, event, fn) => {
-    mountPoint.el.addEventListener(event, fn);
+const eventListener = (component, event, fn) => {
+    __assertIsComponent(component);
+    component.el.addEventListener(event, fn);
 }
 
 const setTextContent = (component, text) => {
     if (component.el.textContent !== text) {
         component.el.textContent = text;    // a huge performance speedup!
+    }
+}
+
+const setInputValue = (component, text) => {
+    if (component.el.value !== text) {
+        component.el.value = text;    // a huge performance speedup ? not sure here actually
     }
 }
