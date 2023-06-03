@@ -416,3 +416,9 @@ const resizeComponentPool = (root, compPool, newLength, createFn) => {
 const eventListener = (mountPoint, event, fn) => {
     mountPoint.el.addEventListener(event, fn);
 }
+
+const setTextContent = (component, text) => {
+    if (component.el.textContent !== text) {
+        component.el.textContent = text;    // a huge performance speedup!
+    }
+}

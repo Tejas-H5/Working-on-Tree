@@ -316,6 +316,8 @@ const handleNoteInputKeyDown = (state, keyDownEvent) => {
 };
 
 const fixNoteTree = (state) => {
+    assert(!!state, "WTF");
+
     // remove all empty notes that we aren't editing
     for (let i = 0; i < state.notes.length; i++) {
         const note = state.notes[i];
@@ -342,7 +344,7 @@ const fixNoteTree = (state) => {
 
     iterateParentNotes(state, state.currentNoteIndex, (note) => {
         note.isSelected = true;
-    })
+    });
 };
 
 const iterateParentNotes = (state, noteIndex, fn) => {
@@ -438,9 +440,10 @@ const RectView = () => {
         `<div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>`
     );
 
-    let args = {};
+    const args = {};
+
     const recursiveRectPack = (mountPoint, i, thisRectSize, isParentRow) => {
-        const { state } = args.val;
+        const { state, rerenderApp } = args.val;
         const duration = getNoteDuration(state, i)
         
         const tasksOnThisLevel = [];
@@ -517,8 +520,9 @@ const RectView = () => {
             if (task.i != null) {
                 eventListener(root, "click", (e) => {
                     e.stopPropagation();
-                    component.onSelectNote(task.i);
-                    rerender();
+
+                    state.currentNoteIndex = task.i;
+                    rerenderApp({ shouldScroll: false } );
                 });
     
                 recursiveRectPack(root, task.i, childRectSize, isRow);
@@ -526,7 +530,7 @@ const RectView = () => {
         }
     }
 
-    return {
+    const component = {
         el: root.el,
         rerender: (argsIn) => {
             args.val = argsIn;
@@ -545,13 +549,20 @@ const RectView = () => {
             const parentRectSize = [parentRect.width, parentRect.height];
             recursiveRectPack(root, -1, parentRectSize, true);
         }
-    }
+    };
+
+    return component;
 }
 
 const ScratchPad = () => {
     const [textInput] = htmlf(`<textarea></textarea>`);
 
-    let state = undefined;
+    const args = {};
+
+    const onEdit = () => {
+        const { debouncedSave } = args.val;
+        debouncedSave();
+    }
 
     // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
     eventListener(textInput, "keydown", (e) => {
@@ -563,18 +574,24 @@ const ScratchPad = () => {
         // TODO: stop using deprecated API
         document.execCommand("insertText", false, "\t");
 
-        textChanged();
+        onEdit();
     });
 
     eventListener(textInput, "input", () => {
-        state.scratchPad = textInput.value;
+        const { state } = args.val;
+        state.scratchPad = textInput.el.value;
+        onEdit();
     });
 
     return {
         el: textInput.el,
-        rerender: (args) => {
-            state = args.state;
-            textInput.value = state.scratchPad;
+        rerender: (argsIn) => {
+            args.val = argsIn;
+            const { state } = argsIn;
+
+            if (textInput.el.value !== state.scratchPad) {
+                textInput.el.value = state.scratchPad;
+            }
         }
     };
 };
@@ -594,8 +611,10 @@ const NoteRowView = () => {
             const firstPart = getFirstPartOfRow(state, noteIndex, note.isSelected);
             const timingText = getSecondPartOfRow(state, noteIndex);
             const secondPart = timingText;
-        
-            this.el.style.color = note.isHighlighted ? "black" : "gray";
+            // const isHighlighted = note.isSelected || ;
+
+            this.el.style.color = note.isSelected ? "black" : 
+                (!note.isDone ? "red" : "gray");
             setTextContent(showText, firstPart);
             setTextContent(showTime, secondPart);
         }
@@ -739,13 +758,15 @@ const Button = (text, fn) => {
 
 const App = (mountPoint) => {
     const [appRoot, [
-        [rectViewRoot], [_0, [infoButton]], [info1], notesList, [info2], scratchPad, _1, [fixedButtons, [statusTextIndicator, _2]]
+        [rectViewRoot, rectView], [_0, [infoButton]], [info1], notesList, [info2], _1, scratchPad,  [fixedButtons, [statusTextIndicator, _2]]
     ]] = htmlf(
         `<div class="relative">
             %a
         </div>`, [
             // rectViewRoot
-            htmlf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>`),
+            htmlf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`,
+                RectView()
+            ),
             // title [infoButton]
             htmlf(
                 `<div class="row align-items-center">
@@ -780,10 +801,10 @@ const App = (mountPoint) => {
                     </p>
                 </div>`
             ),
-            // scratchPad
-            ScratchPad(),
             // title [_]
             htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
+            // scratchPad
+            ScratchPad(),
             // fixedButtons
             htmlf(
                 `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
@@ -791,7 +812,7 @@ const App = (mountPoint) => {
                 </div>`,
                 htmlf(`<div class="pre-wrap"></div>`), 
                 [
-                    Button("Area view", () => toggleRectView()),
+                    Button("Area view", () => appComponent.toggleRectView()),
                     Button("Clear all", () => {
                         if (!confirm("Are you sure you want to delete all your notes?")) {
                             return;
@@ -799,7 +820,7 @@ const App = (mountPoint) => {
                 
                         localStorage.clear();
                         state = loadState();
-                        rerender();
+                        appComponent.rerender();
                 
                         showStatusText("Cleared notes");
                     }),
@@ -825,32 +846,14 @@ const App = (mountPoint) => {
 
     let state = loadState();
 
-    // scratch pad
-    {
-        scratchPad.rerender({ state });
-    }
-
     
     // rect view
     let isRectViewOpen = false;
-    const rectViewComponent = RectView(rectViewRoot, () => state);
-    const toggleRectView = () => {
-        isRectViewOpen = !isRectViewOpen;
-        rerender({shouldScroll: false});
-    }
-    
-    {
-        rectViewComponent.onSelectNote = (i) => {
-            state.currentNoteIndex = i;
-            rerender({shouldScroll: false});
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && isRectViewOpen) {
+            appComponent.toggleRectView();
         }
-        
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "Escape" && isRectViewOpen) {
-                toggleRectView();
-            }
-        })
-    }
+    });
 
     let showInfo = false;
     const updateHelp = () => {
@@ -872,7 +875,7 @@ const App = (mountPoint) => {
         statusTextIndicator.el.textContent = text;
 
         const timeoutAmount = timeout || STATUS_TEXT_PERSIST_TIME;
-        if (timeoutAmount) {
+        if (timeoutAmount > 0) {
             statusTextClearTimeout = setTimeout(() => {
                 statusTextIndicator.el.textContent = "";
             }, timeoutAmount)
@@ -916,13 +919,16 @@ const App = (mountPoint) => {
                 debouncedSave
             };
     
-            // rerender notes list
+            // rerender the things
             notesList.rerender(args);
-    
-            // rerender area view
+            scratchPad.rerender(args);
             if (setVisible(rectViewRoot, isRectViewOpen)) {
-                rectViewComponent.rerender(args);
+                rectView.rerender(args);
             }
+        },
+        toggleRectView: function() {
+            isRectViewOpen = !isRectViewOpen;
+            this.rerender({shouldScroll: false});
         }
     };
 
