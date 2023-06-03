@@ -53,7 +53,7 @@ const __textAt = (str, pos, comparison) => {
     return true;
 }
 
-const __getPrintfArg = (args, i, copyFunc) => {
+const __getHtmlfArg = (args, i, copyFunc) => {
     if (copyFunc !== null)
         return copyFunc;
 
@@ -61,16 +61,25 @@ const __getPrintfArg = (args, i, copyFunc) => {
     return args[i];
 }
 
+/** @returns { HTMLElement } */
+const __getHTMLElementForComponentFormatDirective = (componentOrHTMLfReturnVal, errorMsg) => {
+    if (typeof componentOrHTMLfReturnVal === typeof "string") return document.createTextNode(componentOrHTMLfReturnVal);
+    if (componentOrHTMLfReturnVal.el) return componentOrHTMLfReturnVal.el;
+    if (componentOrHTMLfReturnVal[0] && componentOrHTMLfReturnVal[0].el) return componentOrHTMLfReturnVal[0].el;
+
+    throw new Error(errorMsg);
+}
+
 // We don't care about performance here. I have made this purely for a bit of a laugh.
 // The funny thing is that it is a somewhat valid way to avoid xss, because we are creating text nodes
 // rather than putting it directly into the string like `${malicious_code}`.
 // I hate that this is actually a good API, the more I use it
 
-/** @augments printf */
-const printf_internal = (html, ...args) => {
+/** @augments htmlf */
+const htmlf_internal = (html, ...args) => {
     const element = __createHtmlElement(html);
     if (args.length === 0) {
-        return { el: element };
+        return [{ el: element }, ...args];
     }
 
     const nodes = __textNodesUnder(element);
@@ -82,7 +91,6 @@ const printf_internal = (html, ...args) => {
 
             const formattingDirective = text[i + 1];
             if (
-                formattingDirective !== "s" &&  // string. gets escaped with document.createTextNode
                 formattingDirective !== "c" &&  // component, (any JS object with { el: HTMLElement } shape).
                 formattingDirective !== "a" &&  // array. inserts multiple things to the dom
                 formattingDirective !== "r"     // raw. just throw it in and see what happens. useful for inserting raw dom nodes when inter-operating with other things
@@ -93,32 +101,41 @@ const printf_internal = (html, ...args) => {
             assert(currentArgIdx < args.length, "Too few format args provided to printf - " + `${args}`);
 
             let arg = args[currentArgIdx];
-            
-            let thingToInsert;
-            if (formattingDirective === "s") {
-                thingToInsert = document.createTextNode(arg);
-            } else if(formattingDirective === "c") {
-                assert(typeof arg.el === "object", `%c wants { el: html element, ... }, instead we got ${typeof arg.el} [${arg.el}]`);
-                thingToInsert = arg.el;
+
+            let componentsToInsert;
+            if(formattingDirective === "c") {
+                componentsToInsert = [
+                    __getHTMLElementForComponentFormatDirective(
+                        arg, 
+                        "object", `%c wants components (like { el: html element, ... }) or [ component ], instead we got ${typeof arg} [${arg}]`
+                    )
+                ];
             } else if(formattingDirective === "a") {
-                assert(Array.isArray(arg), `%a wants an array of { el: html element, ... }, instead we got ${typeof arg} [${arg}]`);
-                thingToInsert = arg;
+                assert(Array.isArray(arg), `%a wants an array, instead we got ${typeof arg} [${arg}]`);
+                componentsToInsert = Array(arg.length);
+                for (let i = 0; i < arg.length; i++) {
+                    const thing = arg[i];
+                    const component = __getHTMLElementForComponentFormatDirective(
+                        thing, 
+                        `%a wants components like ({ el: html element, ... }) or [ component ] in the array, instead we got ${typeof thing}} [${thing}] at index ${i}`
+                    );
+
+                    componentsToInsert[i] = component;
+                }
             } else if (formattingDirective === "r") {
                 // who knows what this could be ? :thinking:
-                thingToInsert = arg;
+                componentsToInsert = [arg];
             } else {
                 unreachable();
             }
 
             // insert this thing precisely where we found the formatting directive for it
             const node2 = node.splitText(i);
-            if (Array.isArray(thingToInsert)) {
-                for(const thing of thingToInsert) {
-                    if (thing === null) continue;
-                    node2.parentNode.insertBefore(thing.el, node2);
-                }
-            } else {
-                node2.parentNode.insertBefore(thingToInsert, node2);
+            for(let j = 0; j < componentsToInsert.length; j++) {
+                const component = componentsToInsert[j];
+                if (component === null) continue;
+
+                node2.parentNode.insertBefore(component, node2);
             }
             node = node2;
             node.nodeValue = node.nodeValue.substring(2);
@@ -129,31 +146,32 @@ const printf_internal = (html, ...args) => {
     }
 
     assert(currentArgIdx === args.length, "Too few format directive args were provided");
-    return { el: element };
+    return [{ el: element }, ...args];
 };
 
 /** 
  * Place components in a html tree with surgical precision using printf-like semantics.
- * %s -> formats as a string. Will just do document.createTextNode(`${arg}`) to your directive.
- * %c -> inserts a component. Wil 
+ * %c -> inserts a component or a string.
+ *      A component is any object with the shape { el: HTMLNode }.
+ *      Arrays like [ { el: HTMLNode }] will also get unwrapped 1 level, because we often want to feed the result of htmlf back into itself.
+ * %a -> inserts an array of components
+ * %r -> inserts a raw html dom node
  * 
- * Note: Doesn't work like normal printf, it can only replace formatting directives that are between tags, and not inside tags, like attributes.
+ * 
+ * 
+ * Note: htmlf doesn't work like a typical printf -
+ *      it can only replace formatting directives that are between tags, and not inside tags, like attributes.
  * 
  * @example
- * printf("<div>%s</div>", userInput);  // this works just fine
- * printf(`<div style="color:%s"`>%s</div>, userColor, userInput) // this won't work, because the first %s is inside a tag.
- * printf("<div>Hello, %c</div>", printf("<b>%s</b>", userInput));  // this works just fine too
- * 
+ * // this works just fine
+ * const [root] = htmlf("<div>%s</div>", userInput);                                        
+ * // this works just fine too
+ * const [root, [bold]] = htmlf("<div>Hello, %c</div>", htmlf("<b>%s</b>", userInput));     
+ * // this won't work, because %s is inside a tag.
+ * const [root] = htmlf(`<div style="color:%s">hello</div>`, userInputtedColor)             
  *  */
-const printf = (html, ...args) => {
-    if (html === "<div></div>") {
-        return { el: document.createElement("div") };
-    }
-    if (html === "<span></span>") {
-        return { el: document.createElement("span") };
-    }
-
-    return printf_internal(html, ...args);
+const htmlf = (html, ...args) => {
+    return htmlf_internal(html, ...args);
 }
 
 /** @returns {{ el: HTMLElement }} */
@@ -209,142 +227,192 @@ const replaceChildren2 = (comp, children) => {
     }
 }
 
-const appendChildren = (mountPoint, ...children) => {
+const appendChild = (mountPoint, child) => {
     const mountComponent = __assertIsComponent(mountPoint);
-    
-    for(const c of children) {
-        mountComponent.el.appendChild(c.el);
-    }
+    mountComponent.el.appendChild(child.el);
 }
 
 const clearChildren = (mountPoint) => {
     mountPoint.el.replaceChildren();
 }
 
-const addEventListener = (mountPoint, event, fn) => {
-    mountPoint.el.addEventListener(event, fn);
-}
-
-
 // const __truncateArray = (arr, newMaxSize) => arr.splice(newMaxSize, arr.length - newMaxSize);
 
 /** Maintains a list of data that is always in sync with it's html, provided we only insert/remove things with the methods provided. */
-const elementList = (root, createFn) => {
-    const dataList = [];
-    const componentsList = [];
-    root.el.replaceChildren();  // this clears the children, because replaceChildren expects ...args
+// const htmlList = (root, createFn) => {
+//     root = __getHTMLElementForComponentFormatDirective(root);
+//     const dataList = [];
+//     const componentsList = [];
+//     const diffSet = new Set();
+//     root.replaceChildren();  // this clears the children, because replaceChildren expects ...args
 
-    const getChildNodes = () => root.el.childNodes;
+//     const getChildNodes = () => root.childNodes;
 
-    const self = {
-        el: root.el,
-        assertLength: () => {
-            const children = getChildNodes();
+//     const self = {
+//         el: root,
+//         assertLength: () => {
+//             const children = getChildNodes();
 
-            assert(
-                dataList.length !== componentsList.length || dataList.length !== children.length,
-                `${dataList.length} !== ${componentsList.length} || ${dataList.length} !== ${children.length}`
-            );
-        },
-        assertBounds: (i) => {
-            assert(
-                i >= 0 && i < dataList.length, 
-                `Index ${i} should have been between 0 and ${dataList.length - 1}`
-            );
-        },
-        length: () => {
-            self.assertLength();
-            return dataList.length;
-        },
-        push: (data) => {
-            const children = getChildNodes();
-            self.insertAt(children.length, data);
-        },
-        insertAt: (i, data) => {
-            assert(
-                i >= 0 && i <= dataList.length, 
-                `Index ${i} should have been between 0 and ${dataList.length}`
-            );
+//             assert(
+//                 dataList.length !== componentsList.length || dataList.length !== children.length,
+//                 `${dataList.length} !== ${componentsList.length} || ${dataList.length} !== ${children.length}`
+//             );
+//         },
+//         assertBounds: (i) => {
+//             assert(
+//                 i >= 0 && i < dataList.length, 
+//                 `Index ${i} should have been between 0 and ${dataList.length - 1}`
+//             );
+//         },
+//         length: () => {
+//             self.assertLength();
+//             return dataList.length;
+//         },
+//         push: (data) => {
+//             const children = getChildNodes();
+//             self.insertAt(children.length, data);
+//         },
+//         insertAt: (i, data) => {
+//             assert(
+//                 i >= 0 && i <= dataList.length, 
+//                 `Index ${i} should have been between 0 and ${dataList.length}`
+//             );
 
-            const newComponent = createFn(data, self);
-            const children = getChildNodes();
-            if (i === children.length) {
-                root.el.appendChild(newComponent.el)
-                dataList.push(data)
-                componentsList.push(newComponent);
-            } else {
-                root.el.insertBefore(newComponent.el, children[i]);
-                dataList.splice(i, 0, data);
-                componentsList.splice(i, 0, newComponent);
-            }
+//             const newComponent = createFn(data, self);
+//             const children = getChildNodes();
+//             if (i === children.length) {
+//                 root.appendChild(newComponent.el)
+//                 dataList.push(data)
+//                 componentsList.push(newComponent);
+//             } else {
+//                 root.insertBefore(newComponent.el, children[i]);
+//                 dataList.splice(i, 0, data);
+//                 componentsList.splice(i, 0, newComponent);
+//             }
 
-            try {
-                newComponent.onInsert && newComponent.onInsert();            
-            } catch(err) {
-                console.error(err);
-            }
+//             try {
+//                 newComponent.onInsert && newComponent.onInsert();            
+//             } catch(err) {
+//                 console.error(err);
+//             }
 
-            return newComponent;
-        },
-        removeAt: (i) => {
-            if (dataList.length === 0) {
-                return;
-            }
+//             return newComponent;
+//         },
+//         removeAt: (i) => {
+//             if (dataList.length === 0) {
+//                 return;
+//             }
 
-            self.assertBounds(i);
+//             self.assertBounds(i);
 
-            const children = getChildNodes();
-            children[i].remove();
-            const component = componentsList[i];
+//             const children = getChildNodes();
+//             children[i].remove();
+//             const component = componentsList[i];
 
-            try {
-                component.onRemove && component.onRemove();
-            } catch(err) {
-                throw err;
-                console.error(err);
-            }
+//             try {
+//                 component.onRemove && component.onRemove();
+//             } catch(err) {
+//                 throw err;
+//                 console.error(err);
+//             }
 
-            componentsList.splice(i, 1);    
-            dataList.splice(i, 1);
-        },
-        replaceAll: (newData) => {
-            const children = getChildNodes();
-            for(let i = children.length - 1; i >= 0; i--) {
-                self.removeAt(i);
-            }
-            dataList.splice(0, dataList.length);
-            componentsList.splice(0, componentsList.length);
+//             componentsList.splice(i, 1);    
+//             dataList.splice(i, 1);
+//         },
+//         replaceAll: (newData) => {
+//             const children = getChildNodes();
+//             for(let i = children.length - 1; i >= 0; i--) {
+//                 self.removeAt(i);
+//             }
+//             dataList.splice(0, dataList.length);
+//             componentsList.splice(0, componentsList.length);
 
-            for(let i = 0; i < newData.length; i++) {
-                self.insertAt(i, newData[i])
-            }
-        },
-        dataAt: (i) => {
-            self.assertBounds(i);
-            return dataList[i];
-        },
-        componentAt: (i) => {
-            self.assertBounds(i);
-            return componentsList[i];
-        },
-        indexOf: (data) => {
-            for(let i = 0; i < dataList.length; i++) {
-                if(dataList[i] === data) {
-                    return i;
-                }
-            }
+//             for(let i = 0; i < newData.length; i++) {
+//                 self.insertAt(i, newData[i])
+//             }
+//         },
+//         /** Diff the current data with the new data, making as few inserts and removes as possible. Assumes most things are in still in the same order. */
+//         replaceAllSmart: (newData) => {
+//             diffSet.clear();
 
-            return -1;
-        },
-        /** NOTE: this returns a shallow copy */
-        toArray: () => [...dataList]
-    }
+//             let i = 0,  // old
+//                 j = 0;  // new
+            
 
-    self.replaceAll(dataList);
+//             const diffs = [
 
-    return self;
-}
+//             ];
+
+//             // we want to remove and insert as few things as possible.
+//             for(let i = 0; i < newData.length; i++) {
+//                 if (dataList[i] === newData[i]) continue;
+
+//                 diffs.push()
+//             }
+
+//             assert(newData.length === dataList.length, "something wrong with the diff algo");
+//             for(let i = 0; i < dataList.length; i++) {
+//                 assert(newData[i] !== dataList[i], "something wrong with the diff algo");
+//             }
+//         },
+//         dataAt: (i) => {
+//             self.assertBounds(i);
+//             return dataList[i];
+//         },
+//         componentAt: (i) => {
+//             self.assertBounds(i);
+//             return componentsList[i];
+//         },
+//         indexOf: (data) => {
+//             for(let i = 0; i < dataList.length; i++) {
+//                 if(dataList[i] === data) {
+//                     return i;
+//                 }
+//             }
+
+//             return -1;
+//         },
+//         /** NOTE: this returns a shallow copy */
+//         toArray: () => [...dataList]
+//     }
+
+//     self.replaceAll(dataList);
+
+//     return self;
+// }
 
 const append = (comp, newChild) => {
     comp.el.parentNode.appendChild(newChild.el);
+}
+
+const setVisible = (component, state) => {
+    if (state) {
+        component.el.classList.remove("hidden");
+    } else {
+        component.el.classList.add("hidden");
+    }
+    return state;
+}
+
+const event = (comp, event, fn) => {
+    comp.el.addEventListener(event, fn);
+}
+
+const resizeComponentPool = (root, compPool, newLength, createFn) => {
+    while(compPool.length > newLength) {
+        // could also just hide these with setVisible(false)
+        const component = compPool.pop();
+        component.el.remove();
+    } 
+    
+    while (compPool.length < newLength) {
+        // could also just show these with setVisible(true)
+        const component = createFn();
+        compPool.push(component);
+        appendChild(root, component);
+    }
+}
+
+const eventListener = (mountPoint, event, fn) => {
+    mountPoint.el.addEventListener(event, fn);
 }

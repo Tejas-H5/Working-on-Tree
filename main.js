@@ -1,3 +1,4 @@
+// TODO: reword `rerender` to `update`
 const INDENT_BASE_WIDTH = 100;
 const INDENT_WIDTH_PX = 50;
 const SAVE_DEBOUNCE = 500;
@@ -432,46 +433,14 @@ const exportAsText = (state) => {
     return events + "\n\n---------------- Notes ----------------\n" + scratchPad;
 };
 
-const RectView = (mountPoint, getState) => {
-    const root = printf(
+const RectView = () => {
+    const [root] = htmlf(
         `<div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>`
     );
-    mountPoint.appendChild(root.el);
-    
-    const component = {
-        onSelectNote: (i) => {},
-        rerender: () => {}
-    };
 
-    let maxIndent = 0;
-
-    const rerender = () => {
-        const state = getState();
-
-        maxIndent = 0;
-        for (let i = 0; i < state.notes.length; i++) { 
-            if (maxIndent < state.notes[i].indent) {
-                maxIndent = state.notes[i].indent;
-            }
-        }
-
-        clearChildren(root);
-
-        const parentRect = root.el.getBoundingClientRect();
-        const parentRectSize = [parentRect.width, parentRect.height];
-        console.log(parentRectSize);
-        recursiveRectPack(root, -1, parentRectSize, true);
-    }
-    component.rerender = rerender;
-    
-    component.rerender = () => {
-        setTimeout(() => {
-            rerender();
-        }, 0);
-    }
-    
+    let args = {};
     const recursiveRectPack = (mountPoint, i, thisRectSize, isParentRow) => {
-        const state = getState();
+        const { state } = args.val;
         const duration = getNoteDuration(state, i)
         
         const tasksOnThisLevel = [];
@@ -528,25 +497,25 @@ const RectView = (mountPoint, getState) => {
             const zIndex = isCurrentlySelectedTask ? maxIndent + 1 : task.indent;
 
             if (task.padding) {
-                appendChildren(
+                appendChild(
                     mountPoint, 
-                    printf(
+                    htmlf(
                         `<div style="flex:${task.padding};z-index:${zIndex};user-select:none"></div>`
-                    )
+                    )[0]
                 );
             }
 
-            const root = printf(
+            const [root] = htmlf(
                 `<div 
                     class="${isRow ? "row" : "col"}" 
                     style="flex:${task.duration01}; outline: ${outlineThickness}px solid ${outlineColor};background-color:${bgColor}; z-index:${zIndex}" 
                     title="${task.text}"
                 ></div>`
             )
-            appendChildren(mountPoint, root);
+            appendChild(mountPoint, root);
             
             if (task.i != null) {
-                addEventListener(root, "click", (e) => {
+                eventListener(root, "click", (e) => {
                     e.stopPropagation();
                     component.onSelectNote(task.i);
                     rerender();
@@ -557,22 +526,35 @@ const RectView = (mountPoint, getState) => {
         }
     }
 
-    rerender();
+    return {
+        el: root.el,
+        rerender: (argsIn) => {
+            args.val = argsIn;
+            const { state } = argsIn;
 
-    return component;
+            maxIndent = 0;
+            for (let i = 0; i < state.notes.length; i++) { 
+                if (maxIndent < state.notes[i].indent) {
+                    maxIndent = state.notes[i].indent;
+                }
+            }
+    
+            clearChildren(root);
+    
+            const parentRect = root.el.getBoundingClientRect();
+            const parentRectSize = [parentRect.width, parentRect.height];
+            recursiveRectPack(root, -1, parentRectSize, true);
+        }
+    }
 }
 
-const ScratchPad = (mountPoint, getState) => {
-    const textInput = printf(
-        `<textarea --id="textInput"></textarea>`
-    ).el;
-    mountPoint.appendChild(textInput);
+const ScratchPad = () => {
+    const [textInput] = htmlf(`<textarea></textarea>`);
 
-    const state = getState();
-    textInput.value = state.scratchPad;
+    let state = undefined;
 
     // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
-    textInput.addEventListener("keydown", (e) => {
+    eventListener(textInput, "keydown", (e) => {
         if (e.keyCode !== 9) return;
 
         e.preventDefault();
@@ -584,254 +566,268 @@ const ScratchPad = (mountPoint, getState) => {
         textChanged();
     });
 
-    textInput.addEventListener("input", () => {
-        const state = getState();
+    eventListener(textInput, "input", () => {
         state.scratchPad = textInput.value;
     });
-};
 
-const NoteRowInput = (mountPoint) => {
-    const showText = printf(
-        `<div class="pre-wrap flex-1"></div>`
-    ).el;
-
-    const showTime = printf(
-        `<div class="pre-wrap"></div>`
-    ).el;
-
-    const showRoot = printf(
-        `<div class="row">%r%r</div>`,
-        showText, showTime
-    ).el;
-
-
-    const inputStatus = printf(
-        `<div class="pre-wrap"></div>`
-    ).el;
-    const input = printf(
-        `<input class="w-100"></input>`
-    ).el;
-    const inputTimings = printf(
-        `<div class="pre-wrap"></div>`
-    ).el;
-    const inputRoot = printf(
-        `<div class="row" style="background-color:#DDD">
-            %r
-            <div class="flex-1">%r</div>
-            %r
-        </div>`,
-        inputStatus, 
-        input, 
-        inputTimings
-    ).el;
-
-    const root = printf(
-        `<div>%r%r</div>`,
-        inputRoot, showRoot
-    ).el;
-
-    appendChildrenWWW(mountPoint, [ root ]);
-
-
-    const component = {
-        args: {},
-        update: (state, noteIndex, stickyPxRef, shouldSroll, isRectViewOpen) => {
-            const note = state.notes[noteIndex];
-            const isEditing = state.currentNoteIndex === noteIndex;
-            const isHighlighted = !note.isDone || note.isSelected;
-
-            setVisibleWWW(inputRoot, isEditing);
-            setVisibleWWW(showRoot, !isEditing);
-            
-            const timingText = getSecondPartOfRow(state, noteIndex);
-
-            if (isEditing) {
-                // input
-
-                component.args.note = note;
-                component.args.state = state;
-                component.args.noteIndex = noteIndex;
-
-                input.value = note.text;
-                inputStatus.textContent = `${getRowIndentPrefix(state, noteIndex)} > `;
-                inputTimings.textContent = timingText;
-
-                setTimeout(() => {
-                    input.focus({ preventScroll : true });
-                
-                    if (shouldSroll) {
-                        const wantedY = root.getBoundingClientRect().height * noteIndex;
-                        window.scrollTo({
-                            left: 0,
-                            top: wantedY - window.innerHeight / 2,
-                            behavior: "instant"
-                        });
-                    }
-                }, 1);
-            } else {
-                // show
-                const firstPart = getFirstPartOfRow(state, noteIndex, note.isSelected);
-                const secondPart = timingText;
-
-                showRoot.style.color = isHighlighted ? "black" : "gray";
-                showText.textContent = firstPart;
-                showTime.textContent = secondPart;
-            }
-
-            // ensure active notes are sticky
-            setTimeout(() => {
-                if (isHighlighted && !isRectViewOpen) {
-                    root.style.position = "sticky";
-                    root.style.top = stickyPxRef.val + "px";
-                    root.style.zIndex = 10;
-                    root.style.backgroundColor = "#FFF";
-
-                    stickyPxRef.val += root.getBoundingClientRect().height;
-                } else {
-                    root.style.zIndex = 0;
-                    root.style.position = "initial";
-                    root.style.top = "none";
-                    root.style.backgroundColor = "#FFF";
-                }
-            }, 1);
+    return {
+        el: textInput.el,
+        rerender: (args) => {
+            state = args.state;
+            textInput.value = state.scratchPad;
         }
     };
+};
 
-    input.addEventListener("input", () => {
-        const { note, noteIndex, state } = component.args;
-        if (!note) return;
+const NoteRowView = () => {
+    const [showRoot, [showText], [showTime]] = htmlf(
+        `<div class="row">%c%c</div>`,
+        htmlf(`<div class="pre-wrap flex-1"></div>`),
+        htmlf(`<div class="pre-wrap"></div>`),
+    );
 
-        if (note.text === "" && !!input.value && noteIndex === state.notes.length - 1) {
+    const component = {
+        el: showRoot.el, 
+        rerender: function (args, noteIndex) {
+            const { state } = args;
+            const note = state.notes[noteIndex];
+            const firstPart = getFirstPartOfRow(state, noteIndex, note.isSelected);
+            const timingText = getSecondPartOfRow(state, noteIndex);
+            const secondPart = timingText;
+        
+            this.el.style.color = note.isHighlighted ? "black" : "gray";
+            setTextContent(showText, firstPart);
+            setTextContent(showTime, secondPart);
+        }
+    }
+
+    return component;
+}
+
+const NoteRowEdit = () => {
+    const [inputRoot, [inputStatus],[input],[inputTimings]] = htmlf(
+        `<div class="row" style="background-color:#DDD">
+            %c
+            <div class="flex-1">%c</div>
+            %c
+        </div>`,
+        htmlf(`<div class="pre-wrap"></div>`),
+        htmlf(`<input class="w-100"></input>`),
+        htmlf(`<div class="pre-wrap"></div>`)
+    )
+
+    let args = {};
+    eventListener(input, "input", () => {
+        if (!args.val) return;
+
+        const { state } = args.val;
+        const noteIndex = args.noteIndex;
+
+        const note = state.notes[noteIndex];
+        if (note.text === "" && 
+            !!input.el.value && 
+            noteIndex === state.notes.length - 1 // only allow the final note to be 'restarted'
+        ) {
             // refresh this timestamp if the note was empty before
             note.openedAt = getTimestamp(new Date());
         }
 
-        note.text = input.value;
+        note.text = input.el.value;
     });
 
-    input.addEventListener("keydown", (e) => {
-        component.onKeyDown && component.onKeyDown(e);
-    })
+    const component = {
+        el: inputRoot.el,
+        onKeyDown: (fn) => eventListener(input, "keydown", fn),
+        rerender: function (argsIn, noteIndex) {
+            args.val = argsIn;
+            args.noteIndex = noteIndex;
+            
+            const { state, shouldScroll } = argsIn;
 
-    showRoot.addEventListener("click", () => {
-        component.onClick && component.onClick();
-    })
+            const note = state.notes[noteIndex];
+            input.el.value = note.text;
 
+            setTextContent(inputStatus, `${getRowIndentPrefix(state, noteIndex)} > `);
+            setTextContent(inputTimings, getSecondPartOfRow(state, noteIndex));
+    
+            setTimeout(() => {
+                input.el.focus({ preventScroll : true });
+            
+                if (shouldScroll) {
+                    const wantedY = input.el.getBoundingClientRect().height * noteIndex;
+                    
+                    window.scrollTo({
+                        left: 0,
+                        top: wantedY - window.innerHeight / 2,
+                        behavior: "instant"
+                    });
+                }
+            }, 1);
+        }
+    };
     return component;
+}
+
+
+const NoteRowInput = () => {
+    const [root, showRoot, inputRoot] = htmlf(
+        `<div>%c%c</div>`, NoteRowView(), NoteRowEdit()
+    );
+
+    const args = {};
+    eventListener(root, "click", () => {
+        const { state, rerenderApp } = args.val;
+        state.currentNoteIndex = args.noteIndex;
+        rerenderApp();
+    });
+
+    inputRoot.onKeyDown((e) => {
+        const { state, rerenderApp, debouncedSave } = args.val;
+
+        if (handleNoteInputKeyDown(state, e)) {
+            rerenderApp();
+        }
+
+        // handle saving state with a debounce
+        debouncedSave();
+    });
+
+    return {
+        el: root.el,
+        rerender: (argsIn,  noteIndex) => {
+            args.val = argsIn;
+            args.noteIndex = noteIndex;
+
+            const { state } = args.val;
+            const note = state.notes[noteIndex];
+            const isEditing = state.currentNoteIndex === noteIndex;
+
+            setVisible(inputRoot, isEditing);
+            setVisible(showRoot, !isEditing);
+            
+            if (isEditing) {
+                inputRoot.rerender(argsIn, noteIndex);
+            } else {
+                showRoot.rerender(argsIn, noteIndex);
+            }
+        }
+    };
 };
 
-const button = (text, fn) => {
-    const btn = printf(`<button type="button">${text}</button>`);
+const NotesList = () => {
+    let pool = [];
+    const [ root ] = htmlf("<div></div>");
+
+    return {
+        el: root.el,
+        rerender: function(args) {
+            const { state } = args;
+
+            resizeComponentPool(root, pool, state.notes.length, NoteRowInput);
+            for(let i = 0; i < pool.length; i++) {
+                pool[i].rerender(args, i);
+            }
+        }
+    }
+}
+
+const Button = (text, fn) => {
+    const [ btn ] = htmlf(`<button type="button">%c</button>`, text);
     btn.el.addEventListener("click", fn);
     return btn;
 }
 
 const App = (mountPoint) => {
-    const rectViewRoot = printf(`<div --id="rectViewRoot" class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>`).el;
-    const infoButton = printf(
-        `<button --id="infoButton" class="info-button" title="click for help">help?</button>`
-    ).el;
-    const info1 = printf(
-        `<div --id="info1">
-            <p>
-                Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
-                You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
-            </p>
-            <ul>
-                <li>[Enter] to create a new entry</li>
-                <li>Arrows to move around</li>
-                <li>Tab or Shift+Tab to indent/unindent a note</li>
-                <li>Also look at the buttons in the bottom right there</li>
-            </ul>
-        </div>`
-    ).el;
-    const notesMountPoint = printf(
-        `<div --id="notesMountPoint" class="notes-root"></div>`
-    ).el;
-    const info2 = printf(
-        `<div --id="info2">
-            <p>
-                Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-            </p>
-        </div>`
-    ).el;
-    const scratchPad = printf(
-        `<div --id="scratchPad"></div>`
-    ).el;
-    const fixedButtonsMountPoint = printf(
-        `<div --id="fixedButtonsMountPoint"></div>`
-    ).el;
-    
-    const app = printf(
-        `<div class="relative" --id="parent">
-            %r
-            <div class="row align-items-center">
-                <h2>Currently working on</h2>
-                <div class="flex-1"></div>
-                %r
-            </div>
-            %r
-            %r
-            <div style="height: 20px"></div>
-
-            <h2>Scratch Pad</h2>
-            %r
-            %r
-            <div style="height: 300px"></div>
-            %r
-        </div>`,
-        rectViewRoot,
-        infoButton,
-        info1,
-        notesMountPoint,
-        info2,
-        scratchPad,
-        fixedButtonsMountPoint,
-    ).el;
-    mountPoint.appendChild(app);
-
-    const parent = app;
+    const [appRoot, [
+        [rectViewRoot], [_0, [infoButton]], [info1], notesList, [info2], scratchPad, _1, [fixedButtons, [statusTextIndicator, _2]]
+    ]] = htmlf(
+        `<div class="relative">
+            %a
+        </div>`, [
+            // rectViewRoot
+            htmlf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;"></div>`),
+            // title [infoButton]
+            htmlf(
+                `<div class="row align-items-center">
+                    <h2>Currently working on</h2>
+                    <div class="flex-1"></div>
+                    %a
+                </div>`,
+                htmlf(`<button class="info-button" title="click for help">help?</button>`),
+            ),
+            // info1
+            htmlf(
+                `<div>
+                    <p>
+                        Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
+                        You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
+                    </p>
+                    <ul>
+                        <li>[Enter] to create a new entry</li>
+                        <li>Arrows to move around</li>
+                        <li>Tab or Shift+Tab to indent/unindent a note</li>
+                        <li>Also look at the buttons in the bottom right there</li>
+                    </ul>
+                </div>`
+            ),
+            // notesList
+            NotesList(),
+            // info2
+            htmlf(
+                `<div>
+                    <p>
+                        Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
+                    </p>
+                </div>`
+            ),
+            // scratchPad
+            ScratchPad(),
+            // title [_]
+            htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
+            // fixedButtons
+            htmlf(
+                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
+                    %c %a
+                </div>`,
+                htmlf(`<div class="pre-wrap"></div>`), 
+                [
+                    Button("Area view", () => toggleRectView()),
+                    Button("Clear all", () => {
+                        if (!confirm("Are you sure you want to delete all your notes?")) {
+                            return;
+                        }
+                
+                        localStorage.clear();
+                        state = loadState();
+                        rerender();
+                
+                        showStatusText("Cleared notes");
+                    }),
+                    Button("Copy as text", () => {
+                        handleErrors(() => {
+                            navigator.clipboard.writeText(exportAsText(state));
+                            showStatusText("Copied as text");
+                        });
+                    }),
+                    Button("Copy as JSON", () => {
+                        handleErrors(() => {
+                            navigator.clipboard.writeText(JSON.stringify(state));
+                            showStatusText("Copied JSON");
+                        });
+                    })
+                ]
+            ),
+        ]
+    );
+    mountPoint.appendChild(appRoot.el);
+    const parent = appRoot.el;
+    const app = parent;
 
     let state = loadState();
 
-    const statusTextIndicator = printf(`<div class="pre-wrap"></div>`)
-    const fixedButtons = printf(
-        `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
-            %c %a
-        </div>`,
-        statusTextIndicator, [
-            button("Area view", () => toggleRectView()),
-            button("Clear all", () => {
-                if (!confirm("Are you sure you want to delete all your notes?")) {
-                    return;
-                }
-        
-                localStorage.clear();
-                state = loadState();
-                rerender();
-        
-                showStatusText("Cleared notes");
-            }),
-            button("Copy as text", () => {
-                handleErrors(() => {
-                    navigator.clipboard.writeText(exportAsText(state));
-                    showStatusText("Copied as text");
-                });
-            }),
-            button("Copy as JSON", () => {
-                handleErrors(() => {
-                    navigator.clipboard.writeText(JSON.stringify(state));
-                    showStatusText("Copied JSON");
-                });
-            })
-        ]
-    );
-
-    parent.replaceChild(fixedButtons.el, fixedButtonsMountPoint);
-
     // scratch pad
     {
-        ScratchPad(scratchPad, () => state);
+        scratchPad.rerender({ state });
     }
 
     
@@ -858,15 +854,10 @@ const App = (mountPoint) => {
 
     let showInfo = false;
     const updateHelp = () => {
-        if (showInfo) {
-            info1.classList.remove("hidden");
-            info2.classList.remove("hidden");
-        } else {
-            info1.classList.add("hidden");
-            info2.classList.add("hidden");
-        }
+        setVisible(info1, showInfo);
+        setVisible(info2, showInfo);
     }
-    infoButton.addEventListener("click", () => {
+    eventListener(infoButton, "click", () => {
         showInfo = !showInfo;
         updateHelp();    
     });
@@ -909,46 +900,34 @@ const App = (mountPoint) => {
             showStatusText("Saved   ", SAVE_DEBOUNCE);
         }, SAVE_DEBOUNCE);
     };
+
+    const appComponent = {
+        el: appRoot.el,
+        rerender: function(options = { shouldScroll: true}) {
+            fixNoteTree(state);
     
-
-    const elements = [];
-    const inputs = [];
-    const rerender = (options = { shouldScroll: true}) => {
-        fixNoteTree(state);
-
-        stickyPxRef = { val: 0 };
-
-        resizeListRenderPoolWWWW(state.notes, elements, inputs, (i) => {
-            const noteRowInput = NoteRowInput(elements);
-            inputs.push(noteRowInput);
-
-            noteRowInput.onClick = () => {
-                state.currentNoteIndex = i;
-                rerender();
+            const stickyPxRef = { val: 0 };
+            const args = {
+                state, 
+                shouldScroll: options.shouldScroll, 
+                isRectViewOpen,
+                stickyPxRef,
+                rerenderApp: appComponent.rerender,
+                debouncedSave
             };
-
-            noteRowInput.onKeyDown = (e) => {
-                if (handleNoteInputKeyDown(state, e)) {
-                    rerender();
-                }
-        
-                // handle saving state with a debounce
-                debouncedSave();
-            };
-        });
-
-        for (let i = 0; i < inputs.length; i++) {
-            inputs[i].update(state, i, stickyPxRef, options.shouldScroll, isRectViewOpen);
+    
+            // rerender notes list
+            notesList.rerender(args);
+    
+            // rerender area view
+            if (setVisible(rectViewRoot, isRectViewOpen)) {
+                rectViewComponent.rerender(args);
+            }
         }
-
-        replaceChildrenWW(notesMountPoint, elements);
-
-        // handle rendering 'child' components
-        rectViewComponent.rerender();
-        setVisibleWWW(rectViewRoot, isRectViewOpen);
     };
 
-    rerender();
+    appendChild({ el: mountPoint }, appComponent);
+    appComponent.rerender();
 };
 
 App(document.getElementById("app"));

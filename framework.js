@@ -35,6 +35,11 @@ const appendChildrenWWW = (mountPoint, children) => {
     }
 }
 
+const setTextContent = (component, text) => {
+    if (component.el.textContent !== text) {
+        component.el.textContent = text;    // a huge performance speedup!
+    }
+}
 
 
 /** @returns {Object<string, HTMLElement>} */
@@ -53,7 +58,7 @@ const createComponentww = (mountPoint, html) => {
 
     selectedNodes["root"] = createDiv.childNodes[0];
 
-    appendChildren(mountPoint, createDiv.childNodes);
+    appendChild(mountPoint, createDiv.childNodes);
 
     return selectedNodes;
 };
@@ -219,4 +224,8 @@ const resizeListRenderPoolWWWW = (data, elements, components, createFn) => {
             assert(i === components.length - 1, 'it  2')
         }
     }
+}
+
+const addEventListener = (mountPoint, event, fn) => {
+    mountPoint.el.addEventListener(event, fn);
 }
