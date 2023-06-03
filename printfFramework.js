@@ -21,30 +21,6 @@ const __createHtmlElement = (html) => {
     return dst.childNodes[0];
 }
 
-
-// /** @returns {Object<string, HTMLElement>} */
-// const createComponent = (mountPoint, html) => {
-//     const createDiv = document.createElement("div");
-//     createDiv.innerHTML = html.trim();
-
-//     const selectedNodes = {};
-//     createDiv.querySelectorAll("[--id]").forEach((sel) => {
-//         const names = sel.getAttribute("--id");
-//         sel.removeAttribute("--id");
-//         names.split(' ').forEach(name => {
-//             selectedNodes[name] = sel;
-//         });
-//     });
-
-//     selectedNodes["root"] = createDiv.childNodes[0];
-
-//     appendChildren(mountPoint, createDiv.childNodes);
-
-//     return selectedNodes;
-// };
-
-
-
 const __textAt = (str, pos, comparison) => {
     for(let i = 0; i < comparison.length; i++) {
         if (str[pos + i] !== comparison[i]) return false;
@@ -79,7 +55,7 @@ const __getHTMLElementForComponentFormatDirective = (componentOrHTMLfReturnVal, 
 const htmlf_internal = (html, ...args) => {
     const element = __createHtmlElement(html);
     if (args.length === 0) {
-        return [{ el: element }, ...args];
+        return [{ el: element }];
     }
 
     const nodes = __textNodesUnder(element);
@@ -146,7 +122,7 @@ const htmlf_internal = (html, ...args) => {
     }
 
     assert(currentArgIdx === args.length, "Too few format directive args were provided");
-    return [{ el: element }, ...args];
+    return [{ el: element }, args];
 };
 
 /** 
@@ -179,27 +155,6 @@ const __assertIsComponent = (obj) => {
     assert(obj && obj.el, `assertion obj.el && obj.el instanceof HTMLElement failed for obj: ${obj} [typeof ${typeof obj}] `);
     return obj;
 }
-
-// I am still debating whether this is even needed or not
-// /** @returns {{ el: HTMLElement, selected: Object<string, HTMLElement> }} */
-// const create = (html, initFn) => {
-//     const element = __createHtmlElement(null, html);
-
-//     const selectedNodes = {};
-//     selectedNodes[element.tagName.toLowerCase()] = element;
-//     for(const sel of element.querySelectorAll("[--id]")) {
-//         const names = sel.getAttribute("--id");
-//         sel.removeAttribute("--id");
-//         for(const name of names.split(' ')) {
-//             selectedNodes[name] = sel;
-//         }
-//     }
-
-//     initFn(selectedNodes);
-
-//     return { el: element, selected: selectedNodes };
-// };
-
 
 const array = (n, fn) => [...Array(n)].map(fn);
 const replaceChildren2 = (comp, children) => {
@@ -236,151 +191,6 @@ const clearChildren = (mountPoint) => {
     mountPoint.el.replaceChildren();
 }
 
-// const __truncateArray = (arr, newMaxSize) => arr.splice(newMaxSize, arr.length - newMaxSize);
-
-/** Maintains a list of data that is always in sync with it's html, provided we only insert/remove things with the methods provided. */
-// const htmlList = (root, createFn) => {
-//     root = __getHTMLElementForComponentFormatDirective(root);
-//     const dataList = [];
-//     const componentsList = [];
-//     const diffSet = new Set();
-//     root.replaceChildren();  // this clears the children, because replaceChildren expects ...args
-
-//     const getChildNodes = () => root.childNodes;
-
-//     const self = {
-//         el: root,
-//         assertLength: () => {
-//             const children = getChildNodes();
-
-//             assert(
-//                 dataList.length !== componentsList.length || dataList.length !== children.length,
-//                 `${dataList.length} !== ${componentsList.length} || ${dataList.length} !== ${children.length}`
-//             );
-//         },
-//         assertBounds: (i) => {
-//             assert(
-//                 i >= 0 && i < dataList.length, 
-//                 `Index ${i} should have been between 0 and ${dataList.length - 1}`
-//             );
-//         },
-//         length: () => {
-//             self.assertLength();
-//             return dataList.length;
-//         },
-//         push: (data) => {
-//             const children = getChildNodes();
-//             self.insertAt(children.length, data);
-//         },
-//         insertAt: (i, data) => {
-//             assert(
-//                 i >= 0 && i <= dataList.length, 
-//                 `Index ${i} should have been between 0 and ${dataList.length}`
-//             );
-
-//             const newComponent = createFn(data, self);
-//             const children = getChildNodes();
-//             if (i === children.length) {
-//                 root.appendChild(newComponent.el)
-//                 dataList.push(data)
-//                 componentsList.push(newComponent);
-//             } else {
-//                 root.insertBefore(newComponent.el, children[i]);
-//                 dataList.splice(i, 0, data);
-//                 componentsList.splice(i, 0, newComponent);
-//             }
-
-//             try {
-//                 newComponent.onInsert && newComponent.onInsert();            
-//             } catch(err) {
-//                 console.error(err);
-//             }
-
-//             return newComponent;
-//         },
-//         removeAt: (i) => {
-//             if (dataList.length === 0) {
-//                 return;
-//             }
-
-//             self.assertBounds(i);
-
-//             const children = getChildNodes();
-//             children[i].remove();
-//             const component = componentsList[i];
-
-//             try {
-//                 component.onRemove && component.onRemove();
-//             } catch(err) {
-//                 throw err;
-//                 console.error(err);
-//             }
-
-//             componentsList.splice(i, 1);    
-//             dataList.splice(i, 1);
-//         },
-//         replaceAll: (newData) => {
-//             const children = getChildNodes();
-//             for(let i = children.length - 1; i >= 0; i--) {
-//                 self.removeAt(i);
-//             }
-//             dataList.splice(0, dataList.length);
-//             componentsList.splice(0, componentsList.length);
-
-//             for(let i = 0; i < newData.length; i++) {
-//                 self.insertAt(i, newData[i])
-//             }
-//         },
-//         /** Diff the current data with the new data, making as few inserts and removes as possible. Assumes most things are in still in the same order. */
-//         replaceAllSmart: (newData) => {
-//             diffSet.clear();
-
-//             let i = 0,  // old
-//                 j = 0;  // new
-            
-
-//             const diffs = [
-
-//             ];
-
-//             // we want to remove and insert as few things as possible.
-//             for(let i = 0; i < newData.length; i++) {
-//                 if (dataList[i] === newData[i]) continue;
-
-//                 diffs.push()
-//             }
-
-//             assert(newData.length === dataList.length, "something wrong with the diff algo");
-//             for(let i = 0; i < dataList.length; i++) {
-//                 assert(newData[i] !== dataList[i], "something wrong with the diff algo");
-//             }
-//         },
-//         dataAt: (i) => {
-//             self.assertBounds(i);
-//             return dataList[i];
-//         },
-//         componentAt: (i) => {
-//             self.assertBounds(i);
-//             return componentsList[i];
-//         },
-//         indexOf: (data) => {
-//             for(let i = 0; i < dataList.length; i++) {
-//                 if(dataList[i] === data) {
-//                     return i;
-//                 }
-//             }
-
-//             return -1;
-//         },
-//         /** NOTE: this returns a shallow copy */
-//         toArray: () => [...dataList]
-//     }
-
-//     self.replaceAll(dataList);
-
-//     return self;
-// }
-
 const append = (comp, newChild) => {
     comp.el.parentNode.appendChild(newChild.el);
 }
@@ -392,10 +202,6 @@ const setVisible = (component, state) => {
         component.el.classList.add("hidden");
     }
     return state;
-}
-
-const event = (comp, event, fn) => {
-    comp.el.addEventListener(event, fn);
 }
 
 const resizeComponentPool = (root, compPool, newLength, createFn) => {

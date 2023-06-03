@@ -597,7 +597,9 @@ const ScratchPad = () => {
 };
 
 const NoteRowView = () => {
-    const [showRoot, [showText], [showTime]] = htmlf(
+    const [showRoot, [
+        [showText], [showTime]
+    ]] = htmlf(
         `<div class="row">%c%c</div>`,
         htmlf(`<div class="pre-wrap flex-1"></div>`),
         htmlf(`<div class="pre-wrap"></div>`),
@@ -624,7 +626,9 @@ const NoteRowView = () => {
 }
 
 const NoteRowEdit = () => {
-    const [inputRoot, [inputStatus],[input],[inputTimings]] = htmlf(
+    const [inputRoot, [
+        [inputStatus],[input],[inputTimings]
+    ]] = htmlf(
         `<div class="row" style="background-color:#DDD">
             %c
             <div class="flex-1">%c</div>
@@ -689,7 +693,7 @@ const NoteRowEdit = () => {
 
 
 const NoteRowInput = () => {
-    const [root, showRoot, inputRoot] = htmlf(
+    const [root, [showRoot, inputRoot]] = htmlf(
         `<div>%c%c</div>`, NoteRowView(), NoteRowEdit()
     );
 
@@ -757,9 +761,20 @@ const Button = (text, fn) => {
 }
 
 const App = (mountPoint) => {
-    const [appRoot, [
-        [rectViewRoot, rectView], [_0, [infoButton]], [info1], notesList, [info2], _1, scratchPad,  [fixedButtons, [statusTextIndicator, _2]]
-    ]] = htmlf(
+    const [appRoot, [[
+        [rectViewRoot, [rectView]], 
+        [_0, [
+            [infoButton]]
+        ], 
+        [info1], 
+        notesList,
+        [info2], 
+        _1, 
+        scratchPad,
+        [fixedButtons, [
+            [statusTextIndicator],
+        ]]
+    ]]] = htmlf(
         `<div class="relative">
             %a
         </div>`, [
@@ -801,7 +816,7 @@ const App = (mountPoint) => {
                     </p>
                 </div>`
             ),
-            // title [_]
+            // _1
             htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
             // scratchPad
             ScratchPad(),
@@ -810,7 +825,9 @@ const App = (mountPoint) => {
                 `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
                     %c %a
                 </div>`,
+                // statusTextIndicator
                 htmlf(`<div class="pre-wrap"></div>`), 
+                // the buttons
                 [
                     Button("Area view", () => appComponent.toggleRectView()),
                     Button("Clear all", () => {
