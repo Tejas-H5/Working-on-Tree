@@ -173,11 +173,10 @@ const loadState = (name) => {
     return startingState();
 };
 
-const getNoteName = (name) => STATE_KEY_PREFIX + name;
+const getLocalStorageKeyForTreeName = (name) => STATE_KEY_PREFIX + name;
 
 const saveState = (state, name) => {
-    console.log("saving tree", name);
-    localStorage.setItem(getNoteName(name), JSON.stringify(state));
+    localStorage.setItem(getLocalStorageKeyForTreeName(name), JSON.stringify(state));
 }
 
 const deleteNoteIfPossible = (state) => {
@@ -927,8 +926,8 @@ const NotesList = () => {
     }
 }
 
-const Button = (text, fn) => {
-    const [ btn ] = htmlf(`<button type="button" class="solid-border">%c</button>`, text);
+const Button = (text, fn, classes="") => {
+    const [ btn ] = htmlf(`<button type="button" class="solid-border ${classes}">%c</button>`, text);
     eventListener(btn, "click", fn);
     return btn;
 }
@@ -1000,30 +999,51 @@ const CurrentTreeSelector = () =>{
 
     const updateNameButtonList = () => {
         const names = loadAvailableTrees();
-        resizeComponentPool(expandList, nameButtons, names.length, () => {
+        resizeComponentPool(expandList, nameButtons, names.length + 1, () => {
             const [ btn ] = htmlf(`<button class="expand-btn-height text-align-center relative bring-to-front" style="min-width: 200px;"></button>`);
 
             let argsThis = {};
             eventListener(btn, "click", () => {
-                const { loadTree } = args.val;
+                const { loadTree, newTree } = args.val;
                 const { setExpanded } = args;
-                loadTree(argsThis.name);
+                const { name, type } = argsThis;
+
+                if (name) {
+                    loadTree(argsThis.name);
+                } else {
+                    if (type === "new") {
+                        newTree();
+                    }
+                }
+
+                
                 setExpanded(false);
             });
 
             return {
                 el: btn.el,
-                rerender: (name) => {
+                rerender: (name, type) => {
                     argsThis.name = name;
-                    setTextContent(btn, name);
+                    argsThis.type = type;
+
+                    if (name) {
+                        setTextContent(btn, name);
+                    } else {
+                        if (type === "new") {
+                            setTextContent(btn, "+ New tree");
+                        }
+                    }
                 }
             }
         });
 
 
-        for(let i = 0; i < nameButtons.length; i++) {
+        for(let i = 0; i < names.length; i++) {
             nameButtons[i].rerender(names[i]);
         }
+
+        nameButtons[nameButtons.length - 1].rerender("", "new");
+
     }
 
     const args = {
@@ -1052,8 +1072,10 @@ const App = () => {
         _1, 
         [info2], 
         scratchPad,
-        [fixedButtons, [
+        [fixedButtonsRight],
+        [fixedButtonsLeft, [
             [statusTextIndicator],
+            _3
         ]]
     ]]] = htmlf(
         `<div class="relative">
@@ -1106,18 +1128,56 @@ const App = () => {
             ),
             // scratchPad
             ScratchPad(),
-            // fixedButtons
+            // fixedButtons right
             htmlf(
-                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px;">
+                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; left: 5px">
+                    %a
+                </div>`, [
+                    Button("Delete task tree", () => {
+                        handleErrors(() => {
+                            const availableTrees = loadAvailableTrees();
+                            let idx = availableTrees.indexOf(currentTreeName);
+                            if (idx === -1) {
+                                throw new Error("The current tree has not yet been saved.");
+                            }
+
+                            if (availableTrees.length <= 1) {
+                                if (availableTrees.length === 0) {
+                                    throw new Error("There aren't any notes. How in the fuck did that happen?");
+                                }
+    
+                                showStatusText("Can't delete the only note tree page");
+                                return;
+                            }
+    
+                            if (!confirm(`Are you sure you want to delete the note tree ${currentTreeName}?`)) {
+                                return;
+                            }
+    
+                            localStorage.removeItem(getLocalStorageKeyForTreeName(currentTreeName));
+                            const availableTrees2 = loadAvailableTrees();
+
+                            if (idx >= availableTrees2.length) {
+                                idx = availableTrees2.length-1;
+                            }
+                            
+                            loadTree(availableTrees2[idx]);
+                        })
+                    }, "danger"),
+                ]
+            ),
+            // fixedButtons left
+            htmlf(
+                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px">
                     %c %a
                 </div>`,
                 // statusTextIndicator
                 htmlf(`<div class="pre-wrap"></div>`), 
-                // the buttons
+                // right buttons
                 [
                     Button("Area view", () => appComponent.toggleRectView()),
                     Button("Clear all", () => {
-                        if (!confirm("Are you sure you want to delete all your notes?")) {
+                        if (!confirm("Are you sure you want to clear your note tree?")) {
                             return;
                         }
                 
@@ -1154,11 +1214,27 @@ const App = () => {
 
         appComponent.rerender();
     };
+    const newTree = () => {
+        let i = 0;
+        let name;
+        while(i < 100000) {
+            i++;
+            name = "New " + i;
+            if (!localStorage.getItem(getLocalStorageKeyForTreeName(name))) {
+                break;
+            }
+        }
+
+        state = startingState();
+        currentTreeName = name;
+        
+        appComponent.rerender();
+    }
 
     const setCurrentTreeName = (newName) => {
         handleErrors(() => {
             let oldName = currentTreeName;
-            if (localStorage.getItem(getNoteName(newName))) {
+            if (localStorage.getItem(getLocalStorageKeyForTreeName(newName))) {
                 throw new Error("That name is already taken.")
             }
             
@@ -1166,7 +1242,7 @@ const App = () => {
             saveState(state, newName);  // save copy before we delete, in case something goes wrong here (unlikely, but still)
 
 
-            localStorage.removeItem(getNoteName(oldName));
+            localStorage.removeItem(getLocalStorageKeyForTreeName(oldName));
         });
 
         appComponent.rerender();
@@ -1247,7 +1323,8 @@ const App = () => {
                 debouncedSave,
                 handleErrors,
                 currentTreeName,
-                setCurrentTreeName
+                setCurrentTreeName,
+                newTree
             };
     
             // rerender the things

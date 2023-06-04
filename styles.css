@@ -204,3 +204,8 @@ button:active {
 .inline-block {
     display: inline-block;
 }
+
+.danger {
+    background-color: red;
+    color: white;
+}
