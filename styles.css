@@ -86,12 +86,15 @@ button {
     all: unset;
 
     padding: 3px;
-    border: 2px solid black;
-    border-radius: 6px;
 
     background-color: #FFF;
     user-select: none;
     cursor: pointer;
+}
+
+.solid-border {
+    border: 2px solid black;
+    border-radius: 6px;
 }
 
 button:hover {
@@ -159,4 +162,45 @@ button:active {
 
 .v-align-bottom {
     vertical-align: bottom;
+}
+
+.expand-btn-height {
+    height: 50px;
+}
+
+.expand-btn {
+    height: 50px;
+    width: 50px;
+    text-align: center;
+}
+
+.expand-btn::before {
+    content: " > ";
+}
+
+.expand-btn:hover::before {
+    content: "[>]";
+}
+
+.expand-btn.expanded {
+    background-color: #DDD;
+}
+
+.expand-btn.expanded::before {
+    content: " v ";
+}
+.expand-btn.expanded:hover::before {
+    content: "[v]";
+}
+
+.absolute {
+    position: absolute;
+}
+
+.relative {
+    position: relative;
+}
+
+.inline-block {
+    display: inline-block;
 }

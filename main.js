@@ -134,28 +134,51 @@ const createNewNote = (text, indent = 0) => {
     };
 };
 
-const STATE_KEY = "NoteTree.State";
-const loadState = () => {
-    const savedStateJSON = localStorage.getItem(STATE_KEY);
-    if (savedStateJSON) {
-        const loadedState = JSON.parse(savedStateJSON);
-        if (loadedState.currentNoteIndex < 0) {
-            loadedState.currentNoteIndex = 0;
+
+const STATE_KEY_PREFIX = "NoteTree.";
+const loadAvailableTrees = () => {
+    return Object.keys(localStorage).map((key) => {
+        if (!key.startsWith(STATE_KEY_PREFIX)) {
+            return undefined;
+        }
+        
+        const name = key.substring(STATE_KEY_PREFIX.length);
+        if (!name) {
+            return undefined;
         }
 
-        return loadedState;
-    }
+        return name;
+    }).filter((key) => !!key);
+}
 
+const startingState = () => {
     return {
         notes: [createNewNote("First Note")],
         currentNoteIndex: 0,
         scratchPad: ""
     };
+}
+
+const loadState = (name) => {
+    const savedStateJSON = localStorage.getItem(STATE_KEY_PREFIX + name);
+    if (!savedStateJSON) {
+        throw new Error(`Couldn't find ${name}.`);
+    }
+    
+    if (savedStateJSON) {
+        const loadedState = JSON.parse(savedStateJSON);
+        return loadedState;
+    }
+
+    return startingState();
 };
 
-const saveState = (state) => {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
-};
+const getNoteName = (name) => STATE_KEY_PREFIX + name;
+
+const saveState = (state, name) => {
+    console.log("saving tree", name);
+    localStorage.setItem(getNoteName(name), JSON.stringify(state));
+}
 
 const deleteNoteIfPossible = (state) => {
     const pos = state.currentNoteIndex;
@@ -717,15 +740,6 @@ const NoteRowTimestamp = () => {
 
     const args = {};
 
-    const rerender = () => {
-        const { state } = args.val;
-        const note = state.notes[args.noteIndex];
-
-        // setTextContent(root, timeStr);
-        setInputValue(input, getTimeStr(note));
-        input.el.setAttribute("size", input.el.value.length);
-    }
-
     eventListener(input, "change", () => {
         const { state, rerenderApp, handleErrors } = args.val;
         const noteIndex = args.noteIndex;
@@ -797,7 +811,7 @@ const NoteRowTimestamp = () => {
             note.openedAt = newTime;
             rerenderApp();
         }, () => {
-            setInputValue(input, getTimeStr(note));
+            setInputValueAndResize(input, getTimeStr(note));
             rerenderApp();
         });
     });
@@ -811,7 +825,11 @@ const NoteRowTimestamp = () => {
             args.val = argsIn;
             args.noteIndex = noteIndex;
 
-            rerender();
+            const { state } = args.val;
+            const note = state.notes[args.noteIndex];
+
+            // setTextContent(root, timeStr);
+            setInputValueAndResize(input, getTimeStr(note));
         }
     }
 }
@@ -910,15 +928,123 @@ const NotesList = () => {
 }
 
 const Button = (text, fn) => {
-    const [ btn ] = htmlf(`<button type="button">%c</button>`, text);
-    btn.el.addEventListener("click", fn);
+    const [ btn ] = htmlf(`<button type="button" class="solid-border">%c</button>`, text);
+    eventListener(btn, "click", fn);
     return btn;
+}
+
+const CurrentTreeNameEditor = () => {
+    const [treeNameInput] = htmlf(`<input class="inline-block w-100"></input>`);
+
+    eventListener(treeNameInput, "input", () => {
+        resizeInputToValue(treeNameInput);
+    })
+
+    const args = {};
+    eventListener(treeNameInput, "change", () => {
+        const { setCurrentTreeName } = args.val;
+
+        const newName = treeNameInput.el.value;
+        setCurrentTreeName(newName);
+    });
+
+    return {
+        el: treeNameInput.el,
+        rerender: (argsIn) => {
+            args.val = argsIn;
+
+            const { currentTreeName } = args.val;
+            setInputValueAndResize(treeNameInput, currentTreeName);
+        }
+    }
+}
+
+const CurrentTreeSelector = () =>{
+    const [root, [
+        treeNameInput,
+        [expandButton],
+        [expandList],
+    ]] = htmlf(
+        `<span class="row pre-wrap align-items-center">
+            <h2>%c</h2>
+            <span style="width:30px"></span>
+            <div class="relative row">
+                %c
+                %c
+            </div>
+        </span>`,
+        CurrentTreeNameEditor(),
+        htmlf(`<button type="button" class="expand-btn solid-border"></button>`),
+        htmlf(`<div class="absolute solid-border bring-to-front" style="left:100%"></div>`),
+    );
+
+    setVisible(expandList, false)
+    
+    const nameButtons = [];
+
+    let isExpanded = false;
+
+    const setExpanded = (state) => {
+        isExpanded = state;
+        if (setClass(expandButton, "expanded", isExpanded)) {
+            updateNameButtonList(args);
+        } 
+
+        setVisible(expandList, isExpanded);
+    }
+
+    eventListener(expandButton, "click", () => {
+        isExpanded = !isExpanded;
+        setExpanded(isExpanded);
+    });
+
+    const updateNameButtonList = () => {
+        const names = loadAvailableTrees();
+        resizeComponentPool(expandList, nameButtons, names.length, () => {
+            const [ btn ] = htmlf(`<button class="expand-btn-height text-align-center relative bring-to-front" style="min-width: 200px;"></button>`);
+
+            let argsThis = {};
+            eventListener(btn, "click", () => {
+                const { loadTree } = args.val;
+                const { setExpanded } = args;
+                loadTree(argsThis.name);
+                setExpanded(false);
+            });
+
+            return {
+                el: btn.el,
+                rerender: (name) => {
+                    argsThis.name = name;
+                    setTextContent(btn, name);
+                }
+            }
+        });
+
+
+        for(let i = 0; i < nameButtons.length; i++) {
+            nameButtons[i].rerender(names[i]);
+        }
+    }
+
+    const args = {
+        val: null,
+        setExpanded
+    };
+
+    return {
+        el: root.el,
+        rerender: (argsIn) => {
+            args.val = argsIn;
+            treeNameInput.rerender(argsIn);
+        }
+    }
 }
 
 const App = () => {
     const [appRoot, [[
         [rectViewRoot, [rectView]], 
         [_0, [
+            treeSelector,
             [infoButton]]
         ], 
         [info1], 
@@ -940,11 +1066,13 @@ const App = () => {
             // title [infoButton]
             htmlf(
                 `<div class="row align-items-center">
-                    <h2>Currently working on</h2>
+                    %c
                     <div class="flex-1"></div>
-                    %a
+                    %c
                 </div>`,
-                htmlf(`<button class="info-button" title="click for help">help?</button>`),
+                // treeSelector
+                CurrentTreeSelector(),
+                htmlf(`<button class="info-button solid-border" title="click for help">help?</button>`),
             ),
             // info1
             htmlf(
@@ -993,8 +1121,7 @@ const App = () => {
                             return;
                         }
                 
-                        localStorage.clear();
-                        state = loadState();
+                        state = startingState();
                         appComponent.rerender();
                 
                         showStatusText("Cleared notes");
@@ -1016,8 +1143,34 @@ const App = () => {
         ]
     );
 
-    let state = loadState();
+    
+    let currentTreeName = "";
+    let state = {};
+    const loadTree = (name) => {
+        handleErrors(() => {
+            state = loadState(name);
+            currentTreeName = name;
+        });
 
+        appComponent.rerender();
+    };
+
+    const setCurrentTreeName = (newName) => {
+        handleErrors(() => {
+            let oldName = currentTreeName;
+            if (localStorage.getItem(getNoteName(newName))) {
+                throw new Error("That name is already taken.")
+            }
+            
+            currentTreeName = newName;
+            saveState(state, newName);  // save copy before we delete, in case something goes wrong here (unlikely, but still)
+
+
+            localStorage.removeItem(getNoteName(oldName));
+        });
+
+        appComponent.rerender();
+    }
     
     // rect view
     let isRectViewOpen = false;
@@ -1039,7 +1192,6 @@ const App = () => {
     updateHelp();
 
     let statusTextClearTimeout = 0;
-    
     const showStatusText = (text, color = "#000", timeout = STATUS_TEXT_PERSIST_TIME) => {
         if (statusTextClearTimeout) {
             clearTimeout(statusTextClearTimeout);
@@ -1074,7 +1226,7 @@ const App = () => {
         
         showStatusText("Saving...", "#000", -1);
         saveTimeout = setTimeout(() => {
-            saveState(state);
+            saveState(state, currentTreeName);
             showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
         }, SAVE_DEBOUNCE);
     };
@@ -1090,14 +1242,18 @@ const App = () => {
                 shouldScroll: options.shouldScroll, 
                 isRectViewOpen,
                 stickyPxRef,
+                loadTree,
                 rerenderApp: appComponent.rerender,
                 debouncedSave,
-                handleErrors
+                handleErrors,
+                currentTreeName,
+                setCurrentTreeName
             };
     
             // rerender the things
             notesList.rerender(args);
             scratchPad.rerender(args);
+            treeSelector.rerender(args);
             if (setVisible(rectViewRoot, isRectViewOpen)) {
                 rectView.rerender(args);
             }
@@ -1107,6 +1263,8 @@ const App = () => {
             this.rerender({shouldScroll: false});
         }
     };
+
+    loadTree(loadAvailableTrees()[0] || "State");
 
     return appComponent;
 };

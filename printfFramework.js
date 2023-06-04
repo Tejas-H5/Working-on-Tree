@@ -225,6 +225,15 @@ const setVisible = (component, state) => {
     return state;
 }
 
+const setClass = (component, cssClass, state) => {
+    if (state) {
+        component.el.classList.add(cssClass);
+    } else {
+        component.el.classList.remove(cssClass);
+    }
+    return state;
+}
+
 const resizeComponentPool = (root, compPool, newLength, createFn) => {
     while(compPool.length > newLength) {
         // could also just hide these with setVisible(false)
@@ -255,4 +264,13 @@ const setInputValue = (component, text) => {
     if (component.el.value !== text) {
         component.el.value = text;    // a huge performance speedup ? not sure here actually
     }
+}
+
+const setInputValueAndResize = (inputComponent, text) => {
+    setInputValue(inputComponent, text);
+    resizeInputToValue(inputComponent);
+}
+
+const resizeInputToValue = (inputComponent) => {
+    inputComponent.el.setAttribute("size", inputComponent.el.value.length);
 }
