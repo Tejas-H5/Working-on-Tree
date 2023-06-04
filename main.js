@@ -941,10 +941,10 @@ const CurrentTreeNameEditor = () => {
 
     const args = {};
     eventListener(treeNameInput, "change", () => {
-        const { setCurrentTreeName } = args.val;
+        const { renameCurrentTreeName } = args.val;
 
         const newName = treeNameInput.el.value;
-        setCurrentTreeName(newName);
+        renameCurrentTreeName(newName);
     });
 
     return {
@@ -1206,6 +1206,13 @@ const App = () => {
     
     let currentTreeName = "";
     let state = {};
+    const saveCurrentState = () => {
+        // save current note
+        saveState(state, currentTreeName);
+            
+        // save what ting we were on
+        localStorage.setItem("State.currentTreeName", currentTreeName);
+    }
     const loadTree = (name) => {
         handleErrors(() => {
             state = loadState(name);
@@ -1214,7 +1221,7 @@ const App = () => {
 
         appComponent.rerender();
     };
-    const newTree = () => {
+    const newTree = (shouldRerender=true) => {
         let i = 0;
         let name;
         while(i < 100000) {
@@ -1228,10 +1235,12 @@ const App = () => {
         state = startingState();
         currentTreeName = name;
         
-        appComponent.rerender();
+        if (shouldRerender) {   // we should think of a better way to do this next time
+            appComponent.rerender();
+        }
     }
 
-    const setCurrentTreeName = (newName) => {
+    const renameCurrentTreeName = (newName) => {
         handleErrors(() => {
             let oldName = currentTreeName;
             if (localStorage.getItem(getLocalStorageKeyForTreeName(newName))) {
@@ -1302,7 +1311,9 @@ const App = () => {
         
         showStatusText("Saving...", "#000", -1);
         saveTimeout = setTimeout(() => {
-            saveState(state, currentTreeName);
+            saveCurrentState();
+
+            // notification
             showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
         }, SAVE_DEBOUNCE);
     };
@@ -1323,7 +1334,7 @@ const App = () => {
                 debouncedSave,
                 handleErrors,
                 currentTreeName,
-                setCurrentTreeName,
+                renameCurrentTreeName,
                 newTree
             };
     
@@ -1341,7 +1352,19 @@ const App = () => {
         }
     };
 
-    loadTree(loadAvailableTrees()[0] || "State");
+    const initState = () => {
+        const savedCurrentTreeName = localStorage.getItem("State.currentTreeName");
+        const availableTrees = loadAvailableTrees();
+
+        if (!savedCurrentTreeName || availableTrees.length === 0) {
+            newTree(false);
+            saveCurrentState();
+        } else {
+            loadTree(savedCurrentTreeName || availableTrees[0]);
+        }
+    }
+
+    initState();
 
     return appComponent;
 };
