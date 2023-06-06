@@ -795,12 +795,13 @@ const NoteRowTimestamp = () => {
 
             const [hStr, mmStr] = input.el.value.split(':');
             if (!mmStr) {
-                throw new Error("Times must be in the format <hh><colon(:)><mm><space><am or pm>");
+                throw new Error("Times must be in the format hh:mm[am|pm]");
             }
 
-            const [mStr, amPmStr] = mmStr.split(" ");
-            if (!amPmStr) {
-                throw new Error("Times must be in the format <hh><colon(:)><mm><space><am or pm>");
+            const mStr = mmStr.substring(0, 2);
+            const amPmStr = mmStr.substring(2).trim();
+            if (!amPmStr || !mStr) {
+                throw new Error("Times must be in the format hh:mm[am|pm]");
             }
 
             if (!["am", "pm"].includes(amPmStr.toLowerCase())) {
@@ -829,6 +830,13 @@ const NoteRowTimestamp = () => {
             newTime.setMinutes(minutes);
             newTime.setSeconds(0);
             newTime.setMilliseconds(0);
+
+            if(newTime >= nextTime) {
+                // decrement the day by 1. if it's 9:00 am now, and we type 7:00pm, we probably mean yesterday
+                const day = 1000 * 60 * 60 * 24; 
+                newTime -= 1 * day;
+            }
+
 
             if (previousTime != null && newTime <= previousTime) {
                 throw new Error(`Can't set this task's time to be before the previous task's time (${formatDate(previousTime)})`);
@@ -1256,14 +1264,42 @@ const App = () => {
     
     let currentTreeName = "";
     let state = {};
-    const saveCurrentState = () => {
-        console.log("saving", currentTreeName);
+    let saveTimeout = 0;
+    const saveCurrentState = ({
+        debounced
+    } = { debounced: false }) => {
+        // user can switch to a different note mid-debounce, so we need to save
+        // these here before the debounce
 
-        // save current note
-        saveState(state, currentTreeName);
+        const thisTreeName = currentTreeName;
+        const thisState = state;
+
+        const save = () => {
+            console.log("saving", thisTreeName);
+
+            // save current note
+            saveState(thisState, thisTreeName);
             
-        // save what ting we were on
-        localStorage.setItem("State.currentTreeName", currentTreeName);
+            // save what ting we were on
+            localStorage.setItem("State.currentTreeName", thisTreeName);
+
+            // notification
+            showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
+        }
+
+        if (!debounced) {
+            save();
+            return;
+        }
+
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+        }
+        
+        showStatusText("Saving...", "#000", -1);
+        saveTimeout = setTimeout(() => {
+            save();
+        }, SAVE_DEBOUNCE);
     }
     const loadTree = (name, renderOptions, onError) => {
         handleErrors(() => {
@@ -1392,19 +1428,11 @@ const App = () => {
     }
 
 
-    let saveTimeout = 0;
+    
     const debouncedSave = () => {
-        if (saveTimeout) {
-            clearTimeout(saveTimeout);
-        }
-        
-        showStatusText("Saving...", "#000", -1);
-        saveTimeout = setTimeout(() => {
-            saveCurrentState();
-
-            // notification
-            showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
-        }, SAVE_DEBOUNCE);
+        saveCurrentState({
+            debounced: true
+        });
     };
 
     const appComponent = {
