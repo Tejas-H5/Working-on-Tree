@@ -151,6 +151,16 @@ const getAvailableTrees = () => {
     }).filter((key) => !!key).sort();
 }
 
+const merge = (a, b) => {
+    for(k in b) {
+        if (a[k] === undefined) {
+            a[k] = b[k];
+        }
+    }
+
+    return a;
+}
+
 const startingState = () => {
     return {
         notes: [createNewNote("First Note")],
@@ -167,7 +177,11 @@ const loadState = (name) => {
     
     if (savedStateJSON) {
         const loadedState = JSON.parse(savedStateJSON);
-        return loadedState;
+
+        // prevents missing item cases that may occur when trying to load an older version of the state.
+        // it is our way of migrating the schema. 
+        const mergedState = merge(loadedState, startingState());
+        return mergedState;
     }
 
     return startingState();
@@ -589,8 +603,16 @@ const RectView = () => {
 }
 
 const ScratchPad = () => {
-    const [textInput] = htmlf(`<textarea class="scratch-pad"></textarea>`);
+    const [root, [
+            [textArea]
+     ]] = htmlf(
+        `<div>%c</div>`, // allows overscroll
+        htmlf(`<textarea class="scratch-pad"></textarea>`)
+    );
 
+    const [mirrorDiv] = htmlf(`<div></div>`);
+
+    // const mirrorDiv = createMirrorDivForTextArea(textArea);
     const args = {};
 
     const onEdit = () => {
@@ -599,7 +621,7 @@ const ScratchPad = () => {
     }
 
     // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
-    eventListener(textInput, "keydown", (e) => {
+    eventListener(textArea, "keydown", (e) => {
         if (e.keyCode !== 9) return;
 
         e.preventDefault();
@@ -611,24 +633,38 @@ const ScratchPad = () => {
         onEdit();
     });
 
-    eventListener(textInput, "input", () => {
+    eventListener(textArea, "input", () => {
         const { state } = args.val;
-        state.scratchPad = textInput.el.value;
+        state.scratchPad = textArea.el.value;
+
+        // automatically resize the text area to the content + some overflow
+        textArea.el.style.height = 0;
+        textArea.el.style.height = (textArea.el.scrollHeight) + "px"
+
+        // TODO: unsolved problem in computer science - scroll the window to the vertical position
+        // of the cursor in the text area. Damn. 
+
         onEdit();
     });
 
     return {
-        el: textInput.el,
+        el: root.el,
         rerender: (argsIn) => {
             args.val = argsIn;
             const { state } = argsIn;
 
-            if (textInput.el.value !== state.scratchPad) {
-                textInput.el.value = state.scratchPad;
+            if (textArea.el.value !== state.scratchPad) {
+                textArea.el.value = state.scratchPad;
+
+                setTimeout(() => {
+                    // automatically resize the text area to the content + some overflow
+                    textArea.el.style.height = 0;
+                    textArea.el.style.height = (textArea.el.scrollHeight) + "px"
+                }, 0)
             }
         },
         getText: () => {
-            return textInput.el.value;
+            return textArea.el.value;
         }
     };
 };
@@ -845,38 +881,20 @@ const NoteRowStatistic = () => {
     }
 }
 
-const PushOntoQueueButton = () => {
-    const [root] = htmlf(
-    `<button type="button" class="solid-border bring-to-front"><span title="Push onto queue">-></span></button>`
-    );
-    const args = {};
-
-    eventListener
-
-    return {
-        el: root.el,
-        rerender: (argsIn) => {
-            args.val = argsIn;
-        }
-    }
-}
 
 const NoteRowInput = () => {
     const [root, [
         timestamp, 
         text, 
-        pushOntoQueueButton,
         statistic
     ]] = htmlf(
         `<div class="row">
             %c
             %c
             %c
-            %c
         </div>`,
         NoteRowTimestamp(),
         NoteRowText(),
-        PushOntoQueueButton(),
         NoteRowStatistic()
     );
 
@@ -904,10 +922,6 @@ const NoteRowInput = () => {
             timestamp.rerender(argsIn, noteIndex);
             text.rerender(argsIn, noteIndex);
             statistic.rerender(argsIn, noteIndex);
-            if (setVisible(pushOntoQueueButton, noteIndex === state.currentNoteIndex)) {
-                pushOntoQueueButton.rerender(argsIn);
-            }
-
             if (!isRectViewOpen && (note.isSelected || !note.isDone)) {
                 setTimeout(() => {
                     // sticky. do it
@@ -1102,68 +1116,6 @@ const CurrentTreeSelector = () =>{
 }
 
 
-
-/**
- * 
-The same component in react would be like this:
-
-const TaskQueue = (props) => {
-    const state = useStateContext();
-
-    return (
-        <>
-            {state.queue.length === 0 && (
-                <div>The queue is currently empty</div>
-            ) :  (
-                state.queue.map(item => (
-                    <div>{item.name}</div>
-                ))
-            )}
-        </>
-    )
-}
-
-
-I have to seriously reconsider using this framework, especially for making anything quickly.
-Or at least, stop using the pooling approach for everything.
-Or, rethink my pooling approach / data flow to be simpler. 
-*/
-
-const TaskQueue = () => {
-    const [root, [
-        [empty],
-        [listRoot]
-    ]] = htmlf(`<div class="hidden">%c%c</div>`, 
-        htmlf(`<div class="text-align-center">The queue is currently empty (and is not yet implemented)</div>`),
-        htmlf(`<div class="col"></div>`),
-    );
-
-    const args = {};
-    return {
-        el: root.el,
-        rerender: (argsIn) => {
-            args.val = argsIn;
-
-            const { state } = args.val;
-
-            if (!state.queue) {
-                state.queue = [];
-            }
-
-            // setVisible(empty, state.queue.length === 0);
-            // console.log(empty.el.textContent)
-            replaceChildren1(
-                listRoot,
-                state.queue.map((item) => {
-                    return htmlf(`<div>${item.name}</div>`);
-                })
-            );
-
-            // updateList();
-        }
-    }
-}
-
 const App = () => {
     const [appRoot, [[
         [rectViewRoot, [rectView]], 
@@ -1174,8 +1126,6 @@ const App = () => {
             [infoButton]]
         ], 
         notesList,
-        _05,
-        taskQueue,
         _1, 
         [info2], 
         scratchPad,
@@ -1185,7 +1135,7 @@ const App = () => {
             _3
         ]],
     ]]] = htmlf(
-        `<div class="relative">
+        `<div class="relative" style="padding-bottom: 100px">
             %a
         </div>`, [
             // rectViewRoot
@@ -1224,10 +1174,6 @@ const App = () => {
             ),
             // notesList
             NotesList(),
-            // _05
-            htmlf(`<h2 class="hidden" style="marginTop: 20px;">Queue</h2>`),
-            // taskQueue
-            TaskQueue(),
             // _1
             htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
             // info2
@@ -1319,7 +1265,7 @@ const App = () => {
         // save what ting we were on
         localStorage.setItem("State.currentTreeName", currentTreeName);
     }
-    const loadTree = (name, renderOptions) => {
+    const loadTree = (name, renderOptions, onError) => {
         handleErrors(() => {
             state = loadState(name);
             currentTreeName = name;
@@ -1331,7 +1277,7 @@ const App = () => {
                 state = loadState(availableTrees[0]);
                 currentTreeName = availableTrees[0];
                 appComponent.rerender(renderOptions);
-            })
+            }, onError)
         });
     };
     const newTree = (shouldRerender=true) => {
@@ -1483,7 +1429,6 @@ const App = () => {
             };
     
             // rerender the things
-            taskQueue.rerender(args);
             notesList.rerender(args);
             scratchPad.rerender(args);
             treeSelector.rerender(args);

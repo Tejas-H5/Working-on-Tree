@@ -227,13 +227,11 @@ const setVisible = (component, state) => {
 }
 
 const setClass = (component, cssClass, state) => {
-    console.log(component.el.classList, state);
     if (state) {
         component.el.classList.add(cssClass);
     } else {
         component.el.classList.remove(cssClass);
     }
-    console.log(component.el.classList);
     return state;
 }
 
