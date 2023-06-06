@@ -136,7 +136,7 @@ const createNewNote = (text, indent = 0) => {
 
 
 const STATE_KEY_PREFIX = "NoteTree.";
-const loadAvailableTrees = () => {
+const getAvailableTrees = () => {
     return Object.keys(localStorage).map((key) => {
         if (!key.startsWith(STATE_KEY_PREFIX)) {
             return undefined;
@@ -148,7 +148,7 @@ const loadAvailableTrees = () => {
         }
 
         return name;
-    }).filter((key) => !!key);
+    }).filter((key) => !!key).sort();
 }
 
 const startingState = () => {
@@ -626,6 +626,9 @@ const ScratchPad = () => {
             if (textInput.el.value !== state.scratchPad) {
                 textInput.el.value = state.scratchPad;
             }
+        },
+        getText: () => {
+            return textInput.el.value;
         }
     };
 };
@@ -649,7 +652,7 @@ const NoteRowText = () => {
     ]] = htmlf(`<div class="pre-wrap flex-1" style="margin-left: 10px; padding-left: 10px;border-left: 1px solid black;"><div class="row v-align-bottom">%c%c%c</div></div>`,
         htmlf(`<div class="pre-wrap"></div>`),
         htmlf(`<div class="pre-wrap"></div>`),
-        htmlf(`<input class="flex-1" style="background-color: #DDD"></input>`)
+        htmlf(`<input class="flex-1"></input>`)
     );
 
     let args = {};
@@ -686,9 +689,6 @@ const NoteRowText = () => {
     let isEditing = false;
     return {
         el: cell.el,
-        setColor: function(col) {
-            this.el.style.color = col;
-        },
         rerender: function(argsIn, noteIndex) {
             args.val = argsIn;
             args.noteIndex = noteIndex;
@@ -817,9 +817,6 @@ const NoteRowTimestamp = () => {
 
     return {
         el: root.el,
-        setColor: function(col) {
-            this.el.style.color = col;
-        },
         rerender: function(argsIn, noteIndex) {
             args.val = argsIn;
             args.noteIndex = noteIndex;
@@ -839,9 +836,6 @@ const NoteRowStatistic = () => {
 
     return {
         el: root.el,
-        setColor: function(col) {
-            this.el.style.color = col;
-        },
         rerender: function(argsIn, noteIndex) {
             const { state } = argsIn;
             ;
@@ -851,15 +845,38 @@ const NoteRowStatistic = () => {
     }
 }
 
+const PushOntoQueueButton = () => {
+    const [root] = htmlf(
+    `<button type="button" class="solid-border bring-to-front"><span title="Push onto queue">-></span></button>`
+    );
+    const args = {};
+
+    eventListener
+
+    return {
+        el: root.el,
+        rerender: (argsIn) => {
+            args.val = argsIn;
+        }
+    }
+}
+
 const NoteRowInput = () => {
     const [root, [
         timestamp, 
         text, 
+        pushOntoQueueButton,
         statistic
     ]] = htmlf(
-        `<div class="row">%c%c%c</div>`,
+        `<div class="row">
+            %c
+            %c
+            %c
+            %c
+        </div>`,
         NoteRowTimestamp(),
         NoteRowText(),
+        PushOntoQueueButton(),
         NoteRowStatistic()
     );
 
@@ -882,13 +899,14 @@ const NoteRowInput = () => {
             const textColor = note.isSelected ? "black" : 
                 (!note.isDone ? "black" : "gray");
 
-            timestamp.setColor(textColor);
-            text.setColor(textColor);
-            statistic.setColor(textColor);
+            root.el.style.color = textColor;
 
             timestamp.rerender(argsIn, noteIndex);
             text.rerender(argsIn, noteIndex);
             statistic.rerender(argsIn, noteIndex);
+            if (setVisible(pushOntoQueueButton, noteIndex === state.currentNoteIndex)) {
+                pushOntoQueueButton.rerender(argsIn);
+            }
 
             if (!isRectViewOpen && (note.isSelected || !note.isDone)) {
                 setTimeout(() => {
@@ -927,7 +945,7 @@ const NotesList = () => {
 }
 
 const Button = (text, fn, classes="") => {
-    const [ btn ] = htmlf(`<button type="button" class="solid-border ${classes}">%c</button>`, text);
+    const [ btn ] = htmlf(`<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%c</button>`, text);
     eventListener(btn, "click", fn);
     return btn;
 }
@@ -958,104 +976,190 @@ const CurrentTreeNameEditor = () => {
     }
 }
 
+// will be more of a tabbed view
 const CurrentTreeSelector = () =>{
     const [root, [
-        treeNameInput,
-        [expandButton],
-        [expandList],
+        [tabsRoot],
+        [newButton]
     ]] = htmlf(
-        `<span class="row pre-wrap align-items-center">
-            <h2>%c</h2>
-            <span style="width:30px"></span>
-            <div class="relative row">
-                %c
-                %c
-            </div>
-        </span>`,
-        CurrentTreeNameEditor(),
-        htmlf(`<button type="button" class="expand-btn solid-border"></button>`),
-        htmlf(`<div class="absolute solid-border bring-to-front" style="left:100%"></div>`),
+        `<div>
+            <span class="row pre-wrap align-items-center">
+                %c %c
+            </span>
+            <div style="outline-bottom: 1px solid black;"></div>
+        </div>`
+        ,
+        htmlf(`<span class="row pre-wrap align-items-center"></span>`),
+        htmlf(
+            `<button 
+                type="button" 
+                class="pre-wrap text-align-center"
+                style="margin-left: 5px;"
+            > + </button>`
+        ),
     );
 
-    setVisible(expandList, false)
-    
-    const nameButtons = [];
+    const args = {
+        val: null,
+    };
 
-    let isExpanded = false;
+    eventListener(newButton, "click", () => {
+        const { newTree } = args.val;
+        newTree();
+    })
 
-    const setExpanded = (state) => {
-        isExpanded = state;
-        if (setClass(expandButton, "expanded", isExpanded)) {
-            updateNameButtonList(args);
-        } 
-
-        setVisible(expandList, isExpanded);
-    }
-
-    eventListener(expandButton, "click", () => {
-        isExpanded = !isExpanded;
-        setExpanded(isExpanded);
-    });
-
-    const updateNameButtonList = () => {
-        const names = loadAvailableTrees();
-        resizeComponentPool(expandList, nameButtons, names.length + 1, () => {
-            const [ btn ] = htmlf(`<button class="expand-btn-height text-align-center relative bring-to-front" style="min-width: 200px;"></button>`);
-
+    const tabComponents = [];
+    const updateTabsList = () => {
+        const names = getAvailableTrees();
+        resizeComponentPool(tabsRoot, tabComponents, names.length, () => {
+            const [root, [
+                [btn],
+                [input],
+                [closeBtn]
+            ]] = htmlf(
+                `<div 
+                    class="relative" 
+                    style="margin-left:2px;outline:2px solid black; border-top-right-radius: 5px;"
+                >%c%c%c</div>`,
+                htmlf(
+                    `<button 
+                        type="button" 
+                        class="tab-button pre-wrap text-align-center bring-to-front"
+                        style="padding: 2px 20px;"
+                    ></button>`
+                ),
+                htmlf(
+                    `<input 
+                        class="pre-wrap text-align-center bring-to-front"
+                        style="margin-right: 20px;padding: 2px 20px; "
+                    ></input>`
+                ),
+                htmlf(
+                    `<button 
+                        type="button" 
+                        class="pre-wrap text-align-center bring-to-front"
+                        style="position:absolute; right: 5px; background-color:transparent;"
+                    > x </button>`
+                ),
+            )
+            
             let argsThis = {};
             eventListener(btn, "click", () => {
-                const { loadTree, newTree } = args.val;
-                const { setExpanded } = args;
-                const { name, type } = argsThis;
+                const { loadTree } = args.val;
+                const { name } = argsThis;
 
-                if (name) {
-                    loadTree(argsThis.name);
-                } else {
-                    if (type === "new") {
-                        newTree();
-                    }
-                }
-
-                
-                setExpanded(false);
+                loadTree(name, {
+                    shouldScroll: false
+                });
             });
 
-            return {
-                el: btn.el,
-                rerender: (name, type) => {
-                    argsThis.name = name;
-                    argsThis.type = type;
+            eventListener(input, "change", () => {
+                const { renameCurrentTreeName } = args.val;
+                renameCurrentTreeName(input.el.value);
+            })
 
-                    if (name) {
-                        setTextContent(btn, name);
+            eventListener(closeBtn, "click", () => {
+                const { deleteCurrentTree } = args.val;
+                deleteCurrentTree();
+            })
+
+            return {
+                el: root.el,
+                rerender: (name) => {
+                    argsThis.name = name;
+
+                    const { currentTreeName } = args.val;
+
+                    const isFocused = currentTreeName === name;
+                    setVisible(input, isFocused);
+                    setVisible(closeBtn, isFocused);
+                    setVisible(btn, !isFocused);
+
+                    if (setClass(root, "focused", isFocused)) {
+                        setVisible(input, true)
+                        setInputValueAndResize(input, name);
                     } else {
-                        if (type === "new") {
-                            setTextContent(btn, "+ New tree");
-                        }
+                        setTextContent(btn, name);
                     }
                 }
             }
         });
 
-
         for(let i = 0; i < names.length; i++) {
-            nameButtons[i].rerender(names[i]);
+            tabComponents[i].rerender(names[i]);
         }
-
-        nameButtons[nameButtons.length - 1].rerender("", "new");
-
     }
 
-    const args = {
-        val: null,
-        setExpanded
-    };
+
 
     return {
         el: root.el,
         rerender: (argsIn) => {
             args.val = argsIn;
-            treeNameInput.rerender(argsIn);
+            updateTabsList();
+        }
+    }
+}
+
+
+
+/**
+ * 
+The same component in react would be like this:
+
+const TaskQueue = (props) => {
+    const state = useStateContext();
+
+    return (
+        <>
+            {state.queue.length === 0 && (
+                <div>The queue is currently empty</div>
+            ) :  (
+                state.queue.map(item => (
+                    <div>{item.name}</div>
+                ))
+            )}
+        </>
+    )
+}
+
+
+I have to seriously reconsider using this framework, especially for making anything quickly.
+Or at least, stop using the pooling approach for everything.
+Or, rethink my pooling approach / data flow to be simpler. 
+*/
+
+const TaskQueue = () => {
+    const [root, [
+        [empty],
+        [listRoot]
+    ]] = htmlf(`<div class="hidden">%c%c</div>`, 
+        htmlf(`<div class="text-align-center">The queue is currently empty (and is not yet implemented)</div>`),
+        htmlf(`<div class="col"></div>`),
+    );
+
+    const args = {};
+    return {
+        el: root.el,
+        rerender: (argsIn) => {
+            args.val = argsIn;
+
+            const { state } = args.val;
+
+            if (!state.queue) {
+                state.queue = [];
+            }
+
+            // setVisible(empty, state.queue.length === 0);
+            // console.log(empty.el.textContent)
+            replaceChildren1(
+                listRoot,
+                state.queue.map((item) => {
+                    return htmlf(`<div>${item.name}</div>`);
+                })
+            );
+
+            // updateList();
         }
     }
 }
@@ -1063,20 +1167,23 @@ const CurrentTreeSelector = () =>{
 const App = () => {
     const [appRoot, [[
         [rectViewRoot, [rectView]], 
+        _00,
+        [info1], 
         [_0, [
             treeSelector,
             [infoButton]]
         ], 
-        [info1], 
         notesList,
+        _05,
+        taskQueue,
         _1, 
         [info2], 
         scratchPad,
-        [fixedButtonsRight],
-        [fixedButtonsLeft, [
+        [fixedButtons, [
+            _2, 
             [statusTextIndicator],
             _3
-        ]]
+        ]],
     ]]] = htmlf(
         `<div class="relative">
             %a
@@ -1085,26 +1192,14 @@ const App = () => {
             htmlf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`,
                 RectView()
             ),
-            // title [infoButton]
-            htmlf(
-                `<div class="row align-items-center">
-                    %c
-                    <div class="flex-1"></div>
-                    %c
-                </div>`,
-                // treeSelector
-                CurrentTreeSelector(),
-                htmlf(`<button class="info-button solid-border" title="click for help">help?</button>`),
-            ),
+            // title
+            htmlf(`<h2>Currently working on</h2>`),
             // info1
             htmlf(
                 `<div>
                     <p>
                         Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
                         You can only create new entries at the bottom, and the final entry is always assumed to be unfinished.
-                    </p>
-                    <p>
-                        In the future, I might add the ability to have multiple of these.
                     </p>
                     <ul>
                         <li>[Enter] to create a new entry</li>
@@ -1114,8 +1209,25 @@ const App = () => {
                     </ul>
                 </div>`
             ),
+            // _0 [infoButton]
+            htmlf(
+                `<div>
+                    <div class="row align-items-end">
+                        %c
+                        <div class="flex-1"></div>
+                        %c
+                    </div>
+                </div>`,
+                // treeSelector
+                CurrentTreeSelector(),
+                htmlf(`<button class="info-button" title="click for help">help?</button>`),
+            ),
             // notesList
             NotesList(),
+            // _05
+            htmlf(`<h2 class="hidden" style="marginTop: 20px;">Queue</h2>`),
+            // taskQueue
+            TaskQueue(),
             // _1
             htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
             // info2
@@ -1128,49 +1240,17 @@ const App = () => {
             ),
             // scratchPad
             ScratchPad(),
-            // fixedButtons right
-            htmlf(
-                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; left: 5px">
-                    %a
-                </div>`, [
-                    Button("Delete task tree", () => {
-                        handleErrors(() => {
-                            const availableTrees = loadAvailableTrees();
-                            let idx = availableTrees.indexOf(currentTreeName);
-                            if (idx === -1) {
-                                throw new Error("The current tree has not yet been saved.");
-                            }
-
-                            if (availableTrees.length <= 1) {
-                                if (availableTrees.length === 0) {
-                                    throw new Error("There aren't any notes. How in the fuck did that happen?");
-                                }
-    
-                                showStatusText("Can't delete the only note tree page");
-                                return;
-                            }
-    
-                            if (!confirm(`Are you sure you want to delete the note tree ${currentTreeName}?`)) {
-                                return;
-                            }
-    
-                            localStorage.removeItem(getLocalStorageKeyForTreeName(currentTreeName));
-                            const availableTrees2 = loadAvailableTrees();
-
-                            if (idx >= availableTrees2.length) {
-                                idx = availableTrees2.length-1;
-                            }
-                            
-                            loadTree(availableTrees2[idx]);
-                        })
-                    }, "danger"),
-                ]
-            ),
             // fixedButtons left
             htmlf(
-                `<div class="fixed row gap-5 align-items-center" style="bottom: 5px; right: 5px">
-                    %c %a
+                `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
+                    <div>%a</div>
+                    <span class="flex-1"></span>
+                    <div>%c</div>
+                    <div>%a</div>
                 </div>`,
+                [
+                    // Button("Delete task tree",, "danger"),
+                ],
                 // statusTextIndicator
                 htmlf(`<div class="pre-wrap"></div>`), 
                 // right buttons
@@ -1192,9 +1272,33 @@ const App = () => {
                             showStatusText("Copied as text");
                         });
                     }),
+                    Button("Load JSON from scratch pad", () => {
+                        handleErrors(() => {
+                            try {
+                                const lsKeys = JSON.parse(scratchPad.getText());
+                                localStorage.clear();
+                                for(const key in lsKeys) {
+                                    localStorage.setItem(key, lsKeys[key]);
+                                }
+                            } catch {
+                                throw new Error("Scratch pad must contain valid JSON");
+                            }
+
+                            if (!confirm("This will erase all your current trees. Are you sure?")) {
+                                return;
+                            }
+
+                            initState();
+                        });
+                    }),
                     Button("Copy as JSON", () => {
                         handleErrors(() => {
-                            navigator.clipboard.writeText(JSON.stringify(state));
+                            const lsKeys = {};
+                            for (const [key, value] of Object.entries(localStorage)) {
+                                lsKeys[key] = value;
+                            }
+                            
+                            navigator.clipboard.writeText(JSON.stringify(lsKeys));
                             showStatusText("Copied JSON");
                         });
                     })
@@ -1207,19 +1311,28 @@ const App = () => {
     let currentTreeName = "";
     let state = {};
     const saveCurrentState = () => {
+        console.log("saving", currentTreeName);
+
         // save current note
         saveState(state, currentTreeName);
             
         // save what ting we were on
         localStorage.setItem("State.currentTreeName", currentTreeName);
     }
-    const loadTree = (name) => {
+    const loadTree = (name, renderOptions) => {
         handleErrors(() => {
             state = loadState(name);
             currentTreeName = name;
+            appComponent.rerender(renderOptions);
+        }, () => {
+            handleErrors(() => {
+                // try to fallback to the first available tree.
+                const availableTrees = getAvailableTrees();
+                state = loadState(availableTrees[0]);
+                currentTreeName = availableTrees[0];
+                appComponent.rerender(renderOptions);
+            })
         });
-
-        appComponent.rerender();
     };
     const newTree = (shouldRerender=true) => {
         let i = 0;
@@ -1234,13 +1347,13 @@ const App = () => {
 
         state = startingState();
         currentTreeName = name;
+        saveCurrentState();
         
         if (shouldRerender) {   // we should think of a better way to do this next time
             appComponent.rerender();
         }
     }
-
-    const renameCurrentTreeName = (newName) => {
+    const renameCurrentTreeName = (newName, onError) => {
         handleErrors(() => {
             let oldName = currentTreeName;
             if (localStorage.getItem(getLocalStorageKeyForTreeName(newName))) {
@@ -1248,13 +1361,43 @@ const App = () => {
             }
             
             currentTreeName = newName;
-            saveState(state, newName);  // save copy before we delete, in case something goes wrong here (unlikely, but still)
-
-
             localStorage.removeItem(getLocalStorageKeyForTreeName(oldName));
-        });
+
+            saveCurrentState();
+        }, onError);
 
         appComponent.rerender();
+    }
+    const deleteCurrentTree =  () => {
+        handleErrors(() => {
+            const availableTrees = getAvailableTrees();
+            let idx = availableTrees.indexOf(currentTreeName);
+            if (idx === -1) {
+                throw new Error("The current tree has not yet been saved.");
+            }
+
+            if (availableTrees.length <= 1) {
+                if (availableTrees.length === 0) {
+                    throw new Error("There aren't any notes. How in the fuck did that happen?");
+                }
+
+                showStatusText("Can't delete the only note tree page");
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete the note tree ${currentTreeName}?`)) {
+                return;
+            }
+
+            localStorage.removeItem(getLocalStorageKeyForTreeName(currentTreeName));
+            const availableTrees2 = getAvailableTrees();
+
+            if (idx >= availableTrees2.length) {
+                idx = availableTrees2.length-1;
+            }
+            
+            loadTree(availableTrees2[idx]);
+        })
     }
     
     // rect view
@@ -1335,10 +1478,12 @@ const App = () => {
                 handleErrors,
                 currentTreeName,
                 renameCurrentTreeName,
+                deleteCurrentTree,
                 newTree
             };
     
             // rerender the things
+            taskQueue.rerender(args);
             notesList.rerender(args);
             scratchPad.rerender(args);
             treeSelector.rerender(args);
@@ -1354,13 +1499,13 @@ const App = () => {
 
     const initState = () => {
         const savedCurrentTreeName = localStorage.getItem("State.currentTreeName");
-        const availableTrees = loadAvailableTrees();
+        const availableTrees = getAvailableTrees();
 
         if (!savedCurrentTreeName || availableTrees.length === 0) {
             newTree(false);
             saveCurrentState();
         } else {
-            loadTree(savedCurrentTreeName || availableTrees[0]);
+            loadTree(savedCurrentTreeName);
         }
     }
 

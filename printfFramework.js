@@ -178,15 +178,14 @@ const __assertIsComponent = (obj) => {
 }
 
 const array = (n, fn) => [...Array(n)].map(fn);
+
+const replaceChildren1 = (comp, children) => {
+    comp.el.replaceChildren(children.map(c => c.el));
+}
+
 const replaceChildren2 = (comp, children) => {
     const parent = comp.el;
     const existing = parent.childNodes;
-
-    // remove existing nodes
-    let excess = existing.length - children.length;
-    for(let i = 0; i < excess; i++) {
-        existing[children.length + excess - i - 1].remove();
-    }
 
     // add or replace new nodes, while ignoring unchanged ones
     for(let i = 0; i < children.length; i++) {
@@ -201,6 +200,12 @@ const replaceChildren2 = (comp, children) => {
             parent.appendChild(child);
         }
     }
+
+    // remove existing nodes till we have the same length
+    let excess = existing.length - children.length;
+    for(let i = 0; i < excess; i++) {
+        existing[children.length + excess - i - 1].remove();
+    }
 }
 
 const appendChild = (mountPoint, child) => {
@@ -210,10 +215,6 @@ const appendChild = (mountPoint, child) => {
 
 const clearChildren = (mountPoint) => {
     mountPoint.el.replaceChildren();
-}
-
-const append = (comp, newChild) => {
-    comp.el.parentNode.appendChild(newChild.el);
 }
 
 const setVisible = (component, state) => {
@@ -226,11 +227,13 @@ const setVisible = (component, state) => {
 }
 
 const setClass = (component, cssClass, state) => {
+    console.log(component.el.classList, state);
     if (state) {
         component.el.classList.add(cssClass);
     } else {
         component.el.classList.remove(cssClass);
     }
+    console.log(component.el.classList);
     return state;
 }
 
@@ -246,6 +249,10 @@ const resizeComponentPool = (root, compPool, newLength, createFn) => {
         const component = createFn();
         compPool.push(component);
         appendChild(root, component);
+    }
+
+    if (compPool.length !== newLength) {
+        assert("Holy frick");
     }
 }
 
@@ -273,4 +280,20 @@ const setInputValueAndResize = (inputComponent, text) => {
 
 const resizeInputToValue = (inputComponent) => {
     inputComponent.el.setAttribute("size", inputComponent.el.value.length);
+}
+
+// TODO: implement this
+const __updateCachedMap = (root, data, keyFn, map, initFn) => {
+    const dontDelete = new Set();
+    
+    for(let i = 0; i < data.length; i++) {
+        const key = keyFn(data[i]);
+        if (!map.has(key)) {
+            map[key] = initFn();
+        }
+
+        dontDelete.add(key);
+    }
+
+    // TODO: delete from map where not in dontDelete.
 }

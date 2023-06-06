@@ -27,6 +27,18 @@ input {
     white-space: pre-wrap;
 }
 
+input:focus {
+    background-color: rgb(0,0,0,0.2);
+}
+
+.tab-button.focused {
+    background-color: rgb(0,0,0,0.2);
+}
+
+div.focused{
+    background-color: rgb(0,0,0,0.2);
+}
+
 .text-align-center {
     text-align: center;
 }
@@ -85,20 +97,21 @@ textarea {
 button {
     all: unset;
 
-    padding: 3px;
-
     background-color: #FFF;
     user-select: none;
     cursor: pointer;
 }
 
 .solid-border {
-    border: 2px solid black;
+    outline: 2px solid black;
     border-radius: 6px;
 }
 
+.expand-btn.expanded {
+    background-color: rgb(0,0,0,0.2);
+}
 button:hover {
-    background-color: #DDD;
+    background-color: rgb(0,0,0,0.2);
 }
 
 button:active {
@@ -109,16 +122,17 @@ button:active {
     align-items: center;
 }
 
+.align-items-end {
+    align-items: flex-end;
+}
+
 .info-button {
-    border-radius: 500px;
     display: inline-block;
     /* width: 30px; */
 
-    height: 30px;
     text-align: center;
     font-style: italic;
-    padding: 10px;
-    margin: 20px;
+    margin: 10px;
 }
 
 .info-button:hover {
@@ -137,10 +151,6 @@ button:active {
 
 .relative {
     position: relative;
-}
-
-.text-align-center {
-    text-align: center;
 }
 
 .table {
@@ -180,10 +190,6 @@ button:active {
 
 .expand-btn:hover::before {
     content: "[>]";
-}
-
-.expand-btn.expanded {
-    background-color: #DDD;
 }
 
 .expand-btn.expanded::before {
