@@ -480,7 +480,8 @@ const exportAsText = (state) => {
 
     const scratchPad = state.scratchPad;
 
-    return events + "\n\n---------------- Notes ----------------\n" + scratchPad;
+    const notesHeading = "---------------- Notes ----------------";
+    return events + "\n\n" + notesHeading + "\n" + scratchPad + "\n" + "-".repeat(notesHeading.length) + "\n";
 };
 
 const RectView = () => {
@@ -831,7 +832,7 @@ const NoteRowTimestamp = () => {
             newTime.setSeconds(0);
             newTime.setMilliseconds(0);
 
-            if(newTime >= nextTime) {
+            if(nextTime !== null && newTime >= nextTime) {
                 // decrement the day by 1. if it's 9:00 am now, and we type 7:00pm, we probably mean yesterday
                 const day = 1000 * 60 * 60 * 24; 
                 newTime -= 1 * day;
