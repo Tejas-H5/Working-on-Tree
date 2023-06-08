@@ -213,6 +213,10 @@ const appendChild = (mountPoint, child) => {
     mountComponent.el.appendChild(child.el);
 }
 
+const removeChild = (mountPoint, child) =>{
+    child.el.remove();
+}
+
 const clearChildren = (mountPoint) => {
     mountPoint.el.replaceChildren();
 }
@@ -294,4 +298,11 @@ const __updateCachedMap = (root, data, keyFn, map, initFn) => {
     }
 
     // TODO: delete from map where not in dontDelete.
+}
+
+const copyStyles = (src, dst) => {
+    const styles = getComputedStyle(src.el);
+    for(const style of styles) {
+        dst.el.style[style] = styles[style]
+    }
 }

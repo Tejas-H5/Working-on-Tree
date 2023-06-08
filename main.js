@@ -605,14 +605,14 @@ const RectView = () => {
 
 const ScratchPad = () => {
     const [root, [
-            [textArea]
+            [textArea],
+            [mirrorDiv]
      ]] = htmlf(
-        `<div>%c</div>`, // allows overscroll
-        htmlf(`<textarea class="scratch-pad"></textarea>`)
+        `<div>%c%c</div>`, // allows overscroll
+        htmlf(`<textarea class="scratch-pad pre-wrap"></textarea>`),
+        htmlf(`<div></div>`)
     );
-
-    const [mirrorDiv] = htmlf(`<div></div>`);
-
+    
     // const mirrorDiv = createMirrorDivForTextArea(textArea);
     const args = {};
 
@@ -634,17 +634,43 @@ const ScratchPad = () => {
         onEdit();
     });
 
+    eventListener(textArea, "keydown", () => {
+        // NOTE: unsolved problem in computer science - scroll the window to the vertical position
+        // of the cursor in the text area. Damn. (Now solved)
+
+        setTimeout(() => {
+            let wantedScrollPos; {
+                // Inspired by a stack overflow solution, but I actually figured it out myself :0
+                // (Although they needed to find the x and y position of the user's cursor, not just the y position like me)
+                //      for reference: https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
+                appendChild(root, mirrorDiv);
+    
+                copyStyles(textArea, mirrorDiv);
+                mirrorDiv.el.style.height = 0;
+                mirrorDiv.el.style.display = "block";
+                
+                const textUpToCursor = textArea.el.value.substring(0, textArea.el.selectionEnd) + ".";
+                setTextContent(mirrorDiv, textUpToCursor);
+                const wantedHeight = mirrorDiv.el.scrollHeight;
+                wantedScrollPos = textArea.el.offsetTop + wantedHeight;
+                
+                removeChild(root, mirrorDiv);
+            }
+
+            window.scrollTo({
+                left: 0,
+                top: wantedScrollPos - window.innerHeight * (1 - 1 / 3),
+                behavior: "instant"
+            })
+        }, 1)
+    })
+
     eventListener(textArea, "input", () => {
         const { state } = args.val;
         state.scratchPad = textArea.el.value;
-
         // automatically resize the text area to the content + some overflow
         textArea.el.style.height = 0;
         textArea.el.style.height = (textArea.el.scrollHeight) + "px"
-
-        // TODO: unsolved problem in computer science - scroll the window to the vertical position
-        // of the cursor in the text area. Damn. 
-
         onEdit();
     });
 
@@ -1138,6 +1164,7 @@ const App = () => {
         _1, 
         [info2], 
         scratchPad,
+        _paddingForOverlfow,
         [fixedButtons, [
             _2, 
             [statusTextIndicator],
@@ -1195,6 +1222,16 @@ const App = () => {
             ),
             // scratchPad
             ScratchPad(),
+            // _paddingForOverlfow
+            htmlf(
+                `<div>
+                    <div style="height: 1500px"></div>
+                    <div>
+                        Something as trivial as scrolling vertically to where the cursor is in a text input is way too hard to implement in HTML.
+                        I've added this padding to ensure that it works, but you aren't actually supposed to be down here
+                    </div>
+                </div>`
+            ),
             // fixedButtons left
             htmlf(
                 `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
