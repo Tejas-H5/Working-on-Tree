@@ -648,7 +648,7 @@ const ScratchPad = () => {
                 copyStyles(textArea, mirrorDiv);
                 mirrorDiv.el.style.height = 0;
                 mirrorDiv.el.style.display = "block";
-                
+
                 const textUpToCursor = textArea.el.value.substring(0, textArea.el.selectionEnd) + ".";
                 setTextContent(mirrorDiv, textUpToCursor);
                 const wantedHeight = mirrorDiv.el.scrollHeight;
@@ -1061,6 +1061,7 @@ const CurrentTreeSelector = () =>{
     const updateTabsList = () => {
         const names = getAvailableTrees();
         resizeComponentPool(tabsRoot, tabComponents, names.length, () => {
+            // Tabs
             const [root, [
                 [btn],
                 [input],
@@ -1068,7 +1069,7 @@ const CurrentTreeSelector = () =>{
             ]] = htmlf(
                 `<div 
                     class="relative" 
-                    style="margin-left:2px;outline:2px solid black; border-top-right-radius: 5px;"
+                    style="margin-left:2px;outline:2px solid black; border-top-right-radius: 5px; border-top-left-radius: 5px;"
                 >%c%c%c</div>`,
                 htmlf(
                     `<button 
@@ -1127,8 +1128,12 @@ const CurrentTreeSelector = () =>{
                     if (setClass(root, "focused", isFocused)) {
                         setVisible(input, true)
                         setInputValueAndResize(input, name);
+
+                        root.el.style.color = "#000";
                     } else {
                         setTextContent(btn, name);
+
+                        root.el.style.color = "gray";
                     }
                 }
             }
