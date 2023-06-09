@@ -1384,7 +1384,7 @@ const App = () => {
             localStorage.setItem("State.currentTreeName", thisTreeName);
 
             // notification
-            showStatusText("Saved   ", "#000",  SAVE_DEBOUNCE);
+            showStatusText("Saved   ", "var(--fg-color)",  SAVE_DEBOUNCE);
         }
 
         if (!debounced) {
@@ -1396,7 +1396,7 @@ const App = () => {
             clearTimeout(saveTimeout);
         }
         
-        showStatusText("Saving...", "#000", -1);
+        showStatusText("Saving...", "var(--fg-color)", -1);
         saveTimeout = setTimeout(() => {
             save();
         }, SAVE_DEBOUNCE);
