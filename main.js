@@ -13,7 +13,7 @@ const repeatSafe = (str, len) => {
 
 const getNoteStateString = (note) => {
     if (note.isDone) {
-        return " [x] ";
+        return "  [x]";
     } else {
         return "[...]";
     }
@@ -486,7 +486,7 @@ const exportAsText = (state) => {
 
 const RectView = () => {
     const [root] = htmlf(
-        `<div class="bring-to-front row" style="width: 100%; height: 100%; border: 1px solid black;"></div>`
+        `<div class="relative row" style="width: 100%; height: 100%; border: 1px solid var(--fg-color);"></div>`
     );
 
     const args = {};
@@ -712,7 +712,7 @@ const NoteRowText = () => {
         [indent],
         [whenNotEditing],
         [whenEditing]
-    ]] = htmlf(`<div class="pre-wrap flex-1" style="margin-left: 10px; padding-left: 10px;border-left: 1px solid black;"><div class="row v-align-bottom">%c%c%c</div></div>`,
+    ]] = htmlf(`<div class="pre-wrap flex-1" style="margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"><div class="row v-align-bottom">%c%c%c</div></div>`,
         htmlf(`<div class="pre-wrap"></div>`),
         htmlf(`<div class="pre-wrap"></div>`),
         htmlf(`<input class="flex-1"></input>`)
@@ -949,8 +949,8 @@ const NoteRowInput = () => {
             const { state, stickyPxRef, isRectViewOpen } = argsIn;
             const note = state.notes[noteIndex];
 
-            const textColor = note.isSelected ? "black" : 
-                (!note.isDone ? "black" : "gray");
+            const textColor = note.isSelected ? "var(--fg-color)"  : 
+                (!note.isDone ? "var(--fg-color)" : "var(--unfocus-text-color)");
 
             root.el.style.color = textColor;
 
@@ -963,14 +963,12 @@ const NoteRowInput = () => {
                     let top = stickyPxRef.val;
                     stickyPxRef.val += this.el.getBoundingClientRect().height;
 
-                    this.el.style.backgroundColor = "#FFF";
                     this.el.style.position = "sticky";
                     this.el.style.top = top + "px";
                 }, 1);
             } else {
                 this.el.style.position = "static";
                 this.el.style.top = undefined;
-                this.el.style.backgroundColor = "transparent";
             }
         }
     };
@@ -978,7 +976,7 @@ const NoteRowInput = () => {
 
 const NotesList = () => {
     let pool = [];
-    const [root] = htmlf(`<div class="w-100" style="border-top: 1px solid black;border-bottom: 1px solid black;"></div>`);
+    const [root] = htmlf(`<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`);
 
     return {
         el: root.el,
@@ -1035,7 +1033,7 @@ const CurrentTreeSelector = () =>{
             <span class="row pre-wrap align-items-center">
                 %c %c
             </span>
-            <div style="outline-bottom: 1px solid black;"></div>
+            <div style="outline-bottom: 1px solid var(--fg-color);"></div>
         </div>`
         ,
         htmlf(`<span class="row pre-wrap align-items-center"></span>`),
@@ -1069,25 +1067,25 @@ const CurrentTreeSelector = () =>{
             ]] = htmlf(
                 `<div 
                     class="relative" 
-                    style="margin-left:2px;outline:2px solid black; border-top-right-radius: 5px; border-top-left-radius: 5px;"
+                    style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
                 >%c%c%c</div>`,
                 htmlf(
                     `<button 
                         type="button" 
-                        class="tab-button pre-wrap text-align-center bring-to-front"
+                        class="tab-button pre-wrap text-align-center z-index-100"
                         style="padding: 2px 20px;"
                     ></button>`
                 ),
                 htmlf(
                     `<input 
-                        class="pre-wrap text-align-center bring-to-front"
+                        class="pre-wrap text-align-center z-index-100"
                         style="margin-right: 20px;padding: 2px 20px; "
                     ></input>`
                 ),
                 htmlf(
                     `<button 
                         type="button" 
-                        class="pre-wrap text-align-center bring-to-front"
+                        class="pre-wrap text-align-center z-index-100"
                         style="position:absolute; right: 5px; background-color:transparent;"
                     > x </button>`
                 ),
@@ -1129,11 +1127,11 @@ const CurrentTreeSelector = () =>{
                         setVisible(input, true)
                         setInputValueAndResize(input, name);
 
-                        root.el.style.color = "#000";
+                        root.el.style.color = "var(--fg-color)";
                     } else {
                         setTextContent(btn, name);
 
-                        root.el.style.color = "gray";
+                        root.el.style.color = "var(--unfocus-text-color)";
                     }
                 }
             }
@@ -1144,8 +1142,6 @@ const CurrentTreeSelector = () =>{
         }
     }
 
-
-
     return {
         el: root.el,
         rerender: (argsIn) => {
@@ -1155,21 +1151,80 @@ const CurrentTreeSelector = () =>{
     }
 }
 
+const cssRoot = document.querySelector(':root');
+const setCssVars = (vars) => {
+    for(const [k, v] of vars) {
+        cssRoot.style.setProperty(k, v);
+    }
+}
+
+const DarkModeToggle = () => {
+    
+
+    const getTheme = () => {
+        return localStorage.getItem("State.currentTheme");
+    }
+    const setTheme = (theme) => {
+        localStorage.setItem("State.currentTheme", theme);
+
+        const themeName = getTheme();
+
+        if (themeName === "Light") {
+            setCssVars([
+                ["--bg-color", "#FFF"],
+                ["--bg-color-focus", "rgb(0, 0, 0, 0.1)"],
+                ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
+                ["--fg-color", "#000"],
+                ["--unfocus-text-color", "gray"],
+            ]);
+        } else {
+            // assume dark theme
+            setCssVars([
+                ["--bg-color", "#000"],
+                ["--bg-color-focus", "rgb(1, 1, 1, 0.1)"],
+                ["--bg-color-focus-2", "rgb(1, 1, 1, 0.4)"],
+                ["--fg-color", "#EEE"],
+                ["--unfocus-text-color", "gray"],
+            ]);
+        }
+
+        setTextContent(button, themeName);
+    }
+
+    const button = Button("", () => {
+        let themeName = getTheme();
+        if (!themeName || themeName === "Light") {
+            themeName = "Dark";
+        } else {
+            themeName = "Light";
+        }
+
+        setTheme(themeName);
+    });
+
+    setTheme(getTheme());
+
+    return button;
+}
 
 const App = () => {
     const [appRoot, [[
-        [rectViewRoot, [rectView]], 
-        _00,
+        [rectViewRoot, [
+            rectView
+        ]], 
+        [_titleRow, [
+            _title,
+            [infoButton]
+        ]],
         [info1], 
         [_0, [
             treeSelector,
-            [infoButton]]
-        ], 
+        ]], 
         notesList,
         _1, 
         [info2], 
         scratchPad,
-        _paddingForOverlfow,
+        _paddingForOverflow,
         [fixedButtons, [
             _2, 
             [statusTextIndicator],
@@ -1180,11 +1235,16 @@ const App = () => {
             %a
         </div>`, [
             // rectViewRoot
-            htmlf(`<div class="fixed" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`,
+            htmlf(`<div class="fixed z-index-100" style="top:30px;bottom:30px;left:30px;right:30px;background-color:transparent;">%c</div>`,
                 RectView()
             ),
-            // title
-            htmlf(`<h2>Currently working on</h2>`),
+            // _titleRow
+            htmlf(`<div class="row align-items-center">%c<span class="flex-1"></span>%c</div>`,
+                // _title
+                htmlf(`<h2>Currently working on</h2>`),
+                // infoButton
+                htmlf(`<button class="info-button" title="click for help">help?</button>`),
+            ),
             // info1
             htmlf(
                 `<div>
@@ -1200,18 +1260,15 @@ const App = () => {
                     </ul>
                 </div>`
             ),
-            // _0 [infoButton]
+            // _0
             htmlf(
                 `<div>
                     <div class="row align-items-end">
-                        %c
-                        <div class="flex-1"></div>
                         %c
                     </div>
                 </div>`,
                 // treeSelector
                 CurrentTreeSelector(),
-                htmlf(`<button class="info-button" title="click for help">help?</button>`),
             ),
             // notesList
             NotesList(),
@@ -1227,7 +1284,7 @@ const App = () => {
             ),
             // scratchPad
             ScratchPad(),
-            // _paddingForOverlfow
+            // _paddingForOverflow
             htmlf(
                 `<div>
                     <div style="height: 1500px"></div>
@@ -1246,7 +1303,7 @@ const App = () => {
                     <div>%a</div>
                 </div>`,
                 [
-                    // Button("Delete task tree",, "danger"),
+                    DarkModeToggle(),
                 ],
                 // statusTextIndicator
                 htmlf(`<div class="pre-wrap"></div>`), 
@@ -1445,7 +1502,7 @@ const App = () => {
     updateHelp();
 
     let statusTextClearTimeout = 0;
-    const showStatusText = (text, color = "#000", timeout = STATUS_TEXT_PERSIST_TIME) => {
+    const showStatusText = (text, color = "var(--fg-color)", timeout = STATUS_TEXT_PERSIST_TIME) => {
         if (statusTextClearTimeout) {
             clearTimeout(statusTextClearTimeout);
         }
