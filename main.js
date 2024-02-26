@@ -511,7 +511,7 @@ const dfsPost = (state, note, fn) => {
 
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
-const fixNoteTree = (state) => {
+const recomputeState = (state) => {
     assert(!!state, "WTF");
 
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
@@ -720,13 +720,11 @@ const exportAsText = (state) => {
 
 
 const ScratchPad = () => {
-    const [root, [
-            [textArea],
-            [mirrorDiv]
-     ]] = htmlf(
-        `<div>%c%c</div>`, // allows overscroll
-        htmlf(`<textarea class="scratch-pad pre-wrap"></textarea>`),
-        htmlf(`<div></div>`)
+    const textArea = htmlf(`<textarea class="scratch-pad pre-wrap"></textarea>`)
+    const mirrorDiv = htmlf(`<div></div>`);
+    const root = htmlf(
+        `<div>%{textArea}%{mirrorDiv}</div>`,
+        { textArea, mirrorDiv }
     );
     
     // const mirrorDiv = createMirrorDivForTextArea(textArea);
@@ -813,7 +811,7 @@ const ScratchPad = () => {
 };
 
 const TextArea = () => {
-    const [root] = htmlf(`<textarea class="flex-1"></textarea>`);
+    const root = htmlf(`<textarea class="flex-1"></textarea>`);
 
     // https://stackoverflow.com/questions/2803880/is-there-a-way-to-get-a-textarea-to-stretch-to-fit-its-content-without-using-php
     eventListener(root, "input", () => {
@@ -824,14 +822,21 @@ const TextArea = () => {
 }
 
 const NoteRowText = () => {
-    const [cell, [
-        [indent],
-        [whenNotEditing],
-        [whenEditing]
-    ]] = htmlf(`<div class="pre-wrap flex-1" style="margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"><div class="row v-align-bottom">%c%c%c</div></div>`,
-        htmlf(`<div class="pre-wrap"></div>`),
-        htmlf(`<div class="pre-wrap"></div>`),
-        htmlf(`<input class="flex-1"></input>`)
+    const indent = htmlf(`<div class="pre-wrap"></div>`);
+    const whenNotEditing = htmlf(`<div class="pre-wrap"></div>`);
+    const whenEditing = htmlf(`<input class="flex-1"></input>`);
+
+    const style = "margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);";
+    const style2 = "row v-align-bottom";
+    const root = htmlf(
+        `<div class="pre-wrap flex-1" style="${style}">` +
+            `<div class="${style2}">`+
+                "%{indent}" + 
+                "%{whenNotEditing}" + 
+                "%{whenEditing}" + 
+            "</div>" +
+        "</div>",
+        { indent, whenNotEditing, whenEditing }
     );
 
     let args = {};
@@ -857,7 +862,7 @@ const NoteRowText = () => {
 
     let isEditing = false;
     return {
-        el: cell.el,
+        el: root.el,
         rerender: function(argsIn, note, noteFlatIndex) {
             args.val = argsIn;
             args.note = note;
@@ -897,13 +902,11 @@ const NoteRowText = () => {
 }
 
 const NoteRowTimestamp = () => {
-    // const [root] = htmlf(`<div class="pre-wrap table-cell-min v-align-bottom"></div>`);
-    // const [root] = htmlf(`<div class="pre-wrap"></div>`);
-    const [root, [
-        [input]
-    ]] = htmlf(`<div class="pre-wrap">%c</div>`,
-        htmlf(`<input class="w-100"></input>`)
-    );
+    const input = htmlf(`<input class="w-100"></input>`);
+    const root = htmlf(
+        `<div class="pre-wrap">%{input}</div>`,
+        { input }
+    )
 
     const args = {};
 
@@ -1007,7 +1010,7 @@ const NoteRowTimestamp = () => {
 
 const NoteRowStatistic = () => {
     // const [root] = htmlf(`<div class="text-align-right pre-wrap table-cell-min v-align-bottom"></div>`);
-    const [root] = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+    const root = htmlf(`<div class="text-align-right pre-wrap"></div>`);
 
     return {
         el: root.el,
@@ -1022,19 +1025,16 @@ const NoteRowStatistic = () => {
 
 
 const NoteRowInput = () => {
-    const [root, [
-        timestamp, 
-        text, 
-        statistic
-    ]] = htmlf(
-        `<div class="row">
-            %c
-            %c
-            %c
-        </div>`,
-        NoteRowTimestamp(),
-        NoteRowText(),
-        NoteRowStatistic()
+    const timestamp = NoteRowTimestamp();
+    const text = NoteRowText();
+    const statistic = NoteRowStatistic();
+    const root = htmlf(
+        `<div class="row">` + 
+            "%{timestamp}" + 
+            "%{text}" + 
+            "%{statistic}" + 
+        "</div>",
+        { timestamp, text, statistic },
     );
 
     const args = {};
@@ -1081,7 +1081,9 @@ const NoteRowInput = () => {
 
 const NotesList = () => {
     let pool = [];
-    const [root] = htmlf(`<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`);
+    const root = htmlf(
+        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
+    );
 
     return {
         el: root.el,
@@ -1097,13 +1099,17 @@ const NotesList = () => {
 }
 
 const Button = (text, fn, classes="") => {
-    const [ btn ] = htmlf(`<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%c</button>`, text);
+    const  btn = htmlf(
+        `<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%{text}</button>`, 
+        { text },
+    );
+
     eventListener(btn, "click", fn);
     return btn;
 }
 
 const CurrentTreeNameEditor = () => {
-    const [treeNameInput] = htmlf(`<input class="inline-block w-100"></input>`);
+    const treeNameInput = htmlf(`<input class="inline-block w-100"></input>`);
 
     eventListener(treeNameInput, "input", () => {
         resizeInputToValue(treeNameInput);
@@ -1130,25 +1136,24 @@ const CurrentTreeNameEditor = () => {
 
 // will be more of a tabbed view
 const CurrentTreeSelector = () =>{
-    const [root, [
-        [tabsRoot],
-        [newButton]
-    ]] = htmlf(
+    const tabsRoot = htmlf(`<span class="row pre-wrap align-items-center"></span>`);
+    const newButton = htmlf(
+        `<button 
+            type="button" 
+            class="pre-wrap text-align-center"
+            style="margin-left: 5px;"
+        > + </button>`
+    );
+
+    const root = htmlf(
         `<div>
             <span class="row pre-wrap align-items-center">
-                %c %c
+                %{tabsRoot}
+                %{newButton}
             </span>
             <div style="outline-bottom: 1px solid var(--fg-color);"></div>
-        </div>`
-        ,
-        htmlf(`<span class="row pre-wrap align-items-center"></span>`),
-        htmlf(
-            `<button 
-                type="button" 
-                class="pre-wrap text-align-center"
-                style="margin-left: 5px;"
-            > + </button>`
-        ),
+        </div>`,
+        { tabsRoot, newButton }
     );
 
     const args = {
@@ -1164,37 +1169,36 @@ const CurrentTreeSelector = () =>{
     const updateTabsList = () => {
         const names = getAvailableTrees();
         resizeComponentPool(tabsRoot, tabComponents, names.length, () => {
+            const btn = htmlf(
+                `<button 
+                    type="button" 
+                    class="tab-button pre-wrap text-align-center z-index-100"
+                    style="padding: 2px 20px;"
+                ></button>`
+            );
+            const input = htmlf(
+                `<input 
+                    class="pre-wrap text-align-center z-index-100"
+                    style="margin-right: 20px;padding: 2px 20px; "
+                ></input>`
+            );
+
+            const closeBtn = htmlf(
+                `<button 
+                    type="button" 
+                    class="pre-wrap text-align-center z-index-100"
+                    style="position:absolute; right: 5px; background-color:transparent;"
+                > x </button>`
+            );
+
             // Tabs
-            const [root, [
-                [btn],
-                [input],
-                [closeBtn]
-            ]] = htmlf(
+            const root = htmlf(
                 `<div 
                     class="relative" 
                     style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
-                >%c%c%c</div>`,
-                htmlf(
-                    `<button 
-                        type="button" 
-                        class="tab-button pre-wrap text-align-center z-index-100"
-                        style="padding: 2px 20px;"
-                    ></button>`
-                ),
-                htmlf(
-                    `<input 
-                        class="pre-wrap text-align-center z-index-100"
-                        style="margin-right: 20px;padding: 2px 20px; "
-                    ></input>`
-                ),
-                htmlf(
-                    `<button 
-                        type="button" 
-                        class="pre-wrap text-align-center z-index-100"
-                        style="position:absolute; right: 5px; background-color:transparent;"
-                    > x </button>`
-                ),
-            )
+                >%{btn}%{input}%{closeBtn}</div>`,
+                { btn, input, closeBtn },
+            );
             
             let argsThis = {};
             eventListener(btn, "click", () => {
@@ -1309,148 +1313,141 @@ const DarkModeToggle = () => {
 }
 
 const App = () => {
-    const [appRoot, [[
-        [_titleRow, [
-            _title,
-            [infoButton]
-        ]],
-        [info1], 
-        [_0, [
-            treeSelector,
-        ]], 
-        notesList,
-        _1, 
-        [info2], 
-        scratchPad,
-        _paddingForOverflow,
-        [fixedButtons, [
-            _2, 
-            [statusTextIndicator],
-            _3
-        ]],
-    ]]] = htmlf(
+    const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
+    eventListener(infoButton, "click", () => {
+        showInfo = !showInfo;
+        updateHelp();    
+    });
+    
+    const noteTreeHelp = htmlf(
+        `<div>
+            <p>
+                Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
+            </p>
+            <ul>
+                <li>[Enter] to create a new entry</li>
+                <li>Arrows to move around</li>
+                <li>Tab or Shift+Tab to indent/unindent a note</li>
+                <li>Also look at the buttons in the bottom right there</li>
+            </ul>
+        </div>`
+    );
+
+    const scratchPadHelp = htmlf(
+        `<div>
+            <p>
+                Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
+            </p>
+        </div>`
+    );
+
+    const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
+
+    const notesList = NotesList();
+    const scratchPad = ScratchPad();
+    const treeSelector = CurrentTreeSelector();
+
+    const appRoot = htmlf(
         `<div class="relative" style="padding-bottom: 100px">
-            %a
-        </div>`, [
-            // _titleRow
-            htmlf(`<div class="row align-items-center">%c<span class="flex-1"></span>%c</div>`,
-                // _title
-                htmlf(`<h2>Currently working on</h2>`),
-                // infoButton
-                htmlf(`<button class="info-button" title="click for help">help?</button>`),
+            %{titleRow}
+            %{info1}
+            %{treeTabs}
+            %{notesList}
+            %{scratchPad}
+
+            <div>
+                <div style="height: 1500px"></div>
+            </div>
+
+            %{fixedButtons}
+        </div>`, 
+        {
+            titleRow: htmlf(
+                `<div class="row align-items-center">%{title}<span class="flex-1"></span>%{infoButton}</div>`,
+                {
+                    title: htmlf(`<h2>Currently working on</h2>`),
+                    infoButton,
+                }
             ),
-            // info1
-            htmlf(
-                `<div>
-                    <p>
-                        Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
-                    </p>
-                    <ul>
-                        <li>[Enter] to create a new entry</li>
-                        <li>Arrows to move around</li>
-                        <li>Tab or Shift+Tab to indent/unindent a note</li>
-                        <li>Also look at the buttons in the bottom right there</li>
-                    </ul>
-                </div>`
-            ),
-            // _0
-            htmlf(
+            info1: noteTreeHelp,
+            treeTabs: htmlf(
                 `<div>
                     <div class="row align-items-end">
-                        %c
+                        %{treeSelector}
                     </div>
                 </div>`,
-                // treeSelector
-                CurrentTreeSelector(),
+                { treeSelector }
             ),
-            // notesList
-            NotesList(),
-            // _1
-            htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
-            // info2
-            htmlf(
-                `<div>
-                    <p>
-                        Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-                    </p>
-                </div>`
+            notesList: notesList,
+            scratchPad: htmlf(
+                `<div>%{title}%{help}%{scratchPad}</div>`,
+                {
+                    title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
+                    help: scratchPadHelp,
+                    scratchPad,
+                }
             ),
-            // scratchPad
-            ScratchPad(),
-            // _paddingForOverflow
-            htmlf(
-                `<div>
-                    <div style="height: 1500px"></div>
-                    <div>
-                        Something as trivial as scrolling vertically to where the cursor is in a text input is way too hard to implement in HTML.
-                        I've added this padding to ensure that it works, but you aren't actually supposed to be down here
-                    </div>
-                </div>`
-            ),
-            // fixedButtons left
-            htmlf(
+            fixedButtons: htmlf(
                 `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
-                    <div>%a</div>
+                    <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
-                    <div>%c</div>
-                    <div>%a</div>
+                    <div>%{statusIndicator}</div>
+                    <div>%{rightButtons}</div>
                 </div>`,
-                [
-                    DarkModeToggle(),
-                ],
-                // statusTextIndicator
-                htmlf(`<div class="pre-wrap"></div>`), 
-                // right buttons
-                [
-                    Button("Clear all", () => {
-                        if (!confirm("Are you sure you want to clear your note tree?")) {
-                            return;
-                        }
-                
-                        state = defaultState();
-                        appComponent.rerender();
-                
-                        showStatusText("Cleared notes");
-                    }),
-                    Button("Copy as text", () => {
-                        handleErrors(() => {
-                            navigator.clipboard.writeText(exportAsText(state));
-                            showStatusText("Copied as text");
-                        });
-                    }),
-                    Button("Load JSON from scratch pad", () => {
-                        handleErrors(() => {
-                            try {
-                                const lsKeys = JSON.parse(scratchPad.getText());
-                                localStorage.clear();
-                                for(const key in lsKeys) {
-                                    localStorage.setItem(key, lsKeys[key]);
-                                }
-                            } catch {
-                                throw new Error("Scratch pad must contain valid JSON");
-                            }
-
-                            if (!confirm("This will erase all your current trees. Are you sure?")) {
+                {
+                    leftButtons: [DarkModeToggle()],
+                    statusIndicator: statusTextIndicator,
+                    rightButtons: [
+                        Button("Clear all", () => {
+                            if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
                             }
+                    
+                            state = defaultState();
+                            appComponent.rerender();
+                    
+                            showStatusText("Cleared notes");
+                        }),
+                        Button("Copy as text", () => {
+                            handleErrors(() => {
+                                navigator.clipboard.writeText(exportAsText(state));
+                                showStatusText("Copied as text");
+                            });
+                        }),
+                        Button("Load JSON from scratch pad", () => {
+                            handleErrors(() => {
+                                try {
+                                    const lsKeys = JSON.parse(scratchPad.getText());
+                                    localStorage.clear();
+                                    for(const key in lsKeys) {
+                                        localStorage.setItem(key, lsKeys[key]);
+                                    }
+                                } catch {
+                                    throw new Error("Scratch pad must contain valid JSON");
+                                }
 
-                            initState();
-                        });
-                    }),
-                    Button("Copy as JSON", () => {
-                        handleErrors(() => {
-                            const lsKeys = {};
-                            for (const [key, value] of Object.entries(localStorage)) {
-                                lsKeys[key] = value;
-                            }
-                            
-                            navigator.clipboard.writeText(JSON.stringify(lsKeys));
-                            showStatusText("Copied JSON");
-                        });
-                    })
-                ]
+                                if (!confirm("This will erase all your current trees. Are you sure?")) {
+                                    return;
+                                }
+
+                                initState();
+                            });
+                        }),
+                        Button("Copy as JSON", () => {
+                            handleErrors(() => {
+                                const lsKeys = {};
+                                for (const [key, value] of Object.entries(localStorage)) {
+                                    lsKeys[key] = value;
+                                }
+                                
+                                navigator.clipboard.writeText(JSON.stringify(lsKeys));
+                                showStatusText("Copied JSON");
+                            });
+                        })
+                    ]
+                }
             ),
-        ]
+        }
     );
 
     
@@ -1590,13 +1587,9 @@ const App = () => {
     
     let showInfo = false;
     const updateHelp = () => {
-        setVisible(info1, showInfo);
-        setVisible(info2, showInfo);
+        setVisible(noteTreeHelp, showInfo);
+        setVisible(scratchPadHelp, showInfo);
     }
-    eventListener(infoButton, "click", () => {
-        showInfo = !showInfo;
-        updateHelp();    
-    });
     updateHelp();
 
     let statusTextClearTimeout = 0;
@@ -1625,8 +1618,6 @@ const App = () => {
         }
     }
 
-
-    
     const debouncedSave = () => {
         saveCurrentState({
             debounced: true
@@ -1636,8 +1627,9 @@ const App = () => {
     const appComponent = {
         el: appRoot.el,
         rerender: function(options = { shouldScroll: true}) {
-            fixNoteTree(state);
+            recomputeState(state);
     
+            // need to know how far to offset the selected refs
             const stickyPxRef = { val: 0 };
             const args = {
                 state, 
