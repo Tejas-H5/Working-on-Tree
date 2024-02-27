@@ -76,15 +76,28 @@ const __getHTMLElementForPercentVDirective = (
     if (componentOrHTMLfReturnVal.el) {
         componentOrHTMLfReturnVal = componentOrHTMLfReturnVal.el
     }
+    if (componentOrHTMLfReturnVal.el) {
+        componentOrHTMLfReturnVal = componentOrHTMLfReturnVal.el
+    }
 
     if (typeof componentOrHTMLfReturnVal === "string")
         return document.createTextNode(componentOrHTMLfReturnVal);
     if (componentOrHTMLfReturnVal instanceof Element)
         return componentOrHTMLfReturnVal;
 
-    throw new Error(
-        `Error with ${directiveName} - format arguments can only be strings, DOM Elements, component or arrays of [string or Dom Element]  (A 'component' is just an object that is like { el: [Dom Element] }).`
-    );
+    console.error(
+`
+Error with argument to %{${directiveName}}:
+    Received ${componentOrHTMLfReturnVal} instead of an acceptable input.
+
+Acceptable inputs include:
+- objects with at least { el: domNode } 
+- strings
+- arrays of the above
+- a function that returns one of the above when called
+`, componentOrHTMLfReturnVal);
+
+    throw("Error with format directive");
 };
 
 const __insertArgumentForPercentVDirective = (
