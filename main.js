@@ -92,20 +92,19 @@ const getTimestamp = (date) => {
     return date.toISOString();
 };
 
-const createNewNote = (state, text) => {
-    let maxId = 0;
-    for (const id of state.noteIds) {
-        dfsPre(state, getNote(state, id), (note) => {
-            if (maxId < note.id) {
-                maxId = note.id;
-            }
-        });
-    }
+// https://stackoverflow.com/questions/105034/how-do-i-create-a-guid-uuid
+function uuid() {
+    function S4() {
+       return (((1+Math.random())*0x10000)|0).toString(16).substring(1);
+    };
+    return (S4()+S4()+"-"+S4()+"-"+S4()+"-"+S4()+"-"+S4()+S4()+S4());
+}
 
+const createNewNote = (state, text) => {
     const note = {
         // the following is valuable user data
 
-        id: maxId + 1,
+        id: uuid(),
         text: text || "",
         openedAt: getTimestamp(new Date()), // will be populated whenever text goes from empty -> not empty
         childrenIds: [],
@@ -542,7 +541,59 @@ const copyState = (state) => {
     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
 }
 
-const filterNotes = (state, predicate) => {
+const mergeState = (existingState, incomingState) => {
+    if (!existingState) {
+        return incomingState;
+    }
+
+    const newState = {};
+    for (const key in existingState) {
+        newState[key] = incomingState[key] || existingState[key];
+    }
+
+    if (incomingState.scratchPad) {
+        newState.scratchPad = incomingState.scratchPad;
+    }
+
+    function mergeChildIds(a, b) {
+        if (!a || !b) {
+            throw new Error("There is a bug in the code")
+        }
+
+        return [...new Set([...a, ...b])];
+    }
+
+    // incoming notes with the same id can overwrite existing notes
+    newState.notes = {};
+    for (const id in existingState.notes) {
+        newState.notes[id] = existingState.notes[id];
+    }
+    for (const id in incomingState.notes) {
+        newState.notes[id] = incomingState.notes[id];
+    }
+
+    for (const id in newState.notes) {
+        if (existingState.notes[id] && incomingState.notes[id]) {
+            newState.notes[id].childrenIds = mergeChildIds(
+                existingState.notes[id].childrenIds,
+                incomingState.notes[id].childrenIds,
+            );
+
+
+            console.log("merging ", newState.notes[id].text, 
+                newState.notes[id].childrenIds.map(cid => getNote(newState, cid)),
+                existingState.notes[id].childrenIds.map(cid => getNote(newState, cid)),
+                incomingState.notes[id].childrenIds.map(cid => getNote(newState, cid)),
+            );
+        }
+    }
+
+    newState.noteIds = mergeChildIds(existingState.noteIds, incomingState.noteIds);
+
+    return newState;
+}
+
+const filterNotes = (state, predicate, pruneRootNotes) => {
     const dfs = (note) => {
         for (let i = 0; i < note.childrenIds.length; i++) {
             const id = note.childrenIds[i];
@@ -557,8 +608,6 @@ const filterNotes = (state, predicate) => {
                 continue;
             }
 
-            console.log("deleting", note)
-
             note.childrenIds.splice(i, 1);
             i--;
             deleteNote(state, id);
@@ -569,13 +618,17 @@ const filterNotes = (state, predicate) => {
         const id = state.noteIds[i];
         const note = getNote(state, id);
 
+        const childIdsPrev = note.childrenIds.length;
+
         dfs(note);
 
-        if (note.childrenIds.length === 0) {
-            state.noteIds.splice(i, 1);
-            i--;
+        if (pruneRootNotes) {
+            if (childIdsPrev !== 0 && note.childrenIds.length === 0) {
+                state.noteIds.splice(i, 1);
+                i--;
 
-            deleteNote(state, id);
+                deleteNote(state, id);
+            }
         }
     }
 }
@@ -585,6 +638,13 @@ const filterNotes = (state, predicate) => {
 // TODO: super inefficient, need to set up a compute graph or something more complicated
 const recomputeState = (state) => {
     assert(!!state, "WTF");
+
+    // ensure always one note
+    if (state.noteIds.length === 0) {
+        state.notes = {};
+        const note = createNewNote(state, "First note");
+        state.noteIds.push(note.id);
+    }
 
     // fix notes with childrenIds that reference missing notes
     // TODO: figure out why they were missing in the first place
@@ -801,10 +861,6 @@ const getNoteDuration = (state, note) => {
 
     let latestNote = note;
     dfsPre(state, note, (note) => {
-        if (!note) {
-            console.log("wtf")
-        }
-
         if (latestNote.openedAt < note.openedAt) {
             latestNote = note;
         }
@@ -1659,8 +1715,8 @@ const App = () => {
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
                         Button("Move out finished notes", () => {
-                            const doneName = currentTreeName + " [done]";
-                            if (!confirm("This will remove all 'done' nodes from this tree and move them to another tree named " + doneName + ", are you sure?")) {
+                            const doneTreeName = currentTreeName + " [done]";
+                            if (!confirm("This will remove all 'done' nodes from this tree and move them to another tree named " + doneTreeName + ", are you sure?")) {
                                 return;
                             }
 
@@ -1669,25 +1725,35 @@ const App = () => {
                                 // high risk code, could possibly corrupt user data, so we're working with copies,
                                 // then assigning over the result
                                 const doneState = copyState(state);
-                                const notDoneState = copyState(state);
-
                                 recomputeState(doneState);
-                                recomputeState(notDoneState);
-                                
-                                filterNotes(doneState, (note) => note._isDone);
-                                filterNotes(notDoneState, (note) => !note._isDone);
+                                filterNotes(doneState, (note) => note._isDone, true);
 
-                                for (const key in state) {
+                                const notDoneState = copyState(state);
+                                recomputeState(notDoneState);
+                                filterNotes(notDoneState, (note) => !note._isDone, false);
+
+                                let existingDoneState;
+                                try {
+                                    existingDoneState = loadState(doneTreeName);
+                                } catch {
+                                    // no existing notes
+                                }
+                                const doneStateMerged = mergeState(existingDoneState, doneState);
+
+                                recomputeState(doneStateMerged);
+                                recomputeState(notDoneState);
+                                recomputeState(doneStateMerged);
+
+                                saveState(doneStateMerged, doneTreeName);
+
+                                // only mutate our current state once everything else succeeds 
+                                for (const key in notDoneState) {
                                     state[key] = notDoneState[key];
                                 }
-
-                                saveState(doneState, doneName);
                                 saveState(state, currentTreeName);
                             } catch(e) {
                                 console.error("failed\n\n", e);
                             }
-
-                            console.log("succeeded")
 
                             // remove other stuff that we don't need to move out
                             appComponent.rerender();
