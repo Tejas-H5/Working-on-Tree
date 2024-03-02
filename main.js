@@ -210,9 +210,9 @@ const getLocalStorageKeyForTreeName = (name) => STATE_KEY_PREFIX + name;
 //  - drops all properties with '_' 
 // NOTE: the state shouldn't be cyclic. do not attempt to make this resistant to cycles,
 // it is _supposed_ to throw that too much recursion exception
-const recursiveClone = (obj) => {
+const recursiveShallowCopy = (obj) => {
     if (Array.isArray(obj)) {
-        return obj.map(x => recursiveClone(x));
+        return obj.map(x => recursiveShallowCopy(x));
     }
 
     if (typeof obj === "object" && obj !== null) {
@@ -222,7 +222,7 @@ const recursiveClone = (obj) => {
                 continue;
             }
 
-            clone[key] = recursiveClone(obj[key]);
+            clone[key] = recursiveShallowCopy(obj[key]);
         }
         return clone;
     }
@@ -231,9 +231,10 @@ const recursiveClone = (obj) => {
 }
 
 const saveState = (state, name) => {
-    const nonCyclicState = recursiveClone(state);
+    const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
     localStorage.setItem(getLocalStorageKeyForTreeName(name), serialized);
+    console.log("saved", name, state)
 }
 
 const deleteNoteIfEmpty = (state, id) => {
@@ -291,8 +292,16 @@ const insertChildNode = (state) => {
     return true;
 };
 
+const deleteNote = (state, id) => {
+    delete state.notes[id];
+}
+
 const getNote = (state, id)  => {
-    return state.notes[id];
+    const note = state.notes[id];
+    if (!note) {
+        console.warn("couldn't find note with id", id, state);
+    }
+    return note;
 }
 
 const getCurrentNote = (state) => {
@@ -508,15 +517,11 @@ const expandNode = (state) => {
 }
 
 const dfsPre = (state, note, fn) => {
-    if (fn(note) === true) {
-        return true;
-    }
+    fn(note);
 
     for(const id of note.childrenIds) {
         const note = getNote(state, id);
-        if (dfsPre(state, note, fn) === true) {
-            return true;
-        }
+        dfsPre(state, note, fn)
     }
 }
 
@@ -533,11 +538,73 @@ const dfsPost = (state, note, fn) => {
     }
 }
 
+const copyState = (state) => {
+    return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
+}
+
+const filterNotes = (state, predicate) => {
+    const dfs = (note) => {
+        for (let i = 0; i < note.childrenIds.length; i++) {
+            const id = note.childrenIds[i];
+            const child = getNote(state, id);
+
+            dfs(child);
+
+            if (
+                predicate(child) ||             // doesn't meet filtering criteria
+                child.childrenIds.length > 0    // has children that survived filtering
+            ) {
+                continue;
+            }
+
+            console.log("deleting", note)
+
+            note.childrenIds.splice(i, 1);
+            i--;
+            deleteNote(state, id);
+        }
+    }
+
+    for(let i = 0; i < state.noteIds.length; i++) {
+        const id = state.noteIds[i];
+        const note = getNote(state, id);
+
+        dfs(note);
+
+        if (note.childrenIds.length === 0) {
+            state.noteIds.splice(i, 1);
+            i--;
+
+            deleteNote(state, id);
+        }
+    }
+}
+
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
 const recomputeState = (state) => {
     assert(!!state, "WTF");
+
+    // fix notes with childrenIds that reference missing notes
+    // TODO: figure out why they were missing in the first place
+    {
+        const dfs = (childrenIds) => {
+            for (let i = 0; i < childrenIds.length; i++) {
+                const id = childrenIds[i];
+                const note = getNote(state, id);
+                if (note) {
+                    dfs(note.childrenIds);
+                    continue;
+                }
+
+                childrenIds.splice(i, 1);
+                i--;
+            }
+        }
+
+        dfs(state.noteIds);
+    }
 
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
@@ -599,6 +666,10 @@ const recomputeState = (state) => {
 
     // recompute _flatNotes (after deleting things)
     {
+        if (!state._flatNotes) {
+            state._flatNotes = [];
+        }
+
         const flatNotes = state._flatNotes;
 
         flatNotes.splice(0, flatNotes.length);
@@ -627,7 +698,10 @@ const recomputeState = (state) => {
 
     // recompute _sortedNotes (after _flatNotes)
     {
-        const sortedNotes = state._sortedNotes;
+        if (!state._sortedNotes) {
+            state._sortedNotes = [];
+        }
+        const sortedNotes = state._sortedNotes || [];
         sortedNotes.splice(0, sortedNotes.length);
         for(const id of state.noteIds) {
             const note = getNote(state, id);
@@ -649,26 +723,28 @@ const recomputeState = (state) => {
         for(const id of state.noteIds) {
             const note = getNote(state, id);
             dfsPost(state, note, (note) => {
-                if (note.childrenIds.length === 0) {
-                    if (
-                        note.text.startsWith("DONE") ||
-                        note.text.startsWith("Done") ||
-                        note.text.startsWith("done")
-                    ) {
-                        note._isDone = true;
-                    }
-
+                if (note._isDone) {
                     return;
                 }
 
-                for (const id of note.childrenIds)  {
-                    const c = getNote(state, id);
-                    if (!c._isDone) {
-                        return;
-                    }
+                if (isDoneLeafNote(note)) {
+                    // all notes underneath - Done should also be _isDone.
+                    // we might want to add extra context/info that doesn't fit onto a single line there
+                    dfsPre(state, note, (note) => note._isDone = true);
+                    return;
                 }
 
-                note._isDone = true;
+
+                if (note.childrenIds.length > 0) {
+                    for (const id of note.childrenIds) {
+                        const c = getNote(state, id);
+                        if (!c._isDone) {
+                            return;
+                        }
+                    }
+
+                    note._isDone = true;
+                }
             });
         }
     }
@@ -685,6 +761,10 @@ const recomputeState = (state) => {
             note._isSelected = true;
         });
     }
+};
+
+const isDoneLeafNote = (note) => {
+    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
 };
 
 const iterateParentNotes = (note, fn) => {
@@ -721,6 +801,10 @@ const getNoteDuration = (state, note) => {
 
     let latestNote = note;
     dfsPre(state, note, (note) => {
+        if (!note) {
+            console.log("wtf")
+        }
+
         if (latestNote.openedAt < note.openedAt) {
             latestNote = note;
         }
@@ -1386,6 +1470,7 @@ const SeriesView = () => {
     };
 
     const updateSeriesView = () => {
+        return;
         if (!args.val) {
             return;
         }
@@ -1573,6 +1658,42 @@ const App = () => {
                     leftButtons: [DarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
+                        Button("Move out finished notes", () => {
+                            const doneName = currentTreeName + " [done]";
+                            if (!confirm("This will remove all 'done' nodes from this tree and move them to another tree named " + doneName + ", are you sure?")) {
+                                return;
+                            }
+
+
+                            try {
+                                // high risk code, could possibly corrupt user data, so we're working with copies,
+                                // then assigning over the result
+                                const doneState = copyState(state);
+                                const notDoneState = copyState(state);
+
+                                recomputeState(doneState);
+                                recomputeState(notDoneState);
+                                
+                                filterNotes(doneState, (note) => note._isDone);
+                                filterNotes(notDoneState, (note) => !note._isDone);
+
+                                for (const key in state) {
+                                    state[key] = notDoneState[key];
+                                }
+
+                                saveState(doneState, doneName);
+                                saveState(state, currentTreeName);
+                            } catch(e) {
+                                console.error("failed\n\n", e);
+                            }
+
+                            console.log("succeeded")
+
+                            // remove other stuff that we don't need to move out
+                            appComponent.rerender();
+                    
+                            showStatusText("Moved done notes");
+                        }),
                         Button("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
@@ -1789,6 +1910,7 @@ const App = () => {
         try {
             fn();
         } catch (err) {
+            console.error(err);
             showStatusText(`${err}`, "#F00", ERROR_TIMEOUT_TIME);
             onError && onError(err);
         }
