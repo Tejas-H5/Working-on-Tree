@@ -633,6 +633,32 @@ const filterNotes = (state, predicate, pruneRootNotes) => {
     }
 }
 
+
+const recomputeFlatNotes = (state, flatNotes, collapse) => {
+    flatNotes.splice(0, flatNotes.length);
+    const dfs = (note) => {
+        flatNotes.push(note);
+        if (collapse && note.isCollapsed) {
+            // don't render any of it's children, but calculate the number of children underneath
+            let numCollapsed = 0;
+            dfsPre(state, note, () => numCollapsed++);
+            note._collapsedCount = numCollapsed;
+            return;
+        }
+
+        for (const id of note.childrenIds) {
+            const note = getNote(state, id);
+            dfs(note);
+        }
+    }
+
+    for(const id of state.noteIds) {
+        const note = getNote(state, id);
+
+        dfs(note);
+    }
+}
+
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
@@ -730,30 +756,8 @@ const recomputeState = (state) => {
             state._flatNotes = [];
         }
 
-        const flatNotes = state._flatNotes;
+        recomputeFlatNotes(state, state._flatNotes, true);
 
-        flatNotes.splice(0, flatNotes.length);
-        const dfs = (note) => {
-            flatNotes.push(note);
-            if (note.isCollapsed) {
-                // don't render any of it's children, but calculate the number of children underneath
-                let numCollapsed = 0;
-                dfsPre(state, note, () => numCollapsed++);
-                note._collapsedCount = numCollapsed;
-                return;
-            }
-
-            for (const id of note.childrenIds) {
-                const note = getNote(state, id);
-                dfs(note);
-            }
-        }
-        for(const id of state.noteIds) {
-            const note = getNote(state, id);
-
-
-            dfs(note);
-        }
     }
 
     // recompute _sortedNotes (after _flatNotes)
@@ -776,6 +780,7 @@ const recomputeState = (state) => {
 
     // recompute _isDone, do some sorting
     {
+
         for (const id in state.notes) {
             state.notes[id]._isDone = false;
         }
@@ -783,28 +788,36 @@ const recomputeState = (state) => {
         for(const id of state.noteIds) {
             const note = getNote(state, id);
             dfsPost(state, note, (note) => {
-                if (note._isDone) {
-                    return;
-                }
+                const isDoneLeafNote = (note) => {
+                    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
+                };
+                const isTodoNote = (note) => {
+                    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
+                };
 
-                if (isDoneLeafNote(note)) {
-                    // all notes underneath - Done should also be _isDone.
-                    // we might want to add extra context/info that doesn't fit onto a single line there
-                    dfsPre(state, note, (note) => note._isDone = true);
-                    return;
-                }
-
-
-                if (note.childrenIds.length > 0) {
-                    for (const id of note.childrenIds) {
-                        const c = getNote(state, id);
-                        if (!c._isDone) {
-                            return;
-                        }
+                if (note.childrenIds.length === 0) {
+                    if (
+                        note._parent !== null && 
+                        note._localIndex !== note._localList.length - 1
+                    ) {
+                        note._isDone = !isTodoNote(note);
+                    } else {
+                        note._isDone = !isTodoNote(note) && isDoneLeafNote(note);
                     }
 
-                    note._isDone = true;
+                    return;
                 }
+
+                const everyChildNoteIsDone = note.childrenIds.every((id) => {
+                    const note = getNote(state, id);
+                    return note._isDone;
+                });
+
+                const finalNoteId = note.childrenIds[note.childrenIds.length - 1];
+                const finalNote = getNote(state, finalNoteId);
+                const finalNoteIsDoneLeafNote = isDoneLeafNote(finalNote);
+
+                note._isDone = everyChildNoteIsDone && finalNoteIsDoneLeafNote;
             });
         }
     }
@@ -823,10 +836,6 @@ const recomputeState = (state) => {
     }
 };
 
-const isDoneLeafNote = (note) => {
-    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
-};
-
 const iterateParentNotes = (note, fn) => {
     while (note) {
         fn(note);
@@ -835,10 +844,13 @@ const iterateParentNotes = (note, fn) => {
 }
 
 const formatDate = (date) => {
+    const dd = date.getDate();
+    const mm = date.getMonth() + 1;
+    const yyyy = date.getFullYear();
     const hours = date.getHours();
     const minutes = date.getMinutes();
 
-    return `${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${hours < 12 ? "am" : "pm"}`;
+    return `${pad2(dd)}/${pad2(mm)}/${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${hours < 12 ? "am" : "pm"}`;
 }
 
 const getTimeStr = (note) => {
@@ -857,6 +869,14 @@ const getIndentStr = (note) => {
 const getNoteDuration = (state, note) => {
     if (!note._isDone) {
         return  getDurationMS(note.openedAt, getTimestamp(new Date()));
+    }
+
+    if (note.childrenIds.length === 0) {
+        if (note._localIndex + 1 < note._localList.length - 1) {
+            return getDurationMS(note.openedAt, note._localList[note._localIndex + 1]);
+        }
+
+        return 0;
     }
 
     let latestNote = note;
@@ -881,46 +901,71 @@ const getRowIndentPrefix = (state, note) => {
 }
 
 const getFirstPartOfRow = (state, note) => {
-    const dashChar = note._isSelected ? ">" : "-"
+    // const dashChar = note._isSelected ? ">" : "-"
+    // having ">" in exported text looks ugly, so I've commented this out for now
+    const dashChar = "-";
 
     return `${getTimeStr(note)} | ${getRowIndentPrefix(state, note)} ${dashChar} ${note.text || " "}`;
 };
 
-const getNoteRow = (state, note, maxFirstPartLength) => {
-    const firstPart = getFirstPartOfRow(state, note);
-    const secondPart = getSecondPartOfRow(state, note);
-    const padding = (maxFirstPartLength || firstPart.length) - firstPart.length + 8;
-    return `${firstPart}${repeatSafe(" ", padding)}${secondPart}`;
-}
 
 const exportAsText = (state) => {
-    // stupid code.
-    // If we are ever going to refactor it, it should be like:
-    // generateFirstColumn(rows)
-    // alignColumnsToWhatHasBeenGenerated(rows, padding = 5)
-    // generateSecondColumn(rows) 
-    // align ...
-    // yeah etc.
+    const header = (text) => `----------------${text}----------------`;
 
-    let maxFirstPartLength = 0;
-    for (const note of state._flatNotes) {
-        const firstPart = getFirstPartOfRow(state, note);
-        if (firstPart.length > maxFirstPartLength) {
-            maxFirstPartLength = firstPart.length;
+    const flatNotes = [];
+    recomputeFlatNotes(state, flatNotes, false);
+
+    const table = [];
+    for (const note of flatNotes) {
+        table.push([
+            getFirstPartOfRow(state, note),
+            getSecondPartOfRow(state, note),
+        ])
+    }
+
+    function formatTable(table, gap) {
+        const columns = [];
+
+        for(let col = 0; col < table[0].length; col++) {
+            const column = [];
+
+            // get the width of this column
+            let colWidth = 0;
+            for (let row = 0; row < table.length; row++) {
+                const cell = table[row][col];
+                colWidth = Math.max(colWidth, cell.length);
+            }
+
+            // append cells to the column, with padding added
+            for (let row = 0; row < table.length; row++) {
+                const cell = table[row][col];
+
+                let padding = colWidth - cell.length + gap;
+                column.push(cell + " ".repeat(padding));
+            }
+
+            columns.push(column);
         }
+
+        const lines = [];
+        for (let i = 0; i < columns[0].length; i++) {
+            const row = [];
+            for (let j = 0; j < columns.length; j++) {
+                row.push(columns[j][i]);
+            }
+
+            lines.push(row.join(""));
+        }
+
+        return lines.join("\n");
     }
 
-    const lines = [];
-    for (const note of state._flatNotes) {
-        lines.push(getNoteRow(state, note, maxFirstPartLength));
-    }
-
-    const events = lines.join("\n");
-
-    const scratchPad = state.scratchPad;
-
-    const notesHeading = "---------------- Notes ----------------";
-    return events + "\n\n" + notesHeading + "\n" + scratchPad + "\n" + "-".repeat(notesHeading.length) + "\n";
+    return [
+        header(" Notes "),
+        formatTable(table, 10),
+        header(" Scratchpad "),
+        state.scratchPad
+    ].join("\n\n");
 };
 
 
@@ -1613,7 +1658,7 @@ const App = () => {
     const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
     eventListener(infoButton, "click", () => {
         showInfo = !showInfo;
-        updateHelp();    
+        appComponent.rerender();
     });
     
     const noteTreeHelp = htmlf(
@@ -1648,6 +1693,53 @@ const App = () => {
     )
 
     const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
+
+    const moveOutFinishedNotesButton = Button("Move out finished notes", () => {
+        const doneTreeName = currentTreeName + " [done]";
+        if (!confirm("This will remove all 'done' nodes from this tree and move them to another tree named " + doneTreeName + ", are you sure?")) {
+            return;
+        }
+
+
+        try {
+            // high risk code, could possibly corrupt user data, so we're working with copies,
+            // then assigning over the result
+            const doneState = copyState(state);
+            recomputeState(doneState);
+            filterNotes(doneState, (note) => note._isDone, true);
+
+            const notDoneState = copyState(state);
+            recomputeState(notDoneState);
+            filterNotes(notDoneState, (note) => !note._isDone, false);
+
+            let existingDoneState;
+            try {
+                existingDoneState = loadState(doneTreeName);
+            } catch {
+                // no existing notes
+            }
+            const doneStateMerged = mergeState(existingDoneState, doneState);
+
+            recomputeState(doneStateMerged);
+            recomputeState(notDoneState);
+            recomputeState(doneStateMerged);
+
+            saveState(doneStateMerged, doneTreeName);
+
+            // only mutate our current state once everything else succeeds 
+            for (const key in notDoneState) {
+                state[key] = notDoneState[key];
+            }
+            saveState(state, currentTreeName);
+        } catch(e) {
+            console.error("failed\n\n", e);
+        }
+
+        // remove other stuff that we don't need to move out
+        appComponent.rerender();
+
+        showStatusText("Moved done notes");
+    });
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
@@ -1714,52 +1806,7 @@ const App = () => {
                     leftButtons: [DarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
-                        Button("Move out finished notes", () => {
-                            const doneTreeName = currentTreeName + " [done]";
-                            if (!confirm("This will remove all 'done' nodes from this tree and move them to another tree named " + doneTreeName + ", are you sure?")) {
-                                return;
-                            }
-
-
-                            try {
-                                // high risk code, could possibly corrupt user data, so we're working with copies,
-                                // then assigning over the result
-                                const doneState = copyState(state);
-                                recomputeState(doneState);
-                                filterNotes(doneState, (note) => note._isDone, true);
-
-                                const notDoneState = copyState(state);
-                                recomputeState(notDoneState);
-                                filterNotes(notDoneState, (note) => !note._isDone, false);
-
-                                let existingDoneState;
-                                try {
-                                    existingDoneState = loadState(doneTreeName);
-                                } catch {
-                                    // no existing notes
-                                }
-                                const doneStateMerged = mergeState(existingDoneState, doneState);
-
-                                recomputeState(doneStateMerged);
-                                recomputeState(notDoneState);
-                                recomputeState(doneStateMerged);
-
-                                saveState(doneStateMerged, doneTreeName);
-
-                                // only mutate our current state once everything else succeeds 
-                                for (const key in notDoneState) {
-                                    state[key] = notDoneState[key];
-                                }
-                                saveState(state, currentTreeName);
-                            } catch(e) {
-                                console.error("failed\n\n", e);
-                            }
-
-                            // remove other stuff that we don't need to move out
-                            appComponent.rerender();
-                    
-                            showStatusText("Moved done notes");
-                        }),
+                        moveOutFinishedNotesButton,
                         Button("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
@@ -1948,13 +1995,6 @@ const App = () => {
     }
     
     let showInfo = false;
-    const updateHelp = () => {
-        setVisible(noteTreeHelp, showInfo);
-        setVisible(scratchPadHelp, showInfo);
-        setVisible(seriesViewHelp, showInfo);
-    }
-    updateHelp();
-
     let statusTextClearTimeout = 0;
     const showStatusText = (text, color = "var(--fg-color)", timeout = STATUS_TEXT_PERSIST_TIME) => {
         if (statusTextClearTimeout) {
@@ -1991,6 +2031,13 @@ const App = () => {
     const appComponent = {
         el: appRoot.el,
         rerender: function(options = { shouldScroll: true}) {
+            setVisible(noteTreeHelp, showInfo);
+            setVisible(scratchPadHelp, showInfo);
+            setVisible(seriesViewHelp, showInfo);
+
+            const isDoneNote = currentTreeName.endsWith("[done]");
+            setVisible(moveOutFinishedNotesButton, !isDoneNote);
+
             recomputeState(state);
     
             // need to know how far to offset the selected refs
