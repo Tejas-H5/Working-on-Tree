@@ -170,7 +170,6 @@ const merge = (a, b) => {
 const defaultState = () => {
     const state = {
         _flatNotes: [],     // used by the note tree view, can include collapsed subsections
-        _sortedNotes: [],   // used by the sorted/time log view
         notes: {},
         noteIds: [],
         currentNoteId: 0,
@@ -760,24 +759,6 @@ const recomputeState = (state) => {
 
     }
 
-    // recompute _sortedNotes (after _flatNotes)
-    {
-        if (!state._sortedNotes) {
-            state._sortedNotes = [];
-        }
-        const sortedNotes = state._sortedNotes || [];
-        sortedNotes.splice(0, sortedNotes.length);
-        for(const id of state.noteIds) {
-            const note = getNote(state, id);
-            dfsPre(state, note, (note) => {
-                sortedNotes.push(note);
-            });
-        }
-        sortedNotes.sort((a, b) => {
-            return new Date(a.openedAt) - new Date(b.openedAt);
-        });
-    }
-
     // recompute _isDone, do some sorting
     {
 
@@ -1301,10 +1282,8 @@ const NoteRowInput = () => {
 
         const { state, stickyPxRef, } = argsIn;
         const textColor = note._isSelected ? "var(--fg-color)"  : (!note._isDone ? "var(--fg-color)" : "var(--unfocus-text-color)");
-        const bg = (note.id !== state.currentNoteId && note._isSelected) ? "var(--bg-color-focus)" : "unset";
 
         root.el.style.color = textColor;
-        root.el.style.backgroundColor = bg;
 
         timestamp.rerender(argsIn, note);
         text.rerender(argsIn, note, noteFlatIndex);
@@ -1563,97 +1542,6 @@ const DarkModeToggle = () => {
 }
 
 
-const SeriesView = () => {
-    const root = htmlf("<div></div>")
-    const pool = [];
-    const args = {
-        lastBreadcrumbs: [],
-    };
-
-    const updateSeriesView = () => {
-        return;
-        if (!args.val) {
-            return;
-        }
-
-        const state = args.val.state;
-        const sortedNotes = state._sortedNotes;
-
-        resizeComponentPool(root, pool, sortedNotes.length, () => {
-            const time = htmlf("<div></div>");
-            const text = htmlf("<div></div>");
-            const duration = htmlf("<div></div>");
-
-            const flexRow = htmlf(
-                `<div style="display: flex;white-space:nowrap;">
-                    %{time}
-                    <span style="width: 10px;border-right:1px solid black;"></span>
-                    <span style="width: 10px;"></span>
-                    %{text}
-                    %{spacer}
-                    %{duration}
-                </div>`,
-                { 
-                    time, text, duration,
-                    spacer: () => htmlf(`<div style="flex:1"></div>`),
-                }
-            );
-
-            return {
-                el: flexRow.el,
-                rerender: function(note) {
-                    const timeStr = getTimeStr(note);
-                    const durationMs = getNoteDuration(state, note);
-                    const durationStr = formatDuration(durationMs);
-
-                    setTextContent(time, timeStr); 
-
-                    const parents = [];
-                    iterateParentNotes(note, (note) => parents.unshift(note));
-                    const breadcrumbs = parents.map(p => p.text);
-                    let updated = breadcrumbs.length !== args.lastBreadcrumbs.length;
-                    if (!updated) {
-                        for (const i in breadcrumbs) {
-                            updated = breadcrumbs[i] !== args.lastBreadcrumbs[i];
-                            if (updated) {
-                                break;
-                            }
-                        }
-                    }
-                    if (updated) {
-                        args.lastBreadcrumbs = breadcrumbs;
-
-                        replaceChildren(text, ...breadcrumbs.map((b, i) => {
-                            let bTrunc = b;
-                            if (i !== breadcrumbs.length - 1) {
-                                const TRUNC_AMOUNT = 10;
-                                if (bTrunc.length + 3 > TRUNC_AMOUNT) {
-                                    bTrunc = bTrunc.slice(0, TRUNC_AMOUNT) + "..."
-                                }
-                            }
-                            return htmlf("<span>%{b} %{lt} </span>", { b: bTrunc, lt: i === breadcrumbs.length - 1 ? "" : ">"});
-                        }));
-                    }
-
-                    setTextContent(duration, durationStr + " ...");
-                }
-            };
-        });
-        for (const i in sortedNotes) {
-            pool[i].rerender(sortedNotes[i]);
-        }
-    }
-
-    return {
-        el: root.el,
-        rerender: function(argsIn) {
-            args.val = argsIn;
-
-            updateSeriesView();
-        }
-    };
-}
-
 const App = () => {
     const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
     eventListener(infoButton, "click", () => {
@@ -1682,15 +1570,6 @@ const App = () => {
             </p>
         </div>`
     );
-
-    const seriesViewHelp = htmlf(
-        `<div>
-            <p>
-                See your tasks and subtasks in the order that you created them. This view is experimental, and may be removed/updated.
-                (well they are all like that, but this one is more-so than the others)
-            </p>
-        </div>`
-    )
 
     const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
 
@@ -1744,7 +1623,6 @@ const App = () => {
     const notesList = NotesList();
     const scratchPad = ScratchPad();
     const treeSelector = CurrentTreeSelector();
-    const seriesView = SeriesView();
 
     const appRoot = htmlf(
         `<div class="relative" style="padding-bottom: 100px">
@@ -1753,7 +1631,6 @@ const App = () => {
             %{treeTabs}
             %{notesList}
             %{scratchPad}
-            %{seriesView}
 
             <div>
                 <div style="height: 1500px"></div>
@@ -1785,14 +1662,6 @@ const App = () => {
                     title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
                     help: scratchPadHelp,
                     scratchPad,
-                }
-            ),
-            seriesView: htmlf(
-                `<div>%{title}%{help}%{seriesView}</div>`,
-                {
-                    title: htmlf(`<h2 style="marginTop: 20px;">Series View [experimental]</h2>`),
-                    help: seriesViewHelp,
-                    seriesView,
                 }
             ),
             fixedButtons: htmlf(
@@ -2033,7 +1902,6 @@ const App = () => {
         rerender: function(options = { shouldScroll: true}) {
             setVisible(noteTreeHelp, showInfo);
             setVisible(scratchPadHelp, showInfo);
-            setVisible(seriesViewHelp, showInfo);
 
             const isDoneNote = currentTreeName.endsWith("[done]");
             setVisible(moveOutFinishedNotesButton, !isDoneNote);
@@ -2060,7 +1928,6 @@ const App = () => {
             notesList.rerender(args);
             scratchPad.rerender(args);
             treeSelector.rerender(args);
-            seriesView.rerender(args);
         },
     };
 
