@@ -10,11 +10,34 @@ const repeatSafe = (str, len) => {
     return string.substring(0, len);
 };
 
+const isDoneNote = (note) => {
+    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
+};
+const isTodoNote = (note) => {
+    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
+};
+
+/** This is a task that is currently in progress */
+const STATUS_IN_PROGRESS = 1;
+/** 
+ * This is a task that you haven't marked as DONE, but we are assuming it is done,
+ * because you've moved on to the next task.
+ * This status exists, so that you dont have to manually close off every single tas with a new - Done note under it.
+ */
+const STATUS_ASSUMED_DONE = 2;
+/** 
+ * This is a task that is marked as DONE at the end. 
+ * Marking a note as DONE marks all notes before it as DONE, i.e no longer assumed done, but actually done.
+ * Only these tasks may be moved out of a note. 
+ * This ensures that even in the 'done' tree, all notes are calculated as done.
+ */
+const STATUS_DONE = 3;
+
 const getNoteStateString = (note) => {
-    if (note._isDone) {
-        return "  [x]";
-    } else {
-        return "[...]";
+    switch(note._status) {
+        case STATUS_IN_PROGRESS: return "[...]";
+        case STATUS_ASSUMED_DONE:   return "  [*]";
+        case STATUS_DONE: return "  [x]";
     }
 };
 
@@ -58,10 +81,6 @@ const formatDuration = (ms) => {
 };
 
 const getDurationMS = (a, b) => {
-    if (b === null) {
-        return "still-working";
-    }
-
     return new Date(b).getTime() - new Date(a).getTime();
 };
 
@@ -115,7 +134,7 @@ const createNewNote = (state, text) => {
 
         // the following is just visual flags which are frequently recomputed
 
-        _isDone: false,                 // used to display [...] or [x] next to a note.
+        _status: STATUS_IN_PROGRESS,    // used to track if a note is done or not.
         _isSelected: false,             // used to display '>' or - in the note status
         _depth: 0,                      // used to visually indent the notes
         _parent: null,                  // this is a reference to a parent node.
@@ -759,47 +778,65 @@ const recomputeState = (state) => {
 
     }
 
-    // recompute _isDone, do some sorting
+    // recompute _status, do some sorting
     {
 
         for (const id in state.notes) {
-            state.notes[id]._isDone = false;
+            state.notes[id]._status = STATUS_IN_PROGRESS;
         }
 
         for(const id of state.noteIds) {
             const note = getNote(state, id);
-            dfsPost(state, note, (note) => {
-                const isDoneLeafNote = (note) => {
-                    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
-                };
-                const isTodoNote = (note) => {
-                    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
-                };
 
+            const dfs = (note) => {
                 if (note.childrenIds.length === 0) {
-                    if (
-                        note._parent !== null && 
-                        note._localIndex !== note._localList.length - 1
-                    ) {
-                        note._isDone = !isTodoNote(note);
-                    } else {
-                        note._isDone = !isTodoNote(note) && isDoneLeafNote(note);
-                    }
-
                     return;
                 }
 
+                let foundDoneNote = false;
+                for (let i = note.childrenIds.length - 1; i >= 0; i--) {
+                    const childId = note.childrenIds[i];
+                    const child = getNote(state, childId);
+                    if (child.childrenIds.length > 0) {
+                        dfs(child);
+                        continue;
+                    }
+
+                    if (isTodoNote(child)) {
+                        child._status = STATUS_IN_PROGRESS;
+                        continue;
+                    }
+
+                    if (isDoneNote(child) || foundDoneNote) {
+                        child._status = STATUS_DONE;
+                        foundDoneNote = true;
+                        continue;
+                    }
+
+                    if (i === note.childrenIds.length - 1) {
+                        child._status = STATUS_IN_PROGRESS;
+                    } else {
+                        child._status = STATUS_ASSUMED_DONE;
+                    }
+                }
+
+
+                // Not enough for every child note to be done, the final note in our list should also be 'done'.
+                // That way, when I decide to 'move out all the done notes', I don't accidentally move out the main note.
+
                 const everyChildNoteIsDone = note.childrenIds.every((id) => {
                     const note = getNote(state, id);
-                    return note._isDone;
+                    return note._status === STATUS_DONE;
                 });
 
                 const finalNoteId = note.childrenIds[note.childrenIds.length - 1];
                 const finalNote = getNote(state, finalNoteId);
-                const finalNoteIsDoneLeafNote = isDoneLeafNote(finalNote);
+                const finalNoteIsDoneLeafNote = isDoneNote(finalNote);
 
-                note._isDone = everyChildNoteIsDone && finalNoteIsDoneLeafNote;
-            });
+                note._status = (everyChildNoteIsDone && finalNoteIsDoneLeafNote) ? STATUS_DONE : STATUS_IN_PROGRESS;
+            }
+
+            dfs(note);
         }
     }
 
@@ -846,15 +883,27 @@ const getIndentStr = (note) => {
     return "     ".repeat(repeats);
 };
 
-
 const getNoteDuration = (state, note) => {
-    if (!note._isDone) {
+    if (note._status === STATUS_IN_PROGRESS) {
         return  getDurationMS(note.openedAt, getTimestamp(new Date()));
     }
 
     if (note.childrenIds.length === 0) {
-        if (note._localIndex + 1 < note._localList.length - 1) {
-            return getDurationMS(note.openedAt, note._localList[note._localIndex + 1]);
+        // the duration is the difference between this note and the next non-TODO note.
+
+        let nextNoteIndex = note._localIndex + 1;
+        if (nextNoteIndex < note._localList.length) {
+            // skip over todo notes
+            while (nextNoteIndex < note._localList.length ) {
+                let nextNoteId = note._localList[nextNoteIndex];
+                if (isTodoNote(getNote(state, nextNoteId))) {
+                    nextNoteIndex++;
+                }
+                break;
+            }
+
+            const nextNoteId = note._localList[nextNoteIndex];
+            return getDurationMS(note.openedAt, getNote(state, nextNoteId).openedAt);
         }
 
         return 0;
@@ -873,7 +922,7 @@ const getNoteDuration = (state, note) => {
 const getSecondPartOfRow = (state, note) => {
     const duration = getNoteDuration(state, note);
     const durationStr = formatDuration(duration);
-    const secondPart = note._isDone ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
+    const secondPart = note._status !== STATUS_IN_PROGRESS ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
     return secondPart;
 };
 
@@ -1281,7 +1330,9 @@ const NoteRowInput = () => {
         args.note = note;
 
         const { state, stickyPxRef, } = argsIn;
-        const textColor = note._isSelected ? "var(--fg-color)"  : (!note._isDone ? "var(--fg-color)" : "var(--unfocus-text-color)");
+        const textColor = note._isSelected ? "var(--fg-color)"  : (
+            note._status === STATUS_IN_PROGRESS ? "var(--fg-color)" : "var(--unfocus-text-color)"
+        );
 
         root.el.style.color = textColor;
 
@@ -1289,7 +1340,7 @@ const NoteRowInput = () => {
         text.rerender(argsIn, note, noteFlatIndex);
         statistic.rerender(argsIn, note);
 
-        if (note._isSelected || !note._isDone) {
+        if (note._isSelected || note._status === STATUS_IN_PROGRESS) {
             setTimeout(() => {
                 // make this note stick to the top of the screen so that we can see it
                 let top = stickyPxRef.val;
@@ -1585,11 +1636,11 @@ const App = () => {
             // then assigning over the result
             const doneState = copyState(state);
             recomputeState(doneState);
-            filterNotes(doneState, (note) => note._isDone, true);
+            filterNotes(doneState, (note) => note._status === STATUS_DONE, true);
 
             const notDoneState = copyState(state);
             recomputeState(notDoneState);
-            filterNotes(notDoneState, (note) => !note._isDone, false);
+            filterNotes(notDoneState, (note) => note._status !== STATUS_DONE, true);
 
             let existingDoneState;
             try {
@@ -1598,10 +1649,6 @@ const App = () => {
                 // no existing notes
             }
             const doneStateMerged = mergeState(existingDoneState, doneState);
-
-            recomputeState(doneStateMerged);
-            recomputeState(notDoneState);
-            recomputeState(doneStateMerged);
 
             saveState(doneStateMerged, doneTreeName);
 
