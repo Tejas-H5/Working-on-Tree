@@ -95,6 +95,7 @@ Acceptable inputs include:
 - strings
 - arrays of the above
 - a function that returns one of the above when called
+        - NOTE: only functions can be instantiated in multiple places in a template string
 `, componentOrHTMLfReturnVal);
 
     throw("Error with format directive");
