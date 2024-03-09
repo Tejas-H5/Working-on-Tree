@@ -15,10 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     
     outputs:
-      artifact_id:
-        description: "The ID of the artifact that was uploaded."
-        value: ${{ steps.upload-artifact.outputs.artifact-id }}
-
+      artifact_id: ${{ steps.upload-artifact.outputs.artifact-id }}
+      
     steps:
       # Checks-out the repository under $GITHUB_WORKSPACE
       - uses: actions/checkout@v4
