@@ -23,7 +23,7 @@ jobs:
 
       - name: Build the SPA
         run: |
-          cd node-tree
+          cd note-tree
           npm ci
           npm run build
           cd ..
