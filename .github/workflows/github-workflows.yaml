@@ -48,8 +48,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
-          # Upload dist repository
-          path: './dist'
+          # working-directory doesn't seem to apply here??
+          path: './note-tree/dist'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
