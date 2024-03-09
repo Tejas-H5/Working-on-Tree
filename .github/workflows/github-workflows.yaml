@@ -9,6 +9,11 @@ on:
   # Allows running this workflow manually from the Actions tab
   workflow_dispatch:
 
+outputs:
+  artifact_id:
+    description: "The ID of the artifact that was uploaded."
+    value: ${{ steps.upload-artifact.outputs.artifact-id }}
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
@@ -19,11 +24,49 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Build the SPA
+      - name: Build the SPA in note-tree
         run: |
           cd note-tree
           npm ci
           npm run build
           cd ..
+      
+      - name: Archive the contents of note-tree
+        run: |
+          tar \
+            --dereference --hard-dereference \
+            --directory "./note-tree" \
+            -cvf "$RUNNER_TEMP/github-pages-artifact.tar" \
+            --exclude=.git \
+            --exclude=.github \
+            ./note-tree
+            
+      - name: Upload github pages artifact
+        id: upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/github-pages-artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 
