@@ -1,4 +1,6 @@
-const assert = (trueVal, ...msg) => {
+import "./htmlf.css";
+
+export function assert(trueVal: any, ...msg: any[]) {
     if (!trueVal) { 
         console.error(...msg); 
         throw new Error("assertion failed!"); 
@@ -8,22 +10,19 @@ const assert = (trueVal, ...msg) => {
 // this used to be a typescript file, actually
 
 // https://stackoverflow.com/questions/10730309/find-all-text-nodes-in-html-page
-// const __textNodesUnder = (el: Element) => {
-const __textNodesUnder = (el) => {
+function __textNodesUnder(el: Element): Text[] {
     var n,
-        a = [],
+        a  = [],
         walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
     while ((n = walk.nextNode())) {
-        // a.push(<Text>n); // it is guaranteed that these will all be text nodes
-        a.push(n); // it is guaranteed that these will all be text nodes
+        a.push(n as Text); // it is guaranteed that these will all be text nodes
     }
     return a;
 };
 
 // It doesn't work with tables.
 // I haven't tried it, but it probably doesn't work with list items either
-// const __createHtmlElement = (html: string): Element => {
-const __createHtmlElement = (html) => {
+function __createHtmlElement<T extends HTMLElement>(html: string): T {
     html = html.trim();
     const createEl = document.createElement("div");
 
@@ -34,12 +33,11 @@ const __createHtmlElement = (html) => {
         throw new Error(`print html must exactly have 1 root node - "${html}"`);
     }
 
-    return createEl.children[0];
+    return createEl.children[0] as T;
 };
 
-// const FormatDirectiveErrorComponent = (directive: string, error: any) => {
-const FormatDirectiveErrorComponent = (directive, error) => {
-    return fmt(
+export function FormatDirectiveErrorComponent(directive: string, error: any) {
+    return htmlf(
         `<div style="background-color:white;border:2px solid red;color: red; font-family: Arial, Helvetica, sans-serif;">
             <div>
                 %{errorMsg}
@@ -55,12 +53,10 @@ const FormatDirectiveErrorComponent = (directive, error) => {
     );
 };
 
-const __getHTMLElementForPercentVDirective = (
-    // directiveName: string,
-    // componentOrHTMLfReturnVal: any
-    directiveName,
-    componentOrHTMLfReturnVal,
-) => {
+function __getHTMLElementForPercentVDirective(
+    directiveName: string,
+    componentOrHTMLfReturnVal: any
+) {
     if (typeof componentOrHTMLfReturnVal === "function") {
         // error boundary implementation
         try {
@@ -101,14 +97,11 @@ Acceptable inputs include:
     throw("Error with format directive");
 };
 
-const __insertArgumentForPercentVDirective = (
-    // arg: HTMLFormatArg,
-    // endNode: Element | Text,
-    // directiveName: string,
-    arg,
-    endNode,
-    directiveName,
-) => {
+function __insertArgumentForPercentVDirective(
+    arg: HTMLFormatArg,
+    endNode: Element | Text,
+    directiveName: string,
+) {
     if (Array.isArray(arg)) {
         for (const e of arg) {
             __insertArgumentForPercentVDirective(e, endNode, directiveName);
@@ -119,30 +112,25 @@ const __insertArgumentForPercentVDirective = (
 
     const el = __getHTMLElementForPercentVDirective(directiveName, arg);
 
-    // endNode.parentNode!.insertBefore(el, endNode);
-    endNode.parentNode.insertBefore(el, endNode);
+    endNode.parentNode!.insertBefore(el, endNode);
 };
 
-// const pushElement = <T>(group: T[], element: T): T => {
-const pushElement = (group, element) => {
+export function pushElement<T>(group: T[], element: T): T {
     group.push(element);
     return element;
 };
 
-// type HTMLFormatArgBase = string | Element | Component;
-// type HTMLFormatArg =
-//     | HTMLFormatArgBase
-//     | Array<HTMLFormatArgBase>
-//     | (() => HTMLFormatArgBase);
+type HTMLFormatArgBase = string | Element | Insertable;
+type HTMLFormatArg =
+    | HTMLFormatArgBase
+    | Array<HTMLFormatArgBase>
+    | (() => HTMLFormatArgBase);
 
-const htmlf = (
-    // html: string,
-    // args?: { [argName: string]: HTMLFormatArg }
-    html,
-    args,
-// ): Component => {
-) => {
-    const element = __createHtmlElement(html);
+export function htmlf<T extends HTMLElement>(
+    html: string,
+    args?: { [argName: string]: HTMLFormatArg }
+): InsertableGeneric<T> {
+    const element = __createHtmlElement<T>(html);
     if (!args) {
         return { el: element };
     }
@@ -193,18 +181,18 @@ const htmlf = (
     return { el: element };
 };
 
-// export type Component = { el: Element };
+export type InsertableGeneric<T extends HTMLElement> = { el: T };
+export type Insertable = InsertableGeneric<HTMLElement>
 
-// const replaceChildren = (comp: Component, ...children: Component[]) => {
-const replaceChildren = (comp, ...children) => {
+export function replaceChildren(comp: Insertable, ...children: Insertable[]) {
     comp.el.replaceChildren(...children.map((c) => c.el));
 };
 
-const appendChild = (mountPoint, child) => {
+export function appendChild(mountPoint: Insertable, child: Insertable) {
     mountPoint.el.appendChild(child.el);
 };
 
-const removeChild = (mountPoint, child) => {
+export function removeChild(mountPoint: Insertable, child: Insertable) {
     const childParent = child.el.parentElement;
     if (!childParent) {
         return;
@@ -217,15 +205,15 @@ const removeChild = (mountPoint, child) => {
     child.el.remove();
 };
 
-const clearChildren = (mountPoint) => {
+export function clearChildren(mountPoint: Insertable) {
     mountPoint.el.replaceChildren();
 };
 
-const setClass = (
-    component,
-    cssClass,
-    state
-) => {
+export function setClass(
+    component: Insertable,
+    cssClass: string,
+    state: boolean,
+) {
     if (state) {
         component.el.classList.add(cssClass);
     } else {
@@ -235,12 +223,16 @@ const setClass = (
     return state;
 };
 
-const setAttr = (component, attribute, value) => {
+export function setAttr(
+    component: Insertable, 
+    attribute: string, 
+    value: string,
+) {
     component.el.setAttribute(attribute, value);
 };
 
 
-const copyStyles = (src, dst) => {
+export function copyStyles(src: Insertable, dst: Insertable) {
     const styles = getComputedStyle(src.el);
     for (const style of styles) {
         const srcEl = src.el;
@@ -251,11 +243,7 @@ const copyStyles = (src, dst) => {
     }
 };
 
-const eventListener = (component, event, fn) => {
-    component.el.addEventListener(event, fn);
-}
-
-const setVisible = (component, state) => {
+export function setVisible(component: Insertable, state: boolean) {
     if (state) {
         component.el.classList.remove("hidden");
     } else {
@@ -266,10 +254,10 @@ const setVisible = (component, state) => {
 
 
 
-const resizeComponentPool = (root, compPool, newLength, createFn) => {
+export function resizeComponentPool<T extends Insertable>(root: Insertable, compPool: T[], newLength: number, createFn: () => T) {
     while(compPool.length > newLength) {
         // could also just hide these with setVisible(false)
-        const component = compPool.pop();
+        const component = compPool.pop()!;
         component.el.remove();
     } 
     
@@ -281,20 +269,20 @@ const resizeComponentPool = (root, compPool, newLength, createFn) => {
     }
 
     if (compPool.length !== newLength) {
-        assert("Holy frick");
+        assert(false, "Error with component pool resizing");
     }
 }
 
-const setInputValueAndResize = (inputComponent, text) => {
+export function setInputValueAndResize (inputComponent: Insertable, text: string) {
     setInputValue(inputComponent, text);
     resizeInputToValue(inputComponent);
 }
 
-const resizeInputToValue = (inputComponent) => {
-    inputComponent.el.setAttribute("size", inputComponent.el.value.length);
+export function resizeInputToValue(inputComponent: Insertable) {
+    inputComponent.el.setAttribute("size", "" + (inputComponent.el as HTMLInputElement).value.length);
 }
 
-const setTextContent = (component, text) => {
+export function setTextContent(component: Insertable, text: string) {
     if (component.el.textContent === text) {
         // Actually a huge performance speedup!
         return;
@@ -304,13 +292,47 @@ const setTextContent = (component, text) => {
 };
 
 /** NOTE: assumes that component.el is an HTMLInputElement */
-const setInputValue = (component, text) => {
-    const inputElement = component.el;
+export function setInputValue(component: Insertable, text: string) {
+    const inputElement = component.el as HTMLInputElement;
 
+    // Yeah, its up to you to call it on the right component. 
+    // I don't want to add proper types here, because I can't infer the type `htmlf` will return
     if (inputElement.value === text) {
         // might be a huge performance speedup! ?
         return;
     }
 
+    // @ts-ignore 
     inputElement.value = text;
 };
+
+/** 
+ * Makes a 'component'.
+ * A component is exactly like a `htmf` return value in that it can be inserted into the dom with `htmf`, but
+ * it also has a `rerender` function that can be used to hydrate itself, and possibly it's children.
+ * You would need to do this yourself in renderFn, however.
+ * 
+ * @param root is a return-value from `htmf` that will be the root dom-node of this component
+ * @param renderFn is called each time to rerender the comopnent.
+ * 
+ * It stores args in the `args` object, so that any event listeners can update their behaviours when the main
+ * component re-renders.
+ */
+export function makeComponent<T>(root: Insertable, renderFn: () => void) {
+    const component : Renderable<T> = {
+        ...root,
+        // @ts-ignore this is always set before we render the component
+        args: null,
+        rerender: function(argsIn) {
+            component.args = argsIn;
+            renderFn();
+        },
+    };
+
+    return component;
+}
+
+export type Renderable<T> = Insertable & {
+    args: T;
+    rerender(args: T):void;
+}
