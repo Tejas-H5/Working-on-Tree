@@ -27,9 +27,10 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: note-tree
     steps:
-      - name: Move to note-tree dir
-        run: cd note-tree
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Node
@@ -37,6 +38,7 @@ jobs:
         with:
           node-version: 18
           cache: 'npm'
+          cache-dependency-path: '**/package-lock.json' ## https://stackoverflow.com/a/69375844
       - name: Install dependencies
         run: npm install
       - name: Build
@@ -46,8 +48,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
-          # Upload dist repository
-          path: './dist'
+          # working-directory doesn't seem to apply here??
+          path: './note-tree/dist'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
