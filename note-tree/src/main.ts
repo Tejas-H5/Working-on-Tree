@@ -1060,7 +1060,7 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
 
     // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
     textArea.el.addEventListener("keydown", (e) => {
-        if (e.keyCode !== 9) return;
+        if (e.key !== "Tab") return;
 
         e.preventDefault();
 
@@ -1073,7 +1073,13 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
 
     textArea.el.addEventListener("keydown", () => {
         // NOTE: unsolved problem in computer science - scroll the window to the vertical position
-        // of the cursor in the text area. Damn. (Now solved)
+        // of the cursor in the text area. 
+        // Now solved: 
+        // 1 - Create a 'mirror div' with exactly the same styles (but we need to manually apply some of them)
+        // 2 - insert text from the start of the div to the cursor position
+        //         (plus some random character, so the whitespace on the end doesnt get truncated, despite your 'pre' whiteSpace style)
+        // 3 - measure the height of this div. this is the vertical offset to whre our cursor is, more or less
+        // 4 - scroll to this offsetTop + height. ez
 
         setTimeout(() => {
             let wantedScrollPos;
@@ -1085,6 +1091,7 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
 
                 copyStyles(textArea, mirrorDiv);
                 mirrorDiv.el.style.height = "" + 0;
+                mirrorDiv.el.style.whiteSpace = "pre";
                 mirrorDiv.el.style.display = "block";
 
                 const textUpToCursor = textArea.el.value.substring(0, textArea.el.selectionEnd) + ".";
