@@ -10,7 +10,6 @@ import {
     makeComponent,
     removeChild,
     resizeComponentPool,
-    resizeInputToValue,
     setClass,
     setInputValue,
     setInputValueAndResize,
@@ -18,8 +17,8 @@ import {
     setVisible
 } from "./htmlf";
 
-const INDENT_BASE_WIDTH = 100;
-const INDENT_WIDTH_PX = 50;
+// const INDENT_BASE_WIDTH = 100;
+// const INDENT_WIDTH_PX = 50;
 const SAVE_DEBOUNCE = 1000;
 const STATUS_TEXT_PERSIST_TIME = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -28,10 +27,10 @@ function pad2(num: number) {
     return num < 10 ? "0" + num : "" + num;
 }
 
-function repeatSafe(str: string, len: number) {
-    const string = len <= 0 ? "" : str.repeat(Math.ceil(len / str.length));
-    return string.substring(0, len);
-}
+// function repeatSafe(str: string, len: number) {
+//     const string = len <= 0 ? "" : str.repeat(Math.ceil(len / str.length));
+//     return string.substring(0, len);
+// }
 
 function isDoneNote(note: Note) {
     return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
@@ -970,7 +969,7 @@ function getSecondPartOfRow(state: State, note: Note) {
     return secondPart;
 }
 
-function getRowIndentPrefix(state: State, note: Note) {
+function getRowIndentPrefix(_state: State, note: Note) {
     return `${getIndentStr(note)} ${getNoteStateString(note)}`;
 }
 
@@ -1145,7 +1144,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     );
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { app: { state, rerenderApp, shouldScroll }, note, flatIndex } = component.args;
+        const { app: { state, shouldScroll }, note, flatIndex } = component.args;
 
         const dashChar = note._isSelected ? ">" : "-";
         setTextContent(
@@ -1414,28 +1413,6 @@ function Button(text: string, fn: () => void, classes: string = "") {
 
     btn.el.addEventListener("click", fn);
     return btn;
-};
-
-function CurrentTreeNameEditor(): Renderable<AppArgs> {
-    const treeNameInput = htmlf<HTMLInputElement>(`<input class="inline-block w-100"></input>`);
-
-    treeNameInput.el.addEventListener("input", () => {
-        resizeInputToValue(treeNameInput);
-    })
-
-    const component = makeComponent<AppArgs>(treeNameInput, () => {
-            const { currentTreeName } = component.args;
-            setInputValueAndResize(treeNameInput, currentTreeName);
-    });
-
-    treeNameInput.el.addEventListener("change", () => {
-        const { renameCurrentTreeName } = component.args;
-
-        const newName = treeNameInput.el.value;
-        renameCurrentTreeName(newName);
-    });
-
-    return component;
 };
 
 // will be more of a tabbed view
