@@ -32,7 +32,7 @@ jobs:
         run: |
           tar \
             --dereference --hard-dereference \
-            --directory "./note-tree" \
+            --directory "$GITHUB_WORKSPACE/note-tree" \
             -cvf "$RUNNER_TEMP/github-pages-artifact.tar" \
             --exclude=.git \
             --exclude=.github \
