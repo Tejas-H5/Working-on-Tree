@@ -9,21 +9,18 @@ on:
   # Allows running this workflow manually from the Actions tab
   workflow_dispatch:
 
-outputs:
-  artifact_id:
-    description: "The ID of the artifact that was uploaded."
-    value: ${{ steps.upload-artifact.outputs.artifact-id }}
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    
+    outputs:
+      artifact_id:
+        description: "The ID of the artifact that was uploaded."
+        value: ${{ steps.upload-artifact.outputs.artifact-id }}
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      # Checks-out the repository under $GITHUB_WORKSPACE
       - uses: actions/checkout@v4
 
       - name: Build the SPA in note-tree
