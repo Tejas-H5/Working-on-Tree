@@ -30,13 +30,7 @@ jobs:
       
       - name: Archive the contents of note-tree
         run: |
-          tar \
-            --dereference --hard-dereference \
-            --directory "$GITHUB_WORKSPACE/note-tree" \
-            -cvf "$RUNNER_TEMP/github-pages-artifact.tar" \
-            --exclude=.git \
-            --exclude=.github \
-            ./note-tree
+          tar -cvf "$RUNNER_TEMP/github-pages-artifact.tar" "$GITHUB_WORKSPACE/note-tree/dist"
             
       - name: Upload github pages artifact
         id: upload-artifact
