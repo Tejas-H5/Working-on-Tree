@@ -17,6 +17,8 @@ import {
     setVisible
 } from "./htmlf";
 
+import * as tree from "./tree";
+
 // const INDENT_BASE_WIDTH = 100;
 // const INDENT_WIDTH_PX = 50;
 const SAVE_DEBOUNCE = 1000;
@@ -62,9 +64,9 @@ function getNoteStateString(note: Note) {
         case STATUS_IN_PROGRESS:
             return "[...]";
         case STATUS_ASSUMED_DONE:
-            return "  [ * ]";
+            return "[ * ]";
         case STATUS_DONE:
-            return "  [ x ]";
+            return "[ x ]";
     }
 }
 
@@ -105,21 +107,9 @@ function getDurationMS(aIsoString: string, bIsoString: string) {
     return new Date(bIsoString).getTime() - new Date(aIsoString).getTime();
 }
 
-function moveToFirstNote(state: State) {
-    state.currentNoteId = state.noteIds[0];
-    return true;
-}
-
-function moveToLastNote(state: State) {
-    const lastNoteRootId = state.noteIds[state.noteIds.length - 1];
-    const lastNoteInTree = getLastNote(state, getNote(state, lastNoteRootId));
-    state.currentNoteId = lastNoteInTree.id;
-    return true;
-}
-
-function getLastNote(state: State, lastNote: Note) {
-    while (!lastNote.isCollapsed && lastNote.childrenIds.length > 0) {
-        lastNote = getNote(state, lastNote.childrenIds[lastNote.childrenIds.length - 1]);
+function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
+    while (lastNote.childIds.length > 0) {
+        lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
     }
 
     return lastNote;
@@ -139,46 +129,31 @@ function uuid() {
 
 type Note = {
     id: NoteId;
-    childrenIds: NoteId[];
     text: string;
     openedAt: string;
-    isCollapsed: boolean;
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _isSelected: boolean; // used to display '>' or - in the note status
     _depth: number; // used to visually indent the notes
-    _parent: Note | null; // this is a reference to a parent node.
-    _collapsedCount: number; // used to display a collapsed count
-    _localList: NoteId[]; // the local list that this thing is in. Either some note's .childrenIds, or state.noteIds.
-    _localIndex: number; // putting it here bc why not. this is useful for some ops
 };
 
-function createNewNote(state: State, text: string): Note {
+function createNewNote(text: string): tree.TreeNode<Note> {
     const note: Note = {
         // the following is valuable user data
 
         id: uuid(),
         text: text || "",
         openedAt: getTimestamp(new Date()), // will be populated whenever text goes from empty -> not empty
-        childrenIds: [],
-        isCollapsed: false,
 
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
         _isSelected: false, // used to display '>' or - in the note status
         _depth: 0, // used to visually indent the notes
-        _parent: null, // this is a reference to a parent node.
-        _collapsedCount: 0, // used to display a collapsed count
-        // @ts-ignore TODO: proper tree ops instead of calculating/inferring the parent
-        _localList: null, // the local list that this thing is in. Either some note's .childrenIds, or state.noteIds.
-        _localIndex: 0 // putting it here bc why not. this is useful for some ops
     };
 
-    state.notes[note.id] = note;
-
-    return note;
+    return tree.newTreeNode(note, note.id);
 }
 
 const STATE_KEY_PREFIX = "NoteTree.";
@@ -215,13 +190,12 @@ function merge(a: State, b: State) {
 
 type NoteId = string;
 type State = {
-    notes: { [key: NoteId]: Note };
-    noteIds: NoteId[];
+    notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
     scratchPad: string;
 
     // non-serializable fields
-    _flatNotes: Note[];
+    _flatNotes: NoteId[];
 };
 
 // NOTE: all state needs to be JSON-serializable.
@@ -232,18 +206,23 @@ type State = {
 function defaultState(): State {
     const state: State = {
         _flatNotes: [], // used by the note tree view, can include collapsed subsections
-        notes: {},
-        noteIds: [],
+
+        notes: tree.newTreeStore<Note>({
+            id: tree.ROOT_KEY,
+            openedAt: getTimestamp(new Date()),
+            text: "This root node should not be visible. If it is, you've encountered a bug!",
+            _depth: 0,
+            _isSelected: false,
+            _status: STATUS_IN_PROGRESS,
+        }),
         currentNoteId: "",
         scratchPad: ""
     };
 
-    const newNote = createNewNote(state, "First Note");
-    state.currentNoteId = newNote.id;
-    state.noteIds.push(newNote.id);
-
     return state;
 }
+
+
 
 function loadState(name: string): State {
     const savedStateJSON = localStorage.getItem(STATE_KEY_PREFIX + name);
@@ -301,12 +280,22 @@ function saveState(state: State, name: string) {
 
 function deleteNoteIfEmpty(state: State, id: NoteId) {
     const note = getNote(state, id);
-    if (note.text) {
+    if (note.data.text) {
         return false;
     }
 
-    if (!note._parent && state.noteIds.length <= 1) {
+    if (!note.parentId) {
         return false;
+    }
+
+    if (note.id === state.currentNoteId) {
+        // don't delete the note we're working on rn
+        return false;
+    }
+
+    if (tree.getSize(state.notes) <= 1) {
+        // don't delete our only note!
+        return false
     }
 
     const noteToMoveTo = getOneNoteUp(state, note) || getOneNoteDown(state, note);
@@ -316,282 +305,227 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
     }
 
     // delete from the ids list, as well as the note database
-    note._localList.splice(note._localList.indexOf(note.id), 1);
-    delete state.notes[note.id];
-
-    state.currentNoteId = noteToMoveTo.id;
-
+    tree.remove(state.notes, note);
     return true;
 }
 
 function insertNoteAfterCurrent(state: State) {
     const currentNote = getCurrentNote(state);
-    if (!currentNote.text) {
+    assert(currentNote.parentId, "Cant insert after the root note");
+    if (!currentNote.data.text) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
 
-    const newNote = createNewNote(state, "");
-    currentNote._localList.splice(currentNote._localIndex + 1, 0, newNote.id);
-    state.currentNoteId = newNote.id;
+    const newNote = createNewNote("");
 
+    const parent = getNote(state, currentNote.parentId);
+    const idx = parent.childIds.indexOf(currentNote.id);
+    if (idx === parent.childIds.length - 1) {
+        tree.addAfter(state.notes, currentNote, newNote)
+    }  else {
+        tree.addUnder(state.notes, currentNote, newNote);
+    }
+
+    setCurrentNote(state, newNote.id);
     return true;
 }
 
 function insertChildNode(state: State) {
     const currentNote = getCurrentNote(state);
-    if (!currentNote.text) {
+    assert(currentNote.parentId, "Cant insert after the root note");
+    if (!currentNote.data.text) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
 
-    const newNote = createNewNote(state, "");
-    currentNote.childrenIds.unshift(newNote.id);
-    currentNote.isCollapsed = false;
-    state.currentNoteId = newNote.id;
+    const newNote = createNewNote("");
+
+    tree.addUnder(state.notes, currentNote, newNote);
+    setCurrentNote(state, newNote.id);
 
     return true;
-}
-
-function deleteNote(state: State, id: NoteId) {
-    delete state.notes[id];
 }
 
 function getNote(state: State, id: NoteId) {
-    const note = state.notes[id];
-    if (!note) {
-        console.warn("couldn't find note with id", id, state);
-    }
-    return note;
+    return tree.getNode(state.notes, id);
 }
 
 function getCurrentNote(state: State) {
+    if (!tree.hasNode(state.notes, state.currentNoteId)) {
+        // set currentNoteId to the last root note if it hasn't yet been set
+
+        const rootChildIds = getRootNote(state).childIds;
+        if (rootChildIds.length === 0) {
+            // create the first note if we have no notes
+            const newNote = createNewNote("First Note");
+            tree.addUnder(state.notes, getRootNote(state), newNote);
+        }
+
+        state.currentNoteId = rootChildIds[rootChildIds.length - 1];
+    }
+
     return getNote(state, state.currentNoteId);
 }
 
-function getOneNoteDown(state: State, note: Note): Note | null {
-    if (!note.isCollapsed && note.childrenIds.length > 0) {
-        return getNote(state, note.childrenIds[0]);
+function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    if (!note.parentId) {
+        return null;
     }
 
-    let parent: Note | null = note;
-    while (parent) {
-        if (parent._localIndex < parent._localList.length - 1) {
-            return getNote(state, parent._localList[parent._localIndex + 1]);
+    if (note.childIds.length > 0) {
+        return getNote(state, note.childIds[0]);
+    }
+
+    while (note.parentId) {
+        const parent = getNote(state, note.parentId);
+        const idx = parent.childIds.indexOf(note.id);
+        if (idx !== parent.childIds.length - 1) {
+            return getNote(state, parent.childIds[idx + 1]);
         }
 
-        // check if the parent's local list has a next child in it
-        parent = parent._parent;
+        // this is the final note. check if the parent has a note after it
+        note = getNote(state, note.parentId)
     }
 
-    // we couldn't find a note 'below' this one
     return null;
 }
 
-function moveDown(state: State) {
-    const note = getCurrentNote(state);
-    const oneNoteDown = getOneNoteDown(state, note);
-    if (!oneNoteDown) {
+function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    if (!note.parentId) {
+        return null;
+    }
+
+    const parent = getNote(state, note.parentId);
+    if (parent.childIds[0] === note.id) {
+        return parent;
+    }
+
+    const idx = parent.childIds.indexOf(note.id);
+    assert(idx !== -1, "Possible data corruption");
+    const oneUp = getNote(state, parent.childIds[idx - 1]);
+    return getLastNote(state, oneUp);
+}
+
+function setCurrentNote(state: State, noteId: NoteId) {
+    const currentNote = getCurrentNote(state);
+    if (currentNote.id === noteId) {
+        return;
+    }
+
+    if (!tree.hasNode(state.notes, noteId)) {
+        return;
+    }
+
+    if (!currentNote.data.text) {
+        tree.remove(state.notes, currentNote);
+    }
+
+    state.currentNoteId = noteId;
+}
+
+function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) {
+    if (!note || note === getRootNote(state)) {
         return false;
     }
 
-    state.currentNoteId = oneNoteDown.id;
+    setCurrentNote(state, note.id);
     return true;
 }
 
-function getOneNoteUp(state: State, note: Note) {
-    if (note._localIndex == 0) {
-        if (note._parent) {
-            return note._parent;
-        }
 
-        // can't move up from here
-        return undefined;
+function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
     }
 
-    const prevNoteOnSameLevel = getNote(state, note._localList[note._localIndex - 1]);
-    if (prevNoteOnSameLevel.isCollapsed) {
-        return prevNoteOnSameLevel;
+    const parent = getNote(state, note.parentId);
+    const idx = parent.childIds.indexOf(note.id);
+    if (idx < parent.childIds.length - 1) {
+        return getNote(state, parent.childIds[idx + 1]);
     }
 
-    return getLastNote(state, prevNoteOnSameLevel);
+    return null;
 }
 
-function swapChildren(note: Note, a: number, b: number) {
-    const temp = note._localList[a];
-    note._localList[a] = note._localList[b];
-    note._localList[b] = temp;
-}
-
-function moveNoteDown(state: State) {
-    const note = getCurrentNote(state);
-    if (note._localIndex >= note._localList.length - 1) {
-        return false;
+function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
     }
 
-    swapChildren(note, note._localIndex, note._localIndex + 1);
-    return true;
-}
-
-function moveNoteUp(state: State) {
-    const note = getCurrentNote(state);
-    if (note._localIndex === 0) {
-        return false;
+    const parent = getNote(state, note.parentId);
+    const idx = parent.childIds.indexOf(note.id);
+    if (idx > 0) {
+        return getNote(state, parent.childIds[idx - 1]);
     }
 
-    swapChildren(note, note._localIndex, note._localIndex - 1);
-    return true;
-}
-
-function moveUp(state: State) {
-    const noteOneUp = getOneNoteUp(state, getCurrentNote(state));
-    if (!noteOneUp) {
-        return false;
-    }
-
-    state.currentNoteId = noteOneUp.id;
-    return true;
-}
-
-function indentNote(state: State) {
-    // Indenting means that we find the note above this one in the parent's note list,
-    // and then we move it and all the notes after it to the end of that parent list.
-    // Making this operation simple was the main reason why I wasn't storing the notes in a literal tree for the longest time.
-    // It also made moving 'up' and 'down' in the note tree as simple as ++ing or --ing an int. The code that does that now is very complex lol. (as simple as I could keep it, however)
-    // But now there are a bunch of other things that necessitate a tree structure
-    const note = getCurrentNote(state);
-
-    if (note._localIndex === 0) {
-        return false;
-    }
-
-    const newParentNoteId = note._localList[note._localIndex - 1];
-    const newParent = getNote(state, newParentNoteId);
-    assert(!!newParentNoteId && newParent, "Error in _localIndex Calculation");
-
-    note._localList.splice(note._localIndex, 1);
-    newParent.childrenIds.push(note.id);
-
-    return true;
-}
-
-function deIndentNote(state: State) {
-    // De-indenting means doing the opposite of indentNote. Read my long ahh comment in there
-    // (Oh no im writing ahh in my comments now. the brainrot is real ...)
-
-    const note = getCurrentNote(state);
-
-    if (!note._parent) {
-        return false;
-    }
-
-    const parent = note._parent;
-
-    note._localList.splice(note._localIndex, 1);
-    parent._localList.splice(parent._localIndex + 1, 0, note.id);
-
-    return true;
+    return null;
 }
 
 // returns true if the app should re-render
-function handleNoteInputKeyDown(state: State, keyDownEvent: KeyboardEvent) {
-    const key = keyDownEvent.key;
-    if (key === "Enter") {
-        if (keyDownEvent.shiftKey) {
-            return insertChildNode(state);
-        }
-        return insertNoteAfterCurrent(state);
+function handleNoteInputKeyDown(state: State, e: KeyboardEvent) {
+    const ctrlPressed = e.ctrlKey || e.metaKey;
+    const currentNote = getCurrentNote(state);
+
+    switch (e.key) {
+        case "Enter":
+            if (e.shiftKey) {
+                insertChildNode(state);
+            } else {
+                insertNoteAfterCurrent(state);
+            }
+            break;
+        case "Backspace":
+            deleteNoteIfEmpty(state, state.currentNoteId);
+            break;
+        case "Tab":
+            // TODO: move between the tabs
+            break;
+        case "ArrowUp":
+            moveToNote(state, 
+                ctrlPressed ? getNoteOneUpLocally(state, currentNote) : 
+                    getOneNoteUp(state, currentNote)
+            );
+            break;
+        case "ArrowDown":
+            moveToNote(state, 
+                ctrlPressed ? getNoteOneDownLocally(state, currentNote) : 
+                    getOneNoteDown(state, currentNote)
+            );
+            break;
+        case "ArrowLeft":
+            moveToNote(state, 
+                currentNote.parentId ? getNote(state, currentNote.parentId) : null
+            );
+            break;
+        case "ArrowRight":
+            moveToNote(
+                state,
+                currentNote.childIds.length > 0 ? (
+                    getNote(state, currentNote.childIds[currentNote.childIds.length - 1])
+                ) : null
+            );
+            break;
+        default:
+            return false;
     }
 
-    if (key === "Backspace") {
-        if (deleteNoteIfEmpty(state, state.currentNoteId)) {
-            keyDownEvent.preventDefault();
-            return true;
-        }
-
-        return false;
-    }
-
-    if (key === "Tab") {
-        keyDownEvent.preventDefault();
-
-        if (keyDownEvent.shiftKey) {
-            return deIndentNote(state);
-        }
-
-        return indentNote(state);
-    }
-
-    if (key === "ArrowUp") {
-        keyDownEvent.preventDefault();
-        if (keyDownEvent.altKey) {
-            return moveNoteUp(state);
-        }
-        if (keyDownEvent.ctrlKey || keyDownEvent.metaKey) {
-            return collapseNode(state);
-        }
-        return moveUp(state);
-    }
-
-    if (key === "ArrowDown") {
-        keyDownEvent.preventDefault();
-        if (keyDownEvent.altKey) {
-            return moveNoteDown(state);
-        }
-        if (keyDownEvent.ctrlKey || keyDownEvent.metaKey) {
-            return expandNode(state);
-        }
-        return moveDown(state);
-    }
-
-    if (key === "End" && keyDownEvent.ctrlKey) {
-        keyDownEvent.preventDefault();
-        return moveToLastNote(state);
-    }
-
-    if (key === "Home" && keyDownEvent.ctrlKey) {
-        keyDownEvent.preventDefault();
-        return moveToFirstNote(state);
-    }
-
-    return false;
-}
-
-function collapseNode(state: State) {
-    const note = getCurrentNote(state);
-    if (note.isCollapsed || note.childrenIds.length === 0) {
-        return false;
-    }
-
-    note.isCollapsed = true;
     return true;
 }
 
-function expandNode(state: State) {
-    const note = getCurrentNote(state);
-    if (!note.isCollapsed) {
-        return false;
-    }
-
-    note.isCollapsed = false;
-    return true;
-}
-
-function dfsPre(state: State, note: Note, fn: (n: Note) => void) {
+function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
     fn(note);
 
-    for (const id of note.childrenIds) {
+    for (const id of note.childIds) {
         const note = getNote(state, id);
         dfsPre(state, note, fn);
     }
 }
 
-function dfsPost(state: State, note: Note, fn: (n: Note) => void) {
-    for (const id of note.childrenIds) {
+function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
+    for (const id of note.childIds) {
         const note = getNote(state, id);
-        if (dfsPost(state, note, fn) === true) {
-            return true;
-        }
+        dfsPost(state, note, fn);
     }
 
     fn(note);
@@ -601,123 +535,48 @@ function copyState(state: State) {
     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
 }
 
-function mergeState(existingState: State | undefined, incomingState: State): State {
-    if (!existingState) {
-        return incomingState;
-    }
 
-    const newState: State = { ...incomingState };
-    for (const key in existingState) {
-        // @ts-ignore
-        newState[key] = existingState[key];
-    }
-
-    if (incomingState.scratchPad) {
-        newState.scratchPad = incomingState.scratchPad;
-    }
-
-    function mergeChildIds<T>(a: T[], b: T[]): T[] {
-        if (!a || !b) {
-            throw new Error("There is a bug in the code");
-        }
-
-        return [...new Set([...a, ...b])];
-    }
-
-    // incoming notes with the same id can overwrite existing notes
-    newState.notes = {};
-    for (const id in existingState.notes) {
-        newState.notes[id] = existingState.notes[id];
-    }
-    for (const id in incomingState.notes) {
-        newState.notes[id] = incomingState.notes[id];
-    }
-
-    for (const id in newState.notes) {
-        if (existingState.notes[id] && incomingState.notes[id]) {
-            newState.notes[id].childrenIds = mergeChildIds(
-                existingState.notes[id].childrenIds,
-                incomingState.notes[id].childrenIds
-            );
-
-            console.log(
-                "merging ",
-                newState.notes[id].text,
-                newState.notes[id].childrenIds.map((cid) => getNote(newState, cid)),
-                existingState.notes[id].childrenIds.map((cid) => getNote(newState, cid)),
-                incomingState.notes[id].childrenIds.map((cid) => getNote(newState, cid))
-            );
-        }
-    }
-
-    newState.noteIds = mergeChildIds(existingState.noteIds, incomingState.noteIds);
-
-    return newState;
-}
-
-function filterNotes(state: State, predicate: (n: Note) => boolean, pruneRootNotes: boolean) {
-    const dfs = (note: Note) => {
-        for (let i = 0; i < note.childrenIds.length; i++) {
-            const id = note.childrenIds[i];
+function filterNotes(state: State, predicate: (n: tree.TreeNode<Note>) => boolean) {
+    const dfs = (note: tree.TreeNode<Note>) => {
+        for (let i = 0; i < note.childIds.length; i++) {
+            const id = note.childIds[i];
             const child = getNote(state, id);
 
             dfs(child);
 
             if (
-                predicate(child) || // doesn't meet filtering criteria
-                child.childrenIds.length > 0 // has children that survived filtering
+                predicate(child) ||         // should keep this note
+                child.childIds.length > 0   // has children that should be kept
             ) {
                 continue;
             }
 
-            note.childrenIds.splice(i, 1);
+
+            tree.remove(state.notes, child);
             i--;
-            deleteNote(state, id);
         }
     };
 
-    for (let i = 0; i < state.noteIds.length; i++) {
-        const id = state.noteIds[i];
-        const note = getNote(state, id);
-
-        const childIdsPrev = note.childrenIds.length;
-
-        dfs(note);
-
-        if (pruneRootNotes) {
-            if (childIdsPrev !== 0 && note.childrenIds.length === 0) {
-                state.noteIds.splice(i, 1);
-                i--;
-
-                deleteNote(state, id);
-            }
-        }
-    }
+    dfs(getRootNote(state));
 }
 
-function recomputeFlatNotes(state: State, flatNotes: Note[], collapse: boolean) {
-    flatNotes.splice(0, flatNotes.length);
-    const dfs = (note: Note) => {
-        flatNotes.push(note);
-        if (collapse && note.isCollapsed) {
-            // don't render any of it's children, but calculate the number of children underneath
-            let numCollapsed = 0;
-            dfsPre(state, note, () => numCollapsed++);
-            note._collapsedCount = numCollapsed;
-            return;
-        }
+function getRootNote(state: State) {
+    return getNote(state, state.notes.rootId);
+}
 
-        for (const id of note.childrenIds) {
+function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
+    flatNotes.splice(0, flatNotes.length);
+
+    const dfs = (note: tree.TreeNode<Note>) => {
+        for (const id of note.childIds) {
             const note = getNote(state, id);
+            flatNotes.push(note.id);
+
             dfs(note);
         }
     };
 
-    for (const id of state.noteIds) {
-        const note = getNote(state, id);
-
-        dfs(note);
-    }
+    dfs(getRootNote(state));
 }
 
 // called just before we render things.
@@ -726,89 +585,20 @@ function recomputeFlatNotes(state: State, flatNotes: Note[], collapse: boolean) 
 function recomputeState(state: State) {
     assert(!!state, "WTF");
 
-    // ensure always one note
-    if (state.noteIds.length === 0) {
-        state.notes = {};
-        const note = createNewNote(state, "First note");
-        state.noteIds.push(note.id);
-    }
-
-    // fix notes with childrenIds that reference missing notes
-    // TODO: figure out why they were missing in the first place
-    {
-        const dfs = (childrenIds: NoteId[]) => {
-            for (let i = 0; i < childrenIds.length; i++) {
-                const id = childrenIds[i];
-                const note = getNote(state, id);
-                if (note) {
-                    dfs(note.childrenIds);
-                    continue;
-                }
-
-                childrenIds.splice(i, 1);
-                i--;
-            }
-        };
-
-        dfs(state.noteIds);
-    }
-
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
     {
-        const dfs = (note: Note, depth: number, parent: Note | null, localIndex: number, list: NoteId[]) => {
-            note._depth = depth;
-            note._parent = parent;
-            note._localIndex = localIndex;
-            note._localList = list;
+        const dfs = (note: tree.TreeNode<Note>, depth: number) => {
+            note.data._depth = depth;
 
-            for (let i = 0; i < note.childrenIds.length; i++) {
-                const c = getNote(state, note.childrenIds[i]);
-                dfs(c, depth + 1, note, i, note.childrenIds);
+            for (let i = 0; i < note.childIds.length; i++) {
+                const c = getNote(state, note.childIds[i]);
+                dfs(c, depth + 1);
             }
         };
 
-        for (let i = 0; i < state.noteIds.length; i++) {
-            const note = getNote(state, state.noteIds[i]);
-            dfs(note, 0, null, i, state.noteIds);
-        }
+        dfs(getRootNote(state), -1);
     }
-
-    // remove all empty notes that we aren't editing
-    // again, this should really just be done when we are moving around
-    {
-        const currentNote = getCurrentNote(state);
-        const noteIdsToDelete: NoteId[] = [];
-
-        for (const id of state.noteIds) {
-            const note = getNote(state, id);
-            dfsPost(state, note, (note) => {
-                if (note === currentNote) {
-                    return;
-                }
-
-                if (note.text.trim()) {
-                    return;
-                }
-
-                if (note.childrenIds.length > 0) {
-                    // we probably dont want to delete this note, because it has child notes.
-                    // the actually good thing to do here would be to revert this text to what it was last
-                    note.text = "<redacted>";
-                } else {
-                    noteIdsToDelete.push(note.id);
-                }
-            });
-        }
-
-        for (const id of noteIdsToDelete) {
-            deleteNoteIfEmpty(state, id);
-        }
-    }
-
-    // for (const id in state.notes) {
-    //     state.notes[id].isCollapsed = false;
-    // }
 
     // recompute _flatNotes (after deleting things)
     {
@@ -816,90 +606,80 @@ function recomputeState(state: State) {
             state._flatNotes = [];
         }
 
-        recomputeFlatNotes(state, state._flatNotes, true);
+        recomputeFlatNotes(state, state._flatNotes);
     }
 
     // recompute _status, do some sorting
     {
-        for (const id in state.notes) {
-            state.notes[id]._status = STATUS_IN_PROGRESS;
-        }
+        tree.forEachNode(state.notes, (id) => {
+            getNote(state, id).data._status = STATUS_IN_PROGRESS;
+        })
 
-        for (const id of state.noteIds) {
-            const note = getNote(state, id);
+        const dfs = (note: tree.TreeNode<Note>) => {
+            if (note.childIds.length === 0) {
+                return;
+            }
 
-            const dfs = (note: Note) => {
-                if (note.childrenIds.length === 0) {
-                    return;
+            let foundDoneNote = false;
+            for (let i = note.childIds.length - 1; i >= 0; i--) {
+                const childId = note.childIds[i];
+                const child = getNote(state, childId);
+                if (child.childIds.length > 0) {
+                    dfs(child);
+                    continue;
                 }
 
-                let foundDoneNote = false;
-                for (let i = note.childrenIds.length - 1; i >= 0; i--) {
-                    const childId = note.childrenIds[i];
-                    const child = getNote(state, childId);
-                    if (child.childrenIds.length > 0) {
-                        dfs(child);
-                        continue;
-                    }
-
-                    if (isTodoNote(child)) {
-                        child._status = STATUS_IN_PROGRESS;
-                        continue;
-                    }
-
-                    if (isDoneNote(child) || foundDoneNote) {
-                        child._status = STATUS_DONE;
-                        foundDoneNote = true;
-                        continue;
-                    }
-
-                    if (i === note.childrenIds.length - 1) {
-                        child._status = STATUS_IN_PROGRESS;
-                    } else {
-                        child._status = STATUS_ASSUMED_DONE;
-                    }
+                if (isTodoNote(child.data)) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                    continue;
                 }
 
-                // Not enough for every child note to be done, the final note in our list should also be 'done'.
-                // That way, when I decide to 'move out all the done notes', I don't accidentally move out the main note.
+                if (isDoneNote(child.data) || foundDoneNote) {
+                    child.data._status = STATUS_DONE;
+                    foundDoneNote = true;
+                    continue;
+                }
 
-                const everyChildNoteIsDone = note.childrenIds.every((id) => {
-                    const note = getNote(state, id);
-                    return note._status === STATUS_DONE;
-                });
+                if (i === note.childIds.length - 1) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                } else {
+                    child.data._status = STATUS_ASSUMED_DONE;
+                }
+            }
 
-                const finalNoteId = note.childrenIds[note.childrenIds.length - 1];
-                const finalNote = getNote(state, finalNoteId);
-                const finalNoteIsDoneLeafNote = isDoneNote(finalNote);
+            // Not enough for every child note to be done, the final note in our list should also be 'done'.
+            // That way, when I decide to 'move out all the done notes', I don't accidentally move out the main note.
 
-                note._status =
-                    everyChildNoteIsDone && finalNoteIsDoneLeafNote ? STATUS_DONE : STATUS_IN_PROGRESS;
-            };
+            const everyChildNoteIsDone = note.childIds.every((id) => {
+                const note = getNote(state, id);
+                return note.data._status === STATUS_DONE;
+            });
 
-            dfs(note);
-        }
+            const finalNoteId = note.childIds[note.childIds.length - 1];
+            const finalNote = getNote(state, finalNoteId);
+            const finalNoteIsDoneLeafNote = isDoneNote(finalNote.data);
+
+            note.data._status =
+                everyChildNoteIsDone && finalNoteIsDoneLeafNote ? STATUS_DONE : STATUS_IN_PROGRESS;
+        };
+
+        dfs(getRootNote(state));
     }
 
     // recompute _isSelected to just be the current note + all parent notes
     {
-        for (const id in state.notes) {
+        tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
-            note._isSelected = false;
-        }
+            note.data._isSelected = false;
+        });
 
         const current = getCurrentNote(state);
-        iterateParentNotes(current, (note) => {
-            note._isSelected = true;
+        tree.forEachParent(state.notes, current, (note) => {
+            note.data._isSelected = true;
         });
     }
 }
 
-function iterateParentNotes(note: Note | null, fn: (note: Note) => void) {
-    while (note) {
-        fn(note);
-        note = note._parent;
-    }
-}
 
 function formatDate(date: Date) {
     const dd = date.getDate();
@@ -925,27 +705,34 @@ function getIndentStr(note: Note) {
     return "     ".repeat(repeats);
 }
 
-function getNoteDuration(state: State, note: Note) {
-    if (note._status === STATUS_IN_PROGRESS) {
-        return getDurationMS(note.openedAt, getTimestamp(new Date()));
+function getNoteDuration(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return 0;
     }
 
-    if (note.childrenIds.length === 0) {
-        // the duration is the difference between this note and the next non-TODO note.
+    const parent = getNote(state, note.parentId);
 
-        let nextNoteIndex = note._localIndex + 1;
-        if (nextNoteIndex < note._localList.length) {
+    const noteData = note.data;
+    if (noteData._status === STATUS_IN_PROGRESS) {
+        return getDurationMS(noteData.openedAt, getTimestamp(new Date()));
+    }
+
+    if (note.childIds.length === 0) {
+        // the duration is the difference between this note and the next non-TODO note.
+        const idx = parent.childIds.indexOf(note.id);
+        if (idx + 1 < parent.childIds.length) {
             // skip over todo notes
-            while (nextNoteIndex < note._localList.length) {
-                let nextNoteId = note._localList[nextNoteIndex];
-                if (isTodoNote(getNote(state, nextNoteId))) {
-                    nextNoteIndex++;
+            let nextNoteIdx = idx + 1;
+            while (nextNoteIdx < parent.childIds.length) {
+                const nextNoteId = parent.childIds[nextNoteIdx];
+                if (isTodoNote(getNote(state, nextNoteId).data)) {
+                    nextNoteIdx++;
                 }
                 break;
             }
 
-            const nextNoteId = note._localList[nextNoteIndex];
-            return getDurationMS(note.openedAt, getNote(state, nextNoteId).openedAt);
+            const nextNoteId = parent.childIds[nextNoteIdx];
+            return getDurationMS(noteData.openedAt, getNote(state, nextNoteId).data.openedAt);
         }
 
         return 0;
@@ -953,19 +740,19 @@ function getNoteDuration(state: State, note: Note) {
 
     let latestNote = note;
     dfsPre(state, note, (note) => {
-        if (latestNote.openedAt < note.openedAt) {
+        if (latestNote.data.openedAt < note.data.openedAt) {
             latestNote = note;
         }
     });
 
-    return getDurationMS(note.openedAt, latestNote.openedAt);
+    return getDurationMS(noteData.openedAt, latestNote.data.openedAt);
 }
 
-function getSecondPartOfRow(state: State, note: Note) {
+function getSecondPartOfRow(state: State, note: tree.TreeNode<Note>) {
     const duration = getNoteDuration(state, note);
     const durationStr = formatDuration(duration);
     const secondPart =
-        note._status !== STATUS_IN_PROGRESS ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
+        note.data._status !== STATUS_IN_PROGRESS ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
     return secondPart;
 }
 
@@ -973,22 +760,24 @@ function getRowIndentPrefix(_state: State, note: Note) {
     return `${getIndentStr(note)} ${getNoteStateString(note)}`;
 }
 
-function getFirstPartOfRow(state: State, note: Note) {
-    // const dashChar = note._isSelected ? ">" : "-"
+function getFirstPartOfRow(state: State, note: tree.TreeNode<Note>) {
+    const noteData = note.data;
+    // const dashChar = note.data._isSelected ? ">" : "-"
     // having ">" in exported text looks ugly, so I've commented this out for now
     const dashChar = "-";
 
-    return `${getTimeStr(note)} | ${getRowIndentPrefix(state, note)} ${dashChar} ${note.text || " "}`;
+    return `${getTimeStr(noteData)} | ${getRowIndentPrefix(state, noteData)} ${dashChar} ${noteData.text || " "}`;
 }
 
 function exportAsText(state: State) {
     const header = (text: string) => `----------------${text}----------------`;
 
-    const flatNotes: Note[] = [];
-    recomputeFlatNotes(state, flatNotes, false);
+    const flatNotes: NoteId[] = [];
+    recomputeFlatNotes(state, flatNotes);
 
     const table = [];
-    for (const note of flatNotes) {
+    for (const id of flatNotes) {
+        const note = getNote(state, id);
         table.push([getFirstPartOfRow(state, note), getSecondPartOfRow(state, note)]);
     }
 
@@ -1129,7 +918,7 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
 
 type NoteRowArgs = {
     app: AppArgs;
-    note: Note;
+    note: tree.TreeNode<Note>;
     flatIndex: number;
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
@@ -1153,12 +942,10 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state, shouldScroll }, note, flatIndex } = component.args;
 
-        const dashChar = note._isSelected ? ">" : "-";
+        const dashChar = note.data._isSelected ? ">" : "-";
         setTextContent(
             indent,
-            `${getIndentStr(note)} ${getNoteStateString(note)} ${
-                note.isCollapsed ? `(+ ${note._collapsedCount})` : ""
-            } ${dashChar} `
+            `${getIndentStr(note.data)} ${getNoteStateString(note.data)} ${dashChar} `
         );
 
         const wasEditing = isEditing;
@@ -1166,7 +953,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         setVisible(whenEditing, isEditing);
         setVisible(whenNotEditing, !isEditing);
         if (isEditing) {
-            setInputValue(whenEditing, note.text);
+            setInputValue(whenEditing, note.data.text);
 
             if (!wasEditing) {
                 setTimeout(() => {
@@ -1184,14 +971,14 @@ function NoteRowText(): Renderable<NoteRowArgs> {
                 }, 1);
             }
         } else {
-            setTextContent(whenNotEditing, note.text);
+            setTextContent(whenNotEditing, note.data.text);
         }
     });
 
     whenEditing.el.addEventListener("input", () => {
         const { app: { rerenderApp }, note } = component.args;
 
-        note.text = whenEditing.el.value;
+        note.data.text = whenEditing.el.value;
         rerenderApp();
     });
 
@@ -1199,6 +986,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state, rerenderApp, debouncedSave } } = component.args;
 
         if (handleNoteInputKeyDown(state, e)) {
+            e.preventDefault();
             rerenderApp();
         }
 
@@ -1216,31 +1004,33 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
-        setInputValueAndResize(input, getTimeStr(note));
+        setInputValueAndResize(input, getTimeStr(note.data));
     });
 
     input.el.addEventListener("change", () => {
         const { app: { state, rerenderApp, handleErrors, debouncedSave }, note } = component.args;
 
-        const prevNote = note._parent;
-        let nextNote = null;
-        for (const id of note.childrenIds) {
-            const child = getNote(state, id);
-            if (nextNote === null || child.openedAt < nextNote.openedAt) {
-                nextNote = child;
-            }
-        }
+        // TODO: get this validation working
+
+        // const prevNote = note._parent;
+        // let nextNote = null;
+        // for (const id of note.childIds) {
+        //     const child = getNote(state, id);
+        //     if (nextNote === null || child.openedAt < nextNote.openedAt) {
+        //         nextNote = child;
+        //     }
+        // }
 
         let previousTime: Date | null = null;
         let nextTime: Date | null = null;
 
-        if (prevNote) {
-            previousTime = new Date(prevNote.openedAt);
-        }
+        // if (prevNote) {
+        //     previousTime = new Date(prevNote.openedAt);
+        // }
 
-        if (nextNote) {
-            nextTime = new Date(nextNote.openedAt);
-        }
+        // if (nextNote) {
+        //     nextTime = new Date(nextNote.openedAt);
+        // }
 
         handleErrors(
             () => {
@@ -1275,7 +1065,7 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
                     hours += 12;
                 }
 
-                let newTime = new Date(note.openedAt);
+                let newTime = new Date(note.data.openedAt);
                 if (isNaN(newTime.getTime())) {
                     newTime = new Date();
                 }
@@ -1313,13 +1103,13 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
                     );
                 }
 
-                note.openedAt = getTimestamp(newTime);
+                note.data.openedAt = getTimestamp(newTime);
                 debouncedSave();
 
                 rerenderApp();
             },
             () => {
-                setInputValueAndResize(input, getTimeStr(note));
+                setInputValueAndResize(input, getTimeStr(note.data));
                 rerenderApp();
             }
         );
@@ -1352,9 +1142,9 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note, app: { stickyPxRef } } = component.args;
 
-        const textColor = note._isSelected
+        const textColor = note.data._isSelected
             ? "var(--fg-color)"
-            : note._status === STATUS_IN_PROGRESS
+            : note.data._status === STATUS_IN_PROGRESS
             ? "var(--fg-color)"
             : "var(--unfocus-text-color)";
 
@@ -1364,7 +1154,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         text.rerender(component.args);
         statistic.rerender(component.args);
 
-        if (note._isSelected || note._status === STATUS_IN_PROGRESS) {
+        if (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) {
             setTimeout(() => {
                 // make this note stick to the top of the screen so that we can see it
                 let top = stickyPxRef.val;
@@ -1383,7 +1173,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     root.el.addEventListener("click", () => {
         const { app: { state, rerenderApp }, note } = component.args;
 
-        state.currentNoteId = note.id;
+        setCurrentNote(state, note.id);
         rerenderApp();
     });
 
@@ -1404,7 +1194,7 @@ function NotesList(): Renderable<AppArgs> {
             pool[i].rerender({
                 app: component.args,
                 flatIndex: i,
-                note: state._flatNotes[i]
+                note: getNote(state, state._flatNotes[i]),
             });
         }
     });
@@ -1646,55 +1436,6 @@ const App = () => {
 
     const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
 
-    const moveOutFinishedNotesButton = Button("Move out finished notes", () => {
-        const doneTreeName = currentTreeName + " [done]";
-        if (
-            !confirm(
-                "This will remove all 'done' nodes from this tree and move them to another tree named " +
-                    doneTreeName +
-                    ", are you sure?"
-            )
-        ) {
-            return;
-        }
-
-        try {
-            // high risk code, could possibly corrupt user data, so we're working with copies,
-            // then assigning over the result
-            const doneState = copyState(state);
-            recomputeState(doneState);
-            filterNotes(doneState, (note) => note._status === STATUS_DONE, true);
-
-            const notDoneState = copyState(state);
-            recomputeState(notDoneState);
-            filterNotes(notDoneState, (note) => note._status !== STATUS_DONE, true);
-
-            let existingDoneState;
-            try {
-                existingDoneState = loadState(doneTreeName);
-            } catch {
-                // no existing notes
-            }
-            const doneStateMerged = mergeState(existingDoneState, doneState);
-
-            saveState(doneStateMerged, doneTreeName);
-
-            // only mutate our current state once everything else succeeds
-            for (const key in notDoneState) {
-                // @ts-ignore
-                state[key] = notDoneState[key];
-            }
-            saveState(state, currentTreeName);
-        } catch (e) {
-            console.error("failed\n\n", e);
-        }
-
-        // remove other stuff that we don't need to move out
-        appComponent.rerender();
-
-        showStatusText("Moved done notes");
-    });
-
     const notesList = NotesList();
     const scratchPad = ScratchPad();
     const treeSelector = CurrentTreeSelector();
@@ -1747,7 +1488,6 @@ const App = () => {
                     leftButtons: [DarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
-                        moveOutFinishedNotesButton,
                         Button("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
@@ -1988,9 +1728,6 @@ const App = () => {
         rerender: function (options = { shouldScroll: true }) {
             setVisible(noteTreeHelp, showInfo);
             setVisible(scratchPadHelp, showInfo);
-
-            const isDoneNote = currentTreeName.endsWith("[done]");
-            setVisible(moveOutFinishedNotesButton, !isDoneNote);
 
             recomputeState(state);
 
