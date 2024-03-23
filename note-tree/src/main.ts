@@ -70,6 +70,12 @@ function getNoteStateString(note: Note) {
     }
 }
 
+const ALL_FILTERS: [string, NoteFilter][] = [
+    ["No filters", null],
+    ["Done", { not: false, status: STATUS_DONE }],
+    ["Not-done", { not: true, status: STATUS_DONE }],
+];
+
 function formatDuration(ms: number) {
     const seconds = Math.floor(ms / 1000) % 60;
     const minutes = Math.floor(ms / 1000 / 60) % 60;
@@ -130,12 +136,13 @@ function uuid() {
 type Note = {
     id: NoteId;
     text: string;
-    openedAt: string;
+    openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _isSelected: boolean; // used to display '>' or - in the note status
     _depth: number; // used to visually indent the notes
+    _filteredOut: boolean; // Has this note been filtered out?
 };
 
 function createNewNote(text: string): tree.TreeNode<Note> {
@@ -144,13 +151,14 @@ function createNewNote(text: string): tree.TreeNode<Note> {
 
         id: uuid(),
         text: text || "",
-        openedAt: getTimestamp(new Date()), // will be populated whenever text goes from empty -> not empty
+        openedAt: getTimestamp(new Date()), 
 
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
-        _isSelected: false, // used to display '>' or - in the note status
-        _depth: 0, // used to visually indent the notes
+        _isSelected: false, 
+        _depth: 0, 
+        _filteredOut: false, 
     };
 
     return tree.newTreeNode(note, note.id);
@@ -192,11 +200,20 @@ type NoteId = string;
 type State = {
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
+
+    currentNoteFilterIdx: number;
+
     scratchPad: string;
 
     // non-serializable fields
     _flatNotes: NoteId[];
 };
+
+type NoteFilter = null | {
+    status: NoteStatus;
+    not: boolean;
+};
+
 
 // NOTE: all state needs to be JSON-serializable.
 // NO Dates/non-plain objects
@@ -211,12 +228,17 @@ function defaultState(): State {
             id: tree.ROOT_KEY,
             openedAt: getTimestamp(new Date()),
             text: "This root node should not be visible. If it is, you've encountered a bug!",
+
             _depth: 0,
             _isSelected: false,
             _status: STATUS_IN_PROGRESS,
+            _filteredOut: false,
         }),
         currentNoteId: "",
-        scratchPad: ""
+
+        currentNoteFilterIdx: 0,
+
+        scratchPad: "",
     };
 
     return state;
@@ -464,11 +486,13 @@ function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
 
 // returns true if the app should re-render
 function handleNoteInputKeyDown(state: State, e: KeyboardEvent) {
-    const ctrlPressed = e.ctrlKey || e.metaKey;
+    const altPressed = e.altKey;
     const currentNote = getCurrentNote(state);
 
     switch (e.key) {
         case "Enter":
+            e.preventDefault();
+
             if (e.shiftKey) {
                 insertChildNode(state);
             } else {
@@ -476,41 +500,45 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) {
             }
             break;
         case "Backspace":
-            deleteNoteIfEmpty(state, state.currentNoteId);
-            break;
+            return deleteNoteIfEmpty(state, state.currentNoteId);
         case "Tab":
             // TODO: move between the tabs
             break;
         case "ArrowUp":
             moveToNote(state, 
-                ctrlPressed ? getNoteOneUpLocally(state, currentNote) : 
+                altPressed ? getNoteOneUpLocally(state, currentNote) : 
                     getOneNoteUp(state, currentNote)
             );
             break;
         case "ArrowDown":
             moveToNote(state, 
-                ctrlPressed ? getNoteOneDownLocally(state, currentNote) : 
+                altPressed ? getNoteOneDownLocally(state, currentNote) : 
                     getOneNoteDown(state, currentNote)
             );
             break;
         case "ArrowLeft":
-            moveToNote(state, 
-                currentNote.parentId ? getNote(state, currentNote.parentId) : null
-            );
+            if (altPressed) {
+                moveToNote(state, 
+                    currentNote.parentId ? getNote(state, currentNote.parentId) : null
+                );
+            }
             break;
         case "ArrowRight":
-            moveToNote(
-                state,
-                currentNote.childIds.length > 0 ? (
-                    getNote(state, currentNote.childIds[currentNote.childIds.length - 1])
-                ) : null
-            );
+            if (altPressed) {
+                moveToNote(state, getFinalChildNote(state, currentNote));
+            }
             break;
         default:
             return false;
     }
 
     return true;
+}
+
+function getFinalChildNote(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    return note.childIds.length > 0 ? (
+        getNote(state, note.childIds[note.childIds.length - 1])
+    ) : null;
 }
 
 function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
@@ -535,31 +563,6 @@ function copyState(state: State) {
     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
 }
 
-
-function filterNotes(state: State, predicate: (n: tree.TreeNode<Note>) => boolean) {
-    const dfs = (note: tree.TreeNode<Note>) => {
-        for (let i = 0; i < note.childIds.length; i++) {
-            const id = note.childIds[i];
-            const child = getNote(state, id);
-
-            dfs(child);
-
-            if (
-                predicate(child) ||         // should keep this note
-                child.childIds.length > 0   // has children that should be kept
-            ) {
-                continue;
-            }
-
-
-            tree.remove(state.notes, child);
-            i--;
-        }
-    };
-
-    dfs(getRootNote(state));
-}
-
 function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
@@ -570,6 +573,10 @@ function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
     const dfs = (note: tree.TreeNode<Note>) => {
         for (const id of note.childIds) {
             const note = getNote(state, id);
+            if (note.data._filteredOut) {
+                continue;
+            }
+
             flatNotes.push(note.id);
 
             dfs(note);
@@ -577,6 +584,23 @@ function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
     };
 
     dfs(getRootNote(state));
+}
+
+function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
+    if (filter === null) {
+        return false;
+    }
+
+    let val = false;
+    if (filter.status) {
+        val = data._status !== filter.status;
+    }
+
+    if (filter.not) {
+        val = !val;
+    }
+
+    return val;
 }
 
 // called just before we render things.
@@ -598,15 +622,6 @@ function recomputeState(state: State) {
         };
 
         dfs(getRootNote(state), -1);
-    }
-
-    // recompute _flatNotes (after deleting things)
-    {
-        if (!state._flatNotes) {
-            state._flatNotes = [];
-        }
-
-        recomputeFlatNotes(state, state._flatNotes);
     }
 
     // recompute _status, do some sorting
@@ -666,6 +681,23 @@ function recomputeState(state: State) {
         dfs(getRootNote(state));
     }
 
+    // recompute _filteredOut (depends on _status)
+    {
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._filteredOut = shouldFilterOutNote(note.data, ALL_FILTERS[state.currentNoteFilterIdx][1]);
+        });
+    }
+
+    // recompute _flatNotes (after deleting things, and computing _filteredOut)
+    {
+        if (!state._flatNotes) {
+            state._flatNotes = [];
+        }
+
+        recomputeFlatNotes(state, state._flatNotes);
+    }
+
     // recompute _isSelected to just be the current note + all parent notes
     {
         tree.forEachNode(state.notes, (id) => {
@@ -720,10 +752,10 @@ function getNoteDuration(state: State, note: tree.TreeNode<Note>) {
     if (note.childIds.length === 0) {
         // the duration is the difference between this note and the next non-TODO note.
         const idx = parent.childIds.indexOf(note.id);
-        if (idx + 1 < parent.childIds.length) {
+        if (idx < parent.childIds.length - 1) {
             // skip over todo notes
             let nextNoteIdx = idx + 1;
-            while (nextNoteIdx < parent.childIds.length) {
+            while (nextNoteIdx < parent.childIds.length - 1) {
                 const nextNoteId = parent.childIds[nextNoteIdx];
                 if (isTodoNote(getNote(state, nextNoteId).data)) {
                     nextNoteIdx++;
@@ -819,6 +851,46 @@ function exportAsText(state: State) {
     }
 
     return [header(" Notes "), formatTable(table, 10), header(" Scratchpad "), state.scratchPad].join("\n\n");
+}
+
+function NoteFilters(): Renderable<AppArgs> {
+    const lb = makeButton("<");
+    const rb = makeButton(">");
+    const currentFilterText = htmlf(`<div class="flex-1 text-align-center"></div>`);
+    const root = htmlf(`<div class="row align-items-center" style="width:200px;">%{lb}%{currentFilter}%{rb}</div>`, { 
+        lb, rb, currentFilter: currentFilterText
+    });
+
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+        const [ name, _filter ] = ALL_FILTERS[state.currentNoteFilterIdx];
+        setTextContent(currentFilterText, name);
+    });
+
+    lb.el.addEventListener("click", () => {
+        const { state, rerenderApp } = component.args;
+
+        state.currentNoteFilterIdx--;
+        if (state.currentNoteFilterIdx < 0) {
+            state.currentNoteFilterIdx = ALL_FILTERS.length - 1;
+        }
+
+        rerenderApp();
+    });
+
+    rb.el.addEventListener("click", () => {
+        const { state, rerenderApp } = component.args;
+
+        state.currentNoteFilterIdx++;
+        if (state.currentNoteFilterIdx >= ALL_FILTERS.length) {
+            state.currentNoteFilterIdx = 0;
+        }
+
+        rerenderApp();
+    });
+
+    return component;
 }
 
 // NOTE: the caller who is instantiating the scratch pad should have access to the text here.
@@ -986,7 +1058,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state, rerenderApp, debouncedSave } } = component.args;
 
         if (handleNoteInputKeyDown(state, e)) {
-            e.preventDefault();
             rerenderApp();
         }
 
@@ -1180,21 +1251,26 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     return component;
 }
 
-function NotesList(): Renderable<AppArgs> {
+type NoteListInternalArgs = {
+    appArgs: AppArgs;
+    flatNotes: NoteId[];
+}
+
+function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const pool: Renderable<NoteRowArgs>[] = [];
     const root = htmlf(
         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
     );
 
-    const component = makeComponent<AppArgs>(root, () => {
-        const { state } = component.args;
+    const component = makeComponent<NoteListInternalArgs>(root, () => {
+        const { appArgs: { state }, flatNotes } = component.args;
 
-        resizeComponentPool<Renderable<NoteRowArgs>>(root, pool, state._flatNotes.length, NoteRowInput);
-        for (let i = 0; i < state._flatNotes.length; i++) {
+        resizeComponentPool<Renderable<NoteRowArgs>>(root, pool, flatNotes.length, NoteRowInput);
+        for (let i = 0; i < flatNotes.length; i++) {
             pool[i].rerender({
-                app: component.args,
+                app: component.args.appArgs,
                 flatIndex: i,
-                note: getNote(state, state._flatNotes[i]),
+                note: getNote(state, flatNotes[i]),
             });
         }
     });
@@ -1202,12 +1278,29 @@ function NotesList(): Renderable<AppArgs> {
     return component;
 }
 
-function Button(text: string, fn: () => void, classes: string = "") {
-    const btn = htmlf(
+function NotesList(): Renderable<AppArgs> {
+    const list1 = NoteListInternal();
+    const root = htmlf(`<div>%{list1}</div>`, { list1 });
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        list1.rerender({ appArgs: component.args, flatNotes: state._flatNotes });
+    });
+
+
+    return component;
+}
+
+function makeButton(text: string, classes: string = "") {
+    return htmlf(
         `<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%{text}</button>`,
         { text }
     );
+}
 
+function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
+    const btn = makeButton(text, classes);
     btn.el.addEventListener("click", fn);
     return btn;
 };
@@ -1355,7 +1448,7 @@ type AppArgs = {
 
 type AppTheme = "Light" | "Dark";
 
-const DarkModeToggle = () => {
+const makeDarkModeToggle = () => {
     const getTheme = (): AppTheme => {
         if (localStorage.getItem("State.currentTheme") === "Dark") {
             return "Dark";
@@ -1389,7 +1482,7 @@ const DarkModeToggle = () => {
         setTextContent(button, theme);
     };
 
-    const button = Button("", () => {
+    const button = makeButtonWithCallback("", () => {
         let themeName = getTheme();
         if (!themeName || themeName === "Light") {
             themeName = "Dark";
@@ -1438,6 +1531,7 @@ const App = () => {
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
+    const filters = NoteFilters();
     const treeSelector = CurrentTreeSelector();
 
     const appRoot = htmlf(
@@ -1446,6 +1540,7 @@ const App = () => {
             %{info1}
             %{treeTabs}
             %{notesList}
+            %{filters}
             %{scratchPad}
 
             <div>
@@ -1472,6 +1567,10 @@ const App = () => {
                 { treeSelector }
             ),
             notesList: notesList,
+            filters: htmlf(`<div>%{title}%{filters}</div>`, {
+                title: htmlf(`<h2 style="marginTop: 20px;">Filters</h2>`),
+                filters 
+            }),
             scratchPad: htmlf(`<div>%{title}%{help}%{scratchPad}</div>`, {
                 title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
                 help: scratchPadHelp,
@@ -1485,10 +1584,10 @@ const App = () => {
                     <div>%{rightButtons}</div>
                 </div>`,
                 {
-                    leftButtons: [DarkModeToggle()],
+                    leftButtons: [makeDarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
-                        Button("Clear all", () => {
+                        makeButtonWithCallback("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
                             }
@@ -1498,13 +1597,13 @@ const App = () => {
 
                             showStatusText("Cleared notes");
                         }),
-                        Button("Copy as text", () => {
+                        makeButtonWithCallback("Copy as text", () => {
                             handleErrors(() => {
                                 navigator.clipboard.writeText(exportAsText(state));
                                 showStatusText("Copied as text");
                             });
                         }),
-                        Button("Load JSON from scratch pad", () => {
+                        makeButtonWithCallback("Load JSON from scratch pad", () => {
                             handleErrors(() => {
                                 try {
                                     const lsKeys = JSON.parse(scratchPad.getText());
@@ -1523,7 +1622,7 @@ const App = () => {
                                 initState();
                             });
                         }),
-                        Button("Copy as JSON", () => {
+                        makeButtonWithCallback("Copy as JSON", () => {
                             handleErrors(() => {
                                 const lsKeys = {};
                                 for (const [key, value] of Object.entries(localStorage)) {
@@ -1751,6 +1850,7 @@ const App = () => {
             notesList.rerender(args);
             scratchPad.rerender(args);
             treeSelector.rerender(args);
+            filters.rerender(args);
         }
     };
 
@@ -1779,3 +1879,4 @@ const root: Insertable = {
 const app = App();
 appendChild(root, app);
 app.rerender();
+

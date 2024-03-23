@@ -135,6 +135,8 @@ export function htmlf<T extends HTMLElement>(
         return { el: element };
     }
 
+    const argsUsed = new Set<string>();
+
     const nodes = __textNodesUnder(element);
     for (let node of nodes) {
         let nodeValue = node.nodeValue || "";
@@ -171,10 +173,18 @@ export function htmlf<T extends HTMLElement>(
             const node2 = node.splitText(i);
             __insertArgumentForPercentVDirective(arg, node2, directiveName);
 
+            argsUsed.add(directiveName);
+
             node = node2;
             node.nodeValue = nodeValue.substring(nameEnd + 1);
             nodeValue = node.nodeValue || "";
             i = -1; //-1 to account for the for-loop incrementing this.
+        }
+    }
+
+    for (const key in args) {
+        if (!argsUsed.has(key)) {
+            console.warn(`Format directive was not used: %{${key}}`);
         }
     }
 

@@ -163,8 +163,12 @@ button:active {
     content: "[v]";
 }
 
-
 .danger {
     background-color: red;
     color: white;
+}
+
+.radio-buttons {
+    width: 15px;
+    height: 15px;
 }
