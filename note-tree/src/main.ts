@@ -200,13 +200,14 @@ type NoteId = string;
 type State = {
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
+    lastEditedNoteId: NoteId;
 
     currentNoteFilterIdx: number;
 
     scratchPad: string;
 
     // non-serializable fields
-    _flatNotes: NoteId[];
+    _flatNoteIds: NoteId[];
 };
 
 type NoteFilter = null | {
@@ -222,7 +223,7 @@ type NoteFilter = null | {
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
 function defaultState(): State {
     const state: State = {
-        _flatNotes: [], // used by the note tree view, can include collapsed subsections
+        _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
 
         notes: tree.newTreeStore<Note>({
             id: tree.ROOT_KEY,
@@ -235,6 +236,7 @@ function defaultState(): State {
             _filteredOut: false,
         }),
         currentNoteId: "",
+        lastEditedNoteId: "",
 
         currentNoteFilterIdx: 0,
 
@@ -342,12 +344,7 @@ function insertNoteAfterCurrent(state: State) {
     const newNote = createNewNote("");
 
     const parent = getNote(state, currentNote.parentId);
-    const idx = parent.childIds.indexOf(currentNote.id);
-    if (idx === parent.childIds.length - 1) {
-        tree.addAfter(state.notes, currentNote, newNote)
-    }  else {
-        tree.addUnder(state.notes, currentNote, newNote);
-    }
+    tree.addUnder(state.notes, parent, newNote)
 
     setCurrentNote(state, newNote.id);
     return true;
@@ -395,19 +392,9 @@ function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<
         return null;
     }
 
-    if (note.childIds.length > 0) {
-        return getNote(state, note.childIds[0]);
-    }
-
-    while (note.parentId) {
-        const parent = getNote(state, note.parentId);
-        const idx = parent.childIds.indexOf(note.id);
-        if (idx !== parent.childIds.length - 1) {
-            return getNote(state, parent.childIds[idx + 1]);
-        }
-
-        // this is the final note. check if the parent has a note after it
-        note = getNote(state, note.parentId)
+    const idx = state._flatNoteIds.indexOf(note.id);
+    if (idx < state._flatNoteIds.length - 1) {
+        return getNote(state, state._flatNoteIds[idx + 1]);
     }
 
     return null;
@@ -418,15 +405,12 @@ function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<No
         return null;
     }
 
-    const parent = getNote(state, note.parentId);
-    if (parent.childIds[0] === note.id) {
-        return parent;
+    const idx = state._flatNoteIds.indexOf(note.id);
+    if (idx > 0) {
+        return getNote(state, state._flatNoteIds[idx - 1]);
     }
 
-    const idx = parent.childIds.indexOf(note.id);
-    assert(idx !== -1, "Possible data corruption");
-    const oneUp = getNote(state, parent.childIds[idx - 1]);
-    return getLastNote(state, oneUp);
+    return null;
 }
 
 function setCurrentNote(state: State, noteId: NoteId) {
@@ -455,6 +439,34 @@ function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) 
     return true;
 }
 
+function toNextUnfilteredNote(state: State, childIds: string[], id: string) {
+    let idx = childIds.indexOf(id) + 1;
+    while (idx < childIds.length) {
+        const note = getNote(state, childIds[idx]);
+        if (!note.data._filteredOut) {
+            return note;
+        }
+
+        idx++;
+    }
+
+    return null;
+}
+
+function toPreviousUnfilteredNote(state: State, childIds: string[], id: string) {
+    let idx = childIds.indexOf(id) - 1;
+    while (idx >= 0)  {
+        const note = getNote(state, childIds[idx]);
+        if (!note.data._filteredOut) {
+            return note;
+        }
+
+        idx--;
+    }
+
+    return null;
+}
+
 
 function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
     if (!note.parentId) {
@@ -462,12 +474,7 @@ function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
     }
 
     const parent = getNote(state, note.parentId);
-    const idx = parent.childIds.indexOf(note.id);
-    if (idx < parent.childIds.length - 1) {
-        return getNote(state, parent.childIds[idx + 1]);
-    }
-
-    return null;
+    return toNextUnfilteredNote(state, parent.childIds, note.id);
 }
 
 function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
@@ -476,39 +483,119 @@ function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
     }
 
     const parent = getNote(state, note.parentId);
-    const idx = parent.childIds.indexOf(note.id);
-    if (idx > 0) {
-        return getNote(state, parent.childIds[idx - 1]);
+    return toPreviousUnfilteredNote(state, parent.childIds, note.id);
+}
+
+function unindentCurrentNoteIfPossible(state: State) {
+    const note = getCurrentNote(state);
+    if (!note.parentId) {
+        return;
     }
 
-    return null;
+    if (!isLastNote(state, note)) {
+        // can't indent or unindent the last note in the sequence
+        return;
+    }
+
+    const parent = getNote(state, note.parentId);
+    if (
+        !parent.parentId ||        // parent parent can't be null, that is where the unindented note will go
+        !isLastNote(state, parent) // for unindent, the parent should also be the last note in it's sequence
+    ) {
+        return;
+    }
+
+    const parentParent = getNote(state, parent.parentId);
+
+    tree.remove(state.notes, note);
+    tree.addUnder(state.notes, parentParent, note);
+}
+
+function indentCurrentNoteIfPossible(state: State) {
+    const note = getCurrentNote(state);
+    if (!note.parentId) {
+        return;
+    }
+
+
+    const parent = getNote(state, note.parentId);
+    const idx = parent.childIds.indexOf(note.id);
+    const isLast = idx === parent.childIds.length - 1;
+    if (
+        !isLast ||  // can't indent or unindent the last note in the sequence
+        idx === 0   // can't indent the first note
+    ) {
+        return;
+    }
+
+    const previousNote = getNote(state, parent.childIds[idx - 1]);
+    tree.remove(state.notes, note);
+    tree.addUnder(state.notes, previousNote, note);
+}
+
+function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
+    if (!note.parentId) {
+        // root is the last note, technically
+        return true;
+    }
+
+    const parent = getNote(state, note.parentId);
+    return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
 }
 
 // returns true if the app should re-render
-function handleNoteInputKeyDown(state: State, e: KeyboardEvent) {
+function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
     const altPressed = e.altKey;
+    const ctrlPressed = e.ctrlKey || e.metaKey;
+    const shiftPressed = e.shiftKey;
     const currentNote = getCurrentNote(state);
+
+    if (altPressed) {
+        e.preventDefault();
+    }
 
     switch (e.key) {
         case "Enter":
             e.preventDefault();
 
-            if (e.shiftKey) {
+            if (shiftPressed) {
                 insertChildNode(state);
             } else {
                 insertNoteAfterCurrent(state);
             }
             break;
         case "Backspace":
+            if (altPressed) {
+                state.currentNoteId = state.lastEditedNoteId;
+                return true;
+            }
             return deleteNoteIfEmpty(state, state.currentNoteId);
         case "Tab":
             // TODO: move between the tabs
+            e.preventDefault();
+
+            if (shiftPressed) {
+                unindentCurrentNoteIfPossible(state);
+            } else {
+                indentCurrentNoteIfPossible(state);
+            }
+
             break;
         case "ArrowUp":
             moveToNote(state, 
                 altPressed ? getNoteOneUpLocally(state, currentNote) : 
                     getOneNoteUp(state, currentNote)
             );
+            break;
+        case "PageUp":
+            for (let i = 0; i < 10; i++) {
+                moveToNote(state, getOneNoteUp(state, getCurrentNote(state)));
+            }
+            break;
+        case "PageDown":
+            for (let i = 0; i < 10; i++) {
+                moveToNote(state, getOneNoteDown(state, getCurrentNote(state)));
+            }
             break;
         case "ArrowDown":
             moveToNote(state, 
@@ -528,17 +615,29 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) {
                 moveToNote(state, getFinalChildNote(state, currentNote));
             }
             break;
-        default:
-            return false;
+        case "F":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                nextFilter(state);
+            }
+            break;
     }
 
     return true;
 }
 
 function getFinalChildNote(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
-    return note.childIds.length > 0 ? (
-        getNote(state, note.childIds[note.childIds.length - 1])
-    ) : null;
+    let finalNoteIdx = note.childIds.length - 1;
+    while (finalNoteIdx >= 0) {
+        const childNote = getNote(state, note.childIds[finalNoteIdx]);
+        if (!childNote.data._filteredOut) {
+            return childNote;
+        }
+
+        finalNoteIdx--;
+    }
+
+    return null;
 }
 
 function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
@@ -567,13 +666,17 @@ function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
 
+// NOTE: depends on _filteredOut and _isSelected
 function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
     flatNotes.splice(0, flatNotes.length);
 
     const dfs = (note: tree.TreeNode<Note>) => {
         for (const id of note.childIds) {
             const note = getNote(state, id);
-            if (note.data._filteredOut) {
+            if (
+                note.data._filteredOut &&
+                !note.data._isSelected      // don't remove the path we are currently on from the flat notes.
+            ) {
                 continue;
             }
 
@@ -687,18 +790,10 @@ function recomputeState(state: State) {
             const note = getNote(state, id);
             note.data._filteredOut = shouldFilterOutNote(note.data, ALL_FILTERS[state.currentNoteFilterIdx][1]);
         });
+
     }
 
-    // recompute _flatNotes (after deleting things, and computing _filteredOut)
-    {
-        if (!state._flatNotes) {
-            state._flatNotes = [];
-        }
-
-        recomputeFlatNotes(state, state._flatNotes);
-    }
-
-    // recompute _isSelected to just be the current note + all parent notes
+    // recompute _isSelected to just be the current note + all parent notes 
     {
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
@@ -708,7 +803,17 @@ function recomputeState(state: State) {
         const current = getCurrentNote(state);
         tree.forEachParent(state.notes, current, (note) => {
             note.data._isSelected = true;
+            return false;
         });
+    }
+
+    // recompute _flatNoteIds (after deleting things, and computing _filteredOut)
+    {
+        if (!state._flatNoteIds) {
+            state._flatNoteIds = [];
+        }
+
+        recomputeFlatNotes(state, state._flatNoteIds);
     }
 }
 
@@ -783,8 +888,7 @@ function getNoteDuration(state: State, note: tree.TreeNode<Note>) {
 function getSecondPartOfRow(state: State, note: tree.TreeNode<Note>) {
     const duration = getNoteDuration(state, note);
     const durationStr = formatDuration(duration);
-    const secondPart =
-        note.data._status !== STATUS_IN_PROGRESS ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
+    const secondPart = " " + durationStr;
     return secondPart;
 }
 
@@ -853,6 +957,20 @@ function exportAsText(state: State) {
     return [header(" Notes "), formatTable(table, 10), header(" Scratchpad "), state.scratchPad].join("\n\n");
 }
 
+function previousFilter(state: State) {
+    state.currentNoteFilterIdx++;
+    if (state.currentNoteFilterIdx >= ALL_FILTERS.length) {
+        state.currentNoteFilterIdx = 0;
+    }
+}
+
+function nextFilter(state: State) {
+    state.currentNoteFilterIdx--;
+    if (state.currentNoteFilterIdx < 0) {
+        state.currentNoteFilterIdx = ALL_FILTERS.length - 1;
+    }
+}
+
 function NoteFilters(): Renderable<AppArgs> {
     const lb = makeButton("<");
     const rb = makeButton(">");
@@ -871,10 +989,7 @@ function NoteFilters(): Renderable<AppArgs> {
     lb.el.addEventListener("click", () => {
         const { state, rerenderApp } = component.args;
 
-        state.currentNoteFilterIdx--;
-        if (state.currentNoteFilterIdx < 0) {
-            state.currentNoteFilterIdx = ALL_FILTERS.length - 1;
-        }
+        nextFilter(state);
 
         rerenderApp();
     });
@@ -882,10 +997,7 @@ function NoteFilters(): Renderable<AppArgs> {
     rb.el.addEventListener("click", () => {
         const { state, rerenderApp } = component.args;
 
-        state.currentNoteFilterIdx++;
-        if (state.currentNoteFilterIdx >= ALL_FILTERS.length) {
-            state.currentNoteFilterIdx = 0;
-        }
+        previousFilter(state);
 
         rerenderApp();
     });
@@ -994,8 +1106,11 @@ type NoteRowArgs = {
     flatIndex: number;
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
-    const indent = htmlf(`<div class="pre-wrap"></div>`);
+    const indent = htmlf(`<div class="pre"></div>`);
     const whenNotEditing = htmlf(`<div class="pre-wrap"></div>`);
+
+    // NOTE: Not using a textArea, because we don't want our notes to have multiple lines for now. [Enter] is being used for something else at the moment.
+    // Also it is tempting to navigate the text area with [up] [down] which we are also using to move between notes
     const whenEditing = htmlf<HTMLInputElement>(`<input class="flex-1"></input>`);
 
     const style = "margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);";
@@ -1027,11 +1142,14 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (isEditing) {
             setInputValue(whenEditing, note.data.text);
 
+            
+
             if (!wasEditing) {
                 setTimeout(() => {
                     whenEditing.el.focus({ preventScroll: true });
 
                     if (shouldScroll) {
+                        // TODO: calculate this properly, this kinda wrong ngl
                         const wantedY = whenEditing.el.getBoundingClientRect().height * flatIndex;
 
                         window.scrollTo({
@@ -1048,9 +1166,11 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     });
 
     whenEditing.el.addEventListener("input", () => {
-        const { app: { rerenderApp }, note } = component.args;
+        const { app: { state, rerenderApp }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
+        state.lastEditedNoteId = note.id;
+
         rerenderApp();
     });
 
@@ -1079,7 +1199,7 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
     });
 
     input.el.addEventListener("change", () => {
-        const { app: { state, rerenderApp, handleErrors, debouncedSave }, note } = component.args;
+        const { app: { rerenderApp, handleErrors, debouncedSave }, note } = component.args;
 
         // TODO: get this validation working
 
@@ -1190,11 +1310,17 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 }
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
-    const root = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+    const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress)" title="This is the note you edited last"> &lt;-- </div>`);
+    const root = htmlf(`<div class="row">%{lastTouchedFlag}%{progressText}</div>`, {
+        progressText, 
+        lastTouchedFlag
+    });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
-        setTextContent(root, getSecondPartOfRow(state, note));
+        setTextContent(progressText, getSecondPartOfRow(state, note));
+        setVisible(lastTouchedFlag, state.lastEditedNoteId === note.id);
     });
 
     return component;
@@ -1211,7 +1337,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note, app: { stickyPxRef } } = component.args;
+        const { note } = component.args;
 
         const textColor = note.data._isSelected
             ? "var(--fg-color)"
@@ -1224,21 +1350,6 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         timestamp.rerender(component.args);
         text.rerender(component.args);
         statistic.rerender(component.args);
-
-        if (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) {
-            setTimeout(() => {
-                // make this note stick to the top of the screen so that we can see it
-                let top = stickyPxRef.val;
-                stickyPxRef.val += root.el.getBoundingClientRect().height;
-
-                root.el.style.position = "sticky";
-                root.el.style.top = top + "px";
-            }, 1);
-        } else {
-            // unstick this note
-            root.el.style.position = "static";
-            root.el.style.top = "";
-        }
     });
 
     root.el.addEventListener("click", () => {
@@ -1285,7 +1396,7 @@ function NotesList(): Renderable<AppArgs> {
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
-        list1.rerender({ appArgs: component.args, flatNotes: state._flatNotes });
+        list1.rerender({ appArgs: component.args, flatNotes: state._flatNoteIds });
     });
 
 
@@ -1434,7 +1545,6 @@ type AppRenderOptions = {
 type AppArgs = {
     state: State;
     shouldScroll: boolean;
-    stickyPxRef: { val: number };
     loadTree: (name: string, rerenderOptions?: AppRenderOptions) => void;
     rerenderApp(options?: AppRenderOptions): void;
     debouncedSave(): void;
@@ -1462,6 +1572,7 @@ const makeDarkModeToggle = () => {
 
         if (theme === "Light") {
             setCssVars([
+                ["--fg-in-progress", "rgb(255, 0, 0, 0.5"],
                 ["--bg-color", "#FFF"],
                 ["--bg-color-focus", "rgb(0, 0, 0, 0.1)"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
@@ -1471,6 +1582,7 @@ const makeDarkModeToggle = () => {
         } else {
             // assume dark theme
             setCssVars([
+                ["--fg-in-progress", "rgb(255, 0, 0, 0.5"],
                 ["--bg-color", "#000"],
                 ["--bg-color-focus", "rgb(1, 1, 1, 0.1)"],
                 ["--bg-color-focus-2", "rgb(1, 1, 1, 0.4)"],
@@ -1540,7 +1652,6 @@ const App = () => {
             %{info1}
             %{treeTabs}
             %{notesList}
-            %{filters}
             %{scratchPad}
 
             <div>
@@ -1567,10 +1678,7 @@ const App = () => {
                 { treeSelector }
             ),
             notesList: notesList,
-            filters: htmlf(`<div>%{title}%{filters}</div>`, {
-                title: htmlf(`<h2 style="marginTop: 20px;">Filters</h2>`),
-                filters 
-            }),
+            filters,
             scratchPad: htmlf(`<div>%{title}%{help}%{scratchPad}</div>`, {
                 title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
                 help: scratchPadHelp,
@@ -1580,10 +1688,13 @@ const App = () => {
                 `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
                     <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
+                    %{filters}
+                    <span class="flex-1"></span>
                     <div>%{statusIndicator}</div>
                     <div>%{rightButtons}</div>
                 </div>`,
                 {
+                    filters,
                     leftButtons: [makeDarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
@@ -1831,11 +1942,9 @@ const App = () => {
             recomputeState(state);
 
             // need to know how far to offset the selected refs
-            const stickyPxRef = { val: 0 };
             const args: AppArgs = {
                 state,
                 shouldScroll: options.shouldScroll,
-                stickyPxRef,
                 loadTree,
                 rerenderApp: appComponent.rerender,
                 debouncedSave,

@@ -41,9 +41,11 @@ export function forEachNode(tree: TreeStore<unknown>, fn: (id: string) => void) 
     }
 }
 
-export function forEachParent<T>(tree: TreeStore<T>, node: TreeNode<T>, fn: (node: TreeNode<T>) => void) {
+export function forEachParent<T>(tree: TreeStore<T>, node: TreeNode<T>, fn: (node: TreeNode<T>) => boolean) {
     while (node.parentId) {
-        fn(node);
+        if (fn(node)) {
+            break;
+        }
         node = getNode(tree, node.parentId);
     }
 }
@@ -138,6 +140,4 @@ export function insertAt(tree: TreeStore<unknown>, parent: TreeNode<unknown>, no
     parent.childIds.splice(idx, 0, nodeToAdd.id);
 
     nodeToAdd.parentId = parent.id;
-
-    console.log({ parent, nodeToAdd })
 }

@@ -184,7 +184,7 @@ export function htmlf<T extends HTMLElement>(
 
     for (const key in args) {
         if (!argsUsed.has(key)) {
-            console.warn(`Format directive was not used: %{${key}}`);
+            console.warn(`Format directive was provided in args, but was never used: ${key}`);
         }
     }
 

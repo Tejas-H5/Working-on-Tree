@@ -32,6 +32,10 @@ body {
     white-space: pre-wrap;
 }
 
+.pre {
+    white-space: pre;
+}
+
 .gap-5 {
     gap: 5px;
 }
