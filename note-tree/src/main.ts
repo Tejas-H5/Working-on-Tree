@@ -5,16 +5,14 @@ import {
     Renderable,
     appendChild,
     assert,
-    copyStyles,
     htmlf,
     makeComponent,
-    removeChild,
-    resizeComponentPool,
     setClass,
     setInputValue,
     setInputValueAndResize,
     setTextContent,
-    setVisible
+    setVisible,
+    makeComponentList
 } from "./htmlf";
 
 import * as tree from "./tree";
@@ -381,7 +379,7 @@ function getCurrentNote(state: State) {
             tree.addUnder(state.notes, getRootNote(state), newNote);
         }
 
-        state.currentNoteId = rootChildIds[rootChildIds.length - 1];
+        setCurrentNote(state, rootChildIds[rootChildIds.length - 1]);
     }
 
     return getNote(state, state.currentNoteId);
@@ -559,14 +557,14 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             e.preventDefault();
 
             if (shiftPressed) {
-                insertChildNode(state);
-            } else {
                 insertNoteAfterCurrent(state);
+            } else {
+                insertChildNode(state);
             }
             break;
         case "Backspace":
             if (altPressed) {
-                state.currentNoteId = state.lastEditedNoteId;
+                setCurrentNote(state, state.lastEditedNoteId);
                 return true;
             }
             return deleteNoteIfEmpty(state, state.currentNoteId);
@@ -1005,24 +1003,42 @@ function NoteFilters(): Renderable<AppArgs> {
     return component;
 }
 
+// function BreakList(): Renderable<AppArgs> {
+//     const pool: Renderable<AppArgs>[] = [];
+//     const root = htmlf(
+//         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
+//     );
+
+//     const component = makeComponent<NoteListInternalArgs>(root, () => {
+//         const { appArgs: { state }, flatNotes } = component.args;
+
+//         resizeComponentPool(root, pool, flatNotes.length, function BreakListInput(): Renderable<AppArgs> {
+//             const root = htmlf(`<div></div>`);
+//         });
+
+//         for (let i = 0; i < flatNotes.length; i++) {
+//             pool[i].rerender({
+//                 app: component.args.appArgs,
+//                 flatIndex: i,
+//                 note: getNote(state, flatNotes[i]),
+//             });
+//         }
+//     });
+
+//     return component;
+// }
+
 // NOTE: the caller who is instantiating the scratch pad should have access to the text here.
 // so it makes very litle sense that we are getting this text...
 function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
-    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap"></textarea>`);
-    const mirrorDiv = htmlf(`<div></div>`);
-    const root = htmlf(`<div>%{textArea}%{mirrorDiv}</div>`, { textArea, mirrorDiv });
+    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: 400px"></textarea>`);
+    const root = htmlf(`<div class="relative">%{textArea}</div>`, { textArea });
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
         if (textArea.el.value !== state.scratchPad) {
             textArea.el.value = state.scratchPad;
-
-            setTimeout(() => {
-                // automatically resize the text area to the content + some overflow
-                textArea.el.style.height = "" + 0;
-                textArea.el.style.height = textArea.el.scrollHeight + "px";
-            }, 0);
         }
     });
 
@@ -1041,54 +1057,6 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
         // TODO: stop using deprecated API
         document.execCommand("insertText", false, "\t");
 
-        onEdit();
-    });
-
-    textArea.el.addEventListener("keydown", () => {
-        // NOTE: unsolved problem in computer science - scroll the window to the vertical position
-        // of the cursor in the text area. 
-        // Now solved: 
-        // 1 - Create a 'mirror div' with exactly the same styles (but we need to manually apply some of them)
-        // 2 - insert text from the start of the div to the cursor position
-        //         (plus some random character, so the whitespace on the end doesnt get truncated, despite your 'pre' whiteSpace style)
-        // 3 - measure the height of this div. this is the vertical offset to whre our cursor is, more or less
-        // 4 - scroll to this offsetTop + height. ez
-
-        setTimeout(() => {
-            let wantedScrollPos;
-            {
-                // Inspired by a stack overflow solution, but I actually figured it out myself :0
-                // (Although they needed to find the x and y position of the user's cursor, not just the y position like me)
-                //      for reference: https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
-                appendChild(root, mirrorDiv);
-
-                copyStyles(textArea, mirrorDiv);
-                mirrorDiv.el.style.height = "" + 0;
-                mirrorDiv.el.style.whiteSpace = "pre";
-                mirrorDiv.el.style.display = "block";
-
-                const textUpToCursor = textArea.el.value.substring(0, textArea.el.selectionEnd) + ".";
-                setTextContent(mirrorDiv, textUpToCursor);
-                const wantedHeight = mirrorDiv.el.scrollHeight;
-                wantedScrollPos = textArea.el.offsetTop + wantedHeight;
-
-                removeChild(root, mirrorDiv);
-            }
-
-            window.scrollTo({
-                left: 0,
-                top: wantedScrollPos - window.innerHeight * (1 - 1 / 3),
-                behavior: "instant"
-            });
-        }, 1);
-    });
-
-    textArea.el.addEventListener("input", () => {
-        const { state } = component.args;
-        state.scratchPad = textArea.el.value;
-        // automatically resize the text area to the content + some overflow
-        textArea.el.style.height = "" + 0;
-        textArea.el.style.height = textArea.el.scrollHeight + "px";
         onEdit();
     });
 
@@ -1311,7 +1279,7 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
-    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress)" title="This is the note you edited last"> &lt;-- </div>`);
+    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress); font-weight: bold" title="This is the note you edited last"> &lt;-- </div>`);
     const root = htmlf(`<div class="row">%{lastTouchedFlag}%{progressText}</div>`, {
         progressText, 
         lastTouchedFlag
@@ -1368,22 +1336,22 @@ type NoteListInternalArgs = {
 }
 
 function NoteListInternal(): Renderable<NoteListInternalArgs> {
-    const pool: Renderable<NoteRowArgs>[] = [];
     const root = htmlf(
         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
     );
 
+    const noteList = makeComponentList(root, NoteRowInput);
+
     const component = makeComponent<NoteListInternalArgs>(root, () => {
         const { appArgs: { state }, flatNotes } = component.args;
 
-        resizeComponentPool<Renderable<NoteRowArgs>>(root, pool, flatNotes.length, NoteRowInput);
-        for (let i = 0; i < flatNotes.length; i++) {
-            pool[i].rerender({
+        noteList.rerender(flatNotes.length, (c, i) => {
+            c.rerender({
                 app: component.args.appArgs,
                 flatIndex: i,
                 note: getNote(state, flatNotes[i]),
             });
-        }
+        });
     });
 
     return component;
@@ -1395,7 +1363,6 @@ function NotesList(): Renderable<AppArgs> {
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
-
         list1.rerender({ appArgs: component.args, flatNotes: state._flatNoteIds });
     });
 
@@ -1416,9 +1383,89 @@ function makeButtonWithCallback(text: string, fn: () => void, classes: string = 
     return btn;
 };
 
+type TabRowArgs = {
+    app: AppArgs;
+    name: string;
+}
+
+// TF is a tab row? the fuck
+function TabRow(): Renderable<TabRowArgs> {
+    const btn = htmlf(
+        `<button 
+            type="button" 
+            class="tab-button pre-wrap text-align-center z-index-100"
+            style="padding: 2px 20px;"
+        ></button>`
+    );
+    const input = htmlf<HTMLInputElement>(
+        `<input 
+            class="pre-wrap text-align-center z-index-100"
+            style="margin-right: 20px;padding: 2px 20px; "
+        ></input>`
+    );
+
+    const closeBtn = htmlf(
+        `<button 
+            type="button" 
+            class="pre-wrap text-align-center z-index-100"
+            style="position:absolute; right: 5px; background-color:transparent;"
+        > x </button>`
+    );
+
+    // Tabs
+    const root = htmlf(
+        `<div 
+            class="relative" 
+            style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
+        >%{btn}%{input}%{closeBtn}</div>`,
+        { btn, input, closeBtn }
+    );
+
+    const component = makeComponent<TabRowArgs>(root, () => {
+        const { app: { currentTreeName }, name } = component.args;
+
+        const isFocused = currentTreeName === name;
+
+        setVisible(closeBtn, isFocused);
+        setVisible(btn, !isFocused);
+        setClass(root, "focused", isFocused);
+
+        if (setVisible(input, isFocused)) {
+            setVisible(input, true);
+            setInputValueAndResize(input, name);
+
+            root.el.style.color = "var(--fg-color)";
+        } else {
+            setTextContent(btn, name);
+
+            root.el.style.color = "var(--unfocus-text-color)";
+        }
+    });
+
+    btn.el.addEventListener("click", () => {
+        const { app: { loadTree }, name } = component.args;
+
+        loadTree(name, { shouldScroll: false });
+    });
+
+    input.el.addEventListener("change", () => {
+        const { app: { renameCurrentTreeName } } = component.args;
+        renameCurrentTreeName(input.el.value);
+    });
+
+    closeBtn.el.addEventListener("click", () => {
+        const { app: { deleteCurrentTree } } = component.args;
+        deleteCurrentTree();
+    });
+
+    return component;
+}
+
 // will be more of a tabbed view
 const CurrentTreeSelector = () => {
     const tabsRoot = htmlf(`<span class="row pre-wrap align-items-center"></span>`);
+    const tabsList = makeComponentList(tabsRoot, TabRow);
+
     const newButton = htmlf(
         `<button 
             type="button" 
@@ -1438,98 +1485,18 @@ const CurrentTreeSelector = () => {
         { tabsRoot, newButton }
     );
 
-    type TabRow = {
-        app: AppArgs;
-        name: string;
-    };
-
-    const tabComponents: Renderable<TabRow>[] = [];
     const outerComponent = makeComponent<AppArgs>(root, () => {
         const names = getAvailableTrees();
-        resizeComponentPool(tabsRoot, tabComponents, names.length, (): Renderable<TabRow> => {
-            const btn = htmlf(
-                `<button 
-                    type="button" 
-                    class="tab-button pre-wrap text-align-center z-index-100"
-                    style="padding: 2px 20px;"
-                ></button>`
-            );
-            const input = htmlf<HTMLInputElement>(
-                `<input 
-                    class="pre-wrap text-align-center z-index-100"
-                    style="margin-right: 20px;padding: 2px 20px; "
-                ></input>`
-            );
-
-            const closeBtn = htmlf(
-                `<button 
-                    type="button" 
-                    class="pre-wrap text-align-center z-index-100"
-                    style="position:absolute; right: 5px; background-color:transparent;"
-                > x </button>`
-            );
-
-            // Tabs
-            const root = htmlf(
-                `<div 
-                    class="relative" 
-                    style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
-                >%{btn}%{input}%{closeBtn}</div>`,
-                { btn, input, closeBtn }
-            );
-
-            const component = makeComponent<TabRow>(root, () => {
-                const { app: { currentTreeName }, name } = component.args;
-
-                const isFocused = currentTreeName === name;
-
-                setVisible(closeBtn, isFocused);
-                setVisible(btn, !isFocused);
-                setClass(root, "focused", isFocused);
-
-                if (setVisible(input, isFocused)) {
-                    setVisible(input, true);
-                    setInputValueAndResize(input, name);
-
-                    root.el.style.color = "var(--fg-color)";
-                } else {
-                    setTextContent(btn, name);
-
-                    root.el.style.color = "var(--unfocus-text-color)";
-                }
-            });
-
-            btn.el.addEventListener("click", () => {
-                const { app: { loadTree }, name } = component.args;
-
-                loadTree(name, { shouldScroll: false });
-            });
-
-            input.el.addEventListener("change", () => {
-                const { app: { renameCurrentTreeName } } = component.args;
-                renameCurrentTreeName(input.el.value);
-            });
-
-            closeBtn.el.addEventListener("click", () => {
-                const { app: { deleteCurrentTree } } = component.args;
-                deleteCurrentTree();
-            });
-
-            return component;
-        });
-
-        for (let i = 0; i < names.length; i++) {
-            tabComponents[i].rerender({ app: outerComponent.args, name: names[i] });
-        }
-    });
-
-    newButton.el.addEventListener("click", () => {
-        const { newTree } = outerComponent.args;
-        newTree();
+        tabsList.rerender(names.length, (c, i) => {
+            c.rerender({
+                app: outerComponent.args,
+                name: names[i],
+            })
+        })
     });
 
     return outerComponent;
-};
+}
 
 const setCssVars = (vars: [string, string][]) => {
     const cssRoot = document.querySelector(":root") as HTMLElement;
@@ -1552,7 +1519,7 @@ type AppArgs = {
     currentTreeName: string;
     renameCurrentTreeName(newName: string): void;
     deleteCurrentTree(): void;
-    newTree(): void;
+    newTree(shouldRerender?: boolean): void;
 };
 
 
@@ -1572,7 +1539,7 @@ const makeDarkModeToggle = () => {
 
         if (theme === "Light") {
             setCssVars([
-                ["--fg-in-progress", "rgb(255, 0, 0, 0.5"],
+                ["--fg-in-progress", "rgb(255, 0, 0, 1"],
                 ["--bg-color", "#FFF"],
                 ["--bg-color-focus", "rgb(0, 0, 0, 0.1)"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
@@ -1582,16 +1549,48 @@ const makeDarkModeToggle = () => {
         } else {
             // assume dark theme
             setCssVars([
-                ["--fg-in-progress", "rgb(255, 0, 0, 0.5"],
+                ["--fg-in-progress", "rgba(255, 0, 0, 1"],
                 ["--bg-color", "#000"],
-                ["--bg-color-focus", "rgb(1, 1, 1, 0.1)"],
-                ["--bg-color-focus-2", "rgb(1, 1, 1, 0.4)"],
+                ["--bg-color-focus", "rgba(255, 255, 255, 0.2)"],
+                ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
                 ["--fg-color", "#EEE"],
                 ["--unfocus-text-color", "gray"]
             ]);
         }
 
-        setTextContent(button, theme);
+        function getThemeText() {
+            // return theme;
+
+            if (theme === "Light") {
+                return (
+                    // https://www.asciiart.eu/nature/sun
+`      ;   :   ;
+   .   \\_,!,_/   ,
+    \`.,':::::\`.,'
+     /:::::::::\\
+~ -- ::::::::::: -- ~
+     \\:::::::::/
+    ,'\`:::::::'\`.
+   '   / \`!\` \\   \`
+      ;   :   ;     `);
+
+            }
+
+            return (
+                // https://www.asciiart.eu/space/moons
+`
+       _..._    *
+  *  .::'   \`.    
+    :::       :    |  
+    :::       :   -+-
+    \`::.     .'    |
+ *    \`':..-'  .
+               * .
+      `);
+
+        }
+
+        setTextContent(button, getThemeText());
     };
 
     const button = makeButtonWithCallback("", () => {
@@ -1604,6 +1603,10 @@ const makeDarkModeToggle = () => {
 
         setTheme(themeName);
     });
+
+    button.el.style.whiteSpace = "pre";
+    button.el.style.fontSize = "6px";
+    button.el.style.fontWeight = "bold";
 
     setTheme(getTheme());
 
@@ -1643,6 +1646,7 @@ const App = () => {
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
+    const breakList: Insertable[] = []; //BreakList();
     const filters = NoteFilters();
     const treeSelector = CurrentTreeSelector();
 
@@ -1653,11 +1657,6 @@ const App = () => {
             %{treeTabs}
             %{notesList}
             %{scratchPad}
-
-            <div>
-                <div style="height: 1500px"></div>
-            </div>
-
             %{fixedButtons}
         </div>`,
         {
@@ -1683,6 +1682,10 @@ const App = () => {
                 title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
                 help: scratchPadHelp,
                 scratchPad
+            }),
+            breakList: htmlf(`<div>%{title}%{breakList}</div>`, {
+                title: htmlf(`<h2 style="marginTop: 20px;">Break List</h2>`),
+                breakList, 
             }),
             fixedButtons: htmlf(
                 `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
@@ -1958,6 +1961,7 @@ const App = () => {
             // rerender the things
             notesList.rerender(args);
             scratchPad.rerender(args);
+            // breakList.rerender(args);
             treeSelector.rerender(args);
             filters.rerender(args);
         }

@@ -262,26 +262,39 @@ export function setVisible(component: Insertable, state: boolean) {
     return state;
 }
 
+type ComponentPool<T extends Insertable> = {
+    components: T[];
+    rerender(n: number, renderFn: (c: T, i: number) => void): void;
+}
 
+export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): ComponentPool<T> {
+    return {
+        components: [],
+        rerender(newLength, renderFn) {
+            while(this.components.length > newLength) {
+                // could also just hide these with setVisible(false)
+                const component = this.components.pop()!;
+                component.el.remove();
+            } 
+            
+            while (this.components.length < newLength) {
+                // could also just show these with setVisible(true)
+                const component = createFn();
+                this.components.push(component);
+                appendChild(root, component);
+            }
 
-export function resizeComponentPool<T extends Insertable>(root: Insertable, compPool: T[], newLength: number, createFn: () => T) {
-    while(compPool.length > newLength) {
-        // could also just hide these with setVisible(false)
-        const component = compPool.pop()!;
-        component.el.remove();
-    } 
-    
-    while (compPool.length < newLength) {
-        // could also just show these with setVisible(true)
-        const component = createFn();
-        compPool.push(component);
-        appendChild(root, component);
-    }
+            if (this.components.length !== newLength) {
+                assert(false, "Error with component pool resizing");
+            }
 
-    if (compPool.length !== newLength) {
-        assert(false, "Error with component pool resizing");
+            for (let i = 0; i < this.components.length; i++){
+                renderFn(this.components[i], i);
+            }
+        }
     }
 }
+
 
 export function setInputValueAndResize (inputComponent: Insertable, text: string) {
     setInputValue(inputComponent, text);
