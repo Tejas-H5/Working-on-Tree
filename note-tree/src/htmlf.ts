@@ -264,13 +264,13 @@ export function setVisible(component: Insertable, state: boolean) {
 
 type ComponentPool<T extends Insertable> = {
     components: T[];
-    rerender(n: number, renderFn: (c: T, i: number) => void): void;
+    resize(n: number): void;
 }
 
 export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): ComponentPool<T> {
     return {
         components: [],
-        rerender(newLength, renderFn) {
+        resize(newLength) {
             while(this.components.length > newLength) {
                 // could also just hide these with setVisible(false)
                 const component = this.components.pop()!;
@@ -286,10 +286,6 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
 
             if (this.components.length !== newLength) {
                 assert(false, "Error with component pool resizing");
-            }
-
-            for (let i = 0; i < this.components.length; i++){
-                renderFn(this.components[i], i);
             }
         }
     }

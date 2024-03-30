@@ -54,6 +54,7 @@ textarea:focus {
 
 .scratch-pad {
     border: 1px var(--fg-color) solid;
+    padding: 0;
     width: 100%;
     height: 400px;
 }

@@ -199,6 +199,7 @@ type State = {
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
     lastEditedNoteId: NoteId;
+    breakListRootId: NoteId;
 
     currentNoteFilterIdx: number;
 
@@ -235,6 +236,7 @@ function defaultState(): State {
         }),
         currentNoteId: "",
         lastEditedNoteId: "",
+        breakListRootId: "",
 
         currentNoteFilterIdx: 0,
 
@@ -384,6 +386,56 @@ function getCurrentNote(state: State) {
 
     return getNote(state, state.currentNoteId);
 }
+
+function getBreaksRootNote(state: State) {
+    if (!state.breakListRootId) {
+        const breakRoot = createNewNote("Break note container");
+        tree.addAsRoot(state.notes, breakRoot);
+        state.breakListRootId = breakRoot.id;
+    }
+
+    return getNote(state, state.breakListRootId);
+}
+
+/** 
+ * Adds a note to the breaks list.
+ * If we were taking a break, it appends an [Off break], else it appends an [On Break]  
+ */
+function addBreakNote(state: State, text: string): string {
+    const breakRoot = getBreaksRootNote(state);
+    const isTakingABreak = isCurrentlyTakingABreak(breakRoot);
+
+    if (isTakingABreak) {
+        const now = Date.now();
+        const currentBreakNoteId = breakRoot.childIds[breakRoot.childIds.length - 1];
+        const currentBreakNote = getNote(state, currentBreakNoteId);
+        const currentBreakStart = new Date(currentBreakNote.data.openedAt).getTime();
+        const ONE_MINUTE = 1000 * 60 * 60;
+        if (now - currentBreakStart < ONE_MINUTE) {
+            // if now is too close to the previous note, it should cancel that note out.
+            // breaks should be 1 minute MINIMUM. We shouldn't be able to spam them on and off.
+            // Rather than adding a new OFF_BREAK note, we should just delete the last break
+
+            tree.remove(state.notes, currentBreakNote);
+            return "Current break reverted, as it was too short";
+        }
+    }
+
+    const noteText = (isTakingABreak ? OFF_BREAK_PREFIX : ON_BREAK_PREFIX) + " " + text;
+    tree.addUnder(state.notes, breakRoot, createNewNote(noteText));
+    return "";
+}
+
+function isCurrentlyTakingABreak(breakRootNote: tree.TreeNode<Note>): boolean {
+    // The children underneath a break note will be arranged as follows:
+    // [Break] [Back in progress] [Break] [Back in progress] [Break] [Back in progress] ...
+    // so we can just do a modulo
+
+    return breakRootNote.childIds.length % 2 === 1;
+}
+
+const ON_BREAK_PREFIX = "[On Break]";
+const OFF_BREAK_PREFIX = "[Off break]";
 
 function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
     if (!note.parentId) {
@@ -763,8 +815,10 @@ function recomputeState(state: State) {
                 }
             }
 
-            // Not enough for every child note to be done, the final note in our list should also be 'done'.
-            // That way, when I decide to 'move out all the done notes', I don't accidentally move out the main note.
+            // Current "Done" upward-propagation criteria criteria:
+            // - It has zero children and starts with Done done DONE
+            // - it has 1+ children, and the final child starts with Done done DONE
+            // I am actually reconsidering this. I don't think it is good that I am losing notes...
 
             const everyChildNoteIsDone = note.childIds.every((id) => {
                 const note = getNote(state, id);
@@ -1003,36 +1057,135 @@ function NoteFilters(): Renderable<AppArgs> {
     return component;
 }
 
-// function BreakList(): Renderable<AppArgs> {
-//     const pool: Renderable<AppArgs>[] = [];
-//     const root = htmlf(
-//         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
-//     );
+const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
 
-//     const component = makeComponent<NoteListInternalArgs>(root, () => {
-//         const { appArgs: { state }, flatNotes } = component.args;
+function BreakList(): Renderable<AppArgs> {
+    const listRoot = htmlf(`<div></div>`);
+    const breakItems = makeComponentList(listRoot, () => {
+        const text = htmlf(`<div></div>`);
+        const timestamp = htmlf(`<div></div>`);
+        const root = htmlf(
+            `<div style="padding: 10px">%{timestamp}%{text}</div>`, { 
+                text, 
+                timestamp,
+            }
+        );
 
-//         resizeComponentPool(root, pool, flatNotes.length, function BreakListInput(): Renderable<AppArgs> {
-//             const root = htmlf(`<div></div>`);
-//         });
+        type BreakItemArgs = {
+            breakNoteStart: Note;
+            breakNoteEnd: Note | null;
+        };
 
-//         for (let i = 0; i < flatNotes.length; i++) {
-//             pool[i].rerender({
-//                 app: component.args.appArgs,
-//                 flatIndex: i,
-//                 note: getNote(state, flatNotes[i]),
-//             });
-//         }
-//     });
+        const component = makeComponent<BreakItemArgs>(root, () => {
+            const { breakNoteEnd, breakNoteStart } = component.args;
 
-//     return component;
-// }
+            setTextContent(text, breakNoteEnd ? (
+                breakNoteStart.text + " -> " + breakNoteEnd.text
+            ) : (
+                breakNoteStart.text
+            ));
+
+            function getTimestampText() {
+                const startDate = new Date(breakNoteStart.openedAt);
+
+                if (!breakNoteEnd) {
+                    return formatDate(startDate);
+                }
+
+                const endDate = new Date(breakNoteEnd.openedAt);
+                const durationStr = formatDuration(endDate.getTime() - startDate.getTime());
+                return formatDate(startDate) + " -> " + formatDate(endDate) + " (" + durationStr + ")";
+            }
+
+            setTextContent(timestamp, getTimestampText());
+        })
+
+        return component;
+    });
+
+    const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
+    const root = htmlf(
+        // TODO: audit these styles
+        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
+            %{listRoot}
+            <div>
+                %{input}
+            </div>
+        </div>`, {
+            listRoot,
+            input,
+        }
+    );
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        const breakRootNote = getBreaksRootNote(state);
+
+        const MAX_BREAK_PAIRS_TO_SHOW = 2;
+        const notesToRender = Math.min(MAX_BREAK_PAIRS_TO_SHOW * 2, breakRootNote.childIds.length)
+        const itemsToRender = Math.ceil(notesToRender / 2);
+        breakItems.resize(itemsToRender);
+        const offset = (breakRootNote.childIds.length % 2 === 1) ? 1 : 0;
+        for (let i = 0; i < breakItems.components.length; i++) {
+            const idx = breakRootNote.childIds.length - ((itemsToRender - i) * 2) + offset;
+
+            if (idx === breakRootNote.childIds.length - 1) {
+                breakItems.components[i].rerender({
+                    breakNoteStart: getNote(state, breakRootNote.childIds[idx]).data,
+                    breakNoteEnd: null,
+                });
+            } else {
+                breakItems.components[i].rerender({
+                    breakNoteStart: getNote(state, breakRootNote.childIds[idx]).data,
+                    breakNoteEnd: getNote(state, breakRootNote.childIds[idx + 1]).data,
+                });
+            }
+        }
+    });
+
+    input.el.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") {
+            return;
+        }
+
+        function toggleCurrentBreak() {
+            const { state, rerenderApp, debouncedSave, showStatusText} = component.args;
+
+            const breakNoteRoot = getBreaksRootNote(state);
+
+            let text = input.el.value;
+            if (!text) {
+                if (isCurrentlyTakingABreak(breakNoteRoot)) {
+                    text = RETURN_FROM_BREAK_DEFAULT_TEXT;
+                } else {
+                    text = "Taking a break...";
+                }
+            }
+
+            const res = addBreakNote(state, text);
+            input.el.value = "";
+            if (res) {
+                showStatusText(res);
+            }
+
+            debouncedSave();
+            rerenderApp();
+        }
+
+        toggleCurrentBreak();
+    });
+
+    return component;
+}
 
 // NOTE: the caller who is instantiating the scratch pad should have access to the text here.
 // so it makes very litle sense that we are getting this text...
-function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
-    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: 400px"></textarea>`);
-    const root = htmlf(`<div class="relative">%{textArea}</div>`, { textArea });
+function ScratchPad(): Renderable<AppArgs> {
+    const SCRATCHPAD_HEIGHT = 400;
+    const yardStick = htmlf(`<div class="absolute" style="width: 5px; left:-5px;top:0px"></div>`)
+    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: ${SCRATCHPAD_HEIGHT}px"></textarea>`);
+    const root = htmlf(`<div class="relative">%{yardStick}%{textArea}</div>`, { textArea, yardStick });
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
@@ -1043,29 +1196,75 @@ function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
     });
 
     const onEdit = () => {
-        const { debouncedSave } = component.args;
+        const { debouncedSave, state, rerenderApp } = component.args;
+
+        state.scratchPad = textArea.el.value;
+        rerenderApp();
+
         debouncedSave();
     };
 
-    // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
+    textArea.el.addEventListener("input", onEdit);
+    textArea.el.addEventListener("change", onEdit);
+
     textArea.el.addEventListener("keydown", (e) => {
-        if (e.key !== "Tab") return;
+        if (e.key === "Tab") {
+            e.preventDefault();
+            // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
 
-        e.preventDefault();
+            // inserting a tab like this should preserve undo
+            // TODO: stop using deprecated API
+            document.execCommand("insertText", false, "\t");
+        }
 
-        // inserting a tab like this should preserve undo
-        // TODO: stop using deprecated API
-        document.execCommand("insertText", false, "\t");
+        function updateScrollPosition() {
+            // This function scrolls the window to the current cursor position inside the text area.
+            // This code is loosely based off the solution from https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
+            // My version is better, obviously
 
-        onEdit();
+            function countNewLines(str: string) {
+                let count = 0;
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === "\n") {
+                        count++;
+                    }
+                }
+                return count;
+            }
+
+            const selectionEnd = textArea.el.selectionEnd;
+            const startToCursorText = textArea.el.value.substring(0, selectionEnd);
+
+            // debugging
+            // yardStick.el.style.background = "#F00";
+            yardStick.el.style.background = "transparent";
+            yardStick.el.style.whiteSpace = "pre";
+            yardStick.el.textContent = "\n".repeat(countNewLines(startToCursorText)) + ".";
+
+            yardStick.el.style.height = 0 + "px";
+            const height = yardStick.el.scrollHeight;
+            yardStick.el.style.height = height + "px";
+            yardStick.el.textContent = "";
+
+            textArea.el.scrollTo({
+                left: 0,
+                top: height - SCRATCHPAD_HEIGHT / 2,
+                behavior: "instant",
+            });
+
+            window.scrollTo({
+                left: 0,
+                // NOTE: this is actually wrong. It scrolls way past our element, but our element
+                // just so happens to be at the bottom of the screen
+                top: window.scrollY + textArea.el.getBoundingClientRect().height,
+                behavior: "instant",
+            });
+        }
+
+        updateScrollPosition()
     });
 
-    return {
-        ...component,
-        getText: () => {
-            return textArea.el.value;
-        }
-    };
+    return component;
 }
 
 type NoteRowArgs = {
@@ -1118,7 +1317,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
                     if (shouldScroll) {
                         // TODO: calculate this properly, this kinda wrong ngl
-                        const wantedY = whenEditing.el.getBoundingClientRect().height * flatIndex;
+                        const wantedY = whenEditing.el.getBoundingClientRect().top + window.scrollY;
 
                         window.scrollTo({
                             left: 0,
@@ -1134,10 +1333,16 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     });
 
     whenEditing.el.addEventListener("input", () => {
-        const { app: { state, rerenderApp }, note, } = component.args;
+        const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
         state.lastEditedNoteId = note.id;
+
+        const breakRoot = getBreaksRootNote(state);
+        if (isCurrentlyTakingABreak(breakRoot)) {
+            addBreakNote(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
+            debouncedSave();
+        }
 
         rerenderApp();
     });
@@ -1345,13 +1550,14 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const component = makeComponent<NoteListInternalArgs>(root, () => {
         const { appArgs: { state }, flatNotes } = component.args;
 
-        noteList.rerender(flatNotes.length, (c, i) => {
-            c.rerender({
+        noteList.resize(flatNotes.length);
+        for (let i = 0; i < flatNotes.length; i++) {
+            noteList.components[i].rerender({
                 app: component.args.appArgs,
                 flatIndex: i,
                 note: getNote(state, flatNotes[i]),
             });
-        });
+        }
     });
 
     return component;
@@ -1487,12 +1693,13 @@ const CurrentTreeSelector = () => {
 
     const outerComponent = makeComponent<AppArgs>(root, () => {
         const names = getAvailableTrees();
-        tabsList.rerender(names.length, (c, i) => {
-            c.rerender({
+        tabsList.resize(names.length);
+        for (let i = 0; i < names.length; i++) {
+            tabsList.components[i].rerender({
                 app: outerComponent.args,
                 name: names[i],
-            })
-        })
+            });
+        }
     });
 
     return outerComponent;
@@ -1515,11 +1722,12 @@ type AppArgs = {
     loadTree: (name: string, rerenderOptions?: AppRenderOptions) => void;
     rerenderApp(options?: AppRenderOptions): void;
     debouncedSave(): void;
-    handleErrors(fn: () => void, onError: (err: any) => void): void;
+    handleErrors(fn: () => void, onError?: (err: any) => void): void;
     currentTreeName: string;
     renameCurrentTreeName(newName: string): void;
     deleteCurrentTree(): void;
     newTree(shouldRerender?: boolean): void;
+    showStatusText(text: string, color?: string, timeout?: number): void;
 };
 
 
@@ -1541,7 +1749,7 @@ const makeDarkModeToggle = () => {
             setCssVars([
                 ["--fg-in-progress", "rgb(255, 0, 0, 1"],
                 ["--bg-color", "#FFF"],
-                ["--bg-color-focus", "rgb(0, 0, 0, 0.1)"],
+                ["--bg-color-focus", "#CCC"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
                 ["--fg-color", "#000"],
                 ["--unfocus-text-color", "gray"]
@@ -1551,7 +1759,7 @@ const makeDarkModeToggle = () => {
             setCssVars([
                 ["--fg-in-progress", "rgba(255, 0, 0, 1"],
                 ["--bg-color", "#000"],
-                ["--bg-color-focus", "rgba(255, 255, 255, 0.2)"],
+                ["--bg-color-focus", "#333"],
                 ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
                 ["--fg-color", "#EEE"],
                 ["--unfocus-text-color", "gray"]
@@ -1626,10 +1834,13 @@ const App = () => {
                 Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
             </p>
             <ul>
-                <li>[Enter] to create a new entry</li>
-                <li>Arrows to move around</li>
-                <li>Tab or Shift+Tab to indent/unindent a note</li>
-                <li>Also look at the buttons in the bottom right there</li>
+                <li>[Enter] to create a new entry under the current one</li>
+                <li>[Shift] + [Enter] to create a new entry at the same level as the current one</li>
+                <li>[Tab] or [Shift]+[Tab] to indent/unindent a note when applicable</li>
+                <li>[Arrows] to move up and down visually</li>
+                <li>[Alt] + [Arrows] to move across the tree. [Up] and [Down] moves on the same level, [Left] and [Right] to move out of or into a note</li>
+                <li>[Alt] + [Backspace] to move focus back to the last note we edited</li>
+                <li>[Ctrl] + [Shift] + [F] to toggle filters</li>
             </ul>
         </div>`
     );
@@ -1646,7 +1857,7 @@ const App = () => {
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
-    const breakList: Insertable[] = []; //BreakList();
+    const breakList = BreakList();
     const filters = NoteFilters();
     const treeSelector = CurrentTreeSelector();
 
@@ -1656,7 +1867,10 @@ const App = () => {
             %{info1}
             %{treeTabs}
             %{notesList}
-            %{scratchPad}
+            <div class="row">
+                <div style="flex: 3">%{scratchPad}</div>
+                <div style="flex: 1">%{breakList}</div>
+            </div>
             %{fixedButtons}
         </div>`,
         {
@@ -1688,19 +1902,18 @@ const App = () => {
                 breakList, 
             }),
             fixedButtons: htmlf(
-                `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
+                `<div class="fixed row align-items-baseline" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
                     <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
-                    %{filters}
-                    <span class="flex-1"></span>
                     <div>%{statusIndicator}</div>
-                    <div>%{rightButtons}</div>
+                    <div class="row">%{rightButtons}</div>
                 </div>`,
                 {
                     filters,
                     leftButtons: [makeDarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
+                        filters,
                         makeButtonWithCallback("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
@@ -1720,7 +1933,7 @@ const App = () => {
                         makeButtonWithCallback("Load JSON from scratch pad", () => {
                             handleErrors(() => {
                                 try {
-                                    const lsKeys = JSON.parse(scratchPad.getText());
+                                    const lsKeys = JSON.parse(state.scratchPad);
                                     localStorage.clear();
                                     for (const key in lsKeys) {
                                         localStorage.setItem(key, lsKeys[key]);
@@ -1774,6 +1987,8 @@ const App = () => {
 
             // notification
             showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
+
+            console.log("saved!");
         };
 
         if (!debounced) {
@@ -1931,6 +2146,7 @@ const App = () => {
     };
 
     const debouncedSave = () => {
+        return;
         saveCurrentState({
             debounced: true
         });
@@ -1955,13 +2171,14 @@ const App = () => {
                 currentTreeName,
                 renameCurrentTreeName,
                 deleteCurrentTree,
-                newTree
+                newTree,
+                showStatusText,
             };
 
             // rerender the things
             notesList.rerender(args);
             scratchPad.rerender(args);
-            // breakList.rerender(args);
+            breakList.rerender(args);
             treeSelector.rerender(args);
             filters.rerender(args);
         }

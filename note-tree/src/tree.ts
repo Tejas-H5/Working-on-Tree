@@ -106,6 +106,17 @@ export function remove(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     delete tree.nodes[node.id];
 }
 
+/**
+ * Right now you will need to call this on notes that you make, if you want it to be a root note.
+ * This is because right now, the add and remove functions will remove this note from the tree store, to prevent
+ * redundant notes from being in there.
+ */
+export function addAsRoot(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
+    remove(tree, node);
+
+    tree.nodes[node.id] = node;
+}
+
 export function addUnder(tree: TreeStore<unknown>, parent: TreeNode<unknown>, nodeToAdd: TreeNode<unknown>) {
     insertAt(tree, parent, nodeToAdd, parent.childIds.length);
 }
