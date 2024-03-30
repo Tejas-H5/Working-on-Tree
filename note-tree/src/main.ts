@@ -624,6 +624,9 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             // TODO: move between the tabs
             e.preventDefault();
 
+            // I don't like this. It's convenient, but it means that we can't use tab for other things.
+            // But 
+
             if (shiftPressed) {
                 unindentCurrentNoteIfPossible(state);
             } else {
@@ -1026,7 +1029,7 @@ function nextFilter(state: State) {
 function NoteFilters(): Renderable<AppArgs> {
     const lb = makeButton("<");
     const rb = makeButton(">");
-    const currentFilterText = htmlf(`<div class="flex-1 text-align-center"></div>`);
+    const currentFilterText = htmlf(`<div class="flex-1 text-align-center" style="background:var(--bg-color)"></div>`);
     const root = htmlf(`<div class="row align-items-center" style="width:200px;">%{lb}%{currentFilter}%{rb}</div>`, { 
         lb, rb, currentFilter: currentFilterText
     });
@@ -1060,7 +1063,7 @@ function NoteFilters(): Renderable<AppArgs> {
 const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
 
 function BreakList(): Renderable<AppArgs> {
-    const listRoot = htmlf(`<div></div>`);
+    const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
     const breakItems = makeComponentList(listRoot, () => {
         const text = htmlf(`<div></div>`);
         const timestamp = htmlf(`<div></div>`);
@@ -1103,17 +1106,24 @@ function BreakList(): Renderable<AppArgs> {
         return component;
     });
 
-    const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
+    const breakInput = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
+    const breakButton = makeButton("");
+    const breakInfo = htmlf("<div></div>")
+    let timeout: number | undefined;
     const root = htmlf(
         // TODO: audit these styles
         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
             %{listRoot}
-            <div>
-                %{input}
+            <div style="padding: 5px;" class="row align-items-center">
+                <div class="flex-1">%{input}</div>
+                <div>%{breakButton}</div>
             </div>
+            %{breakInfo}
         </div>`, {
             listRoot,
-            input,
+            input: breakInput,
+            breakButton,
+            breakInfo,
         }
     );
 
@@ -1121,6 +1131,18 @@ function BreakList(): Renderable<AppArgs> {
         const { state } = component.args;
 
         const breakRootNote = getBreaksRootNote(state);
+        const isTakingABreak = isCurrentlyTakingABreak(breakRootNote);
+        setTextContent(breakButton, isTakingABreak ? (
+            "End break"
+        ) : (
+            "Take a break"
+        ));
+
+        breakInput.el.setAttribute("placeholder", isTakingABreak ? (
+            "Enter resume reason (optional)"
+        ): (
+            "Enter break reason (optional)"
+        ));
 
         const MAX_BREAK_PAIRS_TO_SHOW = 2;
         const notesToRender = Math.min(MAX_BREAK_PAIRS_TO_SHOW * 2, breakRootNote.childIds.length)
@@ -1144,37 +1166,43 @@ function BreakList(): Renderable<AppArgs> {
         }
     });
 
-    input.el.addEventListener("keydown", (e) => {
+    function toggleCurrentBreak() {
+        const { state, rerenderApp, debouncedSave } = component.args;
+
+        const breakNoteRoot = getBreaksRootNote(state);
+
+        let text = breakInput.el.value;
+        if (!text) {
+            if (isCurrentlyTakingABreak(breakNoteRoot)) {
+                text = RETURN_FROM_BREAK_DEFAULT_TEXT;
+            } else {
+                text = "Taking a break...";
+            }
+        }
+
+        const res = addBreakNote(state, text);
+        breakInput.el.value = "";
+        if (res) {
+            setTextContent(breakInfo, res);
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                setTextContent(breakInfo, "");
+            }, 5000);
+        }
+
+        debouncedSave();
+        rerenderApp();
+    }
+
+    breakInput.el.addEventListener("keydown", (e) => {
         if (e.key !== "Enter") {
             return;
         }
 
-        function toggleCurrentBreak() {
-            const { state, rerenderApp, debouncedSave, showStatusText} = component.args;
-
-            const breakNoteRoot = getBreaksRootNote(state);
-
-            let text = input.el.value;
-            if (!text) {
-                if (isCurrentlyTakingABreak(breakNoteRoot)) {
-                    text = RETURN_FROM_BREAK_DEFAULT_TEXT;
-                } else {
-                    text = "Taking a break...";
-                }
-            }
-
-            const res = addBreakNote(state, text);
-            input.el.value = "";
-            if (res) {
-                showStatusText(res);
-            }
-
-            debouncedSave();
-            rerenderApp();
-        }
-
         toggleCurrentBreak();
     });
+
+    breakButton.el.addEventListener("click", toggleCurrentBreak);
 
     return component;
 }
@@ -1868,7 +1896,7 @@ const App = () => {
             %{treeTabs}
             %{notesList}
             <div class="row">
-                <div style="flex: 3">%{scratchPad}</div>
+                <div style="flex: 2">%{scratchPad}</div>
                 <div style="flex: 1">%{breakList}</div>
             </div>
             %{fixedButtons}
