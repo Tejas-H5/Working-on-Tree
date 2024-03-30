@@ -135,6 +135,7 @@ type Note = {
     id: NoteId;
     text: string;
     openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
+    lastSelectedChildId: NoteId;
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
@@ -143,13 +144,14 @@ type Note = {
     _filteredOut: boolean; // Has this note been filtered out?
 };
 
-function createNewNote(text: string): tree.TreeNode<Note> {
-    const note: Note = {
+function defaultNote() : Note {
+    return {
         // the following is valuable user data
 
         id: uuid(),
-        text: text || "",
+        text: "",
         openedAt: getTimestamp(new Date()), 
+        lastSelectedChildId: "",
 
         // the following is just visual flags which are frequently recomputed
 
@@ -158,6 +160,11 @@ function createNewNote(text: string): tree.TreeNode<Note> {
         _depth: 0, 
         _filteredOut: false, 
     };
+}
+
+function createNewNote(text: string): tree.TreeNode<Note> {
+    const note = defaultNote();
+    note.text = text;
 
     return tree.newTreeNode(note, note.id);
 }
@@ -183,11 +190,10 @@ function getAvailableTrees(): string[] {
     return keys as string[];
 }
 
-function merge(a: State, b: State) {
+function merge<T extends object>(a: T, b: T) {
     for (const k in b) {
-        if (a[k as keyof State] === undefined) {
-            // @ts-ignore This is legit
-            a[k as keyof State] = b[k as keyof State];
+        if (!(k in a)) {
+            a[k] = b[k];
         }
     }
 
@@ -204,6 +210,9 @@ type State = {
     currentNoteFilterIdx: number;
 
     scratchPad: string;
+
+    /** These notes are in order of their priority, i.e how important the user thinks a note is. */
+    notePriorityQueue: NoteId[];
 
     // non-serializable fields
     _flatNoteIds: NoteId[];
@@ -228,6 +237,7 @@ function defaultState(): State {
             id: tree.ROOT_KEY,
             openedAt: getTimestamp(new Date()),
             text: "This root node should not be visible. If it is, you've encountered a bug!",
+            lastSelectedChildId: "",
 
             _depth: 0,
             _isSelected: false,
@@ -237,6 +247,7 @@ function defaultState(): State {
         currentNoteId: "",
         lastEditedNoteId: "",
         breakListRootId: "",
+        notePriorityQueue: [],
 
         currentNoteFilterIdx: 0,
 
@@ -247,7 +258,6 @@ function defaultState(): State {
 }
 
 
-
 function loadState(name: string): State {
     const savedStateJSON = localStorage.getItem(STATE_KEY_PREFIX + name);
     if (!savedStateJSON) {
@@ -255,12 +265,19 @@ function loadState(name: string): State {
     }
 
     if (savedStateJSON) {
-        const loadedState = JSON.parse(savedStateJSON);
+        const loadedState = JSON.parse(savedStateJSON) as State;
 
         // prevents missing item cases that may occur when trying to load an older version of the state.
-        // it is our way of migrating the schema.
-        const mergedState = merge(loadedState, defaultState());
-        return mergedState;
+        // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
+        // TODO: handle new fields in notes. Shouldn't be too hard actually
+        const mergedLoadedState = merge(loadedState, defaultState());
+
+        tree.forEachNode(mergedLoadedState.notes, (id) => {
+            const node = tree.getNode(mergedLoadedState.notes, id);
+            node.data = merge(node.data, defaultNote());
+        });
+
+        return mergedLoadedState;
     }
 
     return defaultState();
@@ -593,6 +610,94 @@ function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
     return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
 }
 
+/** 
+ * Swaps the current note with the lower note in the priority queue. 
+ * The note gets unshifted if it doesn't exist, and removed if it's already lowest priority
+ */
+function decreaseNotePriority(state: State) {
+    const note = getCurrentNote(state);
+    const idx = state.notePriorityQueue.indexOf(note.id);
+    if (idx === -1) {
+        state.notePriorityQueue.unshift(note.id);
+        return;
+    }
+
+    if (idx === state.notePriorityQueue.length - 1) {
+        state.notePriorityQueue.splice(idx, 1);
+        return;
+    }
+
+    // swap with the next note
+    const temp = state.notePriorityQueue[idx];
+    state.notePriorityQueue[idx] = state.notePriorityQueue[idx + 1];
+    state.notePriorityQueue[idx + 1] = temp;
+}
+
+/** 
+ * Swaps the current note with the higher note in the priority queue. 
+ * The note gets pushed if it doesn't exist, and removed if it's already a P1
+ */
+function increaseNotePriority(state: State) {
+    const note = getCurrentNote(state);
+    const idx = state.notePriorityQueue.indexOf(note.id);
+    if (idx === -1) {
+        state.notePriorityQueue.push(note.id);
+        return;
+    }
+
+    if (idx === 0) {
+        state.notePriorityQueue.splice(idx, 1);
+        return;
+    }
+
+    const temp = state.notePriorityQueue[idx];
+    state.notePriorityQueue[idx] = state.notePriorityQueue[idx - 1];
+    state.notePriorityQueue[idx - 1] = temp;
+}
+
+
+function moveToNextPriorityNote(state: State) {
+    const note = getCurrentNote(state);
+    const idx = state.notePriorityQueue.indexOf(note.id);
+    const inQueue = idx !== -1;
+    const inLastEdited = note.id === state.lastEditedNoteId;
+    const lastEditedInQueue = state.notePriorityQueue.indexOf(state.lastEditedNoteId) !== -1;
+
+    function moveToFirstNote() {
+        if (lastEditedInQueue) {
+            if (state.notePriorityQueue.length > 0) {
+                setCurrentNote(state, state.notePriorityQueue[0]);
+                return;
+            }
+        }
+
+        setCurrentNote(state, state.lastEditedNoteId);
+        return;
+    }
+
+    if (!inQueue && !inLastEdited) {
+        moveToFirstNote();
+        return;
+    }
+
+    if (inQueue) {
+        if (idx === state.notePriorityQueue.length - 1) {
+            moveToFirstNote();
+            return;
+        }
+
+        setCurrentNote(state, state.notePriorityQueue[idx + 1]);
+        return;
+    }
+
+    if (inLastEdited && state.notePriorityQueue.length > 0) {
+        setCurrentNote(state, state.notePriorityQueue[0]);
+        return;
+    }
+
+    setCurrentNote(state, state.lastEditedNoteId);
+}
+
 // returns true if the app should re-render
 function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
     const altPressed = e.altKey;
@@ -616,7 +721,7 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             break;
         case "Backspace":
             if (altPressed) {
-                setCurrentNote(state, state.lastEditedNoteId);
+                moveToNextPriorityNote(state);
                 return true;
             }
             return deleteNoteIfEmpty(state, state.currentNoteId);
@@ -665,13 +770,27 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             break;
         case "ArrowRight":
             if (altPressed) {
-                moveToNote(state, getFinalChildNote(state, currentNote));
+                if (currentNote.data.lastSelectedChildId) {
+                    moveToNote(state, getNote(state, currentNote.data.lastSelectedChildId));
+                } else {
+                    moveToNote(state, getFinalChildNote(state, currentNote));
+                }
             }
             break;
         case "F":
             if (ctrlPressed && shiftPressed) {
                 e.preventDefault();
                 nextFilter(state);
+            }
+            break;
+        case "O":
+            if (shiftPressed && altPressed) {
+                increaseNotePriority(state);
+            }
+            break;
+        case "P":
+            if (shiftPressed && altPressed) {
+                decreaseNotePriority(state);
             }
             break;
     }
@@ -858,6 +977,10 @@ function recomputeState(state: State) {
         const current = getCurrentNote(state);
         tree.forEachParent(state.notes, current, (note) => {
             note.data._isSelected = true;
+            if (note.parentId) { 
+                const parent = getNote(state, note.parentId);
+                parent.data.lastSelectedChildId = note.id;
+            }
             return false;
         });
     }
@@ -1304,6 +1427,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = htmlf(`<div class="pre"></div>`);
     const whenNotEditing = htmlf(`<div class="pre-wrap"></div>`);
 
+    let isEditing = false;
+
     // NOTE: Not using a textArea, because we don't want our notes to have multiple lines for now. [Enter] is being used for something else at the moment.
     // Also it is tempting to navigate the text area with [up] [down] which we are also using to move between notes
     const whenEditing = htmlf<HTMLInputElement>(`<input class="flex-1"></input>`);
@@ -1322,13 +1447,14 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     );
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { app: { state, shouldScroll }, note, flatIndex } = component.args;
+        const { app: { state }, note, flatIndex } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
         setTextContent(
             indent,
             `${getIndentStr(note.data)} ${getNoteStateString(note.data)} ${dashChar} `
         );
+
 
         const wasEditing = isEditing;
         isEditing = state.currentNoteId === note.id;
@@ -1337,14 +1463,18 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (isEditing) {
             setInputValue(whenEditing, note.data.text);
 
-            
-
             if (!wasEditing) {
+                console.log("is it editing?", isEditing)
+
+                // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
                     whenEditing.el.focus({ preventScroll: true });
 
-                    if (shouldScroll) {
-                        // TODO: calculate this properly, this kinda wrong ngl
+                    // scroll view into position.
+                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
+                    // ideally we don't want to do this when we click on a note.
+                    // I haven't worked out how to do that yet though
+                    {
                         const wantedY = whenEditing.el.getBoundingClientRect().top + window.scrollY;
 
                         window.scrollTo({
@@ -1369,26 +1499,27 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const breakRoot = getBreaksRootNote(state);
         if (isCurrentlyTakingABreak(breakRoot)) {
             addBreakNote(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
-            debouncedSave();
         }
+
+        debouncedSave();
 
         rerenderApp();
     });
 
     whenEditing.el.addEventListener("keydown", (e) => {
-        const { app: { state, rerenderApp, debouncedSave } } = component.args;
+        const { app: { state, rerenderApp } } = component.args;
 
         if (handleNoteInputKeyDown(state, e)) {
             rerenderApp();
         }
-
-        // handle saving state with a debounce
-        debouncedSave();
     });
 
-    let isEditing = false;
     return component;
 }
+
+// function AnalyticsView(): Renderable<AppArgs> {
+//     return null;
+// }
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
     const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
@@ -1512,16 +1643,23 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
-    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress); font-weight: bold" title="This is the note you edited last"> &lt;-- </div>`);
-    const root = htmlf(`<div class="row">%{lastTouchedFlag}%{progressText}</div>`, {
+    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress); background-color: var(--bg-in-progress);font-weight: bold" title="This is the note you edited last"> &lt;-- </div>`);
+    const priorityFlag = htmlf(`<div style="color: #FFF; background-color: #00F;"></div>`)
+    const root = htmlf(`<div class="row">%{priorityFlag}%{lastTouchedFlag}%{progressText}</div>`, {
         progressText, 
-        lastTouchedFlag
+        lastTouchedFlag,
+        priorityFlag,
     });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
         setTextContent(progressText, getSecondPartOfRow(state, note));
         setVisible(lastTouchedFlag, state.lastEditedNoteId === note.id);
+
+        const p = state.notePriorityQueue.indexOf(note.id);
+        if (setVisible(priorityFlag, p !== -1)) {
+            setTextContent(priorityFlag, "P" + (p + 1));
+        }
     });
 
     return component;
@@ -1679,7 +1817,7 @@ function TabRow(): Renderable<TabRowArgs> {
     btn.el.addEventListener("click", () => {
         const { app: { loadTree }, name } = component.args;
 
-        loadTree(name, { shouldScroll: false });
+        loadTree(name);
     });
 
     input.el.addEventListener("change", () => {
@@ -1740,15 +1878,10 @@ const setCssVars = (vars: [string, string][]) => {
     }
 };
 
-type AppRenderOptions = {
-    shouldScroll: boolean;
-}
-
 type AppArgs = {
     state: State;
-    shouldScroll: boolean;
-    loadTree: (name: string, rerenderOptions?: AppRenderOptions) => void;
-    rerenderApp(options?: AppRenderOptions): void;
+    loadTree: (name: string) => void;
+    rerenderApp(): void;
     debouncedSave(): void;
     handleErrors(fn: () => void, onError?: (err: any) => void): void;
     currentTreeName: string;
@@ -1775,7 +1908,8 @@ const makeDarkModeToggle = () => {
 
         if (theme === "Light") {
             setCssVars([
-                ["--fg-in-progress", "rgb(255, 0, 0, 1"],
+                ["--bg-in-progress", "rgb(255, 0, 0, 1"],
+                ["--fg-in-progress", "#FFF"],
                 ["--bg-color", "#FFF"],
                 ["--bg-color-focus", "#CCC"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
@@ -1785,7 +1919,8 @@ const makeDarkModeToggle = () => {
         } else {
             // assume dark theme
             setCssVars([
-                ["--fg-in-progress", "rgba(255, 0, 0, 1"],
+                ["--bg-in-progress", "rgba(255, 0, 0, 1)"],
+                ["--fg-in-progress", "#FFF"],
                 ["--bg-color", "#000"],
                 ["--bg-color-focus", "#333"],
                 ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
@@ -1881,7 +2016,7 @@ const App = () => {
         </div>`
     );
 
-    const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
+    const statusTextIndicator = htmlf(`<div class="pre-wrap" style="background-color: var(--bg-color)"></div>`);
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
@@ -1934,6 +2069,7 @@ const App = () => {
                     <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
                     <div>%{statusIndicator}</div>
+                    <span class="flex-1"></span>
                     <div class="row">%{rightButtons}</div>
                 </div>`,
                 {
@@ -2034,19 +2170,19 @@ const App = () => {
         }, SAVE_DEBOUNCE);
     };
 
-    const loadTree = (name: string, renderOptions?: AppRenderOptions) => {
+    const loadTree = (name: string) => {
         handleErrors(
             () => {
                 state = loadState(name);
                 currentTreeName = name;
-                appComponent.rerender(renderOptions);
+                appComponent.rerender();
             },
             () => {
                 // try to fallback to the first available tree.
                 const availableTrees = getAvailableTrees();
                 state = loadState(availableTrees[0]);
                 currentTreeName = availableTrees[0];
-                appComponent.rerender(renderOptions);
+                appComponent.rerender();
             }
         );
     };
@@ -2174,7 +2310,6 @@ const App = () => {
     };
 
     const debouncedSave = () => {
-        return;
         saveCurrentState({
             debounced: true
         });
@@ -2182,7 +2317,7 @@ const App = () => {
 
     const appComponent = {
         el: appRoot.el,
-        rerender: function (options = { shouldScroll: true }) {
+        rerender: function () {
             setVisible(noteTreeHelp, showInfo);
             setVisible(scratchPadHelp, showInfo);
 
@@ -2191,7 +2326,6 @@ const App = () => {
             // need to know how far to offset the selected refs
             const args: AppArgs = {
                 state,
-                shouldScroll: options.shouldScroll,
                 loadTree,
                 rerenderApp: appComponent.rerender,
                 debouncedSave,

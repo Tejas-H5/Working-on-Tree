@@ -253,12 +253,13 @@ export function copyStyles(src: Insertable, dst: Insertable) {
     }
 };
 
-export function setVisible(component: Insertable, state: boolean) {
+export function setVisible(component: Insertable, state: boolean): state is true {
     if (state) {
         component.el.classList.remove("hidden");
     } else {
         component.el.classList.add("hidden");
     }
+
     return state;
 }
 
