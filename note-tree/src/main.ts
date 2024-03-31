@@ -27,10 +27,14 @@ function pad2(num: number) {
     return num < 10 ? "0" + num : "" + num;
 }
 
-// function repeatSafe(str: string, len: number) {
-//     const string = len <= 0 ? "" : str.repeat(Math.ceil(len / str.length));
-//     return string.substring(0, len);
-// }
+/** NOTE: won't work for len < 3 */
+function truncate(str: string, len: number): string {
+    if (str.length > len) {
+        return str.substring(0, len - 3) + "...";
+    }
+
+    return str;
+}
 
 function isDoneNote(note: Note) {
     return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
@@ -144,6 +148,14 @@ type Note = {
     _filteredOut: boolean; // Has this note been filtered out?
 };
 
+// Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
+// Yeah it isn't the best practice
+type Activity = {
+    nId?: NoteId;
+    t: string;
+    breakInfo?: string;
+}
+
 function defaultNote() : Note {
     return {
         // the following is valuable user data
@@ -161,6 +173,26 @@ function defaultNote() : Note {
         _filteredOut: false, 
     };
 }
+
+
+function getActivityText(state: State, activity: Activity): string {
+    if (activity.nId) {
+        return getNote(state, activity.nId).data.text;
+    }
+
+    if (activity.breakInfo) {
+        return activity.breakInfo;
+    }
+
+    return "< unknown activity text! >";
+}
+
+function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : number {
+    const startTimeMs = new Date(activity.t).getTime();
+    const endTimeMs = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
+    return endTimeMs - startTimeMs;
+}
+
 
 function createNewNote(text: string): tree.TreeNode<Note> {
     const note = defaultNote();
@@ -202,10 +234,10 @@ function merge<T extends object>(a: T, b: T) {
 
 type NoteId = string;
 type State = {
+    /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
     lastEditedNoteId: NoteId;
-    breakListRootId: NoteId;
 
     currentNoteFilterIdx: number;
 
@@ -213,6 +245,9 @@ type State = {
 
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     notePriorityQueue: NoteId[];
+
+    /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
+    activities: Activity[];
 
     // non-serializable fields
     _flatNoteIds: NoteId[];
@@ -223,6 +258,41 @@ type NoteFilter = null | {
     not: boolean;
 };
 
+
+function pushActivity(state: State, activity: Activity) {
+    const last = getLastActivity(state);
+    const secondLast = getSecondLastActivity(state);
+
+    if (last?.nId && activity.nId && last.nId === activity.nId) {
+        // don't add the same activity twice in a row
+        return;
+    }
+
+    if (last?.breakInfo && secondLast?.breakInfo && activity.breakInfo) {
+        // can't put 3 breaks in a row
+        return;
+    }
+
+    if (!secondLast?.breakInfo && last?.breakInfo && !activity.breakInfo) {
+        // this must also be a break. 
+        throw new Error("This break must be closed off first");
+    }
+
+    
+    state.activities.push(activity);
+}
+
+function getLastActivity(state: State): Activity | undefined {
+    return state.activities[state.activities.length - 1];
+}
+
+function getSecondLastActivity(state: State): Activity | undefined {
+    return state.activities[state.activities.length - 2];
+}
+
+function popLastActivity(state: State): Activity | undefined {
+    return state.activities.pop();
+}
 
 // NOTE: all state needs to be JSON-serializable.
 // NO Dates/non-plain objects
@@ -246,8 +316,8 @@ function defaultState(): State {
         }),
         currentNoteId: "",
         lastEditedNoteId: "",
-        breakListRootId: "",
         notePriorityQueue: [],
+        activities: [],
 
         currentNoteFilterIdx: 0,
 
@@ -316,7 +386,6 @@ function saveState(state: State, name: string) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
     localStorage.setItem(getLocalStorageKeyForTreeName(name), serialized);
-    console.log("saved", name, state);
 }
 
 function deleteNoteIfEmpty(state: State, id: NoteId) {
@@ -347,6 +416,15 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
 
     // delete from the ids list, as well as the note database
     tree.remove(state.notes, note);
+
+    // delete relevant activities from the activity list
+    for (let i = 0; i < state.activities.length; i++) {
+        if (state.activities[i].nId === note.id) {
+            state.activities.splice(i, 1);
+            i--;
+        }
+    }
+
     return true;
 }
 
@@ -383,12 +461,16 @@ function insertChildNode(state: State) {
     return true;
 }
 
+function hasNote(state: State, id: NoteId): boolean {
+    return !!id && tree.hasNode(state.notes, id);
+}
+
 function getNote(state: State, id: NoteId) {
     return tree.getNode(state.notes, id);
 }
 
 function getCurrentNote(state: State) {
-    if (!tree.hasNode(state.notes, state.currentNoteId)) {
+    if (!hasNote(state, state.currentNoteId)) {
         // set currentNoteId to the last root note if it hasn't yet been set
 
         const rootChildIds = getRootNote(state).childIds;
@@ -398,57 +480,34 @@ function getCurrentNote(state: State) {
             tree.addUnder(state.notes, getRootNote(state), newNote);
         }
 
-        setCurrentNote(state, rootChildIds[rootChildIds.length - 1]);
+        // not using setCurrentNote, because it calls getCurrentNote 
+        state.currentNoteId = rootChildIds[rootChildIds.length - 1];
     }
 
     return getNote(state, state.currentNoteId);
 }
 
-function getBreaksRootNote(state: State) {
-    if (!state.breakListRootId) {
-        const breakRoot = createNewNote("Break note container");
-        tree.addAsRoot(state.notes, breakRoot);
-        state.breakListRootId = breakRoot.id;
-    }
-
-    return getNote(state, state.breakListRootId);
-}
 
 /** 
- * Adds a note to the breaks list.
+ * Adds a break to the activity list
  * If we were taking a break, it appends an [Off break], else it appends an [On Break]  
  */
-function addBreakNote(state: State, text: string): string {
-    const breakRoot = getBreaksRootNote(state);
-    const isTakingABreak = isCurrentlyTakingABreak(breakRoot);
+function toggleCurrentBreakActivity(state: State, breakInfoText: string) {
+    const isTakingABreak = isCurrentlyTakingABreak(state);
+    const noteText = (isTakingABreak ? OFF_BREAK_PREFIX : ON_BREAK_PREFIX) + " " + breakInfoText;
 
-    if (isTakingABreak) {
-        const now = Date.now();
-        const currentBreakNoteId = breakRoot.childIds[breakRoot.childIds.length - 1];
-        const currentBreakNote = getNote(state, currentBreakNoteId);
-        const currentBreakStart = new Date(currentBreakNote.data.openedAt).getTime();
-        const ONE_MINUTE = 1000 * 60 * 60;
-        if (now - currentBreakStart < ONE_MINUTE) {
-            // if now is too close to the previous note, it should cancel that note out.
-            // breaks should be 1 minute MINIMUM. We shouldn't be able to spam them on and off.
-            // Rather than adding a new OFF_BREAK note, we should just delete the last break
-
-            tree.remove(state.notes, currentBreakNote);
-            return "Current break reverted, as it was too short";
-        }
-    }
-
-    const noteText = (isTakingABreak ? OFF_BREAK_PREFIX : ON_BREAK_PREFIX) + " " + text;
-    tree.addUnder(state.notes, breakRoot, createNewNote(noteText));
-    return "";
+    pushActivity(state, {
+        nId: undefined,
+        t: getTimestamp(new Date()),
+        breakInfo: noteText,
+    });
 }
 
-function isCurrentlyTakingABreak(breakRootNote: tree.TreeNode<Note>): boolean {
-    // The children underneath a break note will be arranged as follows:
-    // [Break] [Back in progress] [Break] [Back in progress] [Break] [Back in progress] ...
-    // so we can just do a modulo
+function isCurrentlyTakingABreak(state: State): boolean {
+    const last = getLastActivity(state);
+    const secLast = getSecondLastActivity(state);
 
-    return breakRootNote.childIds.length % 2 === 1;
+    return !!last?.breakInfo && !secLast?.breakInfo;
 }
 
 const ON_BREAK_PREFIX = "[On Break]";
@@ -481,8 +540,8 @@ function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<No
 }
 
 function setCurrentNote(state: State, noteId: NoteId) {
-    const currentNote = getCurrentNote(state);
-    if (currentNote.id === noteId) {
+    const currentNoteBeforeMove = getCurrentNote(state);
+    if (currentNoteBeforeMove.id === noteId) {
         return;
     }
 
@@ -490,11 +549,8 @@ function setCurrentNote(state: State, noteId: NoteId) {
         return;
     }
 
-    if (!currentNote.data.text) {
-        tree.remove(state.notes, currentNote);
-    }
-
     state.currentNoteId = noteId;
+    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
 }
 
 function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) {
@@ -506,11 +562,12 @@ function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) 
     return true;
 }
 
-function toNextUnfilteredNote(state: State, childIds: string[], id: string) {
+type NoteFilterFunction = (note: tree.TreeNode<Note>) => boolean;
+function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
         const note = getNote(state, childIds[idx]);
-        if (!note.data._filteredOut) {
+        if (filterFn(note)) {
             return note;
         }
 
@@ -520,11 +577,11 @@ function toNextUnfilteredNote(state: State, childIds: string[], id: string) {
     return null;
 }
 
-function toPreviousUnfilteredNote(state: State, childIds: string[], id: string) {
+function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) - 1;
     while (idx >= 0)  {
         const note = getNote(state, childIds[idx]);
-        if (!note.data._filteredOut) {
+        if (filterFn(note)) {
             return note;
         }
 
@@ -540,8 +597,16 @@ function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
         return null;
     }
 
-    const parent = getNote(state, note.parentId);
-    return toNextUnfilteredNote(state, parent.childIds, note.id);
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+
+    // now, we hop between unfiltered
+    return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
+}
+
+function isNoteImportant(note: tree.TreeNode<Note>) : boolean {
+    return getRealChildCount(note) !== 0 || note.data._status === STATUS_IN_PROGRESS;
 }
 
 function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
@@ -549,8 +614,11 @@ function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
         return null;
     }
 
-    const parent = getNote(state, note.parentId);
-    return toPreviousUnfilteredNote(state, parent.childIds, note.id);
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+
+    return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
 }
 
 function unindentCurrentNoteIfPossible(state: State) {
@@ -664,7 +732,7 @@ function moveToNextPriorityNote(state: State) {
     const lastEditedInQueue = state.notePriorityQueue.indexOf(state.lastEditedNoteId) !== -1;
 
     function moveToFirstNote() {
-        if (lastEditedInQueue) {
+        if (lastEditedInQueue || !state.lastEditedNoteId || !hasNote(state, state.lastEditedNoteId)) {
             if (state.notePriorityQueue.length > 0) {
                 setCurrentNote(state, state.notePriorityQueue[0]);
                 return;
@@ -714,9 +782,9 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             e.preventDefault();
 
             if (shiftPressed) {
-                insertNoteAfterCurrent(state);
-            } else {
                 insertChildNode(state);
+            } else {
+                insertNoteAfterCurrent(state);
             }
             break;
         case "Backspace":
@@ -724,6 +792,7 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
                 moveToNextPriorityNote(state);
                 return true;
             }
+
             return deleteNoteIfEmpty(state, state.currentNoteId);
         case "Tab":
             // TODO: move between the tabs
@@ -770,7 +839,12 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             break;
         case "ArrowRight":
             if (altPressed) {
-                if (currentNote.data.lastSelectedChildId) {
+                if (
+                    currentNote.data.lastSelectedChildId && 
+                    // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
+                    // TODO: just don't set this to an invalid value
+                    tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
+                ) {
                     moveToNote(state, getNote(state, currentNote.data.lastSelectedChildId));
                 } else {
                     moveToNote(state, getFinalChildNote(state, currentNote));
@@ -838,18 +912,36 @@ function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
 
-// NOTE: depends on _filteredOut and _isSelected
+function getNotePriority(state: State, noteId: NoteId) {
+    const priority = state.notePriorityQueue.indexOf(noteId);
+    if (priority === -1) {
+        return undefined;
+    }
+
+    return priority + 1;
+}
+
+// NOTE: depends on _filteredOut, _isSelected
 function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
     flatNotes.splice(0, flatNotes.length);
+
+    const currentNote = getCurrentNote(state);
 
     const dfs = (note: tree.TreeNode<Note>) => {
         for (const id of note.childIds) {
             const note = getNote(state, id);
+
             if (
-                note.data._filteredOut &&
-                !note.data._isSelected      // don't remove the path we are currently on from the flat notes.
+                // never remove the path we are currently on from the flat notes.
+                !note.data._isSelected
             ) {
-                continue;
+                if (note.parentId !== currentNote.parentId) {
+                    continue;
+                }
+
+                if (note.data._filteredOut) {
+                    continue;
+                }
             }
 
             flatNotes.push(note.id);
@@ -1185,45 +1277,54 @@ function NoteFilters(): Renderable<AppArgs> {
 
 const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
 
-function BreakList(): Renderable<AppArgs> {
+function ActivityList(): Renderable<AppArgs> {
     const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
     const breakItems = makeComponentList(listRoot, () => {
-        const text = htmlf(`<div></div>`);
-        const timestamp = htmlf(`<div></div>`);
+        const timestamp = htmlf(`<div style="width: 200px; padding-right: 10px;"></div>`);
+        // TODO: conditional styling on if we even have a next activity
+        const activityText = htmlf(`<span class="flex-1"></span>`);
+        const durationText = htmlf(`<div></div>`);
+        const arrowSpan = htmlf(`<span class="hover-target" style="padding-left: 30px; padding-right: 30px"> --&gt; </span>`);
         const root = htmlf(
-            `<div style="padding: 10px">%{timestamp}%{text}</div>`, { 
-                text, 
+            `<div style="padding: 0px;">` +
+                `<div class="row">%{timestamp}<div class="flex-1 hover-parent">%{activityText}%{arrowSpan}</div>%{durationText}</div>` + 
+                // `<div class="text-align-center" style="padding: 10px"></div>` + 
+            `</div>`, { 
                 timestamp,
+                activityText, 
+                durationText,
+                arrowSpan,
             }
         );
 
-        type BreakItemArgs = {
-            breakNoteStart: Note;
-            breakNoteEnd: Note | null;
-        };
+        const component = makeComponent<ActivityListItemArgs>(root, () => {
+            const { activity, nextActivity, app: { state } } = component.args;
 
-        const component = makeComponent<BreakItemArgs>(root, () => {
-            const { breakNoteEnd, breakNoteStart } = component.args;
+            setVisible(arrowSpan, !!activity.nId);
+            activityText.el.style.cursor = activity.nId ? "pointer" : "";
+            activityText.el.style.paddingLeft = activity.nId ? "0" : "40px";
 
-            setTextContent(text, breakNoteEnd ? (
-                breakNoteStart.text + " -> " + breakNoteEnd.text
-            ) : (
-                breakNoteStart.text
-            ));
+            root.el.style.paddingBottom = (!!activity.nId !== !!nextActivity?.nId) ? "20px" : "0px";
 
-            function getTimestampText() {
-                const startDate = new Date(breakNoteStart.openedAt);
+            const startDate = new Date(activity.t);
+            const timeStr = formatDate(startDate);
+            setTextContent(timestamp, timeStr);
 
-                if (!breakNoteEnd) {
-                    return formatDate(startDate);
-                }
+            const text = getActivityText(state, activity);
+            setTextContent(activityText, truncate(text, 45));
 
-                const endDate = new Date(breakNoteEnd.openedAt);
-                const durationStr = formatDuration(endDate.getTime() - startDate.getTime());
-                return formatDate(startDate) + " -> " + formatDate(endDate) + " (" + durationStr + ")";
+            const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
+            setTextContent(durationText, durationStr);
+        });
+
+        activityText.el.addEventListener("click", () => {
+            const { activity, app: { state, rerenderApp }} = component.args;
+            if (!activity.nId) {
+                return;
             }
 
-            setTextContent(timestamp, getTimestampText());
+            setCurrentNote(state, activity.nId);
+            rerenderApp();
         })
 
         return component;
@@ -1232,7 +1333,6 @@ function BreakList(): Renderable<AppArgs> {
     const breakInput = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
     const breakButton = makeButton("");
     const breakInfo = htmlf("<div></div>")
-    let timeout: number | undefined;
     const root = htmlf(
         // TODO: audit these styles
         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
@@ -1253,8 +1353,7 @@ function BreakList(): Renderable<AppArgs> {
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
-        const breakRootNote = getBreaksRootNote(state);
-        const isTakingABreak = isCurrentlyTakingABreak(breakRootNote);
+        const isTakingABreak = isCurrentlyTakingABreak(state);
         setTextContent(breakButton, isTakingABreak ? (
             "End break"
         ) : (
@@ -1267,51 +1366,39 @@ function BreakList(): Renderable<AppArgs> {
             "Enter break reason (optional)"
         ));
 
-        const MAX_BREAK_PAIRS_TO_SHOW = 2;
-        const notesToRender = Math.min(MAX_BREAK_PAIRS_TO_SHOW * 2, breakRootNote.childIds.length)
-        const itemsToRender = Math.ceil(notesToRender / 2);
-        breakItems.resize(itemsToRender);
-        const offset = (breakRootNote.childIds.length % 2 === 1) ? 1 : 0;
-        for (let i = 0; i < breakItems.components.length; i++) {
-            const idx = breakRootNote.childIds.length - ((itemsToRender - i) * 2) + offset;
+        const MAX_ACTIVITIES_TO_RENDER = 7;
 
-            if (idx === breakRootNote.childIds.length - 1) {
-                breakItems.components[i].rerender({
-                    breakNoteStart: getNote(state, breakRootNote.childIds[idx]).data,
-                    breakNoteEnd: null,
-                });
-            } else {
-                breakItems.components[i].rerender({
-                    breakNoteStart: getNote(state, breakRootNote.childIds[idx]).data,
-                    breakNoteEnd: getNote(state, breakRootNote.childIds[idx + 1]).data,
-                });
-            }
+        const activities = state.activities;
+        const activitiesToRender = Math.min(MAX_ACTIVITIES_TO_RENDER, activities.length);
+        const start = activities.length - activitiesToRender;
+
+        breakItems.resize(activitiesToRender);
+        for (let i = 0; i < activitiesToRender; i++) {
+            const activity = activities[start + i];
+            const nextActivity = activities[start + i + 1]; // JavaScript moment - you can index past an array without crashing
+
+            breakItems.components[i].rerender({
+                app: component.args, 
+                activity, 
+                nextActivity,
+            });
         }
     });
 
     function toggleCurrentBreak() {
         const { state, rerenderApp, debouncedSave } = component.args;
 
-        const breakNoteRoot = getBreaksRootNote(state);
-
         let text = breakInput.el.value;
         if (!text) {
-            if (isCurrentlyTakingABreak(breakNoteRoot)) {
+            if (isCurrentlyTakingABreak(state)) {
                 text = RETURN_FROM_BREAK_DEFAULT_TEXT;
             } else {
                 text = "Taking a break...";
             }
         }
 
-        const res = addBreakNote(state, text);
+        toggleCurrentBreakActivity(state, text);
         breakInput.el.value = "";
-        if (res) {
-            setTextContent(breakInfo, res);
-            clearTimeout(timeout);
-            timeout = setTimeout(() => {
-                setTextContent(breakInfo, "");
-            }, 5000);
-        }
 
         debouncedSave();
         rerenderApp();
@@ -1418,6 +1505,20 @@ function ScratchPad(): Renderable<AppArgs> {
     return component;
 }
 
+function getRealChildCount(note: tree.TreeNode<Note>): number {
+    if (note.childIds.length === 0) {
+        return 0;
+    }
+
+    if (note.data._status === STATUS_DONE) {
+        // Don't include the DONE note at the end. This artificially increases the child count from 0 to 1.
+        // This will matter in certain movement schemes where i want to move directly to notes with children for example
+        return note.childIds.length - 1;
+    }
+
+    return note.childIds.length;
+}
+
 type NoteRowArgs = {
     app: AppArgs;
     note: tree.TreeNode<Note>;
@@ -1450,9 +1551,11 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state }, note, flatIndex } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
+        const count = getRealChildCount(note)
+        const childCountText = count ? ` (${count})` : "";
         setTextContent(
             indent,
-            `${getIndentStr(note.data)} ${getNoteStateString(note.data)} ${dashChar} `
+            `${getIndentStr(note.data)} ${getNoteStateString(note.data)}${childCountText} ${dashChar} `
         );
 
 
@@ -1464,8 +1567,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
             setInputValue(whenEditing, note.data.text);
 
             if (!wasEditing) {
-                console.log("is it editing?", isEditing)
-
                 // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
                     whenEditing.el.focus({ preventScroll: true });
@@ -1496,9 +1597,16 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         note.data.text = whenEditing.el.value;
         state.lastEditedNoteId = note.id;
 
-        const breakRoot = getBreaksRootNote(state);
-        if (isCurrentlyTakingABreak(breakRoot)) {
-            addBreakNote(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
+        if (isCurrentlyTakingABreak(state)) {
+            toggleCurrentBreakActivity(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
+        }
+
+        const last = getLastActivity(state);
+        if (last?.nId !== note.id) {
+            pushActivity(state, {
+                t: getTimestamp(new Date()),
+                nId: note.id,
+            });
         }
 
         debouncedSave();
@@ -1517,9 +1625,173 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     return component;
 }
 
-// function AnalyticsView(): Renderable<AppArgs> {
-//     return null;
-// }
+type ModalArgs = { onClose(): void };
+function Modal(content: Insertable): Renderable<ModalArgs> {
+    const styles = 
+        `width: 90vw; left: 5vw; right: 5vw; height: 90vh; top: 5vh; bottom: 5vh;` + 
+        `background-color: var(--bg-color); z-index: 9999;` + 
+        ``;
+
+    const closeButton = makeButton("X");
+
+    const root = htmlf(
+        `<div class="modal-shadow fixed solid-border" style="${styles}">` + 
+            `<div class="relative absolute-fill">` + 
+                `<div class="absolute" style="top: 0; right: 0">%{closeButton}</div>` + 
+                `%{content}` + 
+            `</div>` +
+        `</div>`, {
+            closeButton,
+            content,
+        }
+    );
+
+    const component = makeComponent<ModalArgs>(root, () => {});
+
+    closeButton.el.addEventListener("click", () => {
+        const { onClose } = component.args;
+        onClose();
+    });
+
+    return component;
+}
+
+type ActivityListItemArgs = {
+    app: AppArgs;
+    activity: Activity;
+    nextActivity: Activity | undefined;
+};
+
+function ActivitiesPaginated(): Renderable<AppArgs> {
+    let page = 0;
+    let perPage = 10;
+
+    const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
+    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, () => {
+        const activityText = htmlf(`<div></div>`)
+        const timestamp = htmlf(`<div style="font-size:14px"></div>`)
+
+        const root = htmlf(
+            `<div style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
+                `%{timestamp}` + 
+                `%{activityText}` + 
+            `</div>`,
+            { activityText, timestamp },
+        );
+
+        const component = makeComponent<ActivityListItemArgs>(root, () => {
+            const { activity, nextActivity, app: { state } } = component.args;
+
+            setTextContent(activityText, getActivityText(state, activity));
+            setTextContent(timestamp, formatDate(new Date(activity.t)) + " - " + formatDuration(getActivityDurationMs(activity, nextActivity)));
+        });
+
+        return component;
+    });
+
+    const prevPageButton = makeButton("<");
+    const nextPageButton = makeButton(">");
+    const pageNumber = htmlf("<div></div>");
+
+    const root = htmlf(
+        `<div class="w-100 h-100 col">` + 
+            `<div class="flex-1 relative" style="overflow-y: scroll">` +
+                `%{vListRoot}` + 
+            `</div>` + 
+            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
+                "%{prevPageButton}" + 
+                "%{pageNumber}" +
+                "%{nextPageButton}" + 
+            `</div>` + 
+        `</div>`,
+        { vListRoot, prevPageButton, nextPageButton, pageNumber }
+    );
+
+    function getMaxPages(state: State): number {
+        return Math.floor(state.activities.length / perPage);
+    }
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        setTextContent(pageNumber, `${page + 1}/${getMaxPages(state) + 1}`);
+
+        page = Math.min(page, getMaxPages(state));
+        page = Math.max(page, 0);
+        
+        const start = page * perPage;
+        let end = (page + 1) * perPage;
+        if (end > state.activities.length) {
+            end = state.activities.length;
+        }
+        
+        vList.resize(end - start);
+        for (let i = 0; i < end - start; i++) {
+            vList.components[i].rerender({
+                app: component.args,
+                activity: state.activities[start + i],
+                nextActivity: state.activities[start + i + 1],
+            });
+        }
+    });
+
+    prevPageButton.el.addEventListener("click", () => {
+        page--;
+        if (page < 0) {
+            page = 0;
+        }
+        
+        component.rerender(component.args);
+    });
+
+
+    nextPageButton.el.addEventListener("click", () => {
+        const { state } = component.args;
+
+        page++;
+        const maxPages = getMaxPages(state);
+        if (page > maxPages) {
+            page = maxPages;
+        }
+
+        component.rerender(component.args);
+    });
+
+    return component;
+}
+
+function AnalyticsView(): Renderable<AppArgs> {
+    const activitiesList = ActivitiesPaginated();
+
+    const modalComponent = Modal(
+        htmlf(
+            `<div class="col h-100">` + 
+                `<h2 class="text-align-center">Analytics</h2>` + 
+                `<div class="flex-1 row">` + 
+                    `<div class="flex-1" style="border: 1px solid var(--fg-color);">` + 
+                        `%{activitiesList}` + 
+                    `</div>` +
+                    `<div class="flex-1">` + 
+                    `</div>` +
+                `</div>` +
+            `</div>`, {
+                activitiesList
+            }
+        )
+    );
+    
+    const component = makeComponent<AppArgs>(modalComponent, () => {
+        const { setCurrentModal } = component.args;
+
+        modalComponent.rerender({ 
+            onClose: () => setCurrentModal(null) 
+        });
+
+        activitiesList.rerender(component.args);
+    });
+
+    return component;
+}
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
     const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
@@ -1744,7 +2016,7 @@ function NotesList(): Renderable<AppArgs> {
 
 function makeButton(text: string, classes: string = "") {
     return htmlf(
-        `<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%{text}</button>`,
+        `<button type="button" class="solid-border ${classes}" style="min-width: 25px; padding: 3px; margin: 5px; display: flex; justify-content: center;">%{text}</button>`,
         { text }
     );
 }
@@ -1868,6 +2140,11 @@ const CurrentTreeSelector = () => {
         }
     });
 
+    newButton.el.addEventListener("click", () => {
+        const { newTree } = outerComponent.args;
+        newTree();
+    })
+
     return outerComponent;
 }
 
@@ -1889,6 +2166,7 @@ type AppArgs = {
     deleteCurrentTree(): void;
     newTree(shouldRerender?: boolean): void;
     showStatusText(text: string, color?: string, timeout?: number): void;
+    setCurrentModal(modal: Modal): void;
 };
 
 
@@ -1984,11 +2262,13 @@ const makeDarkModeToggle = () => {
     return button;
 };
 
+type Modal = null | "analytics-view";
+
 const App = () => {
     const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
     infoButton.el.addEventListener("click", () => {
         showInfo = !showInfo;
-        appComponent.rerender();
+        rerenderApp();
     });
 
     const noteTreeHelp = htmlf(
@@ -2020,9 +2300,12 @@ const App = () => {
 
     const notesList = NotesList();
     const scratchPad = ScratchPad();
-    const breakList = BreakList();
+    const activityList = ActivityList();
     const filters = NoteFilters();
     const treeSelector = CurrentTreeSelector();
+    const analyticsView = AnalyticsView();
+
+    let currentModal: Modal = "analytics-view";
 
     const appRoot = htmlf(
         `<div class="relative" style="padding-bottom: 100px">
@@ -2031,10 +2314,11 @@ const App = () => {
             %{treeTabs}
             %{notesList}
             <div class="row">
-                <div style="flex: 2">%{scratchPad}</div>
-                <div style="flex: 1">%{breakList}</div>
+                <div style="flex: 1">%{scratchPad}</div>
+                <div style="flex: 1">%{activityList}</div>
             </div>
             %{fixedButtons}
+            %{analyticsView}
         </div>`,
         {
             titleRow: htmlf(
@@ -2053,6 +2337,7 @@ const App = () => {
                 </div>`,
                 { treeSelector }
             ),
+            analyticsView,
             notesList: notesList,
             filters,
             scratchPad: htmlf(`<div>%{title}%{help}%{scratchPad}</div>`, {
@@ -2060,12 +2345,12 @@ const App = () => {
                 help: scratchPadHelp,
                 scratchPad
             }),
-            breakList: htmlf(`<div>%{title}%{breakList}</div>`, {
-                title: htmlf(`<h2 style="marginTop: 20px;">Break List</h2>`),
-                breakList, 
+            activityList: htmlf(`<div>%{title}%{activityList}</div>`, {
+                title: htmlf(`<h2 style="marginTop: 20px;">Activity List</h2>`),
+                activityList, 
             }),
             fixedButtons: htmlf(
-                `<div class="fixed row align-items-baseline" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
+                `<div class="fixed row align-items-end" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
                     <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
                     <div>%{statusIndicator}</div>
@@ -2078,13 +2363,17 @@ const App = () => {
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
                         filters,
+                        // TODO: better name than 'analytics'
+                        makeButtonWithCallback("View Analytics", () => {
+                            setCurrentModal("analytics-view");
+                        }),
                         makeButtonWithCallback("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
                             }
 
                             state = defaultState();
-                            appComponent.rerender();
+                            rerenderApp();
 
                             showStatusText("Cleared notes");
                         }),
@@ -2151,8 +2440,6 @@ const App = () => {
 
             // notification
             showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
-
-            console.log("saved!");
         };
 
         if (!debounced) {
@@ -2175,14 +2462,14 @@ const App = () => {
             () => {
                 state = loadState(name);
                 currentTreeName = name;
-                appComponent.rerender();
+                rerenderApp();
             },
             () => {
                 // try to fallback to the first available tree.
                 const availableTrees = getAvailableTrees();
                 state = loadState(availableTrees[0]);
                 currentTreeName = availableTrees[0];
-                appComponent.rerender();
+                rerenderApp();
             }
         );
     };
@@ -2231,7 +2518,7 @@ const App = () => {
 
         if (shouldRerender) {
             // we should think of a better way to do this next time
-            appComponent.rerender();
+            rerenderApp();
         }
     };
 
@@ -2246,8 +2533,23 @@ const App = () => {
 
         saveCurrentState();
 
-        appComponent.rerender();
+        rerenderApp();
     };
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            setCurrentModal(null);
+        }
+    });
+
+    const setCurrentModal = (modal: Modal) => {
+        if (currentModal === modal) { 
+            return;
+        }
+
+        currentModal = modal;
+        rerenderApp();
+    }
 
     const deleteCurrentTree = () => {
         handleErrors(() => {
@@ -2315,36 +2617,39 @@ const App = () => {
         });
     };
 
-    const appComponent = {
-        el: appRoot.el,
-        rerender: function () {
-            setVisible(noteTreeHelp, showInfo);
-            setVisible(scratchPadHelp, showInfo);
+    const rerenderApp = () => appComponent.rerender(undefined);
 
-            recomputeState(state);
+    const appComponent = makeComponent<undefined>(appRoot, () => {
+        setVisible(noteTreeHelp, showInfo);
+        setVisible(scratchPadHelp, showInfo);
 
-            // need to know how far to offset the selected refs
-            const args: AppArgs = {
-                state,
-                loadTree,
-                rerenderApp: appComponent.rerender,
-                debouncedSave,
-                handleErrors,
-                currentTreeName,
-                renameCurrentTreeName,
-                deleteCurrentTree,
-                newTree,
-                showStatusText,
-            };
+        recomputeState(state);
 
-            // rerender the things
-            notesList.rerender(args);
-            scratchPad.rerender(args);
-            breakList.rerender(args);
-            treeSelector.rerender(args);
-            filters.rerender(args);
+        // need to know how far to offset the selected refs
+        const args: AppArgs = {
+            state,
+            loadTree,
+            rerenderApp,
+            debouncedSave,
+            handleErrors,
+            currentTreeName,
+            renameCurrentTreeName,
+            deleteCurrentTree,
+            newTree,
+            showStatusText,
+            setCurrentModal,
+        };
+
+        // rerender the things
+        notesList.rerender(args);
+        scratchPad.rerender(args);
+        activityList.rerender(args);
+        treeSelector.rerender(args);
+        filters.rerender(args);
+        if (setVisible(analyticsView, currentModal === "analytics-view")) {
+            analyticsView.rerender(args);
         }
-    };
+    });
 
     const initState = () => {
         const savedCurrentTreeName = localStorage.getItem("State.currentTreeName");
@@ -2370,5 +2675,5 @@ const root: Insertable = {
 
 const app = App();
 appendChild(root, app);
-app.rerender();
+app.rerender(undefined);
 
