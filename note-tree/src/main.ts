@@ -1,4 +1,5 @@
 import "./styles.css"
+import "./style-utils.css"
 
 import {
     Insertable,
@@ -12,7 +13,7 @@ import {
     setInputValueAndResize,
     setTextContent,
     setVisible,
-    makeComponentList
+    makeComponentList as makeComponentList
 } from "./htmlf";
 
 import * as tree from "./tree";
@@ -146,6 +147,7 @@ type Note = {
     _isSelected: boolean; // used to display '>' or - in the note status
     _depth: number; // used to visually indent the notes
     _filteredOut: boolean; // Has this note been filtered out?
+    _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
 };
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
@@ -171,6 +173,7 @@ function defaultNote() : Note {
         _isSelected: false, 
         _depth: 0, 
         _filteredOut: false, 
+        _task: null,
     };
 }
 
@@ -233,6 +236,8 @@ function merge<T extends object>(a: T, b: T) {
 }
 
 type NoteId = string;
+type TaskId= string;
+
 type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
@@ -300,20 +305,14 @@ function popLastActivity(state: State): Activity | undefined {
 // Typically if state will contain references, non-serializable objects, or are in some way computed from other canonical state,
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
 function defaultState(): State {
+    const rootNote = defaultNote();
+    rootNote.id = tree.ROOT_KEY;
+    rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
+
     const state: State = {
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
 
-        notes: tree.newTreeStore<Note>({
-            id: tree.ROOT_KEY,
-            openedAt: getTimestamp(new Date()),
-            text: "This root node should not be visible. If it is, you've encountered a bug!",
-            lastSelectedChildId: "",
-
-            _depth: 0,
-            _isSelected: false,
-            _status: STATUS_IN_PROGRESS,
-            _filteredOut: false,
-        }),
+        notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
         lastEditedNoteId: "",
         notePriorityQueue: [],
@@ -467,6 +466,45 @@ function hasNote(state: State, id: NoteId): boolean {
 
 function getNote(state: State, id: NoteId) {
     return tree.getNode(state.notes, id);
+}
+
+function getNoteTag(note: tree.TreeNode<Note>, tagName: string): string | null {
+    const text = note.data.text;
+    let idxStart = 0;
+
+    while (idxStart !== -1 && idxStart < note.data.text.length) {
+        idxStart = text.indexOf("[", idxStart);
+        if (idxStart === -1) {
+            return null;
+        }
+        idxStart++;
+
+        const idxEnd = text.indexOf("]", idxStart);
+        if (idxEnd === -1) { 
+            return null;
+        }
+
+        const tagText = text.substring(idxStart, idxEnd).trim();
+        if (tagText.length === 0) {
+            return null;
+        }
+
+        idxStart = idxEnd + 1;
+
+        const midPoint = tagText.indexOf("=");
+        if (midPoint === -1)  {
+            continue;
+        }
+
+        if (tagText.substring(0, midPoint).trim() !== tagName) {
+            continue;
+        }
+
+        const tagValue = tagText.substring(midPoint + 1).trim();
+        return tagValue;
+    }
+
+    return null;
 }
 
 function getCurrentNote(state: State) {
@@ -1716,13 +1754,15 @@ function ActivitiesPaginated(): Renderable<AppArgs> {
 
         setTextContent(pageNumber, `${page + 1}/${getMaxPages(state) + 1}`);
 
-        page = Math.min(page, getMaxPages(state));
+        const maxPages = getMaxPages(state);
+        page = Math.min(page, maxPages);
         page = Math.max(page, 0);
-        
-        const start = page * perPage;
-        let end = (page + 1) * perPage;
-        if (end > state.activities.length) {
-            end = state.activities.length;
+
+        // NOTE: pages need to paginate backwards, so that we're always seeing the most recent activities
+        let start = state.activities.length - (page + 1) * perPage;
+        const end = state.activities.length - page * perPage;
+        if (start < 0) {
+            start = 0;
         }
         
         vList.resize(end - start);
@@ -1760,22 +1800,152 @@ function ActivitiesPaginated(): Renderable<AppArgs> {
     return component;
 }
 
+// All times are in milliseconds
+type Analytics = {
+    breakTime: number;
+    uncategorisedTime: number; 
+    taskTimes: Map<TaskId, number>;
+}
+
+function recomputeAnalytics(state: State, analytics: Analytics) {
+    analytics.breakTime = 0;
+    analytics.uncategorisedTime = 0;
+    analytics.taskTimes.clear();
+
+    // recompute which tasks each note belong to 
+    {
+        const dfs = (id: NoteId) => {
+            const note = getNote(state, id);
+
+            let task = getNoteTag(note, "Task");
+            if (!task && note.parentId) {
+                task = getNote(state, note.parentId).data._task;
+            }
+
+            note.data._task = task;
+
+            for (const id of note.childIds) {
+                dfs(id);
+            }
+        }
+
+        dfs(state.notes.rootId);
+    }
+
+
+    for (let i = 0; i < state.activities.length; i++) { 
+        const activity = state.activities[i];
+        const nextActivity  = state.activities[i + 1] as Activity | undefined;
+
+        const duration = getActivityDurationMs(activity, nextActivity);
+
+        if (activity.breakInfo || nextActivity?.breakInfo) {
+            analytics.breakTime += duration;
+            continue;
+        }
+
+        if (activity.nId) { 
+            const note = getNote(state, activity.nId);
+            const task = note.data._task;
+            if (!task) {
+                analytics.uncategorisedTime += duration;
+                continue;
+            } 
+
+            analytics.taskTimes.set(
+                task, 
+                (analytics.taskTimes.get(task) ?? 0) + duration
+            );
+            continue;
+        }
+    }
+}
+
+function ActivityAnalytics(): Renderable<AppArgs> {
+    const analytics: Analytics = {
+        breakTime: 0,
+        uncategorisedTime: 0,
+        taskTimes: new Map<TaskId, number>(),
+    };
+
+    const durationsListRoot = htmlf(`<div class="table w-100"></div>`);
+
+    type DurationListItemArgs = {
+        taskName: string;
+        timeMs: number;
+    }
+
+    const durationsList = makeComponentList(durationsListRoot, () => {
+        const taskNameComponent = htmlf(`<div style="padding:5px;padding-bottom:0;"></div>`);
+        const durationComponent = htmlf(`<div style="padding:5px;padding-bottom:0;text-align:right;"></div>`);
+        const root = htmlf(`<div>%{taskName}%{duration}</div>`, {
+            taskName: taskNameComponent, duration: durationComponent
+        });
+        
+        const component = makeComponent<DurationListItemArgs>(root, () => {
+            const { taskName, timeMs } = component.args;
+
+            setTextContent(taskNameComponent, taskName);
+            setTextContent(durationComponent, "" + formatDuration(timeMs));
+        });
+
+        return component;
+    });
+
+    const root = htmlf(
+        `<div class="w-100 h-100 col">` + 
+            `<div class="flex-1 relative" style="overflow-y: scroll">` +
+                `%{durationsListRoot}` + 
+            `</div>` + 
+            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
+                "<h3>Date Range</h3>" + 
+            `</div>` + 
+        `</div>`,
+        { durationsListRoot }
+    );
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        recomputeAnalytics(state, analytics);
+
+        durationsList.resize(analytics.taskTimes.size + 2);
+        durationsList.components[0].rerender({ taskName: "Break Time", timeMs: analytics.breakTime });
+        durationsList.components[1].rerender({ taskName: "Uncategorised Time", timeMs: analytics.uncategorisedTime });
+        const entries = [...analytics.taskTimes]; 
+        for (let i = 0; i < entries.length; i++) {
+            durationsList.components[i + 2].rerender({
+                taskName: entries[i][0], 
+                timeMs: entries[i][1], 
+            });
+        }
+    });
+
+    return component;
+}
+
 function AnalyticsView(): Renderable<AppArgs> {
+
     const activitiesList = ActivitiesPaginated();
+    const activityAnalytics = ActivityAnalytics();
 
     const modalComponent = Modal(
         htmlf(
             `<div class="col h-100">` + 
-                `<h2 class="text-align-center">Analytics</h2>` + 
                 `<div class="flex-1 row">` + 
-                    `<div class="flex-1" style="border: 1px solid var(--fg-color);">` + 
+                    `<div class="flex-1 solid-border-sm col">` + 
+                        `<h3 class="text-align-center">All activities</h3>` + 
                         `%{activitiesList}` + 
                     `</div>` +
-                    `<div class="flex-1">` + 
+                    `<div class="flex-1 solid-border-sm col">` + 
+                        `<h3 class="text-align-center">Time breakdowns</h3>` + 
+                        `%{activityAnalytics}` +
                     `</div>` +
                 `</div>` +
-            `</div>`, {
-                activitiesList
+            `</div>`, 
+            {
+                activitiesList: htmlf(`<div class="flex-1">%{activitiesList}</div>`, { activitiesList }), 
+                activityAnalytics: htmlf(`<div class="flex-1">%{activityAnalytics}</div>`, { activityAnalytics }), 
             }
         )
     );
@@ -1788,6 +1958,7 @@ function AnalyticsView(): Renderable<AppArgs> {
         });
 
         activitiesList.rerender(component.args);
+        activityAnalytics.rerender(component.args);
     });
 
     return component;
@@ -2540,6 +2711,16 @@ const App = () => {
         if (e.key === "Escape") {
             setCurrentModal(null);
         }
+
+        const altPressed = e.altKey;
+        const ctrlPressed = e.ctrlKey || e.metaKey;
+        const shiftPressed = e.shiftKey;
+
+        if (e.key === "A" && ctrlPressed && shiftPressed) {
+            e.preventDefault();
+            setCurrentModal("analytics-view");
+        }
+
     });
 
     const setCurrentModal = (modal: Modal) => {

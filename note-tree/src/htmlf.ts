@@ -223,7 +223,7 @@ export function setClass(
     component: Insertable,
     cssClass: string,
     state: boolean,
-) {
+): boolean {
     if (state) {
         component.el.classList.add(cssClass);
     } else {
@@ -253,14 +253,8 @@ export function copyStyles(src: Insertable, dst: Insertable) {
     }
 };
 
-export function setVisible(component: Insertable, state: boolean): state is true {
-    if (state) {
-        component.el.classList.remove("hidden");
-    } else {
-        component.el.classList.add("hidden");
-    }
-
-    return state;
+export function setVisible(component: Insertable, state: boolean): boolean {
+    return !setClass(component, "hidden", !state);
 }
 
 type ComponentPool<T extends Insertable> = {
@@ -272,6 +266,10 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
     return {
         components: [],
         resize(newLength) {
+            if (newLength < 0) {
+                throw new Error("Can't resize list to a negative length! You might have an error in some math you're doing");
+            }
+
             while(this.components.length > newLength) {
                 // could also just hide these with setVisible(false)
                 const component = this.components.pop()!;
