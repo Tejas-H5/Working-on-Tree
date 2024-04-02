@@ -79,11 +79,11 @@
 
 
 .hover-parent .hover-target {
-    display: none;
+    display: none !important;
 }
 
 .hover-parent:hover .hover-target {
-    display: inline-block;
+    display: inherit !important;
 }
 
 .pre-wrap {
@@ -167,4 +167,12 @@
 
 .modal-shadow {
     box-shadow: 0px 0px 2px 2000px rgba(0, 0, 0, 0.5);
+}
+
+
+.hover-link {
+    cursor: pointer;
+}
+.hover-link:hover::after {
+    content: " -->";
 }

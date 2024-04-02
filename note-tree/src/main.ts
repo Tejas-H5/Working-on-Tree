@@ -13,10 +13,12 @@ import {
     setInputValueAndResize,
     setTextContent,
     setVisible,
-    makeComponentList as makeComponentList
+    makeComponentList as makeComponentList,
+    replaceChildren
 } from "./htmlf";
 
 import * as tree from "./tree";
+import { filterInPlace, swap } from "./array-utils";
 
 // const INDENT_BASE_WIDTH = 100;
 // const INDENT_WIDTH_PX = 50;
@@ -242,14 +244,14 @@ type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-    lastEditedNoteId: NoteId;
+    lastEditedNoteIds: NoteId[];
 
     currentNoteFilterIdx: number;
 
     scratchPad: string;
 
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
-    notePriorityQueue: NoteId[];
+    todoNoteIds: NoteId[];
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -314,8 +316,8 @@ function defaultState(): State {
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
-        lastEditedNoteId: "",
-        notePriorityQueue: [],
+        lastEditedNoteIds: [],
+        todoNoteIds: [],
         activities: [],
 
         currentNoteFilterIdx: 0,
@@ -416,13 +418,9 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
     // delete from the ids list, as well as the note database
     tree.remove(state.notes, note);
 
-    // delete relevant activities from the activity list
-    for (let i = 0; i < state.activities.length; i++) {
-        if (state.activities[i].nId === note.id) {
-            state.activities.splice(i, 1);
-            i--;
-        }
-    }
+    // delete relevant activities from the activity list and last viewed list
+    filterInPlace(state.activities, (activity) => activity.nId !== note.id);
+    filterInPlace(state.lastEditedNoteIds, (id) => id !== note.id);
 
     return true;
 }
@@ -722,21 +720,19 @@ function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
  */
 function decreaseNotePriority(state: State) {
     const note = getCurrentNote(state);
-    const idx = state.notePriorityQueue.indexOf(note.id);
+    const idx = state.todoNoteIds.indexOf(note.id);
     if (idx === -1) {
-        state.notePriorityQueue.unshift(note.id);
+        state.todoNoteIds.unshift(note.id);
         return;
     }
 
-    if (idx === state.notePriorityQueue.length - 1) {
-        state.notePriorityQueue.splice(idx, 1);
+    if (idx === state.todoNoteIds.length - 1) {
+        state.todoNoteIds.splice(idx, 1);
         return;
     }
 
     // swap with the next note
-    const temp = state.notePriorityQueue[idx];
-    state.notePriorityQueue[idx] = state.notePriorityQueue[idx + 1];
-    state.notePriorityQueue[idx + 1] = temp;
+    swap(state.todoNoteIds, idx, idx + 1);
 }
 
 /** 
@@ -745,63 +741,53 @@ function decreaseNotePriority(state: State) {
  */
 function increaseNotePriority(state: State) {
     const note = getCurrentNote(state);
-    const idx = state.notePriorityQueue.indexOf(note.id);
+    const idx = state.todoNoteIds.indexOf(note.id);
     if (idx === -1) {
-        state.notePriorityQueue.push(note.id);
+        state.todoNoteIds.push(note.id);
         return;
     }
 
     if (idx === 0) {
-        state.notePriorityQueue.splice(idx, 1);
+        state.todoNoteIds.splice(idx, 1);
         return;
     }
 
-    const temp = state.notePriorityQueue[idx];
-    state.notePriorityQueue[idx] = state.notePriorityQueue[idx - 1];
-    state.notePriorityQueue[idx - 1] = temp;
+    swap(state.todoNoteIds, idx, idx - 1);
 }
 
 
-function moveToNextPriorityNote(state: State) {
+function getLastEditedNoteId(state: State) {
+    return state.lastEditedNoteIds[state.lastEditedNoteIds.length - 1];
+}
+
+const MAX_LAST_EDITED_NOTE_MEMORY_LENGTH = 10;
+function pushLastEditedNoteId(state: State, noteId: NoteId) {
+    state.lastEditedNoteIds.push(noteId);
+    // Totally arbitrary number
+    while (state.lastEditedNoteIds.length > MAX_LAST_EDITED_NOTE_MEMORY_LENGTH) {
+        state.lastEditedNoteIds.splice(0, 1);
+    }
+}
+
+function moveToLastEditedNote(state: State) {
+    if (state.lastEditedNoteIds.length === 0) {
+        return;
+    }
+
+
     const note = getCurrentNote(state);
-    const idx = state.notePriorityQueue.indexOf(note.id);
-    const inQueue = idx !== -1;
-    const inLastEdited = note.id === state.lastEditedNoteId;
-    const lastEditedInQueue = state.notePriorityQueue.indexOf(state.lastEditedNoteId) !== -1;
+    if (
+        note &&
+        getLastEditedNoteId(state) === note.id
+    ) {
+        state.lastEditedNoteIds.pop();
 
-    function moveToFirstNote() {
-        if (lastEditedInQueue || !state.lastEditedNoteId || !hasNote(state, state.lastEditedNoteId)) {
-            if (state.notePriorityQueue.length > 0) {
-                setCurrentNote(state, state.notePriorityQueue[0]);
-                return;
-            }
-        }
-
-        setCurrentNote(state, state.lastEditedNoteId);
-        return;
-    }
-
-    if (!inQueue && !inLastEdited) {
-        moveToFirstNote();
-        return;
-    }
-
-    if (inQueue) {
-        if (idx === state.notePriorityQueue.length - 1) {
-            moveToFirstNote();
+        if (state.lastEditedNoteIds.length === 0) {
             return;
         }
-
-        setCurrentNote(state, state.notePriorityQueue[idx + 1]);
-        return;
     }
 
-    if (inLastEdited && state.notePriorityQueue.length > 0) {
-        setCurrentNote(state, state.notePriorityQueue[0]);
-        return;
-    }
-
-    setCurrentNote(state, state.lastEditedNoteId);
+    setCurrentNote(state, getLastEditedNoteId(state));
 }
 
 // returns true if the app should re-render
@@ -826,12 +812,11 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             }
             break;
         case "Backspace":
-            if (altPressed) {
-                moveToNextPriorityNote(state);
-                return true;
+            // NOTE: alt + backspace is a global key-bind
+            if (!altPressed) {
+                return deleteNoteIfEmpty(state, state.currentNoteId);
             }
-
-            return deleteNoteIfEmpty(state, state.currentNoteId);
+            break;
         case "Tab":
             // TODO: move between the tabs
             e.preventDefault();
@@ -951,7 +936,7 @@ function getRootNote(state: State) {
 }
 
 function getNotePriority(state: State, noteId: NoteId) {
-    const priority = state.notePriorityQueue.indexOf(noteId);
+    const priority = state.todoNoteIds.indexOf(noteId);
     if (priority === -1) {
         return undefined;
     }
@@ -1122,6 +1107,23 @@ function recomputeState(state: State) {
         }
 
         recomputeFlatNotes(state, state._flatNoteIds);
+    }
+
+    // recompute the TODO notes
+    {
+        filterInPlace(state.todoNoteIds, (id) => {
+            const note = getNote(state, id);
+            return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
+        });
+
+
+        // Mainly used for bootstrapping when I was introducing this feature
+        // tree.forEachNode(state.notes, (id) => {
+        //     const note = getNote(state, id);
+        //     if (isTodoNote(note.data) && !state.todoNoteIds.includes(id)) {
+        //         state.todoNoteIds.push(id);
+        //     }
+        // })
     }
 }
 
@@ -1315,6 +1317,163 @@ function NoteFilters(): Renderable<AppArgs> {
 
 const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
 
+type NoteLinkArgs = {
+    noteId: NoteId;
+    app: AppArgs;
+};
+
+function NoteLink(): Renderable<NoteLinkArgs> {
+    const root = htmlf(`<div class="hover-link"></div>`);
+
+    const component = makeComponent<NoteLinkArgs>(root, () => {
+        const { noteId, app: { state }}  = component.args;
+
+        const note = getNote(state, noteId);
+        setTextContent(root, note.data.text);
+    });
+
+    root.el.addEventListener("click", () => {
+        const { noteId, app: { state, rerenderApp }}  = component.args;
+
+        setCurrentNote(state, noteId);
+
+        rerenderApp();
+    });
+
+    return component;
+}
+
+function TodoList(): Renderable<AppArgs> {
+    const listRoot = htmlf(`<div></div>`);
+
+    type TodoItemArgs = {
+        app: AppArgs;
+        note: tree.TreeNode<Note>;
+    }
+
+    const componentList = makeComponentList(listRoot, () => {
+        const styles = `padding: 10px; border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);`;
+        
+        const moveUpButton = makeButton("↑", "hover-target");
+        
+        const noteLink = NoteLink();
+        type NestedNoteItemArgs = {
+            note: tree.TreeNode<Note>;
+            onClick(): void;
+        }
+        const nestedNotesRoot = htmlf(`<div></div>`);
+        const nestedNotesList = makeComponentList(nestedNotesRoot, () => {
+            const root = htmlf(`<div class="hover-link" style="padding-left: 50px; border-top: 1px solid var(--fg-color);"></div>`);
+
+            const component = makeComponent<NestedNoteItemArgs>(root, () => {
+                const { note } = component.args;
+                setTextContent(root, note.data.text);
+            });
+
+            root.el.addEventListener("click", () => {
+                const { onClick } = component.args;
+                onClick();
+            });
+
+            return component;
+        });
+
+        const root = htmlf(
+            `<div class="hover-parent" style="${styles}">` + 
+                `<div class="row">` + 
+                    `%{text}` + 
+                    `<div class="flex-1"></div>` + 
+                    `<div class="row">%{buttons}</div>` +
+                `</div>` +
+                "%{nestedNotes}" +
+            `</div>`,
+            {
+                text: noteLink,
+                buttons: [
+                    moveUpButton
+                ],
+                nestedNotes: nestedNotesRoot,
+            },
+        );
+
+        const component = makeComponent<TodoItemArgs>(root, () => {
+            const { note, app } = component.args;
+            const { state, rerenderApp } = app;
+
+            noteLink.rerender({
+                app: app,
+                noteId: note.id,
+            });
+
+            moveUpButton.el.setAttribute("title", "Move this note up");
+
+            root.el.style.backgroundColor = state.currentNoteId === note.id ? (
+                "var(--bg-color-focus)" 
+            ) : (
+                "var(--bg-color)" 
+            );
+
+            const nestedNotes: tree.TreeNode<Note>[] = [];
+            dfsPre(state, note, (n) => {
+                if (n !== note && n.data._status === STATUS_IN_PROGRESS) {
+                    nestedNotes.push(n);
+                }
+            });
+
+            nestedNotesList.resize(nestedNotes.length);
+            for(let i = 0; i < nestedNotes.length; i++) {
+                nestedNotesList.components[i].rerender({
+                    note: nestedNotes[i],
+                    onClick: () => {
+                        setCurrentNote(state, nestedNotes[i].id);
+                        rerenderApp();
+                    }
+                });
+            }
+        });
+
+        moveUpButton.el.addEventListener("click", () => {
+            const { note, app: { state, rerenderApp} } = component.args;
+
+            const idxThis = state.todoNoteIds.indexOf(note.id);
+            if (idxThis === -1) {
+                // this code should never run
+                throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
+            }
+
+            const idxSelected = state.todoNoteIds.indexOf(state.currentNoteId);
+            // this also works when idxSelected === -1
+            const insertPoint = idxThis <= idxSelected ? 0 : idxSelected + 1;
+
+            state.todoNoteIds.splice(idxThis, 1);
+            state.todoNoteIds.splice(insertPoint, 0, note.id);
+            setCurrentNote(state, note.id);
+
+            // TODO: fix for 
+
+            rerenderApp();
+        });
+
+        return component;
+    });
+
+    const root = htmlf(`<div>%{listRoot}</div>`, { listRoot });
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+        
+        componentList.resize(state.todoNoteIds.length);
+        for (let i = 0; i < componentList.components.length; i++) {
+            componentList.components[i].rerender({
+                app: component.args,
+                note: getNote(state, state.todoNoteIds[i]),
+            });
+        }
+    });
+
+    return component;
+}
+
 function ActivityList(): Renderable<AppArgs> {
     const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
     const breakItems = makeComponentList(listRoot, () => {
@@ -1322,24 +1481,21 @@ function ActivityList(): Renderable<AppArgs> {
         // TODO: conditional styling on if we even have a next activity
         const activityText = htmlf(`<span class="flex-1"></span>`);
         const durationText = htmlf(`<div></div>`);
-        const arrowSpan = htmlf(`<span class="hover-target" style="padding-left: 30px; padding-right: 30px"> --&gt; </span>`);
         const root = htmlf(
             `<div style="padding: 0px;">` +
-                `<div class="row">%{timestamp}<div class="flex-1 hover-parent">%{activityText}%{arrowSpan}</div>%{durationText}</div>` + 
+                `<div class="row">%{timestamp}<div class="flex-1">%{activityText}</div>%{durationText}</div>` + 
                 // `<div class="text-align-center" style="padding: 10px"></div>` + 
             `</div>`, { 
                 timestamp,
                 activityText, 
                 durationText,
-                arrowSpan,
             }
         );
 
         const component = makeComponent<ActivityListItemArgs>(root, () => {
-            const { activity, nextActivity, app: { state } } = component.args;
+            const { activity, nextActivity, app: { state }, showDuration } = component.args;
 
-            setVisible(arrowSpan, !!activity.nId);
-            activityText.el.style.cursor = activity.nId ? "pointer" : "";
+            setClass(activityText, "hover-link", !!activity.nId);
             activityText.el.style.paddingLeft = activity.nId ? "0" : "40px";
 
             root.el.style.paddingBottom = (!!activity.nId !== !!nextActivity?.nId) ? "20px" : "0px";
@@ -1351,8 +1507,10 @@ function ActivityList(): Renderable<AppArgs> {
             const text = getActivityText(state, activity);
             setTextContent(activityText, truncate(text, 45));
 
-            const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
-            setTextContent(durationText, durationStr);
+            if (setVisible(durationText, showDuration)) {
+                const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
+                setTextContent(durationText, durationStr);
+            }
         });
 
         activityText.el.addEventListener("click", () => {
@@ -1419,6 +1577,7 @@ function ActivityList(): Renderable<AppArgs> {
                 app: component.args, 
                 activity, 
                 nextActivity,
+                showDuration: true,
             });
         }
     });
@@ -1457,7 +1616,7 @@ function ActivityList(): Renderable<AppArgs> {
 
 // NOTE: the caller who is instantiating the scratch pad should have access to the text here.
 // so it makes very litle sense that we are getting this text...
-function ScratchPad(): Renderable<AppArgs> {
+function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
     const SCRATCHPAD_HEIGHT = 400;
     const yardStick = htmlf(`<div class="absolute" style="width: 5px; left:-5px;top:0px"></div>`)
     const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: ${SCRATCHPAD_HEIGHT}px"></textarea>`);
@@ -1540,7 +1699,10 @@ function ScratchPad(): Renderable<AppArgs> {
         updateScrollPosition()
     });
 
-    return component;
+    return {
+        ...component,
+        textArea: textArea.el,
+    };
 }
 
 function getRealChildCount(note: tree.TreeNode<Note>): number {
@@ -1633,10 +1795,17 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
-        state.lastEditedNoteId = note.id;
+        if (getLastEditedNoteId(state) !== note.id) {
+            pushLastEditedNoteId(state, note.id);
+        }
 
         if (isCurrentlyTakingABreak(state)) {
             toggleCurrentBreakActivity(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
+        }
+
+        if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
+            // this will get auto-deleted from recomputeState, so we don't have to do that here
+            state.todoNoteIds.push(note.id);
         }
 
         const last = getLastActivity(state);
@@ -1660,13 +1829,17 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         }
     });
 
+    whenEditing.el.addEventListener("blur", () => {
+        isEditing = false;
+    })
+
     return component;
 }
 
 type ModalArgs = { onClose(): void };
 function Modal(content: Insertable): Renderable<ModalArgs> {
     const styles = 
-        `width: 90vw; left: 5vw; right: 5vw; height: 90vh; top: 5vh; bottom: 5vh;` + 
+        `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` + 
         `background-color: var(--bg-color); z-index: 9999;` + 
         ``;
 
@@ -1698,34 +1871,55 @@ type ActivityListItemArgs = {
     app: AppArgs;
     activity: Activity;
     nextActivity: Activity | undefined;
+    showDuration: boolean;
 };
+
+function ActivityListItem(): Renderable<ActivityListItemArgs> {
+    const activityText = htmlf(`<div></div>`)
+    const timestamp = htmlf(`<div style="font-size:14px"></div>`)
+
+    const root = htmlf(
+        `<div style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
+            `%{timestamp}` + 
+            `%{activityText}` + 
+        `</div>`,
+        { activityText, timestamp },
+    );
+
+    const component = makeComponent<ActivityListItemArgs>(root, () => {
+        const { showDuration, activity, nextActivity, app: { state } } = component.args;
+
+        setTextContent(activityText, getActivityText(state, activity));
+
+        let timestampText = formatDate(new Date(activity.t));
+        if (showDuration) {
+            timestampText += " - " + formatDuration(getActivityDurationMs(activity, nextActivity));
+        }
+
+        setTextContent(timestamp, timestampText);
+
+
+        root.el.style.cursor = activity.nId ? "pointer" : "";
+    });
+
+    root.el.addEventListener("click", () => {
+        const { app: { state, setCurrentModal }, activity } = component.args;
+
+        if (activity.nId) {
+            setCurrentNote(state, activity.nId);
+            setCurrentModal(null);
+        }
+    });
+
+    return component;
+}
 
 function ActivitiesPaginated(): Renderable<AppArgs> {
     let page = 0;
     let perPage = 10;
 
     const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
-    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, () => {
-        const activityText = htmlf(`<div></div>`)
-        const timestamp = htmlf(`<div style="font-size:14px"></div>`)
-
-        const root = htmlf(
-            `<div style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
-                `%{timestamp}` + 
-                `%{activityText}` + 
-            `</div>`,
-            { activityText, timestamp },
-        );
-
-        const component = makeComponent<ActivityListItemArgs>(root, () => {
-            const { activity, nextActivity, app: { state } } = component.args;
-
-            setTextContent(activityText, getActivityText(state, activity));
-            setTextContent(timestamp, formatDate(new Date(activity.t)) + " - " + formatDuration(getActivityDurationMs(activity, nextActivity)));
-        });
-
-        return component;
-    });
+    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, ActivityListItem);
 
     const prevPageButton = makeButton("<");
     const nextPageButton = makeButton(">");
@@ -1771,6 +1965,7 @@ function ActivitiesPaginated(): Renderable<AppArgs> {
                 app: component.args,
                 activity: state.activities[start + i],
                 nextActivity: state.activities[start + i + 1],
+                showDuration: true,
             });
         }
     });
@@ -1861,6 +2056,29 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
     }
 }
 
+type AnalyticsFilters = {
+    dateFromEnabled: boolean;
+    dateFrom: Date;
+    dateToEnabled: boolean;
+    dateTo: Date;
+}
+
+function AnalyticsFilters() : Renderable<AnalyticsFilters> {
+    const root = htmlf(
+        `<div class="table">` + 
+            `<div>` + 
+
+            `<div/>` + 
+        `<div/>`
+    );
+    
+    const component = makeComponent<AnalyticsFilters>(root, () => {
+
+    });
+
+    return component;
+}
+
 function ActivityAnalytics(): Renderable<AppArgs> {
     const analytics: Analytics = {
         breakTime: 0,
@@ -1869,6 +2087,8 @@ function ActivityAnalytics(): Renderable<AppArgs> {
     };
 
     const durationsListRoot = htmlf(`<div class="table w-100"></div>`);
+
+    const analyticsFilters = AnalyticsFilters();
 
     type DurationListItemArgs = {
         taskName: string;
@@ -1899,9 +2119,10 @@ function ActivityAnalytics(): Renderable<AppArgs> {
             `</div>` + 
             `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
                 "<h3>Date Range</h3>" + 
+                "%{analyticsFilters}" + 
             `</div>` + 
         `</div>`,
-        { durationsListRoot }
+        { durationsListRoot, analyticsFilters }
     );
 
     const component = makeComponent<AppArgs>(root, () => {
@@ -1924,7 +2145,7 @@ function ActivityAnalytics(): Renderable<AppArgs> {
     return component;
 }
 
-function AnalyticsView(): Renderable<AppArgs> {
+function AnalyticsModal(): Renderable<AppArgs> {
 
     const activitiesList = ActivitiesPaginated();
     const activityAnalytics = ActivityAnalytics();
@@ -1959,6 +2180,29 @@ function AnalyticsView(): Renderable<AppArgs> {
 
         activitiesList.rerender(component.args);
         activityAnalytics.rerender(component.args);
+    });
+
+    return component;
+}
+
+function ScratchPadModal(): Renderable<AppArgs> {
+    const scratchPad = ScratchPad();
+    const modalComponent = Modal(scratchPad);
+
+    const component = makeComponent<AppArgs>(modalComponent, () => {
+        const { setCurrentModal } = component.args;
+
+        modalComponent.rerender({
+            onClose() {
+                setCurrentModal(null);
+            }
+        });
+
+        scratchPad.rerender(component.args);
+
+        setTimeout(() => {
+            scratchPad.el.focus({ preventScroll: true });
+        }, 100);
     });
 
     return component;
@@ -2086,22 +2330,23 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
-    const lastTouchedFlag = htmlf(`<div style="color: var(--fg-in-progress); background-color: var(--bg-in-progress);font-weight: bold" title="This is the note you edited last"> &lt;-- </div>`);
-    const priorityFlag = htmlf(`<div style="color: #FFF; background-color: #00F;"></div>`)
-    const root = htmlf(`<div class="row">%{priorityFlag}%{lastTouchedFlag}%{progressText}</div>`, {
+    const lastTouchedFlag = htmlf(`<div style="font-weight: bold"> &lt;-- </div>`);
+    const root = htmlf(`<div class="row">%{lastTouchedFlag}</div>`, {
         progressText, 
         lastTouchedFlag,
-        priorityFlag,
     });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
         setTextContent(progressText, getSecondPartOfRow(state, note));
-        setVisible(lastTouchedFlag, state.lastEditedNoteId === note.id);
 
-        const p = state.notePriorityQueue.indexOf(note.id);
-        if (setVisible(priorityFlag, p !== -1)) {
-            setTextContent(priorityFlag, "P" + (p + 1));
+        const idx = state.lastEditedNoteIds.lastIndexOf(note.id);
+        if (setVisible(lastTouchedFlag, idx !== -1)) {
+            const percentage = (idx + 1) * 100 / state.lastEditedNoteIds.length;
+            lastTouchedFlag.el.style.backgroundColor = `color-mix(in srgb, var(--bg-in-progress) ${percentage}%, transparent)`
+            lastTouchedFlag.el.style.color = `color-mix(in srgb, var(--fg-color) ${percentage}%, transparent)`
+
+            lastTouchedFlag.el.setAttribute("title", `This is the note you edited ${idx - state.lastEditedNoteIds.length + 1} notes ago`)
         }
     });
 
@@ -2433,7 +2678,7 @@ const makeDarkModeToggle = () => {
     return button;
 };
 
-type Modal = null | "analytics-view";
+type Modal = null | "analytics-view" | "scratch-pad";
 
 const App = () => {
     const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
@@ -2459,24 +2704,18 @@ const App = () => {
         </div>`
     );
 
-    const scratchPadHelp = htmlf(
-        `<div>
-            <p>
-                Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-            </p>
-        </div>`
-    );
-
     const statusTextIndicator = htmlf(`<div class="pre-wrap" style="background-color: var(--bg-color)"></div>`);
 
     const notesList = NotesList();
-    const scratchPad = ScratchPad();
     const activityList = ActivityList();
     const filters = NoteFilters();
     const treeSelector = CurrentTreeSelector();
-    const analyticsView = AnalyticsView();
+    const todoNotes = TodoList();
 
-    let currentModal: Modal = "analytics-view";
+    const scratchPadModal = ScratchPadModal();
+    const analyticsModal = AnalyticsModal();
+
+    let currentModal: Modal = null;
 
     const appRoot = htmlf(
         `<div class="relative" style="padding-bottom: 100px">
@@ -2485,11 +2724,12 @@ const App = () => {
             %{treeTabs}
             %{notesList}
             <div class="row">
-                <div style="flex: 1">%{scratchPad}</div>
+                <div style="flex: 1">%{todoNotes}</div>
                 <div style="flex: 1">%{activityList}</div>
             </div>
             %{fixedButtons}
-            %{analyticsView}
+            %{analyticsModal}
+            %{scratchPadModal}
         </div>`,
         {
             titleRow: htmlf(
@@ -2508,16 +2748,16 @@ const App = () => {
                 </div>`,
                 { treeSelector }
             ),
-            analyticsView,
+            analyticsModal,
+            scratchPadModal,
             notesList: notesList,
             filters,
-            scratchPad: htmlf(`<div>%{title}%{help}%{scratchPad}</div>`, {
-                title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
-                help: scratchPadHelp,
-                scratchPad
+            todoNotes: htmlf(`<div>%{title}%{todoNotes}</div>`, {
+                title: htmlf(`<h3 style="marginTop: 20px;">TODO Notes</h3>`),
+                todoNotes
             }),
             activityList: htmlf(`<div>%{title}%{activityList}</div>`, {
-                title: htmlf(`<h2 style="marginTop: 20px;">Activity List</h2>`),
+                title: htmlf(`<h3 style="marginTop: 20px;">Activity List</h3>`),
                 activityList, 
             }),
             fixedButtons: htmlf(
@@ -2534,8 +2774,10 @@ const App = () => {
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
                         filters,
-                        // TODO: better name than 'analytics'
-                        makeButtonWithCallback("View Analytics", () => {
+                        makeButtonWithCallback("Scratch Pad", () => {
+                            setCurrentModal("scratch-pad");
+                        }),
+                        makeButtonWithCallback("Analytics", () => {
                             setCurrentModal("analytics-view");
                         }),
                         makeButtonWithCallback("Clear all", () => {
@@ -2716,11 +2958,28 @@ const App = () => {
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
 
-        if (e.key === "A" && ctrlPressed && shiftPressed) {
-            e.preventDefault();
-            setCurrentModal("analytics-view");
-        }
+        switch (e.key) {
+            case "S":
+                if (ctrlPressed && shiftPressed) {
+                    e.preventDefault();
+                    setCurrentModal("scratch-pad");
+                }
+                break;
+            case "A":
+                if (ctrlPressed && shiftPressed) {
+                    e.preventDefault();
+                    setCurrentModal("analytics-view");
+                }
+                break;
+            case "Backspace":
+                if (altPressed) {
+                    moveToLastEditedNote(state);
+                    rerenderApp();
+                    return true;
+                }
+                break;
 
+        }
     });
 
     const setCurrentModal = (modal: Modal) => {
@@ -2802,7 +3061,6 @@ const App = () => {
 
     const appComponent = makeComponent<undefined>(appRoot, () => {
         setVisible(noteTreeHelp, showInfo);
-        setVisible(scratchPadHelp, showInfo);
 
         recomputeState(state);
 
@@ -2823,12 +3081,17 @@ const App = () => {
 
         // rerender the things
         notesList.rerender(args);
-        scratchPad.rerender(args);
         activityList.rerender(args);
         treeSelector.rerender(args);
         filters.rerender(args);
-        if (setVisible(analyticsView, currentModal === "analytics-view")) {
-            analyticsView.rerender(args);
+        todoNotes.rerender(args);
+
+        if (setVisible(analyticsModal, currentModal === "analytics-view")) {
+            analyticsModal.rerender(args);
+        }
+
+        if (setVisible(scratchPadModal, currentModal === "scratch-pad")) {
+            scratchPadModal.rerender(args);
         }
     });
 

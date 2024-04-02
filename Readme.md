@@ -11,14 +11,16 @@ A lot of the time, I find myself doing things like this in notepad:
 ```
 
 TODO:
-    - make a proper tree structure with the root being it's own node
-    - remove tab and shift-tab indentation
-        - tab, shift-tab could even bring up views, or switch between literal tabs
-    - introduce in-progress and done views
-    - introduce priority views and filtered views. 
-        - 'moving notes out to done' shouldn't even be a thing...
-    - improve structure to be more react-like
-    - remove collapsing in favour of filtered views
+    - We need to know what notes are 'TODO' at all points in time.
+    - It should be easy to add a new TODO note and go back to what we were doing before
+    - We should be able to archive tasks that we've finished, and look over them
+
+Might need to restructure our things
+
+Task
+    - Subtask 
+
+        
 
 
 It helps me keep track of what my progress is.
