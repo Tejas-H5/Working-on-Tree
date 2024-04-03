@@ -1,7 +1,8 @@
+/** Styles that target particular components or object types */
+
 body {
     font-family: monospace;
 }
-
 
 input {
     all: unset;
@@ -28,13 +29,6 @@ body {
     color: var(--fg-color);
 }
 
-.pre-wrap {
-    white-space: pre-wrap;
-}
-
-.gap-5 {
-    gap: 5px;
-}
 
 textarea {
     all: unset;
@@ -50,16 +44,9 @@ textarea:focus {
 
 .scratch-pad {
     border: 1px var(--fg-color) solid;
+    padding: 0;
     width: 100%;
     height: 400px;
-}
-
-.w-100 {
-    width: 100%;
-}
-
-.h-100 {
-    height: 100%;
 }
 
 button {
@@ -70,14 +57,7 @@ button {
     cursor: pointer;
 }
 
-.solid-border {
-    outline: 2px solid var(--fg-color);
-    border-radius: 6px;
-}
 
-.expand-btn.expanded {
-    background-color: var(--bg-color-focus);
-}
 button:hover {
     background-color: var(--bg-color-focus);
 }
@@ -105,66 +85,11 @@ button:active {
     color: var(--bg-color);
 }
 
-.z-index-100 {
-    z-index: 100;
-}
 
-.z-index-200 {
-    z-index: 200;
-}
-
-.z-index-300 {
-    z-index: 300;
-}
-
-.table {
-    display: table;
-}
-
-.table > * {
-    display: table-row;
-}
-
-.table > * > * {
-    display: table-cell;
-}
-
-.table-cell-min {
-    width: 1%;
-    white-space: nowrap;
-}
-
-.v-align-bottom {
-    vertical-align: bottom;
-}
-
-.expand-btn-height {
-    height: 50px;
-}
-
-.expand-btn {
-    height: 50px;
-    width: 50px;
-    text-align: center;
-}
-
-.expand-btn::before {
-    content: " > ";
-}
-
-.expand-btn:hover::before {
-    content: "[>]";
-}
-
-.expand-btn.expanded::before {
-    content: " v ";
-}
-.expand-btn.expanded:hover::before {
-    content: "[v]";
-}
-
-
-.danger {
-    background-color: red;
-    color: white;
+.tab {
+    cursor: pointer;
+    padding: 2px 20px;
+    outline:2px solid var(--fg-color);
+    border-top-right-radius: 5px;
+    border-top-left-radius: 5px;
 }

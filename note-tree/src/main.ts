@@ -1,21 +1,24 @@
 import "./styles.css"
+import "./style-utils.css"
 
 import {
     Insertable,
     Renderable,
     appendChild,
     assert,
-    copyStyles,
     htmlf,
     makeComponent,
-    removeChild,
-    resizeComponentPool,
     setClass,
     setInputValue,
     setInputValueAndResize,
     setTextContent,
-    setVisible
+    setVisible,
+    makeComponentList as makeComponentList,
+    replaceChildren
 } from "./htmlf";
+
+import * as tree from "./tree";
+import { filterInPlace, swap } from "./array-utils";
 
 // const INDENT_BASE_WIDTH = 100;
 // const INDENT_WIDTH_PX = 50;
@@ -27,10 +30,14 @@ function pad2(num: number) {
     return num < 10 ? "0" + num : "" + num;
 }
 
-// function repeatSafe(str: string, len: number) {
-//     const string = len <= 0 ? "" : str.repeat(Math.ceil(len / str.length));
-//     return string.substring(0, len);
-// }
+/** NOTE: won't work for len < 3 */
+function truncate(str: string, len: number): string {
+    if (str.length > len) {
+        return str.substring(0, len - 3) + "...";
+    }
+
+    return str;
+}
 
 function isDoneNote(note: Note) {
     return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
@@ -62,11 +69,17 @@ function getNoteStateString(note: Note) {
         case STATUS_IN_PROGRESS:
             return "[...]";
         case STATUS_ASSUMED_DONE:
-            return "  [ * ]";
+            return "[ * ]";
         case STATUS_DONE:
-            return "  [ x ]";
+            return "[ x ]";
     }
 }
+
+const ALL_FILTERS: [string, NoteFilter][] = [
+    ["No filters", null],
+    ["Done", { not: false, status: STATUS_DONE }],
+    ["Not-done", { not: true, status: STATUS_DONE }],
+];
 
 function formatDuration(ms: number) {
     const seconds = Math.floor(ms / 1000) % 60;
@@ -105,21 +118,9 @@ function getDurationMS(aIsoString: string, bIsoString: string) {
     return new Date(bIsoString).getTime() - new Date(aIsoString).getTime();
 }
 
-function moveToFirstNote(state: State) {
-    state.currentNoteId = state.noteIds[0];
-    return true;
-}
-
-function moveToLastNote(state: State) {
-    const lastNoteRootId = state.noteIds[state.noteIds.length - 1];
-    const lastNoteInTree = getLastNote(state, getNote(state, lastNoteRootId));
-    state.currentNoteId = lastNoteInTree.id;
-    return true;
-}
-
-function getLastNote(state: State, lastNote: Note) {
-    while (!lastNote.isCollapsed && lastNote.childrenIds.length > 0) {
-        lastNote = getNote(state, lastNote.childrenIds[lastNote.childrenIds.length - 1]);
+function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
+    while (lastNote.childIds.length > 0) {
+        lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
     }
 
     return lastNote;
@@ -139,46 +140,70 @@ function uuid() {
 
 type Note = {
     id: NoteId;
-    childrenIds: NoteId[];
     text: string;
-    openedAt: string;
-    isCollapsed: boolean;
+    openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
+    lastSelectedChildId: NoteId;
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _isSelected: boolean; // used to display '>' or - in the note status
     _depth: number; // used to visually indent the notes
-    _parent: Note | null; // this is a reference to a parent node.
-    _collapsedCount: number; // used to display a collapsed count
-    _localList: NoteId[]; // the local list that this thing is in. Either some note's .childrenIds, or state.noteIds.
-    _localIndex: number; // putting it here bc why not. this is useful for some ops
+    _filteredOut: boolean; // Has this note been filtered out?
+    _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
 };
 
-function createNewNote(state: State, text: string): Note {
-    const note: Note = {
+// Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
+// Yeah it isn't the best practice
+type Activity = {
+    nId?: NoteId;
+    t: string;
+    breakInfo?: string;
+}
+
+function defaultNote() : Note {
+    return {
         // the following is valuable user data
 
         id: uuid(),
-        text: text || "",
-        openedAt: getTimestamp(new Date()), // will be populated whenever text goes from empty -> not empty
-        childrenIds: [],
-        isCollapsed: false,
+        text: "",
+        openedAt: getTimestamp(new Date()), 
+        lastSelectedChildId: "",
 
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
-        _isSelected: false, // used to display '>' or - in the note status
-        _depth: 0, // used to visually indent the notes
-        _parent: null, // this is a reference to a parent node.
-        _collapsedCount: 0, // used to display a collapsed count
-        // @ts-ignore TODO: proper tree ops instead of calculating/inferring the parent
-        _localList: null, // the local list that this thing is in. Either some note's .childrenIds, or state.noteIds.
-        _localIndex: 0 // putting it here bc why not. this is useful for some ops
+        _isSelected: false, 
+        _depth: 0, 
+        _filteredOut: false, 
+        _task: null,
     };
+}
 
-    state.notes[note.id] = note;
 
-    return note;
+function getActivityText(state: State, activity: Activity): string {
+    if (activity.nId) {
+        return getNote(state, activity.nId).data.text;
+    }
+
+    if (activity.breakInfo) {
+        return activity.breakInfo;
+    }
+
+    return "< unknown activity text! >";
+}
+
+function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : number {
+    const startTimeMs = new Date(activity.t).getTime();
+    const endTimeMs = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
+    return endTimeMs - startTimeMs;
+}
+
+
+function createNewNote(text: string): tree.TreeNode<Note> {
+    const note = defaultNote();
+    note.text = text;
+
+    return tree.newTreeNode(note, note.id);
 }
 
 const STATE_KEY_PREFIX = "NoteTree.";
@@ -202,11 +227,10 @@ function getAvailableTrees(): string[] {
     return keys as string[];
 }
 
-function merge(a: State, b: State) {
+function merge<T extends object>(a: T, b: T) {
     for (const k in b) {
-        if (a[k as keyof State] === undefined) {
-            // @ts-ignore This is legit
-            a[k as keyof State] = b[k as keyof State];
+        if (!(k in a)) {
+            a[k] = b[k];
         }
     }
 
@@ -214,15 +238,68 @@ function merge(a: State, b: State) {
 }
 
 type NoteId = string;
+type TaskId= string;
+
 type State = {
-    notes: { [key: NoteId]: Note };
-    noteIds: NoteId[];
+    /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
+    notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
+    lastEditedNoteIds: NoteId[];
+
+    currentNoteFilterIdx: number;
+
     scratchPad: string;
 
+    /** These notes are in order of their priority, i.e how important the user thinks a note is. */
+    todoNoteIds: NoteId[];
+
+    /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
+    activities: Activity[];
+
     // non-serializable fields
-    _flatNotes: Note[];
+    _flatNoteIds: NoteId[];
 };
+
+type NoteFilter = null | {
+    status: NoteStatus;
+    not: boolean;
+};
+
+
+function pushActivity(state: State, activity: Activity) {
+    const last = getLastActivity(state);
+    const secondLast = getSecondLastActivity(state);
+
+    if (last?.nId && activity.nId && last.nId === activity.nId) {
+        // don't add the same activity twice in a row
+        return;
+    }
+
+    if (last?.breakInfo && secondLast?.breakInfo && activity.breakInfo) {
+        // can't put 3 breaks in a row
+        return;
+    }
+
+    if (!secondLast?.breakInfo && last?.breakInfo && !activity.breakInfo) {
+        // this must also be a break. 
+        throw new Error("This break must be closed off first");
+    }
+
+    
+    state.activities.push(activity);
+}
+
+function getLastActivity(state: State): Activity | undefined {
+    return state.activities[state.activities.length - 1];
+}
+
+function getSecondLastActivity(state: State): Activity | undefined {
+    return state.activities[state.activities.length - 2];
+}
+
+function popLastActivity(state: State): Activity | undefined {
+    return state.activities.pop();
+}
 
 // NOTE: all state needs to be JSON-serializable.
 // NO Dates/non-plain objects
@@ -230,20 +307,27 @@ type State = {
 // Typically if state will contain references, non-serializable objects, or are in some way computed from other canonical state,
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
 function defaultState(): State {
-    const state: State = {
-        _flatNotes: [], // used by the note tree view, can include collapsed subsections
-        notes: {},
-        noteIds: [],
-        currentNoteId: "",
-        scratchPad: ""
-    };
+    const rootNote = defaultNote();
+    rootNote.id = tree.ROOT_KEY;
+    rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
-    const newNote = createNewNote(state, "First Note");
-    state.currentNoteId = newNote.id;
-    state.noteIds.push(newNote.id);
+    const state: State = {
+        _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
+
+        notes: tree.newTreeStore<Note>(rootNote),
+        currentNoteId: "",
+        lastEditedNoteIds: [],
+        todoNoteIds: [],
+        activities: [],
+
+        currentNoteFilterIdx: 0,
+
+        scratchPad: "",
+    };
 
     return state;
 }
+
 
 function loadState(name: string): State {
     const savedStateJSON = localStorage.getItem(STATE_KEY_PREFIX + name);
@@ -252,12 +336,19 @@ function loadState(name: string): State {
     }
 
     if (savedStateJSON) {
-        const loadedState = JSON.parse(savedStateJSON);
+        const loadedState = JSON.parse(savedStateJSON) as State;
 
         // prevents missing item cases that may occur when trying to load an older version of the state.
-        // it is our way of migrating the schema.
-        const mergedState = merge(loadedState, defaultState());
-        return mergedState;
+        // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
+        // TODO: handle new fields in notes. Shouldn't be too hard actually
+        const mergedLoadedState = merge(loadedState, defaultState());
+
+        tree.forEachNode(mergedLoadedState.notes, (id) => {
+            const node = tree.getNode(mergedLoadedState.notes, id);
+            node.data = merge(node.data, defaultNote());
+        });
+
+        return mergedLoadedState;
     }
 
     return defaultState();
@@ -296,17 +387,26 @@ function saveState(state: State, name: string) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
     localStorage.setItem(getLocalStorageKeyForTreeName(name), serialized);
-    console.log("saved", name, state);
 }
 
 function deleteNoteIfEmpty(state: State, id: NoteId) {
     const note = getNote(state, id);
-    if (note.text) {
+    if (note.data.text) {
         return false;
     }
 
-    if (!note._parent && state.noteIds.length <= 1) {
+    if (!note.parentId) {
         return false;
+    }
+
+    if (note.id === state.currentNoteId) {
+        // don't delete the note we're working on rn
+        return false;
+    }
+
+    if (tree.getSize(state.notes) <= 1) {
+        // don't delete our only note!
+        return false
     }
 
     const noteToMoveTo = getOneNoteUp(state, note) || getOneNoteDown(state, note);
@@ -316,282 +416,512 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
     }
 
     // delete from the ids list, as well as the note database
-    note._localList.splice(note._localList.indexOf(note.id), 1);
-    delete state.notes[note.id];
+    tree.remove(state.notes, note);
 
-    state.currentNoteId = noteToMoveTo.id;
+    // delete relevant activities from the activity list and last viewed list
+    filterInPlace(state.activities, (activity) => activity.nId !== note.id);
+    filterInPlace(state.lastEditedNoteIds, (id) => id !== note.id);
 
     return true;
 }
 
 function insertNoteAfterCurrent(state: State) {
     const currentNote = getCurrentNote(state);
-    if (!currentNote.text) {
+    assert(currentNote.parentId, "Cant insert after the root note");
+    if (!currentNote.data.text) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
 
-    const newNote = createNewNote(state, "");
-    currentNote._localList.splice(currentNote._localIndex + 1, 0, newNote.id);
-    state.currentNoteId = newNote.id;
+    const newNote = createNewNote("");
 
+    const parent = getNote(state, currentNote.parentId);
+    tree.addUnder(state.notes, parent, newNote)
+
+    setCurrentNote(state, newNote.id);
     return true;
 }
 
 function insertChildNode(state: State) {
     const currentNote = getCurrentNote(state);
-    if (!currentNote.text) {
+    assert(currentNote.parentId, "Cant insert after the root note");
+    if (!currentNote.data.text) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
 
-    const newNote = createNewNote(state, "");
-    currentNote.childrenIds.unshift(newNote.id);
-    currentNote.isCollapsed = false;
-    state.currentNoteId = newNote.id;
+    const newNote = createNewNote("");
+
+    tree.addUnder(state.notes, currentNote, newNote);
+    setCurrentNote(state, newNote.id);
 
     return true;
 }
 
-function deleteNote(state: State, id: NoteId) {
-    delete state.notes[id];
+function hasNote(state: State, id: NoteId): boolean {
+    return !!id && tree.hasNode(state.notes, id);
 }
 
 function getNote(state: State, id: NoteId) {
-    const note = state.notes[id];
-    if (!note) {
-        console.warn("couldn't find note with id", id, state);
-    }
-    return note;
+    return tree.getNode(state.notes, id);
 }
 
-function getCurrentNote(state: State) {
-    return getNote(state, state.currentNoteId);
-}
+function getNoteTag(note: tree.TreeNode<Note>, tagName: string): string | null {
+    const text = note.data.text;
+    let idxStart = 0;
 
-function getOneNoteDown(state: State, note: Note): Note | null {
-    if (!note.isCollapsed && note.childrenIds.length > 0) {
-        return getNote(state, note.childrenIds[0]);
-    }
+    while (idxStart !== -1 && idxStart < note.data.text.length) {
+        idxStart = text.indexOf("[", idxStart);
+        if (idxStart === -1) {
+            return null;
+        }
+        idxStart++;
 
-    let parent: Note | null = note;
-    while (parent) {
-        if (parent._localIndex < parent._localList.length - 1) {
-            return getNote(state, parent._localList[parent._localIndex + 1]);
+        const idxEnd = text.indexOf("]", idxStart);
+        if (idxEnd === -1) { 
+            return null;
         }
 
-        // check if the parent's local list has a next child in it
-        parent = parent._parent;
+        const tagText = text.substring(idxStart, idxEnd).trim();
+        if (tagText.length === 0) {
+            return null;
+        }
+
+        idxStart = idxEnd + 1;
+
+        const midPoint = tagText.indexOf("=");
+        if (midPoint === -1)  {
+            continue;
+        }
+
+        if (tagText.substring(0, midPoint).trim() !== tagName) {
+            continue;
+        }
+
+        const tagValue = tagText.substring(midPoint + 1).trim();
+        return tagValue;
     }
 
-    // we couldn't find a note 'below' this one
     return null;
 }
 
-function moveDown(state: State) {
-    const note = getCurrentNote(state);
-    const oneNoteDown = getOneNoteDown(state, note);
-    if (!oneNoteDown) {
-        return false;
-    }
+function getCurrentNote(state: State) {
+    if (!hasNote(state, state.currentNoteId)) {
+        // set currentNoteId to the last root note if it hasn't yet been set
 
-    state.currentNoteId = oneNoteDown.id;
-    return true;
-}
-
-function getOneNoteUp(state: State, note: Note) {
-    if (note._localIndex == 0) {
-        if (note._parent) {
-            return note._parent;
+        const rootChildIds = getRootNote(state).childIds;
+        if (rootChildIds.length === 0) {
+            // create the first note if we have no notes
+            const newNote = createNewNote("First Note");
+            tree.addUnder(state.notes, getRootNote(state), newNote);
         }
 
-        // can't move up from here
-        return undefined;
+        // not using setCurrentNote, because it calls getCurrentNote 
+        state.currentNoteId = rootChildIds[rootChildIds.length - 1];
     }
 
-    const prevNoteOnSameLevel = getNote(state, note._localList[note._localIndex - 1]);
-    if (prevNoteOnSameLevel.isCollapsed) {
-        return prevNoteOnSameLevel;
+    return getNote(state, state.currentNoteId);
+}
+
+
+/** 
+ * Adds a break to the activity list
+ * If we were taking a break, it appends an [Off break], else it appends an [On Break]  
+ */
+function toggleCurrentBreakActivity(state: State, breakInfoText: string) {
+    const isTakingABreak = isCurrentlyTakingABreak(state);
+    const noteText = (isTakingABreak ? OFF_BREAK_PREFIX : ON_BREAK_PREFIX) + " " + breakInfoText;
+
+    pushActivity(state, {
+        nId: undefined,
+        t: getTimestamp(new Date()),
+        breakInfo: noteText,
+    });
+}
+
+function isCurrentlyTakingABreak(state: State): boolean {
+    const last = getLastActivity(state);
+    const secLast = getSecondLastActivity(state);
+
+    return !!last?.breakInfo && !secLast?.breakInfo;
+}
+
+const ON_BREAK_PREFIX = "[On Break]";
+const OFF_BREAK_PREFIX = "[Off break]";
+
+function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    if (!note.parentId) {
+        return null;
     }
 
-    return getLastNote(state, prevNoteOnSameLevel);
+    const idx = state._flatNoteIds.indexOf(note.id);
+    if (idx < state._flatNoteIds.length - 1) {
+        return getNote(state, state._flatNoteIds[idx + 1]);
+    }
+
+    return null;
 }
 
-function swapChildren(note: Note, a: number, b: number) {
-    const temp = note._localList[a];
-    note._localList[a] = note._localList[b];
-    note._localList[b] = temp;
+function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    if (!note.parentId) {
+        return null;
+    }
+
+    const idx = state._flatNoteIds.indexOf(note.id);
+    if (idx > 0) {
+        return getNote(state, state._flatNoteIds[idx - 1]);
+    }
+
+    return null;
 }
 
-function moveNoteDown(state: State) {
+function setCurrentNote(state: State, noteId: NoteId) {
+    const currentNoteBeforeMove = getCurrentNote(state);
+    if (currentNoteBeforeMove.id === noteId) {
+        return;
+    }
+
+    if (!tree.hasNode(state.notes, noteId)) {
+        return;
+    }
+
+    state.currentNoteId = noteId;
+    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+}
+
+function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) {
+    if (!note || note === getRootNote(state)) {
+        return false;
+    }
+
+    setCurrentNote(state, note.id);
+    return true;
+}
+
+type NoteFilterFunction = (note: tree.TreeNode<Note>) => boolean;
+function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+    let idx = childIds.indexOf(id) + 1;
+    while (idx < childIds.length) {
+        const note = getNote(state, childIds[idx]);
+        if (filterFn(note)) {
+            return note;
+        }
+
+        idx++;
+    }
+
+    return null;
+}
+
+function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+    let idx = childIds.indexOf(id) - 1;
+    while (idx >= 0)  {
+        const note = getNote(state, childIds[idx]);
+        if (filterFn(note)) {
+            return note;
+        }
+
+        idx--;
+    }
+
+    return null;
+}
+
+
+function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
+    }
+
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+
+    // now, we hop between unfiltered
+    return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
+}
+
+function isNoteImportant(note: tree.TreeNode<Note>) : boolean {
+    return getRealChildCount(note) !== 0 || note.data._status === STATUS_IN_PROGRESS;
+}
+
+function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
+    }
+
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+
+    return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
+}
+
+function unindentCurrentNoteIfPossible(state: State) {
     const note = getCurrentNote(state);
-    if (note._localIndex >= note._localList.length - 1) {
-        return false;
+    if (!note.parentId) {
+        return;
     }
 
-    swapChildren(note, note._localIndex, note._localIndex + 1);
-    return true;
+    if (!isLastNote(state, note)) {
+        // can't indent or unindent the last note in the sequence
+        return;
+    }
+
+    const parent = getNote(state, note.parentId);
+    if (
+        !parent.parentId ||        // parent parent can't be null, that is where the unindented note will go
+        !isLastNote(state, parent) // for unindent, the parent should also be the last note in it's sequence
+    ) {
+        return;
+    }
+
+    const parentParent = getNote(state, parent.parentId);
+
+    tree.remove(state.notes, note);
+    tree.addUnder(state.notes, parentParent, note);
 }
 
-function moveNoteUp(state: State) {
+function indentCurrentNoteIfPossible(state: State) {
     const note = getCurrentNote(state);
-    if (note._localIndex === 0) {
-        return false;
+    if (!note.parentId) {
+        return;
     }
 
-    swapChildren(note, note._localIndex, note._localIndex - 1);
-    return true;
-}
 
-function moveUp(state: State) {
-    const noteOneUp = getOneNoteUp(state, getCurrentNote(state));
-    if (!noteOneUp) {
-        return false;
+    const parent = getNote(state, note.parentId);
+    const idx = parent.childIds.indexOf(note.id);
+    const isLast = idx === parent.childIds.length - 1;
+    if (
+        !isLast ||  // can't indent or unindent the last note in the sequence
+        idx === 0   // can't indent the first note
+    ) {
+        return;
     }
 
-    state.currentNoteId = noteOneUp.id;
-    return true;
+    const previousNote = getNote(state, parent.childIds[idx - 1]);
+    tree.remove(state.notes, note);
+    tree.addUnder(state.notes, previousNote, note);
 }
 
-function indentNote(state: State) {
-    // Indenting means that we find the note above this one in the parent's note list,
-    // and then we move it and all the notes after it to the end of that parent list.
-    // Making this operation simple was the main reason why I wasn't storing the notes in a literal tree for the longest time.
-    // It also made moving 'up' and 'down' in the note tree as simple as ++ing or --ing an int. The code that does that now is very complex lol. (as simple as I could keep it, however)
-    // But now there are a bunch of other things that necessitate a tree structure
+function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
+    if (!note.parentId) {
+        // root is the last note, technically
+        return true;
+    }
+
+    const parent = getNote(state, note.parentId);
+    return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
+}
+
+/** 
+ * Swaps the current note with the lower note in the priority queue. 
+ * The note gets unshifted if it doesn't exist, and removed if it's already lowest priority
+ */
+function decreaseNotePriority(state: State) {
     const note = getCurrentNote(state);
-
-    if (note._localIndex === 0) {
-        return false;
+    const idx = state.todoNoteIds.indexOf(note.id);
+    if (idx === -1) {
+        state.todoNoteIds.unshift(note.id);
+        return;
     }
 
-    const newParentNoteId = note._localList[note._localIndex - 1];
-    const newParent = getNote(state, newParentNoteId);
-    assert(!!newParentNoteId && newParent, "Error in _localIndex Calculation");
+    if (idx === state.todoNoteIds.length - 1) {
+        state.todoNoteIds.splice(idx, 1);
+        return;
+    }
 
-    note._localList.splice(note._localIndex, 1);
-    newParent.childrenIds.push(note.id);
-
-    return true;
+    // swap with the next note
+    swap(state.todoNoteIds, idx, idx + 1);
 }
 
-function deIndentNote(state: State) {
-    // De-indenting means doing the opposite of indentNote. Read my long ahh comment in there
-    // (Oh no im writing ahh in my comments now. the brainrot is real ...)
-
+/** 
+ * Swaps the current note with the higher note in the priority queue. 
+ * The note gets pushed if it doesn't exist, and removed if it's already a P1
+ */
+function increaseNotePriority(state: State) {
     const note = getCurrentNote(state);
-
-    if (!note._parent) {
-        return false;
+    const idx = state.todoNoteIds.indexOf(note.id);
+    if (idx === -1) {
+        state.todoNoteIds.push(note.id);
+        return;
     }
 
-    const parent = note._parent;
+    if (idx === 0) {
+        state.todoNoteIds.splice(idx, 1);
+        return;
+    }
 
-    note._localList.splice(note._localIndex, 1);
-    parent._localList.splice(parent._localIndex + 1, 0, note.id);
+    swap(state.todoNoteIds, idx, idx - 1);
+}
 
-    return true;
+
+function getLastEditedNoteId(state: State) {
+    return state.lastEditedNoteIds[state.lastEditedNoteIds.length - 1];
+}
+
+const MAX_LAST_EDITED_NOTE_MEMORY_LENGTH = 10;
+function pushLastEditedNoteId(state: State, noteId: NoteId) {
+    state.lastEditedNoteIds.push(noteId);
+    // Totally arbitrary number
+    while (state.lastEditedNoteIds.length > MAX_LAST_EDITED_NOTE_MEMORY_LENGTH) {
+        state.lastEditedNoteIds.splice(0, 1);
+    }
+}
+
+function moveToLastEditedNote(state: State) {
+    if (state.lastEditedNoteIds.length === 0) {
+        return;
+    }
+
+
+    const note = getCurrentNote(state);
+    if (
+        note &&
+        getLastEditedNoteId(state) === note.id
+    ) {
+        state.lastEditedNoteIds.pop();
+
+        if (state.lastEditedNoteIds.length === 0) {
+            return;
+        }
+    }
+
+    setCurrentNote(state, getLastEditedNoteId(state));
 }
 
 // returns true if the app should re-render
-function handleNoteInputKeyDown(state: State, keyDownEvent: KeyboardEvent) {
-    const key = keyDownEvent.key;
-    if (key === "Enter") {
-        if (keyDownEvent.shiftKey) {
-            return insertChildNode(state);
-        }
-        return insertNoteAfterCurrent(state);
+function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
+    const altPressed = e.altKey;
+    const ctrlPressed = e.ctrlKey || e.metaKey;
+    const shiftPressed = e.shiftKey;
+    const currentNote = getCurrentNote(state);
+
+    if (altPressed) {
+        e.preventDefault();
     }
 
-    if (key === "Backspace") {
-        if (deleteNoteIfEmpty(state, state.currentNoteId)) {
-            keyDownEvent.preventDefault();
-            return true;
-        }
+    switch (e.key) {
+        case "Enter":
+            e.preventDefault();
 
-        return false;
+            if (shiftPressed) {
+                insertChildNode(state);
+            } else {
+                insertNoteAfterCurrent(state);
+            }
+            break;
+        case "Backspace":
+            // NOTE: alt + backspace is a global key-bind
+            if (!altPressed) {
+                return deleteNoteIfEmpty(state, state.currentNoteId);
+            }
+            break;
+        case "Tab":
+            // TODO: move between the tabs
+            e.preventDefault();
+
+            // I don't like this. It's convenient, but it means that we can't use tab for other things.
+            // But 
+
+            if (shiftPressed) {
+                unindentCurrentNoteIfPossible(state);
+            } else {
+                indentCurrentNoteIfPossible(state);
+            }
+
+            break;
+        case "ArrowUp":
+            moveToNote(state, 
+                altPressed ? getNoteOneUpLocally(state, currentNote) : 
+                    getOneNoteUp(state, currentNote)
+            );
+            break;
+        case "PageUp":
+            for (let i = 0; i < 10; i++) {
+                moveToNote(state, getOneNoteUp(state, getCurrentNote(state)));
+            }
+            break;
+        case "PageDown":
+            for (let i = 0; i < 10; i++) {
+                moveToNote(state, getOneNoteDown(state, getCurrentNote(state)));
+            }
+            break;
+        case "ArrowDown":
+            moveToNote(state, 
+                altPressed ? getNoteOneDownLocally(state, currentNote) : 
+                    getOneNoteDown(state, currentNote)
+            );
+            break;
+        case "ArrowLeft":
+            if (altPressed) {
+                moveToNote(state, 
+                    currentNote.parentId ? getNote(state, currentNote.parentId) : null
+                );
+            }
+            break;
+        case "ArrowRight":
+            if (altPressed) {
+                if (
+                    currentNote.data.lastSelectedChildId && 
+                    // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
+                    // TODO: just don't set this to an invalid value
+                    tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
+                ) {
+                    moveToNote(state, getNote(state, currentNote.data.lastSelectedChildId));
+                } else {
+                    moveToNote(state, getFinalChildNote(state, currentNote));
+                }
+            }
+            break;
+        case "F":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                nextFilter(state);
+            }
+            break;
+        case "O":
+            if (shiftPressed && altPressed) {
+                increaseNotePriority(state);
+            }
+            break;
+        case "P":
+            if (shiftPressed && altPressed) {
+                decreaseNotePriority(state);
+            }
+            break;
     }
 
-    if (key === "Tab") {
-        keyDownEvent.preventDefault();
-
-        if (keyDownEvent.shiftKey) {
-            return deIndentNote(state);
-        }
-
-        return indentNote(state);
-    }
-
-    if (key === "ArrowUp") {
-        keyDownEvent.preventDefault();
-        if (keyDownEvent.altKey) {
-            return moveNoteUp(state);
-        }
-        if (keyDownEvent.ctrlKey || keyDownEvent.metaKey) {
-            return collapseNode(state);
-        }
-        return moveUp(state);
-    }
-
-    if (key === "ArrowDown") {
-        keyDownEvent.preventDefault();
-        if (keyDownEvent.altKey) {
-            return moveNoteDown(state);
-        }
-        if (keyDownEvent.ctrlKey || keyDownEvent.metaKey) {
-            return expandNode(state);
-        }
-        return moveDown(state);
-    }
-
-    if (key === "End" && keyDownEvent.ctrlKey) {
-        keyDownEvent.preventDefault();
-        return moveToLastNote(state);
-    }
-
-    if (key === "Home" && keyDownEvent.ctrlKey) {
-        keyDownEvent.preventDefault();
-        return moveToFirstNote(state);
-    }
-
-    return false;
-}
-
-function collapseNode(state: State) {
-    const note = getCurrentNote(state);
-    if (note.isCollapsed || note.childrenIds.length === 0) {
-        return false;
-    }
-
-    note.isCollapsed = true;
     return true;
 }
 
-function expandNode(state: State) {
-    const note = getCurrentNote(state);
-    if (!note.isCollapsed) {
-        return false;
+function getFinalChildNote(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+    let finalNoteIdx = note.childIds.length - 1;
+    while (finalNoteIdx >= 0) {
+        const childNote = getNote(state, note.childIds[finalNoteIdx]);
+        if (!childNote.data._filteredOut) {
+            return childNote;
+        }
+
+        finalNoteIdx--;
     }
 
-    note.isCollapsed = false;
-    return true;
+    return null;
 }
 
-function dfsPre(state: State, note: Note, fn: (n: Note) => void) {
+function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
     fn(note);
 
-    for (const id of note.childrenIds) {
+    for (const id of note.childIds) {
         const note = getNote(state, id);
         dfsPre(state, note, fn);
     }
 }
 
-function dfsPost(state: State, note: Note, fn: (n: Note) => void) {
-    for (const id of note.childrenIds) {
+function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
+    for (const id of note.childIds) {
         const note = getNote(state, id);
-        if (dfsPost(state, note, fn) === true) {
-            return true;
-        }
+        dfsPost(state, note, fn);
     }
 
     fn(note);
@@ -601,123 +931,66 @@ function copyState(state: State) {
     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
 }
 
-function mergeState(existingState: State | undefined, incomingState: State): State {
-    if (!existingState) {
-        return incomingState;
-    }
-
-    const newState: State = { ...incomingState };
-    for (const key in existingState) {
-        // @ts-ignore
-        newState[key] = existingState[key];
-    }
-
-    if (incomingState.scratchPad) {
-        newState.scratchPad = incomingState.scratchPad;
-    }
-
-    function mergeChildIds<T>(a: T[], b: T[]): T[] {
-        if (!a || !b) {
-            throw new Error("There is a bug in the code");
-        }
-
-        return [...new Set([...a, ...b])];
-    }
-
-    // incoming notes with the same id can overwrite existing notes
-    newState.notes = {};
-    for (const id in existingState.notes) {
-        newState.notes[id] = existingState.notes[id];
-    }
-    for (const id in incomingState.notes) {
-        newState.notes[id] = incomingState.notes[id];
-    }
-
-    for (const id in newState.notes) {
-        if (existingState.notes[id] && incomingState.notes[id]) {
-            newState.notes[id].childrenIds = mergeChildIds(
-                existingState.notes[id].childrenIds,
-                incomingState.notes[id].childrenIds
-            );
-
-            console.log(
-                "merging ",
-                newState.notes[id].text,
-                newState.notes[id].childrenIds.map((cid) => getNote(newState, cid)),
-                existingState.notes[id].childrenIds.map((cid) => getNote(newState, cid)),
-                incomingState.notes[id].childrenIds.map((cid) => getNote(newState, cid))
-            );
-        }
-    }
-
-    newState.noteIds = mergeChildIds(existingState.noteIds, incomingState.noteIds);
-
-    return newState;
+function getRootNote(state: State) {
+    return getNote(state, state.notes.rootId);
 }
 
-function filterNotes(state: State, predicate: (n: Note) => boolean, pruneRootNotes: boolean) {
-    const dfs = (note: Note) => {
-        for (let i = 0; i < note.childrenIds.length; i++) {
-            const id = note.childrenIds[i];
-            const child = getNote(state, id);
+function getNotePriority(state: State, noteId: NoteId) {
+    const priority = state.todoNoteIds.indexOf(noteId);
+    if (priority === -1) {
+        return undefined;
+    }
 
-            dfs(child);
+    return priority + 1;
+}
+
+// NOTE: depends on _filteredOut, _isSelected
+function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
+    flatNotes.splice(0, flatNotes.length);
+
+    const currentNote = getCurrentNote(state);
+
+    const dfs = (note: tree.TreeNode<Note>) => {
+        for (const id of note.childIds) {
+            const note = getNote(state, id);
 
             if (
-                predicate(child) || // doesn't meet filtering criteria
-                child.childrenIds.length > 0 // has children that survived filtering
+                // never remove the path we are currently on from the flat notes.
+                !note.data._isSelected
             ) {
-                continue;
+                if (note.parentId !== currentNote.parentId) {
+                    continue;
+                }
+
+                if (note.data._filteredOut) {
+                    continue;
+                }
             }
 
-            note.childrenIds.splice(i, 1);
-            i--;
-            deleteNote(state, id);
-        }
-    };
+            flatNotes.push(note.id);
 
-    for (let i = 0; i < state.noteIds.length; i++) {
-        const id = state.noteIds[i];
-        const note = getNote(state, id);
-
-        const childIdsPrev = note.childrenIds.length;
-
-        dfs(note);
-
-        if (pruneRootNotes) {
-            if (childIdsPrev !== 0 && note.childrenIds.length === 0) {
-                state.noteIds.splice(i, 1);
-                i--;
-
-                deleteNote(state, id);
-            }
-        }
-    }
-}
-
-function recomputeFlatNotes(state: State, flatNotes: Note[], collapse: boolean) {
-    flatNotes.splice(0, flatNotes.length);
-    const dfs = (note: Note) => {
-        flatNotes.push(note);
-        if (collapse && note.isCollapsed) {
-            // don't render any of it's children, but calculate the number of children underneath
-            let numCollapsed = 0;
-            dfsPre(state, note, () => numCollapsed++);
-            note._collapsedCount = numCollapsed;
-            return;
-        }
-
-        for (const id of note.childrenIds) {
-            const note = getNote(state, id);
             dfs(note);
         }
     };
 
-    for (const id of state.noteIds) {
-        const note = getNote(state, id);
+    dfs(getRootNote(state));
+}
 
-        dfs(note);
+function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
+    if (filter === null) {
+        return false;
     }
+
+    let val = false;
+    if (filter.status) {
+        val = data._status !== filter.status;
+    }
+
+    if (filter.not) {
+        val = !val;
+    }
+
+    return val;
 }
 
 // called just before we render things.
@@ -726,180 +999,134 @@ function recomputeFlatNotes(state: State, flatNotes: Note[], collapse: boolean) 
 function recomputeState(state: State) {
     assert(!!state, "WTF");
 
-    // ensure always one note
-    if (state.noteIds.length === 0) {
-        state.notes = {};
-        const note = createNewNote(state, "First note");
-        state.noteIds.push(note.id);
-    }
-
-    // fix notes with childrenIds that reference missing notes
-    // TODO: figure out why they were missing in the first place
-    {
-        const dfs = (childrenIds: NoteId[]) => {
-            for (let i = 0; i < childrenIds.length; i++) {
-                const id = childrenIds[i];
-                const note = getNote(state, id);
-                if (note) {
-                    dfs(note.childrenIds);
-                    continue;
-                }
-
-                childrenIds.splice(i, 1);
-                i--;
-            }
-        };
-
-        dfs(state.noteIds);
-    }
-
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
     {
-        const dfs = (note: Note, depth: number, parent: Note | null, localIndex: number, list: NoteId[]) => {
-            note._depth = depth;
-            note._parent = parent;
-            note._localIndex = localIndex;
-            note._localList = list;
+        const dfs = (note: tree.TreeNode<Note>, depth: number) => {
+            note.data._depth = depth;
 
-            for (let i = 0; i < note.childrenIds.length; i++) {
-                const c = getNote(state, note.childrenIds[i]);
-                dfs(c, depth + 1, note, i, note.childrenIds);
+            for (let i = 0; i < note.childIds.length; i++) {
+                const c = getNote(state, note.childIds[i]);
+                dfs(c, depth + 1);
             }
         };
 
-        for (let i = 0; i < state.noteIds.length; i++) {
-            const note = getNote(state, state.noteIds[i]);
-            dfs(note, 0, null, i, state.noteIds);
-        }
-    }
-
-    // remove all empty notes that we aren't editing
-    // again, this should really just be done when we are moving around
-    {
-        const currentNote = getCurrentNote(state);
-        const noteIdsToDelete: NoteId[] = [];
-
-        for (const id of state.noteIds) {
-            const note = getNote(state, id);
-            dfsPost(state, note, (note) => {
-                if (note === currentNote) {
-                    return;
-                }
-
-                if (note.text.trim()) {
-                    return;
-                }
-
-                if (note.childrenIds.length > 0) {
-                    // we probably dont want to delete this note, because it has child notes.
-                    // the actually good thing to do here would be to revert this text to what it was last
-                    note.text = "<redacted>";
-                } else {
-                    noteIdsToDelete.push(note.id);
-                }
-            });
-        }
-
-        for (const id of noteIdsToDelete) {
-            deleteNoteIfEmpty(state, id);
-        }
-    }
-
-    // for (const id in state.notes) {
-    //     state.notes[id].isCollapsed = false;
-    // }
-
-    // recompute _flatNotes (after deleting things)
-    {
-        if (!state._flatNotes) {
-            state._flatNotes = [];
-        }
-
-        recomputeFlatNotes(state, state._flatNotes, true);
+        dfs(getRootNote(state), -1);
     }
 
     // recompute _status, do some sorting
     {
-        for (const id in state.notes) {
-            state.notes[id]._status = STATUS_IN_PROGRESS;
-        }
+        tree.forEachNode(state.notes, (id) => {
+            getNote(state, id).data._status = STATUS_IN_PROGRESS;
+        })
 
-        for (const id of state.noteIds) {
-            const note = getNote(state, id);
+        const dfs = (note: tree.TreeNode<Note>) => {
+            if (note.childIds.length === 0) {
+                return;
+            }
 
-            const dfs = (note: Note) => {
-                if (note.childrenIds.length === 0) {
-                    return;
+            let foundDoneNote = false;
+            for (let i = note.childIds.length - 1; i >= 0; i--) {
+                const childId = note.childIds[i];
+                const child = getNote(state, childId);
+                if (child.childIds.length > 0) {
+                    dfs(child);
+                    continue;
                 }
 
-                let foundDoneNote = false;
-                for (let i = note.childrenIds.length - 1; i >= 0; i--) {
-                    const childId = note.childrenIds[i];
-                    const child = getNote(state, childId);
-                    if (child.childrenIds.length > 0) {
-                        dfs(child);
-                        continue;
-                    }
-
-                    if (isTodoNote(child)) {
-                        child._status = STATUS_IN_PROGRESS;
-                        continue;
-                    }
-
-                    if (isDoneNote(child) || foundDoneNote) {
-                        child._status = STATUS_DONE;
-                        foundDoneNote = true;
-                        continue;
-                    }
-
-                    if (i === note.childrenIds.length - 1) {
-                        child._status = STATUS_IN_PROGRESS;
-                    } else {
-                        child._status = STATUS_ASSUMED_DONE;
-                    }
+                if (isTodoNote(child.data)) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                    continue;
                 }
 
-                // Not enough for every child note to be done, the final note in our list should also be 'done'.
-                // That way, when I decide to 'move out all the done notes', I don't accidentally move out the main note.
+                if (isDoneNote(child.data) || foundDoneNote) {
+                    child.data._status = STATUS_DONE;
+                    foundDoneNote = true;
+                    continue;
+                }
 
-                const everyChildNoteIsDone = note.childrenIds.every((id) => {
-                    const note = getNote(state, id);
-                    return note._status === STATUS_DONE;
-                });
+                if (i === note.childIds.length - 1) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                } else {
+                    child.data._status = STATUS_ASSUMED_DONE;
+                }
+            }
 
-                const finalNoteId = note.childrenIds[note.childrenIds.length - 1];
-                const finalNote = getNote(state, finalNoteId);
-                const finalNoteIsDoneLeafNote = isDoneNote(finalNote);
+            // Current "Done" upward-propagation criteria criteria:
+            // - It has zero children and starts with Done done DONE
+            // - it has 1+ children, and the final child starts with Done done DONE
+            // I am actually reconsidering this. I don't think it is good that I am losing notes...
 
-                note._status =
-                    everyChildNoteIsDone && finalNoteIsDoneLeafNote ? STATUS_DONE : STATUS_IN_PROGRESS;
-            };
+            const everyChildNoteIsDone = note.childIds.every((id) => {
+                const note = getNote(state, id);
+                return note.data._status === STATUS_DONE;
+            });
 
-            dfs(note);
-        }
+            const finalNoteId = note.childIds[note.childIds.length - 1];
+            const finalNote = getNote(state, finalNoteId);
+            const finalNoteIsDoneLeafNote = isDoneNote(finalNote.data);
+
+            note.data._status =
+                everyChildNoteIsDone && finalNoteIsDoneLeafNote ? STATUS_DONE : STATUS_IN_PROGRESS;
+        };
+
+        dfs(getRootNote(state));
     }
 
-    // recompute _isSelected to just be the current note + all parent notes
+    // recompute _filteredOut (depends on _status)
     {
-        for (const id in state.notes) {
+        tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
-            note._isSelected = false;
-        }
+            note.data._filteredOut = shouldFilterOutNote(note.data, ALL_FILTERS[state.currentNoteFilterIdx][1]);
+        });
+
+    }
+
+    // recompute _isSelected to just be the current note + all parent notes 
+    {
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._isSelected = false;
+        });
 
         const current = getCurrentNote(state);
-        iterateParentNotes(current, (note) => {
-            note._isSelected = true;
+        tree.forEachParent(state.notes, current, (note) => {
+            note.data._isSelected = true;
+            if (note.parentId) { 
+                const parent = getNote(state, note.parentId);
+                parent.data.lastSelectedChildId = note.id;
+            }
+            return false;
         });
+    }
+
+    // recompute _flatNoteIds (after deleting things, and computing _filteredOut)
+    {
+        if (!state._flatNoteIds) {
+            state._flatNoteIds = [];
+        }
+
+        recomputeFlatNotes(state, state._flatNoteIds);
+    }
+
+    // recompute the TODO notes
+    {
+        filterInPlace(state.todoNoteIds, (id) => {
+            const note = getNote(state, id);
+            return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
+        });
+
+
+        // Mainly used for bootstrapping when I was introducing this feature
+        // tree.forEachNode(state.notes, (id) => {
+        //     const note = getNote(state, id);
+        //     if (isTodoNote(note.data) && !state.todoNoteIds.includes(id)) {
+        //         state.todoNoteIds.push(id);
+        //     }
+        // })
     }
 }
 
-function iterateParentNotes(note: Note | null, fn: (note: Note) => void) {
-    while (note) {
-        fn(note);
-        note = note._parent;
-    }
-}
 
 function formatDate(date: Date) {
     const dd = date.getDate();
@@ -925,27 +1152,34 @@ function getIndentStr(note: Note) {
     return "     ".repeat(repeats);
 }
 
-function getNoteDuration(state: State, note: Note) {
-    if (note._status === STATUS_IN_PROGRESS) {
-        return getDurationMS(note.openedAt, getTimestamp(new Date()));
+function getNoteDuration(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return 0;
     }
 
-    if (note.childrenIds.length === 0) {
-        // the duration is the difference between this note and the next non-TODO note.
+    const parent = getNote(state, note.parentId);
 
-        let nextNoteIndex = note._localIndex + 1;
-        if (nextNoteIndex < note._localList.length) {
+    const noteData = note.data;
+    if (noteData._status === STATUS_IN_PROGRESS) {
+        return getDurationMS(noteData.openedAt, getTimestamp(new Date()));
+    }
+
+    if (note.childIds.length === 0) {
+        // the duration is the difference between this note and the next non-TODO note.
+        const idx = parent.childIds.indexOf(note.id);
+        if (idx < parent.childIds.length - 1) {
             // skip over todo notes
-            while (nextNoteIndex < note._localList.length) {
-                let nextNoteId = note._localList[nextNoteIndex];
-                if (isTodoNote(getNote(state, nextNoteId))) {
-                    nextNoteIndex++;
+            let nextNoteIdx = idx + 1;
+            while (nextNoteIdx < parent.childIds.length - 1) {
+                const nextNoteId = parent.childIds[nextNoteIdx];
+                if (isTodoNote(getNote(state, nextNoteId).data)) {
+                    nextNoteIdx++;
                 }
                 break;
             }
 
-            const nextNoteId = note._localList[nextNoteIndex];
-            return getDurationMS(note.openedAt, getNote(state, nextNoteId).openedAt);
+            const nextNoteId = parent.childIds[nextNoteIdx];
+            return getDurationMS(noteData.openedAt, getNote(state, nextNoteId).data.openedAt);
         }
 
         return 0;
@@ -953,19 +1187,18 @@ function getNoteDuration(state: State, note: Note) {
 
     let latestNote = note;
     dfsPre(state, note, (note) => {
-        if (latestNote.openedAt < note.openedAt) {
+        if (latestNote.data.openedAt < note.data.openedAt) {
             latestNote = note;
         }
     });
 
-    return getDurationMS(note.openedAt, latestNote.openedAt);
+    return getDurationMS(noteData.openedAt, latestNote.data.openedAt);
 }
 
-function getSecondPartOfRow(state: State, note: Note) {
+function getSecondPartOfRow(state: State, note: tree.TreeNode<Note>) {
     const duration = getNoteDuration(state, note);
     const durationStr = formatDuration(duration);
-    const secondPart =
-        note._status !== STATUS_IN_PROGRESS ? ` took ${durationStr}` : ` ongoing ${durationStr} ...`;
+    const secondPart = " " + durationStr;
     return secondPart;
 }
 
@@ -973,22 +1206,24 @@ function getRowIndentPrefix(_state: State, note: Note) {
     return `${getIndentStr(note)} ${getNoteStateString(note)}`;
 }
 
-function getFirstPartOfRow(state: State, note: Note) {
-    // const dashChar = note._isSelected ? ">" : "-"
+function getFirstPartOfRow(state: State, note: tree.TreeNode<Note>) {
+    const noteData = note.data;
+    // const dashChar = note.data._isSelected ? ">" : "-"
     // having ">" in exported text looks ugly, so I've commented this out for now
     const dashChar = "-";
 
-    return `${getTimeStr(note)} | ${getRowIndentPrefix(state, note)} ${dashChar} ${note.text || " "}`;
+    return `${getTimeStr(noteData)} | ${getRowIndentPrefix(state, noteData)} ${dashChar} ${noteData.text || " "}`;
 }
 
 function exportAsText(state: State) {
     const header = (text: string) => `----------------${text}----------------`;
 
-    const flatNotes: Note[] = [];
-    recomputeFlatNotes(state, flatNotes, false);
+    const flatNotes: NoteId[] = [];
+    recomputeFlatNotes(state, flatNotes);
 
     const table = [];
-    for (const note of flatNotes) {
+    for (const id of flatNotes) {
+        const note = getNote(state, id);
         table.push([getFirstPartOfRow(state, note), getSecondPartOfRow(state, note)]);
     }
 
@@ -1032,109 +1267,478 @@ function exportAsText(state: State) {
     return [header(" Notes "), formatTable(table, 10), header(" Scratchpad "), state.scratchPad].join("\n\n");
 }
 
+function previousFilter(state: State) {
+    state.currentNoteFilterIdx++;
+    if (state.currentNoteFilterIdx >= ALL_FILTERS.length) {
+        state.currentNoteFilterIdx = 0;
+    }
+}
+
+function nextFilter(state: State) {
+    state.currentNoteFilterIdx--;
+    if (state.currentNoteFilterIdx < 0) {
+        state.currentNoteFilterIdx = ALL_FILTERS.length - 1;
+    }
+}
+
+function NoteFilters(): Renderable<AppArgs> {
+    const lb = makeButton("<");
+    const rb = makeButton(">");
+    const currentFilterText = htmlf(`<div class="flex-1 text-align-center" style="background:var(--bg-color)"></div>`);
+    const root = htmlf(`<div class="row align-items-center" style="width:200px;">%{lb}%{currentFilter}%{rb}</div>`, { 
+        lb, rb, currentFilter: currentFilterText
+    });
+
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+        const [ name, _filter ] = ALL_FILTERS[state.currentNoteFilterIdx];
+        setTextContent(currentFilterText, name);
+    });
+
+    lb.el.addEventListener("click", () => {
+        const { state, rerenderApp } = component.args;
+
+        nextFilter(state);
+
+        rerenderApp();
+    });
+
+    rb.el.addEventListener("click", () => {
+        const { state, rerenderApp } = component.args;
+
+        previousFilter(state);
+
+        rerenderApp();
+    });
+
+    return component;
+}
+
+const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
+
+type NoteLinkArgs = {
+    note: Note;
+    app: AppArgs;
+    focusAnyway: boolean;
+};
+
+function NoteLink(): Renderable<NoteLinkArgs> {
+    const root = htmlf(`<div class="hover-link" style="padding:5px"></div>`);
+
+    const component = makeComponent<NoteLinkArgs>(root, () => {
+        const { note, app: { state }, focusAnyway }  = component.args;
+
+        setTextContent(root, note.text);
+        root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === note.id) ? (
+            "var(--bg-color-focus)" 
+        ) : (
+            "var(--bg-color)" 
+        );
+    });
+
+    root.el.addEventListener("click", () => {
+        const { note, app: { state, rerenderApp }}  = component.args;
+
+        setCurrentNote(state, note.id);
+        rerenderApp();
+    });
+
+    return component;
+}
+
+function TodoList(): Renderable<AppArgs> {
+    type TodoItemArgs = {
+        app: AppArgs;
+        note: tree.TreeNode<Note>;
+    }
+
+    const componentList = makeComponentList(htmlf(`<div></div>`), () => {
+        const moveUpButton = makeButton("↑", "hover-target", "height: 20px;"); 
+        const noteLink = NoteLink();
+
+        const nestedNotesList = makeComponentList(htmlf(`<div></div>`), () => {
+            const status = htmlf("<div></div>");
+            const link = NoteLink();
+            const thing = htmlf(`<div class="pre"></div>`);
+            const root = htmlf(`<div class="pre-wrap row align-items-center">%{status} %{thing} %{link}</div>`, {
+                status, link, thing
+            });
+
+            type NestedNotesArgs = {
+                linkedNoteArgs: NoteLinkArgs;
+                previousNotesCount: number;
+            }
+
+            const component = makeComponent<NestedNotesArgs>(root, () => {
+                const { linkedNoteArgs, previousNotesCount } = component.args;
+                const { note, app: { state } } = linkedNoteArgs;
+
+                link.rerender(linkedNoteArgs);
+                setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === note.id ? " > " : " - "));
+                setTextContent(status, getNoteStateString(note) ?? "??");
+            });
+
+            return component;
+        });
+
+        const root = htmlf(
+            `<div class="hover-parent" style="border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);">` + 
+                `<div class="row align-items-center">` + 
+                    `%{noteLink}` + 
+                    `<div class="flex-1"></div>` + 
+                    `<div class="row">%{buttons}</div>` +
+                `</div>` +
+                "%{nestedNotesList}" +
+            `</div>`,
+            {
+                noteLink,
+                buttons: [
+                    moveUpButton
+                ],
+                nestedNotesList,
+            },
+        );
+
+        const component = makeComponent<TodoItemArgs>(root, () => {
+            const { note, app } = component.args;
+            const { state } = app;
+
+
+            moveUpButton.el.setAttribute("title", "Move this note up");
+
+            const nestedNotes: tree.TreeNode<Note>[] = [];
+            dfsPre(state, note, (n) => {
+                if (n !== note && n.data._status === STATUS_IN_PROGRESS) {
+                    nestedNotes.push(n);
+                }
+            });
+
+            nestedNotesList.resize(nestedNotes.length);
+            let focusAnyway = note.id === state.currentNoteId;
+            for(let i = 0; i < nestedNotes.length; i++) {
+                const note = nestedNotes[i];
+                focusAnyway = focusAnyway || note.id === state.currentNoteId;
+
+                const childCount = !note.parentId ? 0 : getNote(state, note.parentId).childIds.length;
+
+                nestedNotesList.components[i].rerender({
+                    linkedNoteArgs: {
+                        app: component.args.app,
+                        note: note.data,
+                        focusAnyway: false,
+                    },
+                    previousNotesCount: childCount,
+                });
+            }
+
+            noteLink.rerender({
+                app: app,
+                note: note.data,
+                focusAnyway,
+            });
+        });
+
+        moveUpButton.el.addEventListener("click", () => {
+            const { note, app: { state, rerenderApp} } = component.args;
+
+            const idxThis = state.todoNoteIds.indexOf(note.id);
+            if (idxThis === -1) {
+                // this code should never run
+                throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
+            }
+
+            const idxSelected = state.todoNoteIds.findIndex(id => {
+                const note = getNote(state, id);
+                return note.data._isSelected;
+            });
+
+            // this also works when idxSelected === -1
+            const insertPoint = idxThis <= idxSelected ? 0 : idxSelected + 1;
+
+            state.todoNoteIds.splice(idxThis, 1);
+            state.todoNoteIds.splice(insertPoint, 0, note.id);
+            setCurrentNote(state, note.id);
+
+            rerenderApp();
+        });
+
+        return component;
+    });
+
+    const component = makeComponent<AppArgs>(componentList, () => {
+        const { state } = component.args;
+        
+        componentList.resize(state.todoNoteIds.length);
+        for (let i = 0; i < componentList.components.length; i++) {
+            componentList.components[i].rerender({
+                app: component.args,
+                note: getNote(state, state.todoNoteIds[i]),
+            });
+        }
+    });
+
+    return component;
+}
+
+function ActivityList(): Renderable<AppArgs> {
+    const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
+    const breakItems = makeComponentList(listRoot, () => {
+        const timestamp = htmlf(`<div style="width: 200px; padding-right: 10px;"></div>`);
+        // TODO: conditional styling on if we even have a next activity
+        const activityText = htmlf(`<span class="flex-1"></span>`);
+        const durationText = htmlf(`<div></div>`);
+        const root = htmlf(
+            `<div style="padding: 0px;">` +
+                `<div class="row">%{timestamp}<div class="flex-1">%{activityText}</div>%{durationText}</div>` + 
+                // `<div class="text-align-center" style="padding: 10px"></div>` + 
+            `</div>`, { 
+                timestamp,
+                activityText, 
+                durationText,
+            }
+        );
+
+        const component = makeComponent<ActivityListItemArgs>(root, () => {
+            const { activity, nextActivity, app: { state }, showDuration } = component.args;
+
+            setClass(activityText, "hover-link", !!activity.nId);
+            activityText.el.style.paddingLeft = activity.nId ? "0" : "40px";
+
+            root.el.style.paddingBottom = (!!activity.nId !== !!nextActivity?.nId) ? "20px" : "0px";
+
+            const startDate = new Date(activity.t);
+            const timeStr = formatDate(startDate);
+            setTextContent(timestamp, timeStr);
+
+            const text = getActivityText(state, activity);
+            setTextContent(activityText, truncate(text, 45));
+
+            if (setVisible(durationText, showDuration)) {
+                const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
+                setTextContent(durationText, durationStr);
+            }
+        });
+
+        activityText.el.addEventListener("click", () => {
+            const { activity, app: { state, rerenderApp }} = component.args;
+            if (!activity.nId) {
+                return;
+            }
+
+            setCurrentNote(state, activity.nId);
+            rerenderApp();
+        })
+
+        return component;
+    });
+
+    const breakInput = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
+    const breakButton = makeButton("");
+    const breakInfo = htmlf("<div></div>")
+    const root = htmlf(
+        // TODO: audit these styles
+        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
+            %{listRoot}
+            <div style="padding: 5px;" class="row align-items-center">
+                <div class="flex-1">%{input}</div>
+                <div>%{breakButton}</div>
+            </div>
+            %{breakInfo}
+        </div>`, {
+            listRoot,
+            input: breakInput,
+            breakButton,
+            breakInfo,
+        }
+    );
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        const isTakingABreak = isCurrentlyTakingABreak(state);
+        setTextContent(breakButton, isTakingABreak ? (
+            "End break"
+        ) : (
+            "Take a break"
+        ));
+
+        breakInput.el.setAttribute("placeholder", isTakingABreak ? (
+            "Enter resume reason (optional)"
+        ): (
+            "Enter break reason (optional)"
+        ));
+
+        const MAX_ACTIVITIES_TO_RENDER = 7;
+
+        const activities = state.activities;
+        const activitiesToRender = Math.min(MAX_ACTIVITIES_TO_RENDER, activities.length);
+        const start = activities.length - activitiesToRender;
+
+        breakItems.resize(activitiesToRender);
+        for (let i = 0; i < activitiesToRender; i++) {
+            const activity = activities[start + i];
+            const nextActivity = activities[start + i + 1]; // JavaScript moment - you can index past an array without crashing
+
+            breakItems.components[i].rerender({
+                app: component.args, 
+                activity, 
+                nextActivity,
+                showDuration: true,
+            });
+        }
+    });
+
+    function toggleCurrentBreak() {
+        const { state, rerenderApp, debouncedSave } = component.args;
+
+        let text = breakInput.el.value;
+        if (!text) {
+            if (isCurrentlyTakingABreak(state)) {
+                text = RETURN_FROM_BREAK_DEFAULT_TEXT;
+            } else {
+                text = "Taking a break...";
+            }
+        }
+
+        toggleCurrentBreakActivity(state, text);
+        breakInput.el.value = "";
+
+        debouncedSave();
+        rerenderApp();
+    }
+
+    breakInput.el.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") {
+            return;
+        }
+
+        toggleCurrentBreak();
+    });
+
+    breakButton.el.addEventListener("click", toggleCurrentBreak);
+
+    return component;
+}
+
 // NOTE: the caller who is instantiating the scratch pad should have access to the text here.
 // so it makes very litle sense that we are getting this text...
-function ScratchPad(): Renderable<AppArgs> & { getText(): string } {
-    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap"></textarea>`);
-    const mirrorDiv = htmlf(`<div></div>`);
-    const root = htmlf(`<div>%{textArea}%{mirrorDiv}</div>`, { textArea, mirrorDiv });
+function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
+    const SCRATCHPAD_HEIGHT = 400;
+    const yardStick = htmlf(`<div class="absolute" style="width: 5px; left:-5px;top:0px"></div>`)
+    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: ${SCRATCHPAD_HEIGHT}px"></textarea>`);
+    const root = htmlf(`<div class="relative">%{yardStick}%{textArea}</div>`, { textArea, yardStick });
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
         if (textArea.el.value !== state.scratchPad) {
             textArea.el.value = state.scratchPad;
-
-            setTimeout(() => {
-                // automatically resize the text area to the content + some overflow
-                textArea.el.style.height = "" + 0;
-                textArea.el.style.height = textArea.el.scrollHeight + "px";
-            }, 0);
         }
     });
 
     const onEdit = () => {
-        const { debouncedSave } = component.args;
+        const { debouncedSave, state, rerenderApp } = component.args;
+
+        state.scratchPad = textArea.el.value;
+        rerenderApp();
+
         debouncedSave();
     };
 
-    // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
+    textArea.el.addEventListener("input", onEdit);
+    textArea.el.addEventListener("change", onEdit);
+
     textArea.el.addEventListener("keydown", (e) => {
-        if (e.key !== "Tab") return;
+        if (e.key === "Tab") {
+            e.preventDefault();
+            // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
 
-        e.preventDefault();
+            // inserting a tab like this should preserve undo
+            // TODO: stop using deprecated API
+            document.execCommand("insertText", false, "\t");
+        }
 
-        // inserting a tab like this should preserve undo
-        // TODO: stop using deprecated API
-        document.execCommand("insertText", false, "\t");
+        function updateScrollPosition() {
+            // This function scrolls the window to the current cursor position inside the text area.
+            // This code is loosely based off the solution from https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
+            // My version is better, obviously
 
-        onEdit();
-    });
-
-    textArea.el.addEventListener("keydown", () => {
-        // NOTE: unsolved problem in computer science - scroll the window to the vertical position
-        // of the cursor in the text area. 
-        // Now solved: 
-        // 1 - Create a 'mirror div' with exactly the same styles (but we need to manually apply some of them)
-        // 2 - insert text from the start of the div to the cursor position
-        //         (plus some random character, so the whitespace on the end doesnt get truncated, despite your 'pre' whiteSpace style)
-        // 3 - measure the height of this div. this is the vertical offset to whre our cursor is, more or less
-        // 4 - scroll to this offsetTop + height. ez
-
-        setTimeout(() => {
-            let wantedScrollPos;
-            {
-                // Inspired by a stack overflow solution, but I actually figured it out myself :0
-                // (Although they needed to find the x and y position of the user's cursor, not just the y position like me)
-                //      for reference: https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
-                appendChild(root, mirrorDiv);
-
-                copyStyles(textArea, mirrorDiv);
-                mirrorDiv.el.style.height = "" + 0;
-                mirrorDiv.el.style.whiteSpace = "pre";
-                mirrorDiv.el.style.display = "block";
-
-                const textUpToCursor = textArea.el.value.substring(0, textArea.el.selectionEnd) + ".";
-                setTextContent(mirrorDiv, textUpToCursor);
-                const wantedHeight = mirrorDiv.el.scrollHeight;
-                wantedScrollPos = textArea.el.offsetTop + wantedHeight;
-
-                removeChild(root, mirrorDiv);
+            function countNewLines(str: string) {
+                let count = 0;
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === "\n") {
+                        count++;
+                    }
+                }
+                return count;
             }
+
+            const selectionEnd = textArea.el.selectionEnd;
+            const startToCursorText = textArea.el.value.substring(0, selectionEnd);
+
+            // debugging
+            // yardStick.el.style.background = "#F00";
+            yardStick.el.style.background = "transparent";
+            yardStick.el.style.whiteSpace = "pre";
+            yardStick.el.textContent = "\n".repeat(countNewLines(startToCursorText)) + ".";
+
+            yardStick.el.style.height = 0 + "px";
+            const height = yardStick.el.scrollHeight;
+            yardStick.el.style.height = height + "px";
+            yardStick.el.textContent = "";
+
+            textArea.el.scrollTo({
+                left: 0,
+                top: height - SCRATCHPAD_HEIGHT / 2,
+                behavior: "instant",
+            });
 
             window.scrollTo({
                 left: 0,
-                top: wantedScrollPos - window.innerHeight * (1 - 1 / 3),
-                behavior: "instant"
+                // NOTE: this is actually wrong. It scrolls way past our element, but our element
+                // just so happens to be at the bottom of the screen
+                top: window.scrollY + textArea.el.getBoundingClientRect().height,
+                behavior: "instant",
             });
-        }, 1);
-    });
+        }
 
-    textArea.el.addEventListener("input", () => {
-        const { state } = component.args;
-        state.scratchPad = textArea.el.value;
-        // automatically resize the text area to the content + some overflow
-        textArea.el.style.height = "" + 0;
-        textArea.el.style.height = textArea.el.scrollHeight + "px";
-        onEdit();
+        updateScrollPosition()
     });
 
     return {
         ...component,
-        getText: () => {
-            return textArea.el.value;
-        }
+        textArea: textArea.el,
     };
+}
+
+function getRealChildCount(note: tree.TreeNode<Note>): number {
+    if (note.childIds.length === 0) {
+        return 0;
+    }
+
+    if (note.data._status === STATUS_DONE) {
+        // Don't include the DONE note at the end. This artificially increases the child count from 0 to 1.
+        // This will matter in certain movement schemes where i want to move directly to notes with children for example
+        return note.childIds.length - 1;
+    }
+
+    return note.childIds.length;
 }
 
 type NoteRowArgs = {
     app: AppArgs;
-    note: Note;
+    note: tree.TreeNode<Note>;
     flatIndex: number;
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
-    const indent = htmlf(`<div class="pre-wrap"></div>`);
+    const indent = htmlf(`<div class="pre"></div>`);
     const whenNotEditing = htmlf(`<div class="pre-wrap"></div>`);
+
+    let isEditing = false;
+
+    // NOTE: Not using a textArea, because we don't want our notes to have multiple lines for now. [Enter] is being used for something else at the moment.
+    // Also it is tempting to navigate the text area with [up] [down] which we are also using to move between notes
     const whenEditing = htmlf<HTMLInputElement>(`<input class="flex-1"></input>`);
 
     const style = "margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);";
@@ -1151,29 +1755,35 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     );
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { app: { state, shouldScroll }, note, flatIndex } = component.args;
+        const { app: { state }, note, flatIndex } = component.args;
 
-        const dashChar = note._isSelected ? ">" : "-";
+        const dashChar = note.data._isSelected ? ">" : "-";
+        const count = getRealChildCount(note)
+        const childCountText = count ? ` (${count})` : "";
         setTextContent(
             indent,
-            `${getIndentStr(note)} ${getNoteStateString(note)} ${
-                note.isCollapsed ? `(+ ${note._collapsedCount})` : ""
-            } ${dashChar} `
+            `${getIndentStr(note.data)} ${getNoteStateString(note.data)}${childCountText} ${dashChar} `
         );
+
 
         const wasEditing = isEditing;
         isEditing = state.currentNoteId === note.id;
         setVisible(whenEditing, isEditing);
         setVisible(whenNotEditing, !isEditing);
         if (isEditing) {
-            setInputValue(whenEditing, note.text);
+            setInputValue(whenEditing, note.data.text);
 
             if (!wasEditing) {
+                // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
                     whenEditing.el.focus({ preventScroll: true });
 
-                    if (shouldScroll) {
-                        const wantedY = whenEditing.el.getBoundingClientRect().height * flatIndex;
+                    // scroll view into position.
+                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
+                    // ideally we don't want to do this when we click on a note.
+                    // I haven't worked out how to do that yet though
+                    {
+                        const wantedY = whenEditing.el.getBoundingClientRect().top + window.scrollY;
 
                         window.scrollTo({
                             left: 0,
@@ -1184,156 +1794,479 @@ function NoteRowText(): Renderable<NoteRowArgs> {
                 }, 1);
             }
         } else {
-            setTextContent(whenNotEditing, note.text);
+            setTextContent(whenNotEditing, note.data.text);
         }
     });
 
     whenEditing.el.addEventListener("input", () => {
-        const { app: { rerenderApp }, note } = component.args;
+        const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
-        note.text = whenEditing.el.value;
+        note.data.text = whenEditing.el.value;
+        if (getLastEditedNoteId(state) !== note.id) {
+            pushLastEditedNoteId(state, note.id);
+        }
+
+        if (isCurrentlyTakingABreak(state)) {
+            toggleCurrentBreakActivity(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
+        }
+
+        if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
+            // this will get auto-deleted from recomputeState, so we don't have to do that here
+            state.todoNoteIds.push(note.id);
+        }
+
+        const last = getLastActivity(state);
+        if (last?.nId !== note.id) {
+            pushActivity(state, {
+                t: getTimestamp(new Date()),
+                nId: note.id,
+            });
+        }
+
+        debouncedSave();
+
         rerenderApp();
     });
 
     whenEditing.el.addEventListener("keydown", (e) => {
-        const { app: { state, rerenderApp, debouncedSave } } = component.args;
+        const { app: { state, rerenderApp } } = component.args;
 
         if (handleNoteInputKeyDown(state, e)) {
             rerenderApp();
         }
-
-        // handle saving state with a debounce
-        debouncedSave();
     });
 
-    let isEditing = false;
+    whenEditing.el.addEventListener("blur", () => {
+        isEditing = false;
+    })
+
+    return component;
+}
+
+type ModalArgs = { onClose(): void };
+function Modal(content: Insertable): Renderable<ModalArgs> {
+    const styles = 
+        `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` + 
+        `background-color: var(--bg-color); z-index: 9999;` + 
+        ``;
+
+    const closeButton = makeButton("X");
+
+    const root = htmlf(
+        `<div class="modal-shadow fixed " style="${styles}">` + 
+            `<div class="relative absolute-fill">` + 
+                `<div class="absolute" style="top: 0; right: 0">%{closeButton}</div>` + 
+                `%{content}` + 
+            `</div>` +
+        `</div>`, {
+            closeButton,
+            content,
+        }
+    );
+
+    const component = makeComponent<ModalArgs>(root, () => {});
+
+    closeButton.el.addEventListener("click", () => {
+        const { onClose } = component.args;
+        onClose();
+    });
+
+    return component;
+}
+
+type ActivityListItemArgs = {
+    app: AppArgs;
+    activity: Activity;
+    nextActivity: Activity | undefined;
+    showDuration: boolean;
+};
+
+function ActivityListItem(): Renderable<ActivityListItemArgs> {
+    const activityText = htmlf(`<div></div>`)
+    const timestamp = htmlf(`<div class="pre" style="min-width: 350px"></div>`)
+
+    const root = htmlf(
+        `<div class="row" style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
+            `%{timestamp}` + 
+            `%{activityText}` + 
+        `</div>`,
+        { activityText, timestamp },
+    );
+
+    const component = makeComponent<ActivityListItemArgs>(root, () => {
+        const { showDuration, activity, nextActivity, app: { state } } = component.args;
+
+        setTextContent(activityText, getActivityText(state, activity));
+
+        let timestampText = formatDate(new Date(activity.t));
+        setTextContent(timestamp, timestampText);
+
+
+        root.el.style.cursor = activity.nId ? "pointer" : "";
+    });
+
+    root.el.addEventListener("click", () => {
+        const { app: { state, setCurrentModal }, activity } = component.args;
+
+        if (activity.nId) {
+            setCurrentNote(state, activity.nId);
+            setCurrentModal(null);
+        }
+    });
+
+    return component;
+}
+
+function ActivitiesPaginated(): Renderable<AppArgs> {
+    let page = 0;
+    // Yeah this number can be really high because this isn't React lmao
+    let perPage = 2000;
+
+    const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
+    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, ActivityListItem);
+
+    const prevPageButton = makeButton("<");
+    const nextPageButton = makeButton(">");
+    const pageNumber = htmlf("<div></div>");
+
+    const root = htmlf(
+        `<div class="w-100 h-100 col">` + 
+            `<div class="flex-1 relative" style="overflow-y: scroll">` +
+                `%{vListRoot}` + 
+            `</div>` + 
+            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
+                "%{prevPageButton}" + 
+                "%{pageNumber}" +
+                "%{nextPageButton}" + 
+            `</div>` + 
+        `</div>`,
+        { vListRoot, prevPageButton, nextPageButton, pageNumber }
+    );
+
+    function getMaxPages(state: State): number {
+        return Math.floor(state.activities.length / perPage);
+    }
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        setTextContent(pageNumber, `${page + 1}/${getMaxPages(state) + 1}`);
+
+        const maxPages = getMaxPages(state);
+        page = Math.min(page, maxPages);
+        page = Math.max(page, 0);
+
+        // NOTE: pages need to paginate backwards, so that we're always seeing the most recent activities
+        let start = state.activities.length - (page + 1) * perPage;
+        const end = state.activities.length - page * perPage;
+        if (start < 0) {
+            start = 0;
+        }
+
+        vList.resize(end - start);
+        for (let i = 0; i < end - start; i++) {
+            vList.components[vList.components.length - 1 - i].rerender({
+                app: component.args,
+                activity: state.activities[start + i],
+                nextActivity: state.activities[start + i + 1],
+                showDuration: true,
+            });
+        }
+    });
+
+    prevPageButton.el.addEventListener("click", () => {
+        page--;
+        if (page < 0) {
+            page = 0;
+        }
+        
+        component.rerender(component.args);
+    });
+
+
+    nextPageButton.el.addEventListener("click", () => {
+        const { state } = component.args;
+
+        page++;
+        const maxPages = getMaxPages(state);
+        if (page > maxPages) {
+            page = maxPages;
+        }
+
+        component.rerender(component.args);
+    });
+
+    return component;
+}
+
+// All times are in milliseconds
+type Analytics = {
+    breakTime: number;
+    uncategorisedTime: number; 
+    taskTimes: Map<TaskId, number>;
+}
+
+function recomputeAnalytics(state: State, analytics: Analytics) {
+    analytics.breakTime = 0;
+    analytics.uncategorisedTime = 0;
+    analytics.taskTimes.clear();
+
+    // recompute which tasks each note belong to 
+    {
+        const dfs = (id: NoteId) => {
+            const note = getNote(state, id);
+
+            let task = getNoteTag(note, "Task");
+            if (!task && note.parentId) {
+                task = getNote(state, note.parentId).data._task;
+            }
+
+            note.data._task = task;
+
+            for (const id of note.childIds) {
+                dfs(id);
+            }
+        }
+
+        dfs(state.notes.rootId);
+    }
+
+
+    for (let i = 0; i < state.activities.length; i++) { 
+        const activity = state.activities[i];
+        const nextActivity  = state.activities[i + 1] as Activity | undefined;
+
+        const duration = getActivityDurationMs(activity, nextActivity);
+
+        if (activity.breakInfo || nextActivity?.breakInfo) {
+            analytics.breakTime += duration;
+            continue;
+        }
+
+        if (activity.nId) { 
+            const note = getNote(state, activity.nId);
+            const task = note.data._task;
+            if (!task) {
+                analytics.uncategorisedTime += duration;
+                continue;
+            } 
+
+            analytics.taskTimes.set(
+                task, 
+                (analytics.taskTimes.get(task) ?? 0) + duration
+            );
+            continue;
+        }
+    }
+}
+
+type AnalyticsFilters = {
+    dateFromEnabled: boolean;
+    dateFrom: Date;
+    dateToEnabled: boolean;
+    dateTo: Date;
+}
+
+function AnalyticsFilters() : Renderable<AnalyticsFilters> {
+    const root = htmlf(
+        `<div class="table">` + 
+            `<div>` + 
+
+            `<div/>` + 
+        `<div/>`
+    );
+    
+    const component = makeComponent<AnalyticsFilters>(root, () => {
+
+    });
+
+    return component;
+}
+
+function ActivityAnalytics(): Renderable<AppArgs> {
+    const analytics: Analytics = {
+        breakTime: 0,
+        uncategorisedTime: 0,
+        taskTimes: new Map<TaskId, number>(),
+    };
+
+    const durationsListRoot = htmlf(`<div class="table w-100"></div>`);
+
+    const analyticsFilters = AnalyticsFilters();
+
+    type DurationListItemArgs = {
+        taskName: string;
+        timeMs: number;
+    }
+
+    const durationsList = makeComponentList(durationsListRoot, () => {
+        const taskNameComponent = htmlf(`<div style="padding:5px;padding-bottom:0;"></div>`);
+        const durationComponent = htmlf(`<div style="padding:5px;padding-bottom:0;text-align:right;"></div>`);
+        const root = htmlf(`<div>%{taskName}%{duration}</div>`, {
+            taskName: taskNameComponent, duration: durationComponent
+        });
+        
+        const component = makeComponent<DurationListItemArgs>(root, () => {
+            const { taskName, timeMs } = component.args;
+
+            setTextContent(taskNameComponent, taskName);
+            setTextContent(durationComponent, "" + formatDuration(timeMs));
+        });
+
+        return component;
+    });
+
+    const root = htmlf(
+        `<div class="w-100 h-100 col">` + 
+            `<div class="flex-1 relative" style="overflow-y: scroll">` +
+                `%{durationsListRoot}` + 
+            `</div>` + 
+            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
+                "<h3>Date Range</h3>" + 
+                "%{analyticsFilters}" + 
+            `</div>` + 
+        `</div>`,
+        { durationsListRoot, analyticsFilters }
+    );
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        recomputeAnalytics(state, analytics);
+
+        durationsList.resize(analytics.taskTimes.size + 2);
+        durationsList.components[0].rerender({ taskName: "Break Time", timeMs: analytics.breakTime });
+        durationsList.components[1].rerender({ taskName: "Uncategorised Time", timeMs: analytics.uncategorisedTime });
+        const entries = [...analytics.taskTimes]; 
+        for (let i = 0; i < entries.length; i++) {
+            durationsList.components[i + 2].rerender({
+                taskName: entries[i][0], 
+                timeMs: entries[i][1], 
+            });
+        }
+    });
+
+    return component;
+}
+
+function AnalyticsModal(): Renderable<AppArgs> {
+    const activitiesList = ActivitiesPaginated();
+    const activityAnalytics = ActivityAnalytics();
+
+    let currentTabIdx = 0;
+
+    const tabs = [
+        htmlf(`<div class="tab" style="">Activities</div>`),
+        htmlf(`<div class="tab" style="">Timings</div>`),
+    ];
+
+    for (let i = 0; i < tabs.length; i++) {
+        tabs[i].el.addEventListener("click", () => {
+            currentTabIdx = i;
+            component.rerender(component.args);
+        });
+    }
+
+    const tabContent = [
+        activitiesList,
+        activityAnalytics,
+    ].map(c => htmlf(`<div class="flex-1">%{c}</div>`, { c }));
+
+    const modalComponent = Modal(
+        htmlf(
+            `<div class="col h-100">` + 
+                `<div class="row">` + 
+                    "%{tabs}" +
+                `</div>` +
+                `<div class="col flex-1">` + 
+                    "%{tabContent}" +
+                `</div>` +
+            `</div>`, 
+            {
+                tabs,
+                tabContent,
+            }
+        )
+    );
+    
+    const component = makeComponent<AppArgs>(modalComponent, () => {
+        const { setCurrentModal } = component.args;
+
+        modalComponent.rerender({ 
+            onClose: () => setCurrentModal(null) 
+        });
+
+        activitiesList.rerender(component.args);
+        activityAnalytics.rerender(component.args);
+
+        for (let i = 0; i < tabs.length; i++) {
+            tabs[i].el.style.backgroundColor = i === currentTabIdx ? (
+                "var(--bg-color-focus)"
+            ) : (
+                "var(--bg-color)"
+            );
+
+            setVisible(tabContent[i], i === currentTabIdx);
+        }
+    });
+
+    return component;
+}
+
+function ScratchPadModal(): Renderable<AppArgs> {
+    const scratchPad = ScratchPad();
+    const modalComponent = Modal(scratchPad);
+
+    const component = makeComponent<AppArgs>(modalComponent, () => {
+        const { setCurrentModal } = component.args;
+
+        modalComponent.rerender({
+            onClose() {
+                setCurrentModal(null);
+            }
+        });
+
+        scratchPad.rerender(component.args);
+
+        setTimeout(() => {
+            scratchPad.el.focus({ preventScroll: true });
+        }, 100);
+    });
+
     return component;
 }
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
-    const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
-    const root = htmlf(`<div class="pre-wrap">%{input}</div>`, { input });
+    const root = htmlf(`<div class="pre-wrap"></div>`);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
-        setInputValueAndResize(input, getTimeStr(note));
-    });
-
-    input.el.addEventListener("change", () => {
-        const { app: { state, rerenderApp, handleErrors, debouncedSave }, note } = component.args;
-
-        const prevNote = note._parent;
-        let nextNote = null;
-        for (const id of note.childrenIds) {
-            const child = getNote(state, id);
-            if (nextNote === null || child.openedAt < nextNote.openedAt) {
-                nextNote = child;
-            }
-        }
-
-        let previousTime: Date | null = null;
-        let nextTime: Date | null = null;
-
-        if (prevNote) {
-            previousTime = new Date(prevNote.openedAt);
-        }
-
-        if (nextNote) {
-            nextTime = new Date(nextNote.openedAt);
-        }
-
-        handleErrors(
-            () => {
-                // editing the time was a lot more code than I thought it would be, smh
-
-                const [hStr, mmStr] = input.el.value.split(":");
-                if (!mmStr) {
-                    throw new Error("Times must be in the format hh:mm[am|pm]");
-                }
-
-                const mStr = mmStr.substring(0, 2);
-                const amPmStr = mmStr.substring(2).trim();
-                if (!amPmStr || !mStr) {
-                    throw new Error("Times must be in the format hh:mm[am|pm]");
-                }
-
-                if (!["am", "pm"].includes(amPmStr.toLowerCase())) {
-                    throw new Error(`Invalid am/pm - ${amPmStr}`);
-                }
-
-                let hours = parseInt(hStr, 10);
-                if (isNaN(hours) || hours < 0 || hours > 12) {
-                    throw new Error(`Invalid hours - ${hours}`);
-                }
-
-                const minutes = parseInt(mStr);
-                if (isNaN(minutes) || minutes < 0 || minutes >= 60) {
-                    throw new Error(`Invalid minutes - ${minutes}`);
-                }
-
-                if (amPmStr == "pm" && hours !== 12) {
-                    hours += 12;
-                }
-
-                let newTime = new Date(note.openedAt);
-                if (isNaN(newTime.getTime())) {
-                    newTime = new Date();
-                }
-                newTime.setHours(hours);
-                newTime.setMinutes(minutes);
-                newTime.setSeconds(0);
-                newTime.setMilliseconds(0);
-
-                if (nextTime !== null && newTime >= nextTime) {
-                    // decrement the day by 1. if it's 9:00 am now, and we type 7:00pm, we probably mean yesterday
-                    const day = 1000 * 60 * 60 * 24;
-                    newTime.setTime(newTime.getTime() - 1 * day);
-                }
-
-                if (previousTime != null && newTime <= previousTime) {
-                    throw new Error(
-                        `Can't set this task's time to be before the previous task's time (${formatDate(
-                            previousTime
-                        )})`
-                    );
-                }
-
-                if (nextTime != null && newTime >= nextTime) {
-                    throw new Error(
-                        `Can't set this task's time to be after the next task's time (${formatDate(
-                            nextTime
-                        )})`
-                    );
-                }
-
-                const now = new Date();
-                if (nextTime == null && newTime > now) {
-                    throw new Error(
-                        `Can't set this task's time to be after the current time (${formatDate(now)})`
-                    );
-                }
-
-                note.openedAt = getTimestamp(newTime);
-                debouncedSave();
-
-                rerenderApp();
-            },
-            () => {
-                setInputValueAndResize(input, getTimeStr(note));
-                rerenderApp();
-            }
-        );
+        setTextContent(root, getTimeStr(note.data));
     });
 
     return component;
 }
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
-    const root = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+    const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
+    const lastTouchedFlag = htmlf(`<div style="font-weight: bold"> &lt;-- </div>`);
+    const root = htmlf(`<div class="row">%{lastTouchedFlag}</div>`, {
+        progressText, 
+        lastTouchedFlag,
+    });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
-        setTextContent(root, getSecondPartOfRow(state, note));
+        setTextContent(progressText, getSecondPartOfRow(state, note));
+
+        const idx = state.lastEditedNoteIds.lastIndexOf(note.id);
+        if (setVisible(lastTouchedFlag, idx !== -1)) {
+            const percentage = (idx + 1) * 100 / state.lastEditedNoteIds.length;
+            lastTouchedFlag.el.style.backgroundColor = `color-mix(in srgb, var(--bg-in-progress) ${percentage}%, transparent)`
+            lastTouchedFlag.el.style.color = `color-mix(in srgb, var(--fg-color) ${percentage}%, transparent)`
+
+            lastTouchedFlag.el.setAttribute("title", `This is the note you edited ${idx - state.lastEditedNoteIds.length + 1} notes ago`)
+        }
     });
 
     return component;
@@ -1350,11 +2283,11 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note, app: { stickyPxRef } } = component.args;
+        const { note } = component.args;
 
-        const textColor = note._isSelected
+        const textColor = note.data._isSelected
             ? "var(--fg-color)"
-            : note._status === STATUS_IN_PROGRESS
+            : note.data._status === STATUS_IN_PROGRESS
             ? "var(--fg-color)"
             : "var(--unfocus-text-color)";
 
@@ -1363,48 +2296,39 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         timestamp.rerender(component.args);
         text.rerender(component.args);
         statistic.rerender(component.args);
-
-        if (note._isSelected || note._status === STATUS_IN_PROGRESS) {
-            setTimeout(() => {
-                // make this note stick to the top of the screen so that we can see it
-                let top = stickyPxRef.val;
-                stickyPxRef.val += root.el.getBoundingClientRect().height;
-
-                root.el.style.position = "sticky";
-                root.el.style.top = top + "px";
-            }, 1);
-        } else {
-            // unstick this note
-            root.el.style.position = "static";
-            root.el.style.top = "";
-        }
     });
 
     root.el.addEventListener("click", () => {
         const { app: { state, rerenderApp }, note } = component.args;
 
-        state.currentNoteId = note.id;
+        setCurrentNote(state, note.id);
         rerenderApp();
     });
 
     return component;
 }
 
-function NotesList(): Renderable<AppArgs> {
-    const pool: Renderable<NoteRowArgs>[] = [];
+type NoteListInternalArgs = {
+    appArgs: AppArgs;
+    flatNotes: NoteId[];
+}
+
+function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const root = htmlf(
         `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
     );
 
-    const component = makeComponent<AppArgs>(root, () => {
-        const { state } = component.args;
+    const noteList = makeComponentList(root, NoteRowInput);
 
-        resizeComponentPool<Renderable<NoteRowArgs>>(root, pool, state._flatNotes.length, NoteRowInput);
-        for (let i = 0; i < state._flatNotes.length; i++) {
-            pool[i].rerender({
-                app: component.args,
+    const component = makeComponent<NoteListInternalArgs>(root, () => {
+        const { appArgs: { state }, flatNotes } = component.args;
+
+        noteList.resize(flatNotes.length);
+        for (let i = 0; i < flatNotes.length; i++) {
+            noteList.components[i].rerender({
+                app: component.args.appArgs,
                 flatIndex: i,
-                note: state._flatNotes[i]
+                note: getNote(state, flatNotes[i]),
             });
         }
     });
@@ -1412,19 +2336,110 @@ function NotesList(): Renderable<AppArgs> {
     return component;
 }
 
-function Button(text: string, fn: () => void, classes: string = "") {
-    const btn = htmlf(
-        `<button type="button" class="solid-border ${classes}" style="padding: 3px; margin: 5px;">%{text}</button>`,
+function NotesList(): Renderable<AppArgs> {
+    const list1 = NoteListInternal();
+    const root = htmlf(`<div>%{list1}</div>`, { list1 });
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+        list1.rerender({ appArgs: component.args, flatNotes: state._flatNoteIds });
+    });
+
+
+    return component;
+}
+
+function makeButton(text: string, classes: string = "", styles: string = "") {
+    return htmlf(
+        `<button type="button" class="solid-border ${classes}" style="min-width: 25px; padding: 3px; margin: 5px; display: flex; justify-content: center; ${styles}">%{text}</button>`,
         { text }
     );
+}
 
+function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
+    const btn = makeButton(text, classes);
     btn.el.addEventListener("click", fn);
     return btn;
 };
 
+type TabRowArgs = {
+    app: AppArgs;
+    name: string;
+}
+
+function TreeTabsRowTab(): Renderable<TabRowArgs> {
+    const btn = htmlf(
+        `<button 
+            type="button" 
+            class="tab-button pre-wrap text-align-center z-index-100"
+        ></button>`
+    );
+    const input = htmlf<HTMLInputElement>(
+        `<input 
+            class="pre-wrap text-align-center z-index-100"
+            style="margin-right: 20px;padding: 2px 20px; "
+        ></input>`
+    );
+
+    const closeBtn = htmlf(
+        `<button 
+            type="button" 
+            class="pre-wrap text-align-center z-index-100"
+            style="position:absolute; right: 5px; background-color:transparent;"
+        > x </button>`
+    );
+
+    // Tabs
+    const root = htmlf(
+        `<div class="relative tab">%{btn}%{input}%{closeBtn}</div>`,
+        { btn, input, closeBtn }
+    );
+
+    const component = makeComponent<TabRowArgs>(root, () => {
+        const { app: { currentTreeName }, name } = component.args;
+
+        const isFocused = currentTreeName === name;
+
+        setVisible(closeBtn, isFocused);
+        setVisible(btn, !isFocused);
+        setClass(root, "focused", isFocused);
+
+        if (setVisible(input, isFocused)) {
+            setVisible(input, true);
+            setInputValueAndResize(input, name);
+
+            root.el.style.color = "var(--fg-color)";
+        } else {
+            setTextContent(btn, name);
+
+            root.el.style.color = "var(--unfocus-text-color)";
+        }
+    });
+
+    btn.el.addEventListener("click", () => {
+        const { app: { loadTree }, name } = component.args;
+
+        loadTree(name);
+    });
+
+    input.el.addEventListener("change", () => {
+        const { app: { renameCurrentTreeName } } = component.args;
+        renameCurrentTreeName(input.el.value);
+    });
+
+    closeBtn.el.addEventListener("click", () => {
+        const { app: { deleteCurrentTree } } = component.args;
+        deleteCurrentTree();
+    });
+
+    return component;
+}
+
 // will be more of a tabbed view
-const CurrentTreeSelector = () => {
+const TreeTabsRow = () => {
     const tabsRoot = htmlf(`<span class="row pre-wrap align-items-center"></span>`);
+    const tabsList = makeComponentList(tabsRoot, TreeTabsRowTab);
+
     const newButton = htmlf(
         `<button 
             type="button" 
@@ -1444,98 +2459,24 @@ const CurrentTreeSelector = () => {
         { tabsRoot, newButton }
     );
 
-    type TabRow = {
-        app: AppArgs;
-        name: string;
-    };
-
-    const tabComponents: Renderable<TabRow>[] = [];
     const outerComponent = makeComponent<AppArgs>(root, () => {
         const names = getAvailableTrees();
-        resizeComponentPool(tabsRoot, tabComponents, names.length, (): Renderable<TabRow> => {
-            const btn = htmlf(
-                `<button 
-                    type="button" 
-                    class="tab-button pre-wrap text-align-center z-index-100"
-                    style="padding: 2px 20px;"
-                ></button>`
-            );
-            const input = htmlf<HTMLInputElement>(
-                `<input 
-                    class="pre-wrap text-align-center z-index-100"
-                    style="margin-right: 20px;padding: 2px 20px; "
-                ></input>`
-            );
-
-            const closeBtn = htmlf(
-                `<button 
-                    type="button" 
-                    class="pre-wrap text-align-center z-index-100"
-                    style="position:absolute; right: 5px; background-color:transparent;"
-                > x </button>`
-            );
-
-            // Tabs
-            const root = htmlf(
-                `<div 
-                    class="relative" 
-                    style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
-                >%{btn}%{input}%{closeBtn}</div>`,
-                { btn, input, closeBtn }
-            );
-
-            const component = makeComponent<TabRow>(root, () => {
-                const { app: { currentTreeName }, name } = component.args;
-
-                const isFocused = currentTreeName === name;
-
-                setVisible(closeBtn, isFocused);
-                setVisible(btn, !isFocused);
-                setClass(root, "focused", isFocused);
-
-                if (setVisible(input, isFocused)) {
-                    setVisible(input, true);
-                    setInputValueAndResize(input, name);
-
-                    root.el.style.color = "var(--fg-color)";
-                } else {
-                    setTextContent(btn, name);
-
-                    root.el.style.color = "var(--unfocus-text-color)";
-                }
-            });
-
-            btn.el.addEventListener("click", () => {
-                const { app: { loadTree }, name } = component.args;
-
-                loadTree(name, { shouldScroll: false });
-            });
-
-            input.el.addEventListener("change", () => {
-                const { app: { renameCurrentTreeName } } = component.args;
-                renameCurrentTreeName(input.el.value);
-            });
-
-            closeBtn.el.addEventListener("click", () => {
-                const { app: { deleteCurrentTree } } = component.args;
-                deleteCurrentTree();
-            });
-
-            return component;
-        });
-
+        tabsList.resize(names.length);
         for (let i = 0; i < names.length; i++) {
-            tabComponents[i].rerender({ app: outerComponent.args, name: names[i] });
+            tabsList.components[i].rerender({
+                app: outerComponent.args,
+                name: names[i],
+            });
         }
     });
 
     newButton.el.addEventListener("click", () => {
         const { newTree } = outerComponent.args;
         newTree();
-    });
+    })
 
     return outerComponent;
-};
+}
 
 const setCssVars = (vars: [string, string][]) => {
     const cssRoot = document.querySelector(":root") as HTMLElement;
@@ -1544,28 +2485,24 @@ const setCssVars = (vars: [string, string][]) => {
     }
 };
 
-type AppRenderOptions = {
-    shouldScroll: boolean;
-}
-
 type AppArgs = {
     state: State;
-    shouldScroll: boolean;
-    stickyPxRef: { val: number };
-    loadTree: (name: string, rerenderOptions?: AppRenderOptions) => void;
-    rerenderApp(options?: AppRenderOptions): void;
+    loadTree: (name: string) => void;
+    rerenderApp(): void;
     debouncedSave(): void;
-    handleErrors(fn: () => void, onError: (err: any) => void): void;
+    handleErrors(fn: () => void, onError?: (err: any) => void): void;
     currentTreeName: string;
     renameCurrentTreeName(newName: string): void;
     deleteCurrentTree(): void;
-    newTree(): void;
+    newTree(shouldRerender?: boolean): void;
+    showStatusText(text: string, color?: string, timeout?: number): void;
+    setCurrentModal(modal: Modal): void;
 };
 
 
 type AppTheme = "Light" | "Dark";
 
-const DarkModeToggle = () => {
+const makeDarkModeToggle = () => {
     const getTheme = (): AppTheme => {
         if (localStorage.getItem("State.currentTheme") === "Dark") {
             return "Dark";
@@ -1579,8 +2516,10 @@ const DarkModeToggle = () => {
 
         if (theme === "Light") {
             setCssVars([
+                ["--bg-in-progress", "rgb(255, 0, 0, 1"],
+                ["--fg-in-progress", "#FFF"],
                 ["--bg-color", "#FFF"],
-                ["--bg-color-focus", "rgb(0, 0, 0, 0.1)"],
+                ["--bg-color-focus", "#CCC"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
                 ["--fg-color", "#000"],
                 ["--unfocus-text-color", "gray"]
@@ -1588,18 +2527,52 @@ const DarkModeToggle = () => {
         } else {
             // assume dark theme
             setCssVars([
+                ["--bg-in-progress", "rgba(255, 0, 0, 1)"],
+                ["--fg-in-progress", "#FFF"],
                 ["--bg-color", "#000"],
-                ["--bg-color-focus", "rgb(1, 1, 1, 0.1)"],
-                ["--bg-color-focus-2", "rgb(1, 1, 1, 0.4)"],
+                ["--bg-color-focus", "#333"],
+                ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
                 ["--fg-color", "#EEE"],
                 ["--unfocus-text-color", "gray"]
             ]);
         }
 
-        setTextContent(button, theme);
+        function getThemeText() {
+            // return theme;
+
+            if (theme === "Light") {
+                return (
+                    // https://www.asciiart.eu/nature/sun
+`      ;   :   ;
+   .   \\_,!,_/   ,
+    \`.,':::::\`.,'
+     /:::::::::\\
+~ -- ::::::::::: -- ~
+     \\:::::::::/
+    ,'\`:::::::'\`.
+   '   / \`!\` \\   \`
+      ;   :   ;     `);
+
+            }
+
+            return (
+                // https://www.asciiart.eu/space/moons
+`
+       _..._    *
+  *  .::'   \`.    
+    :::       :    |  
+    :::       :   -+-
+    \`::.     .'    |
+ *    \`':..-'  .
+               * .
+      `);
+
+        }
+
+        setTextContent(button, getThemeText());
     };
 
-    const button = Button("", () => {
+    const button = makeButtonWithCallback("", () => {
         let themeName = getTheme();
         if (!themeName || themeName === "Light") {
             themeName = "Dark";
@@ -1610,16 +2583,22 @@ const DarkModeToggle = () => {
         setTheme(themeName);
     });
 
+    button.el.style.whiteSpace = "pre";
+    button.el.style.fontSize = "6px";
+    button.el.style.fontWeight = "bold";
+
     setTheme(getTheme());
 
     return button;
 };
 
+type Modal = null | "analytics-view" | "scratch-pad";
+
 const App = () => {
     const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
     infoButton.el.addEventListener("click", () => {
         showInfo = !showInfo;
-        appComponent.rerender();
+        rerenderApp();
     });
 
     const noteTreeHelp = htmlf(
@@ -1628,76 +2607,29 @@ const App = () => {
                 Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
             </p>
             <ul>
-                <li>[Enter] to create a new entry</li>
-                <li>Arrows to move around</li>
-                <li>Tab or Shift+Tab to indent/unindent a note</li>
-                <li>Also look at the buttons in the bottom right there</li>
+                <li>[Enter] to create a new entry under the current one</li>
+                <li>[Shift] + [Enter] to create a new entry at the same level as the current one</li>
+                <li>[Tab] or [Shift]+[Tab] to indent/unindent a note when applicable</li>
+                <li>[Arrows] to move up and down visually</li>
+                <li>[Alt] + [Arrows] to move across the tree. [Up] and [Down] moves on the same level, [Left] and [Right] to move out of or into a note</li>
+                <li>[Alt] + [Backspace] to move focus back to the last note we edited</li>
+                <li>[Ctrl] + [Shift] + [F] to toggle filters</li>
             </ul>
         </div>`
     );
 
-    const scratchPadHelp = htmlf(
-        `<div>
-            <p>
-                Write down anything that can't go into a note into here. A task you need to do way later, a copy paste value, etc.
-            </p>
-        </div>`
-    );
-
-    const statusTextIndicator = htmlf(`<div class="pre-wrap"></div>`);
-
-    const moveOutFinishedNotesButton = Button("Move out finished notes", () => {
-        const doneTreeName = currentTreeName + " [done]";
-        if (
-            !confirm(
-                "This will remove all 'done' nodes from this tree and move them to another tree named " +
-                    doneTreeName +
-                    ", are you sure?"
-            )
-        ) {
-            return;
-        }
-
-        try {
-            // high risk code, could possibly corrupt user data, so we're working with copies,
-            // then assigning over the result
-            const doneState = copyState(state);
-            recomputeState(doneState);
-            filterNotes(doneState, (note) => note._status === STATUS_DONE, true);
-
-            const notDoneState = copyState(state);
-            recomputeState(notDoneState);
-            filterNotes(notDoneState, (note) => note._status !== STATUS_DONE, true);
-
-            let existingDoneState;
-            try {
-                existingDoneState = loadState(doneTreeName);
-            } catch {
-                // no existing notes
-            }
-            const doneStateMerged = mergeState(existingDoneState, doneState);
-
-            saveState(doneStateMerged, doneTreeName);
-
-            // only mutate our current state once everything else succeeds
-            for (const key in notDoneState) {
-                // @ts-ignore
-                state[key] = notDoneState[key];
-            }
-            saveState(state, currentTreeName);
-        } catch (e) {
-            console.error("failed\n\n", e);
-        }
-
-        // remove other stuff that we don't need to move out
-        appComponent.rerender();
-
-        showStatusText("Moved done notes");
-    });
+    const statusTextIndicator = htmlf(`<div class="pre-wrap" style="background-color: var(--bg-color)"></div>`);
 
     const notesList = NotesList();
-    const scratchPad = ScratchPad();
-    const treeSelector = CurrentTreeSelector();
+    const activityList = ActivityList();
+    const filters = NoteFilters();
+    const treeSelector = TreeTabsRow();
+    const todoNotes = TodoList();
+
+    const scratchPadModal = ScratchPadModal();
+    const analyticsModal = AnalyticsModal();
+
+    let currentModal: Modal = null;
 
     const appRoot = htmlf(
         `<div class="relative" style="padding-bottom: 100px">
@@ -1705,13 +2637,13 @@ const App = () => {
             %{info1}
             %{treeTabs}
             %{notesList}
-            %{scratchPad}
-
-            <div>
-                <div style="height: 1500px"></div>
+            <div class="row" style="gap: 10px">
+                <div style="flex: 1">%{todoNotes}</div>
+                <div style="flex: 1">%{activityList}</div>
             </div>
-
             %{fixedButtons}
+            %{analyticsModal}
+            %{scratchPadModal}
         </div>`,
         {
             titleRow: htmlf(
@@ -1730,44 +2662,58 @@ const App = () => {
                 </div>`,
                 { treeSelector }
             ),
+            analyticsModal,
+            scratchPadModal,
             notesList: notesList,
-            scratchPad: htmlf(`<div>%{title}%{help}%{scratchPad}</div>`, {
-                title: htmlf(`<h2 style="marginTop: 20px;">Scratch Pad</h2>`),
-                help: scratchPadHelp,
-                scratchPad
+            filters,
+            todoNotes: htmlf(`<div>%{title}%{todoNotes}</div>`, {
+                title: htmlf(`<h3 style="marginTop: 20px;">TODO Notes</h3>`),
+                todoNotes
+            }),
+            activityList: htmlf(`<div>%{title}%{activityList}</div>`, {
+                title: htmlf(`<h3 style="marginTop: 20px;">Activity List</h3>`),
+                activityList, 
             }),
             fixedButtons: htmlf(
-                `<div class="fixed row align-items-center" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
+                `<div class="fixed row align-items-end" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
                     <div>%{leftButtons}</div>
                     <span class="flex-1"></span>
                     <div>%{statusIndicator}</div>
-                    <div>%{rightButtons}</div>
+                    <span class="flex-1"></span>
+                    <div class="row">%{rightButtons}</div>
                 </div>`,
                 {
-                    leftButtons: [DarkModeToggle()],
+                    filters,
+                    leftButtons: [makeDarkModeToggle()],
                     statusIndicator: statusTextIndicator,
                     rightButtons: [
-                        moveOutFinishedNotesButton,
-                        Button("Clear all", () => {
+                        filters,
+                        makeButtonWithCallback("Scratch Pad", () => {
+                            setCurrentModal("scratch-pad");
+                        }),
+                        makeButtonWithCallback("Analytics", () => {
+                            setCurrentModal("analytics-view");
+                        }),
+                        makeButtonWithCallback("Clear all", () => {
                             if (!confirm("Are you sure you want to clear your note tree?")) {
                                 return;
                             }
 
                             state = defaultState();
-                            appComponent.rerender();
+                            rerenderApp();
 
                             showStatusText("Cleared notes");
                         }),
-                        Button("Copy as text", () => {
+                        makeButtonWithCallback("Copy as text", () => {
                             handleErrors(() => {
                                 navigator.clipboard.writeText(exportAsText(state));
                                 showStatusText("Copied as text");
                             });
                         }),
-                        Button("Load JSON from scratch pad", () => {
+                        makeButtonWithCallback("Load JSON from scratch pad", () => {
                             handleErrors(() => {
                                 try {
-                                    const lsKeys = JSON.parse(scratchPad.getText());
+                                    const lsKeys = JSON.parse(state.scratchPad);
                                     localStorage.clear();
                                     for (const key in lsKeys) {
                                         localStorage.setItem(key, lsKeys[key]);
@@ -1783,7 +2729,7 @@ const App = () => {
                                 initState();
                             });
                         }),
-                        Button("Copy as JSON", () => {
+                        makeButtonWithCallback("Copy as JSON", () => {
                             handleErrors(() => {
                                 const lsKeys = {};
                                 for (const [key, value] of Object.entries(localStorage)) {
@@ -1838,19 +2784,21 @@ const App = () => {
         }, SAVE_DEBOUNCE);
     };
 
-    const loadTree = (name: string, renderOptions?: AppRenderOptions) => {
+    const loadTree = (name: string) => {
         handleErrors(
             () => {
                 state = loadState(name);
                 currentTreeName = name;
-                appComponent.rerender(renderOptions);
+                rerenderApp();
             },
             () => {
                 // try to fallback to the first available tree.
                 const availableTrees = getAvailableTrees();
                 state = loadState(availableTrees[0]);
                 currentTreeName = availableTrees[0];
-                appComponent.rerender(renderOptions);
+                rerenderApp();
+
+                console.log(availableTrees)
             }
         );
     };
@@ -1899,7 +2847,7 @@ const App = () => {
 
         if (shouldRerender) {
             // we should think of a better way to do this next time
-            appComponent.rerender();
+            rerenderApp();
         }
     };
 
@@ -1914,8 +2862,50 @@ const App = () => {
 
         saveCurrentState();
 
-        appComponent.rerender();
+        rerenderApp();
     };
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+            setCurrentModal(null);
+        }
+
+        const altPressed = e.altKey;
+        const ctrlPressed = e.ctrlKey || e.metaKey;
+        const shiftPressed = e.shiftKey;
+
+        switch (e.key) {
+            case "S":
+                if (ctrlPressed && shiftPressed) {
+                    e.preventDefault();
+                    setCurrentModal("scratch-pad");
+                }
+                break;
+            case "A":
+                if (ctrlPressed && shiftPressed) {
+                    e.preventDefault();
+                    setCurrentModal("analytics-view");
+                }
+                break;
+            case "Backspace":
+                if (altPressed) {
+                    moveToLastEditedNote(state);
+                    rerenderApp();
+                    return true;
+                }
+                break;
+
+        }
+    });
+
+    const setCurrentModal = (modal: Modal) => {
+        if (currentModal === modal) { 
+            return;
+        }
+
+        currentModal = modal;
+        rerenderApp();
+    }
 
     const deleteCurrentTree = () => {
         handleErrors(() => {
@@ -1983,43 +2973,50 @@ const App = () => {
         });
     };
 
-    const appComponent = {
-        el: appRoot.el,
-        rerender: function (options = { shouldScroll: true }) {
-            setVisible(noteTreeHelp, showInfo);
-            setVisible(scratchPadHelp, showInfo);
+    const rerenderApp = () => appComponent.rerender(undefined);
 
-            const isDoneNote = currentTreeName.endsWith("[done]");
-            setVisible(moveOutFinishedNotesButton, !isDoneNote);
+    const appComponent = makeComponent<undefined>(appRoot, () => {
+        setVisible(noteTreeHelp, showInfo);
 
-            recomputeState(state);
+        recomputeState(state);
 
-            // need to know how far to offset the selected refs
-            const stickyPxRef = { val: 0 };
-            const args: AppArgs = {
-                state,
-                shouldScroll: options.shouldScroll,
-                stickyPxRef,
-                loadTree,
-                rerenderApp: appComponent.rerender,
-                debouncedSave,
-                handleErrors,
-                currentTreeName,
-                renameCurrentTreeName,
-                deleteCurrentTree,
-                newTree
-            };
+        // need to know how far to offset the selected refs
+        const args: AppArgs = {
+            state,
+            loadTree,
+            rerenderApp,
+            debouncedSave,
+            handleErrors,
+            currentTreeName,
+            renameCurrentTreeName,
+            deleteCurrentTree,
+            newTree,
+            showStatusText,
+            setCurrentModal,
+        };
 
-            // rerender the things
-            notesList.rerender(args);
-            scratchPad.rerender(args);
-            treeSelector.rerender(args);
+        // rerender the things
+        notesList.rerender(args);
+        activityList.rerender(args);
+        treeSelector.rerender(args);
+        filters.rerender(args);
+        todoNotes.rerender(args);
+
+        if (setVisible(analyticsModal, currentModal === "analytics-view")) {
+            analyticsModal.rerender(args);
         }
-    };
+
+        if (setVisible(scratchPadModal, currentModal === "scratch-pad")) {
+            scratchPadModal.rerender(args);
+        }
+    });
 
     const initState = () => {
-        const savedCurrentTreeName = localStorage.getItem("State.currentTreeName");
+        let savedCurrentTreeName = localStorage.getItem("State.currentTreeName") as string;
         const availableTrees = getAvailableTrees();
+        if (!availableTrees.includes(savedCurrentTreeName)) {
+            savedCurrentTreeName = availableTrees[0];
+        }
 
         if (!savedCurrentTreeName || availableTrees.length === 0) {
             newTree(false);
@@ -2041,4 +3038,5 @@ const root: Insertable = {
 
 const app = App();
 appendChild(root, app);
-app.rerender();
+app.rerender(undefined);
+

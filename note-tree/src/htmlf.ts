@@ -1,6 +1,6 @@
 import "./htmlf.css";
 
-export function assert(trueVal: any, ...msg: any[]) {
+export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     if (!trueVal) { 
         console.error(...msg); 
         throw new Error("assertion failed!"); 
@@ -135,6 +135,8 @@ export function htmlf<T extends HTMLElement>(
         return { el: element };
     }
 
+    const argsUsed = new Set<string>();
+
     const nodes = __textNodesUnder(element);
     for (let node of nodes) {
         let nodeValue = node.nodeValue || "";
@@ -171,10 +173,18 @@ export function htmlf<T extends HTMLElement>(
             const node2 = node.splitText(i);
             __insertArgumentForPercentVDirective(arg, node2, directiveName);
 
+            argsUsed.add(directiveName);
+
             node = node2;
             node.nodeValue = nodeValue.substring(nameEnd + 1);
             nodeValue = node.nodeValue || "";
             i = -1; //-1 to account for the for-loop incrementing this.
+        }
+    }
+
+    for (const key in args) {
+        if (!argsUsed.has(key)) {
+            console.warn(`Format directive was provided in args, but was never used: ${key}`);
         }
     }
 
@@ -213,7 +223,7 @@ export function setClass(
     component: Insertable,
     cssClass: string,
     state: boolean,
-) {
+): boolean {
     if (state) {
         component.el.classList.add(cssClass);
     } else {
@@ -243,35 +253,44 @@ export function copyStyles(src: Insertable, dst: Insertable) {
     }
 };
 
-export function setVisible(component: Insertable, state: boolean) {
-    if (state) {
-        component.el.classList.remove("hidden");
-    } else {
-        component.el.classList.add("hidden");
-    }
-    return state;
+export function setVisible(component: Insertable, state: boolean): boolean {
+    return !setClass(component, "hidden", !state);
 }
 
+type ComponentPool<T extends Insertable> = {
+    components: T[];
+    resize(n: number): void;
+}
 
+export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
+    return {
+        el: root.el,
+        components: [],
+        resize(newLength) {
+            if (newLength < 0) {
+                throw new Error("Can't resize list to a negative length! You might have an error in some math you're doing");
+            }
 
-export function resizeComponentPool<T extends Insertable>(root: Insertable, compPool: T[], newLength: number, createFn: () => T) {
-    while(compPool.length > newLength) {
-        // could also just hide these with setVisible(false)
-        const component = compPool.pop()!;
-        component.el.remove();
-    } 
-    
-    while (compPool.length < newLength) {
-        // could also just show these with setVisible(true)
-        const component = createFn();
-        compPool.push(component);
-        appendChild(root, component);
-    }
+            while(this.components.length > newLength) {
+                // could also just hide these with setVisible(false)
+                const component = this.components.pop()!;
+                component.el.remove();
+            } 
+            
+            while (this.components.length < newLength) {
+                // could also just show these with setVisible(true)
+                const component = createFn();
+                this.components.push(component);
+                appendChild(root, component);
+            }
 
-    if (compPool.length !== newLength) {
-        assert(false, "Error with component pool resizing");
+            if (this.components.length !== newLength) {
+                assert(false, "Error with component pool resizing");
+            }
+        }
     }
 }
+
 
 export function setInputValueAndResize (inputComponent: Insertable, text: string) {
     setInputValue(inputComponent, text);
