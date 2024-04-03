@@ -14,7 +14,6 @@ import {
     setTextContent,
     setVisible,
     makeComponentList as makeComponentList,
-    replaceChildren
 } from "./htmlf";
 
 import * as tree from "./tree";
@@ -118,13 +117,13 @@ function getDurationMS(aIsoString: string, bIsoString: string) {
     return new Date(bIsoString).getTime() - new Date(aIsoString).getTime();
 }
 
-function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
-    while (lastNote.childIds.length > 0) {
-        lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
-    }
+// function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
+//     while (lastNote.childIds.length > 0) {
+//         lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
+//     }
 
-    return lastNote;
-}
+//     return lastNote;
+// }
 
 function getTimestamp(date: Date) {
     return date.toISOString();
@@ -297,9 +296,9 @@ function getSecondLastActivity(state: State): Activity | undefined {
     return state.activities[state.activities.length - 2];
 }
 
-function popLastActivity(state: State): Activity | undefined {
-    return state.activities.pop();
-}
+// function popLastActivity(state: State): Activity | undefined {
+//     return state.activities.pop();
+// }
 
 // NOTE: all state needs to be JSON-serializable.
 // NO Dates/non-plain objects
@@ -918,31 +917,31 @@ function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<N
     }
 }
 
-function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
-    for (const id of note.childIds) {
-        const note = getNote(state, id);
-        dfsPost(state, note, fn);
-    }
+// function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
+//     for (const id of note.childIds) {
+//         const note = getNote(state, id);
+//         dfsPost(state, note, fn);
+//     }
 
-    fn(note);
-}
+//     fn(note);
+// }
 
-function copyState(state: State) {
-    return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
-}
+// function copyState(state: State) {
+//     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
+// }
 
 function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
 
-function getNotePriority(state: State, noteId: NoteId) {
-    const priority = state.todoNoteIds.indexOf(noteId);
-    if (priority === -1) {
-        return undefined;
-    }
+// function getNotePriority(state: State, noteId: NoteId) {
+//     const priority = state.todoNoteIds.indexOf(noteId);
+//     if (priority === -1) {
+//         return undefined;
+//     }
 
-    return priority + 1;
-}
+//     return priority + 1;
+// }
 
 // NOTE: depends on _filteredOut, _isSelected
 function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
@@ -1755,7 +1754,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     );
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { app: { state }, note, flatIndex } = component.args;
+        const { app: { state }, note } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
         const count = getRealChildCount(note)
@@ -1894,7 +1893,7 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     );
 
     const component = makeComponent<ActivityListItemArgs>(root, () => {
-        const { showDuration, activity, nextActivity, app: { state } } = component.args;
+        const { activity, app: { state } } = component.args;
 
         setTextContent(activityText, getActivityText(state, activity));
 
