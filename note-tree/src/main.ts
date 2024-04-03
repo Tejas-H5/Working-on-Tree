@@ -1361,15 +1361,21 @@ function TodoList(): Renderable<AppArgs> {
             const status = htmlf("<div></div>");
             const link = NoteLink();
             const thing = htmlf(`<div class="pre"></div>`);
-            const root = htmlf(`<div class="pre-wrap row">%{status} %{thing} %{link}</div>`, {
+            const root = htmlf(`<div class="pre-wrap row align-items-center">%{status} %{thing} %{link}</div>`, {
                 status, link, thing
             });
 
-            const component = makeComponent<NoteLinkArgs>(root, () => {
-                const { note, app: { state } } = component.args;
+            type NestedNotesArgs = {
+                linkedNoteArgs: NoteLinkArgs;
+                previousNotesCount: number;
+            }
 
-                link.rerender(component.args);
-                setTextContent(thing, state.currentNoteId === note.id ? " > " : " - ");
+            const component = makeComponent<NestedNotesArgs>(root, () => {
+                const { linkedNoteArgs, previousNotesCount } = component.args;
+                const { note, app: { state } } = linkedNoteArgs;
+
+                link.rerender(linkedNoteArgs);
+                setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === note.id ? " > " : " - "));
                 setTextContent(status, getNoteStateString(note) ?? "??");
             });
 
@@ -1411,13 +1417,18 @@ function TodoList(): Renderable<AppArgs> {
             nestedNotesList.resize(nestedNotes.length);
             let focusAnyway = note.id === state.currentNoteId;
             for(let i = 0; i < nestedNotes.length; i++) {
-                const note = nestedNotes[i].data;
+                const note = nestedNotes[i];
                 focusAnyway = focusAnyway || note.id === state.currentNoteId;
 
+                const childCount = !note.parentId ? 0 : getNote(state, note.parentId).childIds.length;
+
                 nestedNotesList.components[i].rerender({
-                    app: component.args.app,
-                    note,
-                    focusAnyway: false,
+                    linkedNoteArgs: {
+                        app: component.args.app,
+                        note: note.data,
+                        focusAnyway: false,
+                    },
+                    previousNotesCount: childCount,
                 });
             }
 
@@ -1437,7 +1448,11 @@ function TodoList(): Renderable<AppArgs> {
                 throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
             }
 
-            const idxSelected = state.todoNoteIds.indexOf(state.currentNoteId);
+            const idxSelected = state.todoNoteIds.findIndex(id => {
+                const note = getNote(state, id);
+                return note.data._isSelected;
+            });
+
             // this also works when idxSelected === -1
             const insertPoint = idxThis <= idxSelected ? 0 : idxSelected + 1;
 
@@ -1838,7 +1853,7 @@ function Modal(content: Insertable): Renderable<ModalArgs> {
     const closeButton = makeButton("X");
 
     const root = htmlf(
-        `<div class="modal-shadow fixed solid-border" style="${styles}">` + 
+        `<div class="modal-shadow fixed " style="${styles}">` + 
             `<div class="relative absolute-fill">` + 
                 `<div class="absolute" style="top: 0; right: 0">%{closeButton}</div>` + 
                 `%{content}` + 
@@ -1868,10 +1883,10 @@ type ActivityListItemArgs = {
 
 function ActivityListItem(): Renderable<ActivityListItemArgs> {
     const activityText = htmlf(`<div></div>`)
-    const timestamp = htmlf(`<div style="font-size:14px"></div>`)
+    const timestamp = htmlf(`<div class="pre" style="min-width: 350px"></div>`)
 
     const root = htmlf(
-        `<div style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
+        `<div class="row" style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
             `%{timestamp}` + 
             `%{activityText}` + 
         `</div>`,
@@ -1884,10 +1899,6 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
         setTextContent(activityText, getActivityText(state, activity));
 
         let timestampText = formatDate(new Date(activity.t));
-        if (showDuration) {
-            timestampText += " - " + formatDuration(getActivityDurationMs(activity, nextActivity));
-        }
-
         setTextContent(timestamp, timestampText);
 
 
@@ -1908,7 +1919,8 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
 
 function ActivitiesPaginated(): Renderable<AppArgs> {
     let page = 0;
-    let perPage = 10;
+    // Yeah this number can be really high because this isn't React lmao
+    let perPage = 2000;
 
     const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
     const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, ActivityListItem);
@@ -1950,10 +1962,10 @@ function ActivitiesPaginated(): Renderable<AppArgs> {
         if (start < 0) {
             start = 0;
         }
-        
+
         vList.resize(end - start);
         for (let i = 0; i < end - start; i++) {
-            vList.components[i].rerender({
+            vList.components[vList.components.length - 1 - i].rerender({
                 app: component.args,
                 activity: state.activities[start + i],
                 nextActivity: state.activities[start + i + 1],
@@ -2138,27 +2150,41 @@ function ActivityAnalytics(): Renderable<AppArgs> {
 }
 
 function AnalyticsModal(): Renderable<AppArgs> {
-
     const activitiesList = ActivitiesPaginated();
     const activityAnalytics = ActivityAnalytics();
+
+    let currentTabIdx = 0;
+
+    const tabs = [
+        htmlf(`<div class="tab" style="">Activities</div>`),
+        htmlf(`<div class="tab" style="">Timings</div>`),
+    ];
+
+    for (let i = 0; i < tabs.length; i++) {
+        tabs[i].el.addEventListener("click", () => {
+            currentTabIdx = i;
+            component.rerender(component.args);
+        });
+    }
+
+    const tabContent = [
+        activitiesList,
+        activityAnalytics,
+    ].map(c => htmlf(`<div class="flex-1">%{c}</div>`, { c }));
 
     const modalComponent = Modal(
         htmlf(
             `<div class="col h-100">` + 
-                `<div class="flex-1 row">` + 
-                    `<div class="flex-1 solid-border-sm col">` + 
-                        `<h3 class="text-align-center">All activities</h3>` + 
-                        `%{activitiesList}` + 
-                    `</div>` +
-                    `<div class="flex-1 solid-border-sm col">` + 
-                        `<h3 class="text-align-center">Time breakdowns</h3>` + 
-                        `%{activityAnalytics}` +
-                    `</div>` +
+                `<div class="row">` + 
+                    "%{tabs}" +
+                `</div>` +
+                `<div class="col flex-1">` + 
+                    "%{tabContent}" +
                 `</div>` +
             `</div>`, 
             {
-                activitiesList: htmlf(`<div class="flex-1">%{activitiesList}</div>`, { activitiesList }), 
-                activityAnalytics: htmlf(`<div class="flex-1">%{activityAnalytics}</div>`, { activityAnalytics }), 
+                tabs,
+                tabContent,
             }
         )
     );
@@ -2172,6 +2198,16 @@ function AnalyticsModal(): Renderable<AppArgs> {
 
         activitiesList.rerender(component.args);
         activityAnalytics.rerender(component.args);
+
+        for (let i = 0; i < tabs.length; i++) {
+            tabs[i].el.style.backgroundColor = i === currentTabIdx ? (
+                "var(--bg-color-focus)"
+            ) : (
+                "var(--bg-color)"
+            );
+
+            setVisible(tabContent[i], i === currentTabIdx);
+        }
     });
 
     return component;
@@ -2201,120 +2237,11 @@ function ScratchPadModal(): Renderable<AppArgs> {
 }
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
-    const input = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
-    const root = htmlf(`<div class="pre-wrap">%{input}</div>`, { input });
+    const root = htmlf(`<div class="pre-wrap"></div>`);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
-        setInputValueAndResize(input, getTimeStr(note.data));
-    });
-
-    input.el.addEventListener("change", () => {
-        const { app: { rerenderApp, handleErrors, debouncedSave }, note } = component.args;
-
-        // TODO: get this validation working
-
-        // const prevNote = note._parent;
-        // let nextNote = null;
-        // for (const id of note.childIds) {
-        //     const child = getNote(state, id);
-        //     if (nextNote === null || child.openedAt < nextNote.openedAt) {
-        //         nextNote = child;
-        //     }
-        // }
-
-        let previousTime: Date | null = null;
-        let nextTime: Date | null = null;
-
-        // if (prevNote) {
-        //     previousTime = new Date(prevNote.openedAt);
-        // }
-
-        // if (nextNote) {
-        //     nextTime = new Date(nextNote.openedAt);
-        // }
-
-        handleErrors(
-            () => {
-                // editing the time was a lot more code than I thought it would be, smh
-
-                const [hStr, mmStr] = input.el.value.split(":");
-                if (!mmStr) {
-                    throw new Error("Times must be in the format hh:mm[am|pm]");
-                }
-
-                const mStr = mmStr.substring(0, 2);
-                const amPmStr = mmStr.substring(2).trim();
-                if (!amPmStr || !mStr) {
-                    throw new Error("Times must be in the format hh:mm[am|pm]");
-                }
-
-                if (!["am", "pm"].includes(amPmStr.toLowerCase())) {
-                    throw new Error(`Invalid am/pm - ${amPmStr}`);
-                }
-
-                let hours = parseInt(hStr, 10);
-                if (isNaN(hours) || hours < 0 || hours > 12) {
-                    throw new Error(`Invalid hours - ${hours}`);
-                }
-
-                const minutes = parseInt(mStr);
-                if (isNaN(minutes) || minutes < 0 || minutes >= 60) {
-                    throw new Error(`Invalid minutes - ${minutes}`);
-                }
-
-                if (amPmStr == "pm" && hours !== 12) {
-                    hours += 12;
-                }
-
-                let newTime = new Date(note.data.openedAt);
-                if (isNaN(newTime.getTime())) {
-                    newTime = new Date();
-                }
-                newTime.setHours(hours);
-                newTime.setMinutes(minutes);
-                newTime.setSeconds(0);
-                newTime.setMilliseconds(0);
-
-                if (nextTime !== null && newTime >= nextTime) {
-                    // decrement the day by 1. if it's 9:00 am now, and we type 7:00pm, we probably mean yesterday
-                    const day = 1000 * 60 * 60 * 24;
-                    newTime.setTime(newTime.getTime() - 1 * day);
-                }
-
-                if (previousTime != null && newTime <= previousTime) {
-                    throw new Error(
-                        `Can't set this task's time to be before the previous task's time (${formatDate(
-                            previousTime
-                        )})`
-                    );
-                }
-
-                if (nextTime != null && newTime >= nextTime) {
-                    throw new Error(
-                        `Can't set this task's time to be after the next task's time (${formatDate(
-                            nextTime
-                        )})`
-                    );
-                }
-
-                const now = new Date();
-                if (nextTime == null && newTime > now) {
-                    throw new Error(
-                        `Can't set this task's time to be after the current time (${formatDate(now)})`
-                    );
-                }
-
-                note.data.openedAt = getTimestamp(newTime);
-                debouncedSave();
-
-                rerenderApp();
-            },
-            () => {
-                setInputValueAndResize(input, getTimeStr(note.data));
-                rerenderApp();
-            }
-        );
+        setTextContent(root, getTimeStr(note.data));
     });
 
     return component;
@@ -2440,13 +2367,11 @@ type TabRowArgs = {
     name: string;
 }
 
-// TF is a tab row? the fuck
-function TabRow(): Renderable<TabRowArgs> {
+function TreeTabsRowTab(): Renderable<TabRowArgs> {
     const btn = htmlf(
         `<button 
             type="button" 
             class="tab-button pre-wrap text-align-center z-index-100"
-            style="padding: 2px 20px;"
         ></button>`
     );
     const input = htmlf<HTMLInputElement>(
@@ -2466,10 +2391,7 @@ function TabRow(): Renderable<TabRowArgs> {
 
     // Tabs
     const root = htmlf(
-        `<div 
-            class="relative" 
-            style="margin-left:2px;outline:2px solid var(--fg-color); border-top-right-radius: 5px; border-top-left-radius: 5px;"
-        >%{btn}%{input}%{closeBtn}</div>`,
+        `<div class="relative tab">%{btn}%{input}%{closeBtn}</div>`,
         { btn, input, closeBtn }
     );
 
@@ -2514,9 +2436,9 @@ function TabRow(): Renderable<TabRowArgs> {
 }
 
 // will be more of a tabbed view
-const CurrentTreeSelector = () => {
+const TreeTabsRow = () => {
     const tabsRoot = htmlf(`<span class="row pre-wrap align-items-center"></span>`);
-    const tabsList = makeComponentList(tabsRoot, TabRow);
+    const tabsList = makeComponentList(tabsRoot, TreeTabsRowTab);
 
     const newButton = htmlf(
         `<button 
@@ -2701,7 +2623,7 @@ const App = () => {
     const notesList = NotesList();
     const activityList = ActivityList();
     const filters = NoteFilters();
-    const treeSelector = CurrentTreeSelector();
+    const treeSelector = TreeTabsRow();
     const todoNotes = TodoList();
 
     const scratchPadModal = ScratchPadModal();
@@ -2715,7 +2637,7 @@ const App = () => {
             %{info1}
             %{treeTabs}
             %{notesList}
-            <div class="row">
+            <div class="row" style="gap: 10px">
                 <div style="flex: 1">%{todoNotes}</div>
                 <div style="flex: 1">%{activityList}</div>
             </div>
@@ -2875,6 +2797,8 @@ const App = () => {
                 state = loadState(availableTrees[0]);
                 currentTreeName = availableTrees[0];
                 rerenderApp();
+
+                console.log(availableTrees)
             }
         );
     };
@@ -3088,8 +3012,11 @@ const App = () => {
     });
 
     const initState = () => {
-        const savedCurrentTreeName = localStorage.getItem("State.currentTreeName");
+        let savedCurrentTreeName = localStorage.getItem("State.currentTreeName") as string;
         const availableTrees = getAvailableTrees();
+        if (!availableTrees.includes(savedCurrentTreeName)) {
+            savedCurrentTreeName = availableTrees[0];
+        }
 
         if (!savedCurrentTreeName || availableTrees.length === 0) {
             newTree(false);
