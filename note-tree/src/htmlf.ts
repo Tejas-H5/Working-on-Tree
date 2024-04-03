@@ -262,8 +262,9 @@ type ComponentPool<T extends Insertable> = {
     resize(n: number): void;
 }
 
-export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): ComponentPool<T> {
+export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
     return {
+        el: root.el,
         components: [],
         resize(newLength) {
             if (newLength < 0) {

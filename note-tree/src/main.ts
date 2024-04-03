@@ -1318,25 +1318,29 @@ function NoteFilters(): Renderable<AppArgs> {
 const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
 
 type NoteLinkArgs = {
-    noteId: NoteId;
+    note: Note;
     app: AppArgs;
+    focusAnyway: boolean;
 };
 
 function NoteLink(): Renderable<NoteLinkArgs> {
-    const root = htmlf(`<div class="hover-link"></div>`);
+    const root = htmlf(`<div class="hover-link" style="padding:5px"></div>`);
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
-        const { noteId, app: { state }}  = component.args;
+        const { note, app: { state }, focusAnyway }  = component.args;
 
-        const note = getNote(state, noteId);
-        setTextContent(root, note.data.text);
+        setTextContent(root, note.text);
+        root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === note.id) ? (
+            "var(--bg-color-focus)" 
+        ) : (
+            "var(--bg-color)" 
+        );
     });
 
     root.el.addEventListener("click", () => {
-        const { noteId, app: { state, rerenderApp }}  = component.args;
+        const { note, app: { state, rerenderApp }}  = component.args;
 
-        setCurrentNote(state, noteId);
-
+        setCurrentNote(state, note.id);
         rerenderApp();
     });
 
@@ -1344,74 +1348,58 @@ function NoteLink(): Renderable<NoteLinkArgs> {
 }
 
 function TodoList(): Renderable<AppArgs> {
-    const listRoot = htmlf(`<div></div>`);
-
     type TodoItemArgs = {
         app: AppArgs;
         note: tree.TreeNode<Note>;
     }
 
-    const componentList = makeComponentList(listRoot, () => {
-        const styles = `padding: 10px; border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);`;
-        
-        const moveUpButton = makeButton("↑", "hover-target");
-        
+    const componentList = makeComponentList(htmlf(`<div></div>`), () => {
+        const moveUpButton = makeButton("↑", "hover-target", "height: 20px;"); 
         const noteLink = NoteLink();
-        type NestedNoteItemArgs = {
-            note: tree.TreeNode<Note>;
-            onClick(): void;
-        }
-        const nestedNotesRoot = htmlf(`<div></div>`);
-        const nestedNotesList = makeComponentList(nestedNotesRoot, () => {
-            const root = htmlf(`<div class="hover-link" style="padding-left: 50px; border-top: 1px solid var(--fg-color);"></div>`);
 
-            const component = makeComponent<NestedNoteItemArgs>(root, () => {
-                const { note } = component.args;
-                setTextContent(root, note.data.text);
+        const nestedNotesList = makeComponentList(htmlf(`<div></div>`), () => {
+            const status = htmlf("<div></div>");
+            const link = NoteLink();
+            const thing = htmlf(`<div class="pre"></div>`);
+            const root = htmlf(`<div class="pre-wrap row">%{status} %{thing} %{link}</div>`, {
+                status, link, thing
             });
 
-            root.el.addEventListener("click", () => {
-                const { onClick } = component.args;
-                onClick();
+            const component = makeComponent<NoteLinkArgs>(root, () => {
+                const { note, app: { state } } = component.args;
+
+                link.rerender(component.args);
+                setTextContent(thing, state.currentNoteId === note.id ? " > " : " - ");
+                setTextContent(status, getNoteStateString(note) ?? "??");
             });
 
             return component;
         });
 
         const root = htmlf(
-            `<div class="hover-parent" style="${styles}">` + 
-                `<div class="row">` + 
-                    `%{text}` + 
+            `<div class="hover-parent" style="border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);">` + 
+                `<div class="row align-items-center">` + 
+                    `%{noteLink}` + 
                     `<div class="flex-1"></div>` + 
                     `<div class="row">%{buttons}</div>` +
                 `</div>` +
-                "%{nestedNotes}" +
+                "%{nestedNotesList}" +
             `</div>`,
             {
-                text: noteLink,
+                noteLink,
                 buttons: [
                     moveUpButton
                 ],
-                nestedNotes: nestedNotesRoot,
+                nestedNotesList,
             },
         );
 
         const component = makeComponent<TodoItemArgs>(root, () => {
             const { note, app } = component.args;
-            const { state, rerenderApp } = app;
+            const { state } = app;
 
-            noteLink.rerender({
-                app: app,
-                noteId: note.id,
-            });
 
             moveUpButton.el.setAttribute("title", "Move this note up");
-
-            root.el.style.backgroundColor = state.currentNoteId === note.id ? (
-                "var(--bg-color-focus)" 
-            ) : (
-                "var(--bg-color)" 
-            );
 
             const nestedNotes: tree.TreeNode<Note>[] = [];
             dfsPre(state, note, (n) => {
@@ -1421,15 +1409,23 @@ function TodoList(): Renderable<AppArgs> {
             });
 
             nestedNotesList.resize(nestedNotes.length);
+            let focusAnyway = note.id === state.currentNoteId;
             for(let i = 0; i < nestedNotes.length; i++) {
+                const note = nestedNotes[i].data;
+                focusAnyway = focusAnyway || note.id === state.currentNoteId;
+
                 nestedNotesList.components[i].rerender({
-                    note: nestedNotes[i],
-                    onClick: () => {
-                        setCurrentNote(state, nestedNotes[i].id);
-                        rerenderApp();
-                    }
+                    app: component.args.app,
+                    note,
+                    focusAnyway: false,
                 });
             }
+
+            noteLink.rerender({
+                app: app,
+                note: note.data,
+                focusAnyway,
+            });
         });
 
         moveUpButton.el.addEventListener("click", () => {
@@ -1449,17 +1445,13 @@ function TodoList(): Renderable<AppArgs> {
             state.todoNoteIds.splice(insertPoint, 0, note.id);
             setCurrentNote(state, note.id);
 
-            // TODO: fix for 
-
             rerenderApp();
         });
 
         return component;
     });
 
-    const root = htmlf(`<div>%{listRoot}</div>`, { listRoot });
-
-    const component = makeComponent<AppArgs>(root, () => {
+    const component = makeComponent<AppArgs>(componentList, () => {
         const { state } = component.args;
         
         componentList.resize(state.todoNoteIds.length);
@@ -2430,9 +2422,9 @@ function NotesList(): Renderable<AppArgs> {
     return component;
 }
 
-function makeButton(text: string, classes: string = "") {
+function makeButton(text: string, classes: string = "", styles: string = "") {
     return htmlf(
-        `<button type="button" class="solid-border ${classes}" style="min-width: 25px; padding: 3px; margin: 5px; display: flex; justify-content: center;">%{text}</button>`,
+        `<button type="button" class="solid-border ${classes}" style="min-width: 25px; padding: 3px; margin: 5px; display: flex; justify-content: center; ${styles}">%{text}</button>`,
         { text }
     );
 }
