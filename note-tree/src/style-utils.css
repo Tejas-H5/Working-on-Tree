@@ -82,8 +82,16 @@
     display: none !important;
 }
 
+.hover-parent .hover-target-inverse {
+    display: inherit !important;
+}
+
 .hover-parent:hover .hover-target {
     display: inherit !important;
+}
+
+.hover-parent:hover .hover-target-inverse {
+    display: none !important;
 }
 
 .pre-wrap {

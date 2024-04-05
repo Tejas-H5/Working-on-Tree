@@ -1,5 +1,3 @@
-import "./htmlf.css";
-
 export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     if (!trueVal) { 
         console.error(...msg); 
@@ -254,7 +252,12 @@ export function copyStyles(src: Insertable, dst: Insertable) {
 };
 
 export function setVisible(component: Insertable, state: boolean): boolean {
-    return !setClass(component, "hidden", !state);
+    if (state) {
+        component.el.style.setProperty("display", "", "")
+    } else {
+        component.el.style.setProperty("display", "none", "important")
+    }
+    return state;
 }
 
 type ComponentPool<T extends Insertable> = {

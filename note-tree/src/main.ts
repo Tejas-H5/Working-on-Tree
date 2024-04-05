@@ -193,8 +193,8 @@ function getActivityText(state: State, activity: Activity): string {
 
 function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : number {
     const startTimeMs = new Date(activity.t).getTime();
-    const endTimeMs = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
-    return endTimeMs - startTimeMs;
+    const nextStart = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
+    return nextStart - startTimeMs;
 }
 
 
@@ -267,24 +267,12 @@ type NoteFilter = null | {
 
 function pushActivity(state: State, activity: Activity) {
     const last = getLastActivity(state);
-    const secondLast = getSecondLastActivity(state);
 
     if (last?.nId && activity.nId && last.nId === activity.nId) {
         // don't add the same activity twice in a row
         return;
     }
 
-    if (last?.breakInfo && secondLast?.breakInfo && activity.breakInfo) {
-        // can't put 3 breaks in a row
-        return;
-    }
-
-    if (!secondLast?.breakInfo && last?.breakInfo && !activity.breakInfo) {
-        // this must also be a break. 
-        throw new Error("This break must be closed off first");
-    }
-
-    
     state.activities.push(activity);
 }
 
@@ -540,9 +528,7 @@ function toggleCurrentBreakActivity(state: State, breakInfoText: string) {
 
 function isCurrentlyTakingABreak(state: State): boolean {
     const last = getLastActivity(state);
-    const secLast = getSecondLastActivity(state);
-
-    return !!last?.breakInfo && !secLast?.breakInfo;
+    return !!last?.breakInfo;
 }
 
 const ON_BREAK_PREFIX = "[On Break]";
@@ -1481,42 +1467,86 @@ function TodoList(): Renderable<AppArgs> {
 }
 
 function ActivityList(): Renderable<AppArgs> {
-    const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
-    const breakItems = makeComponentList(listRoot, () => {
+    function ActivityListItem(): Renderable<ActivityListItemArgs> {
         const timestamp = htmlf(`<div style="width: 200px; padding-right: 10px;"></div>`);
         // TODO: conditional styling on if we even have a next activity
         const activityText = htmlf(`<span class="flex-1"></span>`);
-        const durationText = htmlf(`<div></div>`);
+        const durationText = htmlf(`<div style="padding-left: 10px"></div>`);
+        const insertBreakButton = makeButton("+ Insert break here");
+        const breakInsertRow = htmlf(
+            `<div class="hover-target">` + 
+                `<div class="align-items-center justify-content-center row">` +
+                    `<div class="flex-1" style="border-bottom: 1px solid var(--fg-color)"></div>` +
+                    `%{insertBreakButton}` + 
+                    `<div class="flex-1" style="border-bottom: 1px solid var(--fg-color)"></div>` +
+                `</div>` +
+            `</div>`, 
+            { insertBreakButton }
+        );
         const root = htmlf(
-            `<div style="padding: 0px;">` +
-                `<div class="row">%{timestamp}<div class="flex-1">%{activityText}</div>%{durationText}</div>` + 
-                // `<div class="text-align-center" style="padding: 10px"></div>` + 
+            `<div>` +
+                `<div class="hover-parent" style="min-height: 20px">` + 
+                    `%{breakInsertRow}` +
+                `</div>` +
+                `<div class="hover-parent" style="">` + 
+                    `<div class="row">` + 
+                        `%{timestamp}` + 
+                        `<div class="flex-1">` + 
+                            `%{activityText}` + 
+                        `</div>` + 
+                        `%{durationText}` + 
+                    `</div>` + 
+                `</div>` +
             `</div>`, { 
                 timestamp,
                 activityText, 
                 durationText,
+                breakInsertRow,
             }
         );
 
         const component = makeComponent<ActivityListItemArgs>(root, () => {
-            const { activity, nextActivity, app: { state }, showDuration } = component.args;
+            const { activity, nextActivity, app: { state }, showDuration, } = component.args;
 
             setClass(activityText, "hover-link", !!activity.nId);
             activityText.el.style.paddingLeft = activity.nId ? "0" : "40px";
-
-            root.el.style.paddingBottom = (!!activity.nId !== !!nextActivity?.nId) ? "20px" : "0px";
 
             const startDate = new Date(activity.t);
             const timeStr = formatDate(startDate);
             setTextContent(timestamp, timeStr);
 
             const text = getActivityText(state, activity);
-            setTextContent(activityText, truncate(text, 45));
+            setTextContent(activityText, text);
 
             if (setVisible(durationText, showDuration)) {
                 const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
                 setTextContent(durationText, durationStr);
             }
+
+            setVisible(breakInsertRow, !!nextActivity && !activity.breakInfo && !nextActivity.breakInfo)
+        });
+
+        insertBreakButton.el.addEventListener("click", () => {
+            const { activity, nextActivity, app: { state, rerenderApp } } = component.args;
+
+            const idx = state.activities.indexOf(activity);
+            if (idx === -1) {
+                return;
+            }
+
+            const timeA = (new Date(activity.t)).getTime();
+            const duration = getActivityDurationMs(activity, nextActivity);
+            const midpoint = timeA + duration / 2;
+
+            const newBreak : Activity =  {
+                t: getTimestamp(new Date(midpoint)),
+                breakInfo: "New break",
+                nId: undefined,
+            };
+
+            state.activities.splice(idx + 1, 0, newBreak);
+
+            rerenderApp();
         });
 
         activityText.el.addEventListener("click", () => {
@@ -1527,30 +1557,59 @@ function ActivityList(): Renderable<AppArgs> {
 
             setCurrentNote(state, activity.nId);
             rerenderApp();
-        })
+        });
 
         return component;
-    });
+    }
+
+    const listRoot = makeComponentList(htmlf(`<div style="border-bottom: 1px solid black"></div>`), ActivityListItem);
 
     const breakInput = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
     const breakButton = makeButton("");
-    const breakInfo = htmlf("<div></div>")
+    const leftButton = makeButton("<");
+    const leftLeftButton = makeButton("<<");
+    const rightButton = makeButton(">");
     const root = htmlf(
         // TODO: audit these styles
-        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
-            %{listRoot}
+        `<div class="w-100" style="border-top: 1px solid var(--fg-color);">
             <div style="padding: 5px;" class="row align-items-center">
                 <div class="flex-1">%{input}</div>
                 <div>%{breakButton}</div>
             </div>
-            %{breakInfo}
+            %{listRoot}
+            <div style="border-top: 1px solid var(--fg-color);" class="row">%{leftLeftButton}%{leftButton}%{rightButton}</div>
         </div>`, {
             listRoot,
             input: breakInput,
             breakButton,
-            breakInfo,
+            leftButton,
+            leftLeftButton,
+            rightButton,
         }
     );
+
+    let page = 0;
+    const pageSize = 10;
+
+    const getMaxPages = () => Math.ceil(component.args.state.activities.length / pageSize);
+
+    leftButton.el.addEventListener("click", () => {
+        page = Math.max(page - 1, 0);
+
+        component.rerender(component.args);
+    });
+
+    leftLeftButton.el.addEventListener("click", () => {
+        page = 0;
+
+        component.rerender(component.args);
+    });
+
+    rightButton.el.addEventListener("click", () => {
+        page = Math.min(page + 1, getMaxPages());
+
+        component.rerender(component.args);
+    });
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
@@ -1568,24 +1627,28 @@ function ActivityList(): Renderable<AppArgs> {
             "Enter break reason (optional)"
         ));
 
-        const MAX_ACTIVITIES_TO_RENDER = 7;
 
         const activities = state.activities;
-        const activitiesToRender = Math.min(MAX_ACTIVITIES_TO_RENDER, activities.length);
-        const start = activities.length - activitiesToRender;
-
-        breakItems.resize(activitiesToRender);
+        const start = Math.max(0, Math.min(page * pageSize, activities.length - 1));
+        const end = Math.max(0, Math.min((page + 1) * pageSize, activities.length));
+        const activitiesToRender = end - start;
+        listRoot.resize(activitiesToRender);
         for (let i = 0; i < activitiesToRender; i++) {
-            const activity = activities[start + i];
-            const nextActivity = activities[start + i + 1]; // JavaScript moment - you can index past an array without crashing
+            const idx = activities.length - end + i;
+            const activity = activities[idx];
+            const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
 
-            breakItems.components[i].rerender({
+            listRoot.components[activitiesToRender - 1 - i].rerender({
                 app: component.args, 
                 activity, 
                 nextActivity,
                 showDuration: true,
             });
         }
+
+        setVisible(leftButton, page !== 0);
+        setVisible(leftLeftButton, page !== 0);
+        setVisible(rightButton, page !== getMaxPages());
     });
 
     function toggleCurrentBreak() {
@@ -1620,8 +1683,8 @@ function ActivityList(): Renderable<AppArgs> {
     return component;
 }
 
-// NOTE: the caller who is instantiating the scratch pad should have access to the text here.
-// so it makes very litle sense that we are getting this text...
+// exposing the text area so that we can focus it, but
+// really, TODO: just expose a focus() function...
 function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
     const SCRATCHPAD_HEIGHT = 400;
     const yardStick = htmlf(`<div class="absolute" style="width: 5px; left:-5px;top:0px"></div>`)
@@ -1880,123 +1943,6 @@ type ActivityListItemArgs = {
     showDuration: boolean;
 };
 
-function ActivityListItem(): Renderable<ActivityListItemArgs> {
-    const activityText = htmlf(`<div></div>`)
-    const timestamp = htmlf(`<div class="pre" style="min-width: 350px"></div>`)
-
-    const root = htmlf(
-        `<div class="row" style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
-            `%{timestamp}` + 
-            `%{activityText}` + 
-        `</div>`,
-        { activityText, timestamp },
-    );
-
-    const component = makeComponent<ActivityListItemArgs>(root, () => {
-        const { activity, app: { state } } = component.args;
-
-        setTextContent(activityText, getActivityText(state, activity));
-
-        let timestampText = formatDate(new Date(activity.t));
-        setTextContent(timestamp, timestampText);
-
-
-        root.el.style.cursor = activity.nId ? "pointer" : "";
-    });
-
-    root.el.addEventListener("click", () => {
-        const { app: { state, setCurrentModal }, activity } = component.args;
-
-        if (activity.nId) {
-            setCurrentNote(state, activity.nId);
-            setCurrentModal(null);
-        }
-    });
-
-    return component;
-}
-
-function ActivitiesPaginated(): Renderable<AppArgs> {
-    let page = 0;
-    // Yeah this number can be really high because this isn't React lmao
-    let perPage = 2000;
-
-    const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
-    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, ActivityListItem);
-
-    const prevPageButton = makeButton("<");
-    const nextPageButton = makeButton(">");
-    const pageNumber = htmlf("<div></div>");
-
-    const root = htmlf(
-        `<div class="w-100 h-100 col">` + 
-            `<div class="flex-1 relative" style="overflow-y: scroll">` +
-                `%{vListRoot}` + 
-            `</div>` + 
-            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
-                "%{prevPageButton}" + 
-                "%{pageNumber}" +
-                "%{nextPageButton}" + 
-            `</div>` + 
-        `</div>`,
-        { vListRoot, prevPageButton, nextPageButton, pageNumber }
-    );
-
-    function getMaxPages(state: State): number {
-        return Math.floor(state.activities.length / perPage);
-    }
-
-    const component = makeComponent<AppArgs>(root, () => {
-        const { state } = component.args;
-
-        setTextContent(pageNumber, `${page + 1}/${getMaxPages(state) + 1}`);
-
-        const maxPages = getMaxPages(state);
-        page = Math.min(page, maxPages);
-        page = Math.max(page, 0);
-
-        // NOTE: pages need to paginate backwards, so that we're always seeing the most recent activities
-        let start = state.activities.length - (page + 1) * perPage;
-        const end = state.activities.length - page * perPage;
-        if (start < 0) {
-            start = 0;
-        }
-
-        vList.resize(end - start);
-        for (let i = 0; i < end - start; i++) {
-            vList.components[vList.components.length - 1 - i].rerender({
-                app: component.args,
-                activity: state.activities[start + i],
-                nextActivity: state.activities[start + i + 1],
-                showDuration: true,
-            });
-        }
-    });
-
-    prevPageButton.el.addEventListener("click", () => {
-        page--;
-        if (page < 0) {
-            page = 0;
-        }
-        
-        component.rerender(component.args);
-    });
-
-
-    nextPageButton.el.addEventListener("click", () => {
-        const { state } = component.args;
-
-        page++;
-        const maxPages = getMaxPages(state);
-        if (page > maxPages) {
-            page = maxPages;
-        }
-
-        component.rerender(component.args);
-    });
-
-    return component;
-}
 
 // All times are in milliseconds
 type Analytics = {
@@ -2037,7 +1983,7 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
 
         const duration = getActivityDurationMs(activity, nextActivity);
 
-        if (activity.breakInfo || nextActivity?.breakInfo) {
+        if (activity.breakInfo) {
             analytics.breakTime += duration;
             continue;
         }
@@ -2149,13 +2095,11 @@ function ActivityAnalytics(): Renderable<AppArgs> {
 }
 
 function AnalyticsModal(): Renderable<AppArgs> {
-    const activitiesList = ActivitiesPaginated();
     const activityAnalytics = ActivityAnalytics();
 
     let currentTabIdx = 0;
 
     const tabs = [
-        htmlf(`<div class="tab" style="">Activities</div>`),
         htmlf(`<div class="tab" style="">Timings</div>`),
     ];
 
@@ -2167,7 +2111,6 @@ function AnalyticsModal(): Renderable<AppArgs> {
     }
 
     const tabContent = [
-        activitiesList,
         activityAnalytics,
     ].map(c => htmlf(`<div class="flex-1">%{c}</div>`, { c }));
 
@@ -2195,7 +2138,6 @@ function AnalyticsModal(): Renderable<AppArgs> {
             onClose: () => setCurrentModal(null) 
         });
 
-        activitiesList.rerender(component.args);
         activityAnalytics.rerender(component.args);
 
         for (let i = 0; i < tabs.length; i++) {
