@@ -11,6 +11,10 @@
     flex-direction: column;
 }
 
+.flex {
+    display: flex;
+}
+
 .flex-1 {
     flex: 1
 }
@@ -45,6 +49,10 @@
 
 .inline-block {
     display: inline-block;
+}
+
+.inline {
+    display: inline;
 }
 
 .align-items-baseline {
@@ -121,6 +129,7 @@
 
 .solid-border-sm {
     outline: 1px solid var(--fg-color);
+    border-radius: 3px;
 }
 
 .z-index-100 {
