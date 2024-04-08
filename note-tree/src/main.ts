@@ -6,7 +6,6 @@ import {
     Renderable,
     appendChild,
     assert,
-    htmlf,
     makeComponent,
     setClass,
     setInputValue,
@@ -14,10 +13,14 @@ import {
     setTextContent,
     setVisible,
     makeComponentList as makeComponentList,
-} from "./htmlf";
+    div,
+    el,
+} from "./dom-utils";
 
 import * as tree from "./tree";
-import { filterInPlace, swap } from "./array-utils";
+import { filterInPlace } from "./array-utils";
+import { Checkbox, DateTimeInput, FractionBar, Modal, makeButton } from "./generic-components";
+import { formatDate, truncate } from "./utils";
 
 // const INDENT_BASE_WIDTH = 100;
 // const INDENT_WIDTH_PX = 50;
@@ -25,18 +28,6 @@ const SAVE_DEBOUNCE = 1000;
 const STATUS_TEXT_PERSIST_TIME = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
 
-function pad2(num: number) {
-    return num < 10 ? "0" + num : "" + num;
-}
-
-/** NOTE: won't work for len < 3 */
-function truncate(str: string, len: number): string {
-    if (str.length > len) {
-        return str.substring(0, len - 3) + "...";
-    }
-
-    return str;
-}
 
 function isDoneNote(note: Note) {
     return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
@@ -156,7 +147,10 @@ type Note = {
 type Activity = {
     nId?: NoteId;
     t: string;
+
+    // only apply to breaks:
     breakInfo?: string;
+    locked?: true;
 }
 
 function defaultNote() : Note {
@@ -193,8 +187,8 @@ function getActivityText(state: State, activity: Activity): string {
 
 function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : number {
     const startTimeMs = new Date(activity.t).getTime();
-    const endTimeMs = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
-    return endTimeMs - startTimeMs;
+    const nextStart = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
+    return nextStart - startTimeMs;
 }
 
 
@@ -244,7 +238,8 @@ type State = {
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
     lastEditedNoteIds: NoteId[];
-
+    // NOTE: we're kinda using the note's index like it's ID here. this is fine,
+    // because activities are guaranteed to not change order (at least that is what we would like)
     currentNoteFilterIdx: number;
 
     scratchPad: string;
@@ -254,6 +249,9 @@ type State = {
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+    // The last activity that we appended which cannot be popped due to debounce logic
+    lastFixedActivityIdx: number | null;
+
 
     // non-serializable fields
     _flatNoteIds: NoteId[];
@@ -265,27 +263,46 @@ type NoteFilter = null | {
 };
 
 
-function pushActivity(state: State, activity: Activity) {
+function pushActivity(state: State, activity: Activity, shouldDebounce: boolean) {
     const last = getLastActivity(state);
-    const secondLast = getSecondLastActivity(state);
-
-    if (last?.nId && activity.nId && last.nId === activity.nId) {
-        // don't add the same activity twice in a row
+    const lastIdx = state.activities.length - 1;
+    if (!last) {
+        state.lastFixedActivityIdx = state.activities.length;
+        state.activities.push(activity);
         return;
     }
 
-    if (last?.breakInfo && secondLast?.breakInfo && activity.breakInfo) {
-        // can't put 3 breaks in a row
-        return;
+    if (last && last.nId) {
+        if (
+            shouldDebounce &&
+            lastIdx !== state.lastFixedActivityIdx
+        ) {
+            const duration = getActivityDurationMs(last, undefined);
+            const ONE_MINUTE = 1000 * 60;
+
+            if (duration < ONE_MINUTE) {
+                // we are debouncing this append operation, so that we don't append like 10 activities by just moving around for example.
+                // This would just mean that we replace the last thing we pushed instead of pushing a new thing
+                state.activities.pop();
+            } else {
+                // Actually, we don't even need to do this. The simple fact that
+                // it is older than 1 minute will already have the same effect as the lastFixedActivity variable, i.e
+                // prevent the activities.pop() from happening.
+                // But there's no real harm to put this here either
+                state.lastFixedActivityIdx = lastIdx
+            }
+        }
+         
+        if (getLastActivity(state)?.nId === activity.nId) {
+            // don't add the same activity twice in a row
+            return;
+        }
     }
 
-    if (!secondLast?.breakInfo && last?.breakInfo && !activity.breakInfo) {
-        // this must also be a break. 
-        throw new Error("This break must be closed off first");
-    }
-
-    
     state.activities.push(activity);
+    if (!shouldDebounce) {
+        state.lastFixedActivityIdx = state.activities.length - 1;
+    }
 }
 
 function getLastActivity(state: State): Activity | undefined {
@@ -318,6 +335,7 @@ function defaultState(): State {
         lastEditedNoteIds: [],
         todoNoteIds: [],
         activities: [],
+        lastFixedActivityIdx: 0,
 
         currentNoteFilterIdx: 0,
 
@@ -437,7 +455,7 @@ function insertNoteAfterCurrent(state: State) {
     const parent = getNote(state, currentNote.parentId);
     tree.addUnder(state.notes, parent, newNote)
 
-    setCurrentNote(state, newNote.id);
+    setCurrentNote(state, newNote.id, false);
     return true;
 }
 
@@ -452,7 +470,7 @@ function insertChildNode(state: State) {
     const newNote = createNewNote("");
 
     tree.addUnder(state.notes, currentNote, newNote);
-    setCurrentNote(state, newNote.id);
+    setCurrentNote(state, newNote.id, false);
 
     return true;
 }
@@ -523,87 +541,83 @@ function getCurrentNote(state: State) {
 }
 
 
-/** 
- * Adds a break to the activity list
- * If we were taking a break, it appends an [Off break], else it appends an [On Break]  
- */
-function toggleCurrentBreakActivity(state: State, breakInfoText: string) {
-    const isTakingABreak = isCurrentlyTakingABreak(state);
-    const noteText = (isTakingABreak ? OFF_BREAK_PREFIX : ON_BREAK_PREFIX) + " " + breakInfoText;
-
+function pushBreakActivity(state: State, breakInfoText: string, locked: undefined | true) {
     pushActivity(state, {
         nId: undefined,
         t: getTimestamp(new Date()),
-        breakInfo: noteText,
-    });
+        breakInfo: breakInfoText,
+        locked: locked,
+    }, false);
 }
 
 function isCurrentlyTakingABreak(state: State): boolean {
     const last = getLastActivity(state);
-    const secLast = getSecondLastActivity(state);
-
-    return !!last?.breakInfo && !secLast?.breakInfo;
+    return !!last?.breakInfo;
 }
 
-const ON_BREAK_PREFIX = "[On Break]";
-const OFF_BREAK_PREFIX = "[Off break]";
-
-function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getOneNoteDown(state: State, note: tree.TreeNode<Note>): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
     const idx = state._flatNoteIds.indexOf(note.id);
     if (idx < state._flatNoteIds.length - 1) {
-        return getNote(state, state._flatNoteIds[idx + 1]);
+        return state._flatNoteIds[idx + 1];
     }
 
     return null;
 }
 
-function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getOneNoteUp(state: State, note: tree.TreeNode<Note>): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
     const idx = state._flatNoteIds.indexOf(note.id);
     if (idx > 0) {
-        return getNote(state, state._flatNoteIds[idx - 1]);
+        return state._flatNoteIds[idx - 1];
     }
 
     return null;
 }
 
-function setCurrentNote(state: State, noteId: NoteId) {
-    const currentNoteBeforeMove = getCurrentNote(state);
-    if (currentNoteBeforeMove.id === noteId) {
+function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = true) {
+    if (!noteId) {
         return;
     }
 
-    if (!tree.hasNode(state.notes, noteId)) {
-        return;
-    }
-
-    state.currentNoteId = noteId;
-    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
-}
-
-function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) {
+    const note = getNote(state, noteId);
     if (!note || note === getRootNote(state)) {
         return false;
     }
 
-    setCurrentNote(state, note.id);
+    const currentNoteBeforeMove = getCurrentNote(state);
+    if (currentNoteBeforeMove.id === note.id) {
+        return;
+    }
+
+    if (!tree.hasNode(state.notes, note.id)) {
+        return;
+    }
+
+    state.currentNoteId = note.id;
+    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+
+    pushActivity(state, {
+        t: getTimestamp(new Date()),
+        nId: note.id,
+    }, debounceActivity);
+
     return true;
 }
 
-type NoteFilterFunction = (note: tree.TreeNode<Note>) => boolean;
+type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
 function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(note)) {
-            return note;
+        if (filterFn(state, note)) {
+            return note.id;
         }
 
         idx++;
@@ -616,8 +630,8 @@ function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn
     let idx = childIds.indexOf(id) - 1;
     while (idx >= 0)  {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(note)) {
-            return note;
+        if (filterFn(state, note)) {
+            return note.id;
         }
 
         idx--;
@@ -640,8 +654,20 @@ function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
     return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
 }
 
-function isNoteImportant(note: tree.TreeNode<Note>) : boolean {
-    return getRealChildCount(note) !== 0 || note.data._status === STATUS_IN_PROGRESS;
+function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
+    if (!note.parentId) {
+        return true;
+    }
+
+    const siblings = getNote(state, note.parentId).childIds;
+    const idx = siblings.indexOf(note.id);
+
+    return (
+        idx === 0 ||
+        idx === siblings.length - 1 ||
+        getRealChildCount(note) !== 0 ||
+        note.data._status === STATUS_IN_PROGRESS
+    );
 }
 
 function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
@@ -713,48 +739,6 @@ function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
     return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
 }
 
-/** 
- * Swaps the current note with the lower note in the priority queue. 
- * The note gets unshifted if it doesn't exist, and removed if it's already lowest priority
- */
-function decreaseNotePriority(state: State) {
-    const note = getCurrentNote(state);
-    const idx = state.todoNoteIds.indexOf(note.id);
-    if (idx === -1) {
-        state.todoNoteIds.unshift(note.id);
-        return;
-    }
-
-    if (idx === state.todoNoteIds.length - 1) {
-        state.todoNoteIds.splice(idx, 1);
-        return;
-    }
-
-    // swap with the next note
-    swap(state.todoNoteIds, idx, idx + 1);
-}
-
-/** 
- * Swaps the current note with the higher note in the priority queue. 
- * The note gets pushed if it doesn't exist, and removed if it's already a P1
- */
-function increaseNotePriority(state: State) {
-    const note = getCurrentNote(state);
-    const idx = state.todoNoteIds.indexOf(note.id);
-    if (idx === -1) {
-        state.todoNoteIds.push(note.id);
-        return;
-    }
-
-    if (idx === 0) {
-        state.todoNoteIds.splice(idx, 1);
-        return;
-    }
-
-    swap(state.todoNoteIds, idx, idx - 1);
-}
-
-
 function getLastEditedNoteId(state: State) {
     return state.lastEditedNoteIds[state.lastEditedNoteIds.length - 1];
 }
@@ -791,28 +775,23 @@ function moveToLastEditedNote(state: State) {
 
 // returns true if the app should re-render
 function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
-    const altPressed = e.altKey;
     const ctrlPressed = e.ctrlKey || e.metaKey;
     const shiftPressed = e.shiftKey;
+    const currentNoteId = state.currentNoteId;
     const currentNote = getCurrentNote(state);
-
-    if (altPressed) {
-        e.preventDefault();
-    }
 
     switch (e.key) {
         case "Enter":
             e.preventDefault();
 
             if (shiftPressed) {
-                insertChildNode(state);
+                return insertChildNode(state);
             } else {
-                insertNoteAfterCurrent(state);
+                return insertNoteAfterCurrent(state);
             }
-            break;
         case "Backspace":
             // NOTE: alt + backspace is a global key-bind
-            if (!altPressed) {
+            if (!ctrlPressed && !shiftPressed) {
                 return deleteNoteIfEmpty(state, state.currentNoteId);
             }
             break;
@@ -830,46 +809,58 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             }
 
             break;
+        case "K": // cause of vim binds, I use hjkl and not ijkl as a gamer might expect
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                // setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
+                setCurrentNote(state, getOneNoteUp(state, currentNote));
+            }
+            break;
         case "ArrowUp":
-            moveToNote(state, 
-                altPressed ? getNoteOneUpLocally(state, currentNote) : 
-                    getOneNoteUp(state, currentNote)
-            );
+            if (!(ctrlPressed && shiftPressed)) {
+                e.preventDefault();
+                setCurrentNote(state, getOneNoteUp(state, currentNote));
+            }
             break;
         case "PageUp":
             for (let i = 0; i < 10; i++) {
-                moveToNote(state, getOneNoteUp(state, getCurrentNote(state)));
+                e.preventDefault();
+                setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state)));
             }
             break;
         case "PageDown":
             for (let i = 0; i < 10; i++) {
-                moveToNote(state, getOneNoteDown(state, getCurrentNote(state)));
+                setCurrentNote(state, getOneNoteDown(state, getCurrentNote(state)));
+            }
+            break;
+        case "J":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                // setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
+                setCurrentNote(state, getOneNoteDown(state, currentNote));
             }
             break;
         case "ArrowDown":
-            moveToNote(state, 
-                altPressed ? getNoteOneDownLocally(state, currentNote) : 
-                    getOneNoteDown(state, currentNote)
-            );
+            setCurrentNote(state, getOneNoteDown(state, currentNote));
             break;
-        case "ArrowLeft":
-            if (altPressed) {
-                moveToNote(state, 
-                    currentNote.parentId ? getNote(state, currentNote.parentId) : null
-                );
+        case "H":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                setCurrentNote(state, currentNote.parentId)
             }
             break;
-        case "ArrowRight":
-            if (altPressed) {
+        case "L":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
                 if (
                     currentNote.data.lastSelectedChildId && 
                     // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
                     // TODO: just don't set this to an invalid value
                     tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
                 ) {
-                    moveToNote(state, getNote(state, currentNote.data.lastSelectedChildId));
+                    setCurrentNote(state, currentNote.data.lastSelectedChildId);
                 } else {
-                    moveToNote(state, getFinalChildNote(state, currentNote));
+                    setCurrentNote(state, getFinalChildNote(state, currentNote));
                 }
             }
             break;
@@ -879,27 +870,17 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
                 nextFilter(state);
             }
             break;
-        case "O":
-            if (shiftPressed && altPressed) {
-                increaseNotePriority(state);
-            }
-            break;
-        case "P":
-            if (shiftPressed && altPressed) {
-                decreaseNotePriority(state);
-            }
-            break;
     }
 
     return true;
 }
 
-function getFinalChildNote(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getFinalChildNote(state: State, note: tree.TreeNode<Note>): NoteId | null {
     let finalNoteIdx = note.childIds.length - 1;
     while (finalNoteIdx >= 0) {
         const childNote = getNote(state, note.childIds[finalNoteIdx]);
         if (!childNote.data._filteredOut) {
-            return childNote;
+            return childNote.id;
         }
 
         finalNoteIdx--;
@@ -1091,6 +1072,14 @@ function recomputeState(state: State) {
         const current = getCurrentNote(state);
         tree.forEachParent(state.notes, current, (note) => {
             note.data._isSelected = true;
+
+            // Also let's add these notes to the todoNoteIds list if applicable.
+            if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
+                // this will get auto-deleted from recomputeState, so we don't have to do that here
+                state.todoNoteIds.push(note.id);
+            }
+
+
             if (note.parentId) { 
                 const parent = getNote(state, note.parentId);
                 parent.data.lastSelectedChildId = note.id;
@@ -1114,30 +1103,10 @@ function recomputeState(state: State) {
             const note = getNote(state, id);
             return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
         });
-
-
-        // Mainly used for bootstrapping when I was introducing this feature
-        // tree.forEachNode(state.notes, (id) => {
-        //     const note = getNote(state, id);
-        //     if (isTodoNote(note.data) && !state.todoNoteIds.includes(id)) {
-        //         state.todoNoteIds.push(id);
-        //     }
-        // })
     }
 }
 
 
-function formatDate(date: Date) {
-    const dd = date.getDate();
-    const mm = date.getMonth() + 1;
-    const yyyy = date.getFullYear();
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-
-    return `${pad2(dd)}/${pad2(mm)}/${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
-        hours < 12 ? "am" : "pm"
-    }`;
-}
 
 function getTimeStr(note: Note) {
     const { openedAt } = note;
@@ -1283,10 +1252,10 @@ function nextFilter(state: State) {
 function NoteFilters(): Renderable<AppArgs> {
     const lb = makeButton("<");
     const rb = makeButton(">");
-    const currentFilterText = htmlf(`<div class="flex-1 text-align-center" style="background:var(--bg-color)"></div>`);
-    const root = htmlf(`<div class="row align-items-center" style="width:200px;">%{lb}%{currentFilter}%{rb}</div>`, { 
-        lb, rb, currentFilter: currentFilterText
-    });
+    const currentFilterText = div({ class: "flex-1 text-align-center", style: "background:var(--bg-color)"})
+    const root = div({ class: "row align-items-center", style: "width: 200px;"}, [
+        lb, currentFilterText, rb
+    ]);
 
 
     const component = makeComponent<AppArgs>(root, () => {
@@ -1314,22 +1283,22 @@ function NoteFilters(): Renderable<AppArgs> {
     return component;
 }
 
-const RETURN_FROM_BREAK_DEFAULT_TEXT = "We're back";
-
 type NoteLinkArgs = {
-    note: Note;
+    text: string; 
+    noteId?: NoteId;
     app: AppArgs;
     focusAnyway: boolean;
 };
 
 function NoteLink(): Renderable<NoteLinkArgs> {
-    const root = htmlf(`<div class="hover-link" style="padding:5px"></div>`);
+    const root = div({ style: "padding:5px" })
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
-        const { note, app: { state }, focusAnyway }  = component.args;
+        const { text, noteId, app: { state }, focusAnyway }  = component.args;
 
-        setTextContent(root, note.text);
-        root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === note.id) ? (
+        setClass(root, "hover-link", !!noteId);
+        setTextContent(root, truncate(text, 500));
+        root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)" 
         ) : (
             "var(--bg-color)" 
@@ -1337,10 +1306,12 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     });
 
     root.el.addEventListener("click", () => {
-        const { note, app: { state, rerenderApp }}  = component.args;
+        const { noteId, app: { state, rerenderApp }}  = component.args;
 
-        setCurrentNote(state, note.id);
-        rerenderApp();
+        if (noteId) {
+            setCurrentNote(state, noteId);
+            rerenderApp();
+        }
     });
 
     return component;
@@ -1352,52 +1323,50 @@ function TodoList(): Renderable<AppArgs> {
         note: tree.TreeNode<Note>;
     }
 
-    const componentList = makeComponentList(htmlf(`<div></div>`), () => {
+    const componentList = makeComponentList(div(), () => {
         const moveUpButton = makeButton("↑", "hover-target", "height: 20px;"); 
         const noteLink = NoteLink();
 
-        const nestedNotesList = makeComponentList(htmlf(`<div></div>`), () => {
-            const status = htmlf("<div></div>");
+        const nestedNotesList = makeComponentList(div(), () => {
+            const status = div();
             const link = NoteLink();
-            const thing = htmlf(`<div class="pre"></div>`);
-            const root = htmlf(`<div class="pre-wrap row align-items-center">%{status} %{thing} %{link}</div>`, {
-                status, link, thing
-            });
+            const thing = div({ class: "pre" })
+            const root = div({ class: "pre-wrap row align-items-center" }, [
+                status, thing, link,
+            ])
 
             type NestedNotesArgs = {
-                linkedNoteArgs: NoteLinkArgs;
+                linkedNoteArgs: Omit<NoteLinkArgs, "noteId"> & { noteId: NoteId; };
                 previousNotesCount: number;
             }
 
             const component = makeComponent<NestedNotesArgs>(root, () => {
                 const { linkedNoteArgs, previousNotesCount } = component.args;
-                const { note, app: { state } } = linkedNoteArgs;
+                const { noteId, app: { state } } = linkedNoteArgs;
+
+                const note = getNote(state, noteId);
 
                 link.rerender(linkedNoteArgs);
-                setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === note.id ? " > " : " - "));
-                setTextContent(status, getNoteStateString(note) ?? "??");
+                setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === noteId ? " > " : " - "));
+                setTextContent(status, getNoteStateString(note.data) ?? "??");
             });
 
             return component;
         });
 
-        const root = htmlf(
-            `<div class="hover-parent" style="border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);">` + 
-                `<div class="row align-items-center">` + 
-                    `%{noteLink}` + 
-                    `<div class="flex-1"></div>` + 
-                    `<div class="row">%{buttons}</div>` +
-                `</div>` +
-                "%{nestedNotesList}" +
-            `</div>`,
-            {
+        const root = div({ 
+            class: "hover-parent", 
+            style: "border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);"
+        }, [
+            div({ class: "row align-items-center" }, [
                 noteLink,
-                buttons: [
+                div({ class: "flex-1" }),
+                div({ class: "row" }, [
                     moveUpButton
-                ],
-                nestedNotesList,
-            },
-        );
+                ]),
+            ]),
+            nestedNotesList
+        ]);
 
         const component = makeComponent<TodoItemArgs>(root, () => {
             const { note, app } = component.args;
@@ -1424,7 +1393,8 @@ function TodoList(): Renderable<AppArgs> {
                 nestedNotesList.components[i].rerender({
                     linkedNoteArgs: {
                         app: component.args.app,
-                        note: note.data,
+                        noteId: note.id,
+                        text: note.data.text,
                         focusAnyway: false,
                     },
                     previousNotesCount: childCount,
@@ -1433,7 +1403,8 @@ function TodoList(): Renderable<AppArgs> {
 
             noteLink.rerender({
                 app: app,
-                note: note.data,
+                noteId: note.id,
+                text: note.data.text,
                 focusAnyway,
             });
         });
@@ -1459,7 +1430,7 @@ function TodoList(): Renderable<AppArgs> {
             state.todoNoteIds.splice(insertPoint, 0, note.id);
             setCurrentNote(state, note.id);
 
-            rerenderApp();
+            rerenderApp({ shouldScroll: false });
         });
 
         return component;
@@ -1480,46 +1451,165 @@ function TodoList(): Renderable<AppArgs> {
     return component;
 }
 
+function isEditableBreak(activity: Activity) {
+    if (!activity) {
+        return false;
+    }
+
+    if (!activity.breakInfo) {
+        return false;
+    }
+
+    if (activity.locked === true) {
+        // can't edit breaks that we've locked.
+        return false;
+    }
+
+    return true;
+}
+
 function ActivityList(): Renderable<AppArgs> {
-    const listRoot = htmlf(`<div style="border-bottom: 1px solid black"></div>`);
-    const breakItems = makeComponentList(listRoot, () => {
-        const timestamp = htmlf(`<div style="width: 200px; padding-right: 10px;"></div>`);
-        // TODO: conditional styling on if we even have a next activity
-        const activityText = htmlf(`<span class="flex-1"></span>`);
-        const durationText = htmlf(`<div></div>`);
-        const root = htmlf(
-            `<div style="padding: 0px;">` +
-                `<div class="row">%{timestamp}<div class="flex-1">%{activityText}</div>%{durationText}</div>` + 
-                // `<div class="text-align-center" style="padding: 10px"></div>` + 
-            `</div>`, { 
-                timestamp,
-                activityText, 
-                durationText,
-            }
+    function ActivityListItem(): Renderable<ActivityListItemArgs> {
+        const timestamp = DateTimeInput();
+        const timestampWrapper = div({ style: "width: 200px;" }, [ timestamp ]);
+        const noteLink = NoteLink();
+        const breakEdit = el<HTMLInputElement>(
+            "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
         );
+        const durationText = div({ style: "padding-left: 10px" });
+        const insertBreakButton = makeButton("+ Insert break here");
+        const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
+            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+            insertBreakButton,
+            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+        ]);
+
+        const deleteButton = makeButton("x");
+        const root = div({}, [
+            div({class: "hover-parent", style: "min-height: 10px"}, [
+                div({class: "hover-target"}, [
+                    breakInsertRow
+                ])
+            ]),
+            div({class: "hover-parent" }, [
+                div({ class: "row", style: "gap: 20px" }, [
+                    timestampWrapper,
+                    div({ class: "flex-1 row" }, [
+                        noteLink,
+                        breakEdit
+                    ]),
+                    deleteButton,
+                    durationText,
+                ])
+            ])
+        ]);
 
         const component = makeComponent<ActivityListItemArgs>(root, () => {
-            const { activity, nextActivity, app: { state }, showDuration } = component.args;
+            const { activity, nextActivity, app, showDuration, } = component.args;
+            const { state } = app;
 
-            setClass(activityText, "hover-link", !!activity.nId);
-            activityText.el.style.paddingLeft = activity.nId ? "0" : "40px";
+            const isEditable = isEditableBreak(activity);
+            const activityText = getActivityText(state, activity);
 
-            root.el.style.paddingBottom = (!!activity.nId !== !!nextActivity?.nId) ? "20px" : "0px";
+            if (setVisible(breakEdit, isEditable)) {
+                setInputValue(breakEdit, activityText);
+            }
 
-            const startDate = new Date(activity.t);
-            const timeStr = formatDate(startDate);
-            setTextContent(timestamp, timeStr);
+            if (setVisible(noteLink, !isEditable)) {
+                noteLink.rerender({
+                    app,
+                    focusAnyway: false,
+                    noteId: activity.nId,
+                    text: activityText,
+                })
+                setClass(noteLink, "hover-link", !!activity.nId);
+                noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
+            }
 
-            const text = getActivityText(state, activity);
-            setTextContent(activityText, truncate(text, 45));
+            timestamp.rerender({
+                date: new Date(activity.t),
+                onChange: updateActivityTime,
+                readOnly: false, 
+            });
 
             if (setVisible(durationText, showDuration)) {
-                const durationStr = formatDuration(getActivityDurationMs(activity, nextActivity));
+                const durationStr = (isEditable ? "~" : "" ) + formatDuration(getActivityDurationMs(activity, nextActivity));
                 setTextContent(durationText, durationStr);
             }
+
+            setVisible(deleteButton, isEditable);
         });
 
-        activityText.el.addEventListener("click", () => {
+        function updateActivityTime(date?: Date) {
+            if (!date) {
+                return;
+            }
+
+            const { previousActivity, activity, nextActivity, app: { showStatusText, rerenderApp, debouncedSave} } = component.args;
+
+            if (previousActivity) {
+                // don't update our date to be before the previous time
+                const prevTime = new Date(previousActivity.t);
+                if (prevTime.getTime() > date.getTime()) {
+                    showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
+                    return;
+                }
+            }
+
+            let nextTime = nextActivity ? new Date(nextActivity.t) : new Date();
+            if (nextTime.getTime() < date.getTime()) {
+                showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
+                return;
+            }
+
+            activity.t = getTimestamp(date);
+            rerenderApp({ shouldScroll: false });
+            debouncedSave();
+        }
+        
+        insertBreakButton.el.addEventListener("click", () => {
+            const { activity, nextActivity, app: { state, rerenderApp, debouncedSave } } = component.args;
+
+            const idx = state.activities.indexOf(activity);
+            if (idx === -1) {
+                return;
+            }
+
+            const timeA = (new Date(activity.t)).getTime();
+            const duration = getActivityDurationMs(activity, nextActivity);
+            const midpoint = timeA + duration / 2;
+
+            const newBreak : Activity =  {
+                t: getTimestamp(new Date(midpoint)),
+                breakInfo: "New break",
+                nId: undefined,
+                locked: undefined,
+            };
+
+            state.activities.splice(idx + 1, 0, newBreak);
+
+            debouncedSave();
+            rerenderApp({ shouldScroll: false });
+        });
+
+        deleteButton.el.addEventListener("click", () => {
+            const { activity, app: { state, rerenderApp } } = component.args;
+
+            if (!isEditableBreak(activity)) {
+                // can only delete breaks
+                return;
+            }
+
+            const idx = state.activities.indexOf(activity);
+            if (idx === -1) {
+                return;
+            }
+
+            state.activities.splice(idx, 1);
+            rerenderApp({ shouldScroll: false });
+        });
+
+        noteLink.el.addEventListener("click", () => {
             const { activity, app: { state, rerenderApp }} = component.args;
             if (!activity.nId) {
                 return;
@@ -1527,80 +1617,110 @@ function ActivityList(): Renderable<AppArgs> {
 
             setCurrentNote(state, activity.nId);
             rerenderApp();
+        });
+
+        breakEdit.el.addEventListener("keypress", (e) => {
+            const { activity, app: { rerenderApp, debouncedSave }} = component.args;
+
+            // 'prevent' clearing it out
+            const val = breakEdit.el.value || activity.breakInfo;
+            if (e.key === "Enter") {
+                activity.breakInfo = val;
+                rerenderApp({ shouldScroll: false });
+                debouncedSave();
+            }
         })
 
         return component;
+    }
+
+    const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid black" }), ActivityListItem);
+
+    const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    const breakButton = makeButton("");
+    const leftButton = makeButton("<");
+    const leftLeftButton = makeButton("<<");
+    const rightButton = makeButton(">");
+    const root = div({ class: "w-100", style: "border-top: 1px solid var(--fg-color);" }, [
+        div({ style: "padding: 5px;", class: "row align-items-center" }, [
+            div({ class: "flex-1" }, [ breakInput ]),
+            div({}, [ breakButton ]),
+        ]),
+        listRoot,
+        div({ style: "border-top: 1px solid var(--fg-color);", class: "row"}, [
+            leftLeftButton, 
+            leftButton,
+            rightButton
+        ])
+    ]);
+
+    let page = 0;
+    const pageSize = 10;
+
+    const getMaxPages = () => Math.ceil(component.args.state.activities.length / pageSize);
+
+    leftButton.el.addEventListener("click", () => {
+        page = Math.max(page - 1, 0);
+
+        component.rerender(component.args);
     });
 
-    const breakInput = htmlf<HTMLInputElement>(`<input class="w-100"></input>`);
-    const breakButton = makeButton("");
-    const breakInfo = htmlf("<div></div>")
-    const root = htmlf(
-        // TODO: audit these styles
-        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);">
-            %{listRoot}
-            <div style="padding: 5px;" class="row align-items-center">
-                <div class="flex-1">%{input}</div>
-                <div>%{breakButton}</div>
-            </div>
-            %{breakInfo}
-        </div>`, {
-            listRoot,
-            input: breakInput,
-            breakButton,
-            breakInfo,
-        }
-    );
+    leftLeftButton.el.addEventListener("click", () => {
+        page = 0;
+
+        component.rerender(component.args);
+    });
+
+    rightButton.el.addEventListener("click", () => {
+        page = Math.min(page + 1, getMaxPages());
+
+        component.rerender(component.args);
+    });
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
         const isTakingABreak = isCurrentlyTakingABreak(state);
-        setTextContent(breakButton, isTakingABreak ? (
-            "End break"
-        ) : (
-            "Take a break"
-        ));
 
+        setTextContent(breakButton, "Take a break");
         breakInput.el.setAttribute("placeholder", isTakingABreak ? (
             "Enter resume reason (optional)"
         ): (
             "Enter break reason (optional)"
         ));
 
-        const MAX_ACTIVITIES_TO_RENDER = 7;
 
         const activities = state.activities;
-        const activitiesToRender = Math.min(MAX_ACTIVITIES_TO_RENDER, activities.length);
-        const start = activities.length - activitiesToRender;
-
-        breakItems.resize(activitiesToRender);
+        const start = Math.max(0, Math.min(page * pageSize, activities.length - 1));
+        const end = Math.max(0, Math.min((page + 1) * pageSize, activities.length));
+        const activitiesToRender = end - start;
+        listRoot.resize(activitiesToRender);
         for (let i = 0; i < activitiesToRender; i++) {
-            const activity = activities[start + i];
-            const nextActivity = activities[start + i + 1]; // JavaScript moment - you can index past an array without crashing
+            const idx = activities.length - end + i;
+            const previousActivity = activities[idx - 1]; // JavaScript moment - you can index past an array without crashing
+            const activity = activities[idx];
+            const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
 
-            breakItems.components[i].rerender({
+            listRoot.components[activitiesToRender - 1 - i].rerender({
                 app: component.args, 
+                previousActivity,
                 activity, 
                 nextActivity,
                 showDuration: true,
             });
         }
+
+        setVisible(leftButton, page !== 0);
+        setVisible(leftLeftButton, page !== 0);
+        setVisible(rightButton, page !== getMaxPages());
     });
 
-    function toggleCurrentBreak() {
+    function addBreak() {
         const { state, rerenderApp, debouncedSave } = component.args;
 
-        let text = breakInput.el.value;
-        if (!text) {
-            if (isCurrentlyTakingABreak(state)) {
-                text = RETURN_FROM_BREAK_DEFAULT_TEXT;
-            } else {
-                text = "Taking a break...";
-            }
-        }
+        let text = breakInput.el.value ||  "Taking a break ...";
 
-        toggleCurrentBreakActivity(state, text);
+        pushBreakActivity(state, text, true);
         breakInput.el.value = "";
 
         debouncedSave();
@@ -1612,21 +1732,22 @@ function ActivityList(): Renderable<AppArgs> {
             return;
         }
 
-        toggleCurrentBreak();
+        addBreak();
     });
 
-    breakButton.el.addEventListener("click", toggleCurrentBreak);
+    breakButton.el.addEventListener("click", addBreak);
 
     return component;
 }
 
-// NOTE: the caller who is instantiating the scratch pad should have access to the text here.
-// so it makes very litle sense that we are getting this text...
+// exposing the text area so that we can focus it, but
+// really, TODO: just expose a focus() function...
 function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
-    const SCRATCHPAD_HEIGHT = 400;
-    const yardStick = htmlf(`<div class="absolute" style="width: 5px; left:-5px;top:0px"></div>`)
-    const textArea = htmlf<HTMLTextAreaElement>(`<textarea class="scratch-pad pre-wrap" style="height: ${SCRATCHPAD_HEIGHT}px"></textarea>`);
-    const root = htmlf(`<div class="relative">%{yardStick}%{textArea}</div>`, { textArea, yardStick });
+    const yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
+    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100"});
+    const root = div({ class: "relative h-100" }, [
+        yardStick, textArea
+    ]);
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
@@ -1640,7 +1761,7 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
         const { debouncedSave, state, rerenderApp } = component.args;
 
         state.scratchPad = textArea.el.value;
-        rerenderApp();
+        rerenderApp({ shouldScroll: false });
 
         debouncedSave();
     };
@@ -1677,7 +1798,7 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
             const startToCursorText = textArea.el.value.substring(0, selectionEnd);
 
             // debugging
-            // yardStick.el.style.background = "#F00";
+            yardStick.el.style.background = "#F00";
             yardStick.el.style.background = "transparent";
             yardStick.el.style.whiteSpace = "pre";
             yardStick.el.textContent = "\n".repeat(countNewLines(startToCursorText)) + ".";
@@ -1689,20 +1810,21 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
 
             textArea.el.scrollTo({
                 left: 0,
-                top: height - SCRATCHPAD_HEIGHT / 2,
+                top: height - textArea.el.getBoundingClientRect().height / 2,
                 behavior: "instant",
             });
 
-            window.scrollTo({
-                left: 0,
-                // NOTE: this is actually wrong. It scrolls way past our element, but our element
-                // just so happens to be at the bottom of the screen
-                top: window.scrollY + textArea.el.getBoundingClientRect().height,
-                behavior: "instant",
-            });
-        }
+            // Not sure if I'll need this or what
+            // window.scrollTo({
+            //     left: 0,
+            //     // NOTE: this is actually wrong. It scrolls way past our element, but our element
+            //     // just so happens to be at the bottom of the screen
+            //     top: window.scrollY + textArea.el.getBoundingClientRect().height,
+            //     behavior: "instant",
+            // });
+     }
 
-        updateScrollPosition()
+        // updateScrollPosition()
     });
 
     return {
@@ -1731,30 +1853,22 @@ type NoteRowArgs = {
     flatIndex: number;
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
-    const indent = htmlf(`<div class="pre"></div>`);
-    const whenNotEditing = htmlf(`<div class="pre-wrap"></div>`);
+    const indent = div({ class: "pre" });
+    const whenNotEditing = div({ class: "pre-wrap" });
 
     let isEditing = false;
 
-    // NOTE: Not using a textArea, because we don't want our notes to have multiple lines for now. [Enter] is being used for something else at the moment.
-    // Also it is tempting to navigate the text area with [up] [down] which we are also using to move between notes
-    const whenEditing = htmlf<HTMLInputElement>(`<input class="flex-1"></input>`);
-
-    const style = "margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);";
-    const style2 = "row v-align-bottom";
-    const root = htmlf(
-        `<div class="pre-wrap flex-1" style="${style}">` +
-            `<div class="${style2}">` +
-            "%{indent}" +
-            "%{whenNotEditing}" +
-            "%{whenEditing}" +
-            "</div>" +
-            "</div>",
-        { indent, whenNotEditing, whenEditing }
+    // Soon, I plan to have multiline notes
+    const whenEditing = el<HTMLInputElement>("TEXTAREA", { class: "flex-1", style: "overflow-y: hidden;"});
+    const root = div(
+        {
+            class: "pre-wrap flex-1", style:"margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
+        },
+        [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
     );
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { app: { state }, note } = component.args;
+        const { app: { state, renderOptions }, note } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
         const count = getRealChildCount(note)
@@ -1769,8 +1883,11 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         isEditing = state.currentNoteId === note.id;
         setVisible(whenEditing, isEditing);
         setVisible(whenNotEditing, !isEditing);
-        if (isEditing) {
+        if (isEditing && renderOptions.shouldScroll) {
             setInputValue(whenEditing, note.data.text);
+            whenEditing.el.style.height = "0px";
+            whenEditing.el.style.height = whenEditing.el.scrollHeight + "px"; 
+
 
             if (!wasEditing) {
                 // without setTimeout here, calling focus won't work as soon as the page loads.
@@ -1805,21 +1922,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
             pushLastEditedNoteId(state, note.id);
         }
 
-        if (isCurrentlyTakingABreak(state)) {
-            toggleCurrentBreakActivity(state, RETURN_FROM_BREAK_DEFAULT_TEXT);
-        }
-
-        if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
-            // this will get auto-deleted from recomputeState, so we don't have to do that here
-            state.todoNoteIds.push(note.id);
-        }
-
         const last = getLastActivity(state);
         if (last?.nId !== note.id) {
             pushActivity(state, {
                 t: getTimestamp(new Date()),
                 nId: note.id,
-            });
+                locked: undefined,
+            }, true);
         }
 
         debouncedSave();
@@ -1842,173 +1951,29 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     return component;
 }
 
-type ModalArgs = { onClose(): void };
-function Modal(content: Insertable): Renderable<ModalArgs> {
-    const styles = 
-        `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` + 
-        `background-color: var(--bg-color); z-index: 9999;` + 
-        ``;
-
-    const closeButton = makeButton("X");
-
-    const root = htmlf(
-        `<div class="modal-shadow fixed " style="${styles}">` + 
-            `<div class="relative absolute-fill">` + 
-                `<div class="absolute" style="top: 0; right: 0">%{closeButton}</div>` + 
-                `%{content}` + 
-            `</div>` +
-        `</div>`, {
-            closeButton,
-            content,
-        }
-    );
-
-    const component = makeComponent<ModalArgs>(root, () => {});
-
-    closeButton.el.addEventListener("click", () => {
-        const { onClose } = component.args;
-        onClose();
-    });
-
-    return component;
-}
 
 type ActivityListItemArgs = {
     app: AppArgs;
+    previousActivity: Activity | undefined;
     activity: Activity;
     nextActivity: Activity | undefined;
     showDuration: boolean;
 };
 
-function ActivityListItem(): Renderable<ActivityListItemArgs> {
-    const activityText = htmlf(`<div></div>`)
-    const timestamp = htmlf(`<div class="pre" style="min-width: 350px"></div>`)
-
-    const root = htmlf(
-        `<div class="row" style="padding: 5px; border-bottom: 1px solid var(--fg-color);">` +
-            `%{timestamp}` + 
-            `%{activityText}` + 
-        `</div>`,
-        { activityText, timestamp },
-    );
-
-    const component = makeComponent<ActivityListItemArgs>(root, () => {
-        const { activity, app: { state } } = component.args;
-
-        setTextContent(activityText, getActivityText(state, activity));
-
-        let timestampText = formatDate(new Date(activity.t));
-        setTextContent(timestamp, timestampText);
-
-
-        root.el.style.cursor = activity.nId ? "pointer" : "";
-    });
-
-    root.el.addEventListener("click", () => {
-        const { app: { state, setCurrentModal }, activity } = component.args;
-
-        if (activity.nId) {
-            setCurrentNote(state, activity.nId);
-            setCurrentModal(null);
-        }
-    });
-
-    return component;
-}
-
-function ActivitiesPaginated(): Renderable<AppArgs> {
-    let page = 0;
-    // Yeah this number can be really high because this isn't React lmao
-    let perPage = 2000;
-
-    const vListRoot = htmlf(`<div class="absolute-fill"></div>`)
-    const vList = makeComponentList<Renderable<ActivityListItemArgs>>(vListRoot, ActivityListItem);
-
-    const prevPageButton = makeButton("<");
-    const nextPageButton = makeButton(">");
-    const pageNumber = htmlf("<div></div>");
-
-    const root = htmlf(
-        `<div class="w-100 h-100 col">` + 
-            `<div class="flex-1 relative" style="overflow-y: scroll">` +
-                `%{vListRoot}` + 
-            `</div>` + 
-            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
-                "%{prevPageButton}" + 
-                "%{pageNumber}" +
-                "%{nextPageButton}" + 
-            `</div>` + 
-        `</div>`,
-        { vListRoot, prevPageButton, nextPageButton, pageNumber }
-    );
-
-    function getMaxPages(state: State): number {
-        return Math.floor(state.activities.length / perPage);
-    }
-
-    const component = makeComponent<AppArgs>(root, () => {
-        const { state } = component.args;
-
-        setTextContent(pageNumber, `${page + 1}/${getMaxPages(state) + 1}`);
-
-        const maxPages = getMaxPages(state);
-        page = Math.min(page, maxPages);
-        page = Math.max(page, 0);
-
-        // NOTE: pages need to paginate backwards, so that we're always seeing the most recent activities
-        let start = state.activities.length - (page + 1) * perPage;
-        const end = state.activities.length - page * perPage;
-        if (start < 0) {
-            start = 0;
-        }
-
-        vList.resize(end - start);
-        for (let i = 0; i < end - start; i++) {
-            vList.components[vList.components.length - 1 - i].rerender({
-                app: component.args,
-                activity: state.activities[start + i],
-                nextActivity: state.activities[start + i + 1],
-                showDuration: true,
-            });
-        }
-    });
-
-    prevPageButton.el.addEventListener("click", () => {
-        page--;
-        if (page < 0) {
-            page = 0;
-        }
-        
-        component.rerender(component.args);
-    });
-
-
-    nextPageButton.el.addEventListener("click", () => {
-        const { state } = component.args;
-
-        page++;
-        const maxPages = getMaxPages(state);
-        if (page > maxPages) {
-            page = maxPages;
-        }
-
-        component.rerender(component.args);
-    });
-
-    return component;
-}
 
 // All times are in milliseconds
 type Analytics = {
     breakTime: number;
     uncategorisedTime: number; 
     taskTimes: Map<TaskId, number>;
+    totalTime: number;
 }
 
 function recomputeAnalytics(state: State, analytics: Analytics) {
     analytics.breakTime = 0;
     analytics.uncategorisedTime = 0;
     analytics.taskTimes.clear();
+    analytics.totalTime = 0;
 
     // recompute which tasks each note belong to 
     {
@@ -2031,13 +1996,14 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
     }
 
 
+    // compute the amount of time spent in each group
     for (let i = 0; i < state.activities.length; i++) { 
         const activity = state.activities[i];
         const nextActivity  = state.activities[i + 1] as Activity | undefined;
 
         const duration = getActivityDurationMs(activity, nextActivity);
 
-        if (activity.breakInfo || nextActivity?.breakInfo) {
+        if (activity.breakInfo) {
             analytics.breakTime += duration;
             continue;
         }
@@ -2057,6 +2023,13 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
             continue;
         }
     }
+
+    // compute the total time
+    analytics.totalTime += analytics.uncategorisedTime;
+    analytics.totalTime += analytics.breakTime;
+    for (const time of analytics.taskTimes.values()) {
+        analytics.totalTime += time;
+    }
 }
 
 type AnalyticsFilters = {
@@ -2067,15 +2040,78 @@ type AnalyticsFilters = {
 }
 
 function AnalyticsFilters() : Renderable<AnalyticsFilters> {
-    const root = htmlf(
-        `<div class="table">` + 
-            `<div>` + 
+    const dateFrom = DateTimeInput();
+    const dateTo = DateTimeInput();
+    const dateFromEnabled = Checkbox();
+    const dateToEnabled = Checkbox();
 
-            `<div/>` + 
-        `<div/>`
-    );
-    
+    const width = "150px";
+
+    const root = div({}, [
+        div({ class: "row", style: "padding-bottom: 5px"}, [ 
+            div({ style: "width: " + width }, [ dateFromEnabled ]),
+            dateFrom
+        ]),
+        div({ class: "row", style: "padding-bottom: 5px"}, [ 
+            div({ style: "width: " + width }, [ dateToEnabled ]),
+            dateTo 
+        ]),
+    ]);
+
+    function rerender() {
+        component.rerender(component.args);
+    }
+
+    function updateDateFrom(date: Date) {
+        const analyticsFilters = component.args;
+
+        analyticsFilters.dateFrom = date;
+        rerender();
+    }
+
+    function updateDateTo(date: Date) {
+        const analyticsFilters = component.args;
+
+        analyticsFilters.dateTo = date;
+        rerender();
+    }
+
     const component = makeComponent<AnalyticsFilters>(root, () => {
+        const analyticsFilters = component.args;
+
+        dateFromEnabled.rerender({
+            checked: analyticsFilters.dateFromEnabled,
+            onToggle: () => {
+                analyticsFilters.dateFromEnabled = !analyticsFilters.dateFromEnabled
+                rerender();
+            },
+            label: "From"
+        });
+
+        dateToEnabled.rerender({
+            checked: analyticsFilters.dateToEnabled,
+            onToggle: () => {
+                analyticsFilters.dateToEnabled = !analyticsFilters.dateToEnabled
+                rerender();
+            },
+            label: "To"
+        });
+
+        if (setVisible(dateFrom, analyticsFilters.dateFromEnabled)) {
+            dateFrom.rerender({
+                date: analyticsFilters.dateFrom,
+                onChange: updateDateFrom,
+                readOnly: false,
+            });
+        }
+
+        if (setVisible(dateTo, analyticsFilters.dateToEnabled)) {
+            dateTo.rerender({
+                date: analyticsFilters.dateTo,
+                onChange: updateDateTo,
+                readOnly: false,
+            });
+        }
 
     });
 
@@ -2087,46 +2123,56 @@ function ActivityAnalytics(): Renderable<AppArgs> {
         breakTime: 0,
         uncategorisedTime: 0,
         taskTimes: new Map<TaskId, number>(),
+        totalTime: 0,
     };
 
-    const durationsListRoot = htmlf(`<div class="table w-100"></div>`);
+    const analyticsFilters : AnalyticsFilters  = {
+        dateFrom: new Date(),
+        dateFromEnabled: false,
+        dateTo: new Date(),
+        dateToEnabled: false,
+    }
 
-    const analyticsFilters = AnalyticsFilters();
+    const taskColWidth = "300px";
+    const durationsListRoot = div({ class: "table w-100" }) 
+    const analyticsFiltersEditor = AnalyticsFilters();
 
     type DurationListItemArgs = {
         taskName: string;
         timeMs: number;
+        totalTimeMs: number;
     }
 
     const durationsList = makeComponentList(durationsListRoot, () => {
-        const taskNameComponent = htmlf(`<div style="padding:5px;padding-bottom:0;"></div>`);
-        const durationComponent = htmlf(`<div style="padding:5px;padding-bottom:0;text-align:right;"></div>`);
-        const root = htmlf(`<div>%{taskName}%{duration}</div>`, {
-            taskName: taskNameComponent, duration: durationComponent
-        });
+        const taskNameComponent = div({ style: `padding:5px;padding-bottom:0; width: ${taskColWidth}` })
+        const durationBar = FractionBar();
+
+        const root = div({}, [
+            taskNameComponent, 
+            div({}, [ durationBar ])
+        ])
         
         const component = makeComponent<DurationListItemArgs>(root, () => {
-            const { taskName, timeMs } = component.args;
+            const { taskName, timeMs, totalTimeMs } = component.args;
 
             setTextContent(taskNameComponent, taskName);
-            setTextContent(durationComponent, "" + formatDuration(timeMs));
+            durationBar.rerender({
+                fraction: timeMs / totalTimeMs,
+                text: formatDuration(timeMs),
+            });
         });
 
         return component;
     });
 
-    const root = htmlf(
-        `<div class="w-100 h-100 col">` + 
-            `<div class="flex-1 relative" style="overflow-y: scroll">` +
-                `%{durationsListRoot}` + 
-            `</div>` + 
-            `<div class="row align-items-center justify-content-center" style="gap: 20px">` + 
-                "<h3>Date Range</h3>" + 
-                "%{analyticsFilters}" + 
-            `</div>` + 
-        `</div>`,
-        { durationsListRoot, analyticsFilters }
-    );
+    const root = div({ class: "w-100 h-100 col" }, [
+        el("H3", {}, [ "Timings" ]),
+        div({ class: "relative", style: "overflow-y: scroll" }, [
+            durationsListRoot,
+        ]),
+        el("H3", {}, [ "Filters" ]),
+        analyticsFiltersEditor
+    ])
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
@@ -2134,58 +2180,39 @@ function ActivityAnalytics(): Renderable<AppArgs> {
         recomputeAnalytics(state, analytics);
 
         durationsList.resize(analytics.taskTimes.size + 2);
-        durationsList.components[0].rerender({ taskName: "Break Time", timeMs: analytics.breakTime });
-        durationsList.components[1].rerender({ taskName: "Uncategorised Time", timeMs: analytics.uncategorisedTime });
+        durationsList.components[0].rerender({
+            taskName: "Break Time",
+            timeMs: analytics.breakTime,
+            totalTimeMs: analytics.totalTime
+        });
+
+        durationsList.components[1].rerender({
+            taskName: "Uncategorised Time",
+            timeMs: analytics.uncategorisedTime,
+            totalTimeMs: analytics.totalTime
+        });
+
         const entries = [...analytics.taskTimes]; 
         for (let i = 0; i < entries.length; i++) {
             durationsList.components[i + 2].rerender({
                 taskName: entries[i][0], 
                 timeMs: entries[i][1], 
+                totalTimeMs: analytics.totalTime,
             });
         }
+
+        analyticsFiltersEditor.rerender(analyticsFilters);
     });
 
     return component;
 }
 
 function AnalyticsModal(): Renderable<AppArgs> {
-    const activitiesList = ActivitiesPaginated();
     const activityAnalytics = ActivityAnalytics();
-
-    let currentTabIdx = 0;
-
-    const tabs = [
-        htmlf(`<div class="tab" style="">Activities</div>`),
-        htmlf(`<div class="tab" style="">Timings</div>`),
-    ];
-
-    for (let i = 0; i < tabs.length; i++) {
-        tabs[i].el.addEventListener("click", () => {
-            currentTabIdx = i;
-            component.rerender(component.args);
-        });
-    }
-
-    const tabContent = [
-        activitiesList,
-        activityAnalytics,
-    ].map(c => htmlf(`<div class="flex-1">%{c}</div>`, { c }));
-
     const modalComponent = Modal(
-        htmlf(
-            `<div class="col h-100">` + 
-                `<div class="row">` + 
-                    "%{tabs}" +
-                `</div>` +
-                `<div class="col flex-1">` + 
-                    "%{tabContent}" +
-                `</div>` +
-            `</div>`, 
-            {
-                tabs,
-                tabContent,
-            }
-        )
+        div({ class: "col h-100", style: "padding: 10px" }, [
+            activityAnalytics
+        ])
     );
     
     const component = makeComponent<AppArgs>(modalComponent, () => {
@@ -2195,18 +2222,7 @@ function AnalyticsModal(): Renderable<AppArgs> {
             onClose: () => setCurrentModal(null) 
         });
 
-        activitiesList.rerender(component.args);
         activityAnalytics.rerender(component.args);
-
-        for (let i = 0; i < tabs.length; i++) {
-            tabs[i].el.style.backgroundColor = i === currentTabIdx ? (
-                "var(--bg-color-focus)"
-            ) : (
-                "var(--bg-color)"
-            );
-
-            setVisible(tabContent[i], i === currentTabIdx);
-        }
     });
 
     return component;
@@ -2214,6 +2230,8 @@ function AnalyticsModal(): Renderable<AppArgs> {
 
 function ScratchPadModal(): Renderable<AppArgs> {
     const scratchPad = ScratchPad();
+    scratchPad.textArea.style.padding = "5px";
+
     const modalComponent = Modal(scratchPad);
 
     const component = makeComponent<AppArgs>(modalComponent, () => {
@@ -2228,7 +2246,7 @@ function ScratchPadModal(): Renderable<AppArgs> {
         scratchPad.rerender(component.args);
 
         setTimeout(() => {
-            scratchPad.el.focus({ preventScroll: true });
+            scratchPad.textArea.focus({ preventScroll: true });
         }, 100);
     });
 
@@ -2236,7 +2254,7 @@ function ScratchPadModal(): Renderable<AppArgs> {
 }
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
-    const root = htmlf(`<div class="pre-wrap"></div>`);
+    const root = div({ class: "pre-wrap" });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -2247,16 +2265,11 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 }
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
-    const progressText = htmlf(`<div class="text-align-right pre-wrap"></div>`);
-    const lastTouchedFlag = htmlf(`<div style="font-weight: bold"> &lt;-- </div>`);
-    const root = htmlf(`<div class="row">%{lastTouchedFlag}</div>`, {
-        progressText, 
-        lastTouchedFlag,
-    });
+    const lastTouchedFlag = div({ class: "font-weight: bold" }, [ " <-- "]);
+    const root = div({ class: "row" }, [ lastTouchedFlag ]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
-        setTextContent(progressText, getSecondPartOfRow(state, note));
 
         const idx = state.lastEditedNoteIds.lastIndexOf(note.id);
         if (setVisible(lastTouchedFlag, idx !== -1)) {
@@ -2275,11 +2288,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const timestamp = NoteRowTimestamp();
     const text = NoteRowText();
     const statistic = NoteRowStatistic();
-    const root = htmlf(`<div class="row">` + "%{timestamp}" + "%{text}" + "%{statistic}" + "</div>", {
-        timestamp,
-        text,
-        statistic
-    });
+    const root = div({ class: "row" }, [ timestamp, text, statistic ]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -2313,9 +2322,10 @@ type NoteListInternalArgs = {
 }
 
 function NoteListInternal(): Renderable<NoteListInternalArgs> {
-    const root = htmlf(
-        `<div class="w-100" style="border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"></div>`
-    );
+    const root = div({ 
+        class: "w-100", 
+        style: "border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);" 
+    });
 
     const noteList = makeComponentList(root, NoteRowInput);
 
@@ -2337,7 +2347,7 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 
 function NotesList(): Renderable<AppArgs> {
     const list1 = NoteListInternal();
-    const root = htmlf(`<div>%{list1}</div>`, { list1 });
+    const root = div({}, [ list1 ]);
 
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
@@ -2348,12 +2358,6 @@ function NotesList(): Renderable<AppArgs> {
     return component;
 }
 
-function makeButton(text: string, classes: string = "", styles: string = "") {
-    return htmlf(
-        `<button type="button" class="solid-border ${classes}" style="min-width: 25px; padding: 3px; margin: 5px; display: flex; justify-content: center; ${styles}">%{text}</button>`,
-        { text }
-    );
-}
 
 function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
     const btn = makeButton(text, classes);
@@ -2367,33 +2371,20 @@ type TabRowArgs = {
 }
 
 function TreeTabsRowTab(): Renderable<TabRowArgs> {
-    const btn = htmlf(
-        `<button 
-            type="button" 
-            class="tab-button pre-wrap text-align-center z-index-100"
-        ></button>`
-    );
-    const input = htmlf<HTMLInputElement>(
-        `<input 
-            class="pre-wrap text-align-center z-index-100"
-            style="margin-right: 20px;padding: 2px 20px; "
-        ></input>`
-    );
+    const btn = el("BUTTON", { type: "button", class: "tab-button pre-wrap text-align-center z-index-100" });
+    const input = el<HTMLInputElement>("INPUT", { 
+        class: "pre-wrap text-align-center z-index-100", 
+        style: "margin-right: 20px;padding: 2px 20px; "
+    });
 
-    const closeBtn = htmlf(
-        `<button 
-            type="button" 
-            class="pre-wrap text-align-center z-index-100"
-            style="position:absolute; right: 5px; background-color:transparent;"
-        > x </button>`
-    );
+    const closeBtn = el("BUTTON", {
+        type: "button",
+        class: "pre-wrap text-align-center z-index-100",
+        style: "position:absolute; right: 5px; background-color:transparent;",
+    }, [ " x " ]);
 
     // Tabs
-    const root = htmlf(
-        `<div class="relative tab">%{btn}%{input}%{closeBtn}</div>`,
-        { btn, input, closeBtn }
-    );
-
+    const root = div({ class: "relative tab" }, [ btn, input, closeBtn ]);
     const component = makeComponent<TabRowArgs>(root, () => {
         const { app: { currentTreeName }, name } = component.args;
 
@@ -2436,27 +2427,21 @@ function TreeTabsRowTab(): Renderable<TabRowArgs> {
 
 // will be more of a tabbed view
 const TreeTabsRow = () => {
-    const tabsRoot = htmlf(`<span class="row pre-wrap align-items-center"></span>`);
+    const tabsRoot = div({ class: "row pre-wrap align-items-center", });
     const tabsList = makeComponentList(tabsRoot, TreeTabsRowTab);
 
-    const newButton = htmlf(
-        `<button 
-            type="button" 
-            class="pre-wrap text-align-center"
-            style="margin-left: 5px;"
-        > + </button>`
-    );
+    const newButton = el("BUTTON", {
+        type: "button",
+        class: "pre-wrap text-align-center",
+        style: "margin-left: 5px;",
+    }, [ " + "])
 
-    const root = htmlf(
-        `<div>
-            <span class="row pre-wrap align-items-center">
-                %{tabsRoot}
-                %{newButton}
-            </span>
-            <div style="outline-bottom: 1px solid var(--fg-color);"></div>
-        </div>`,
-        { tabsRoot, newButton }
-    );
+    const root = div({}, [
+        div({ class: "row pre-wrap align-items-center" }, [
+            tabsRoot, newButton,
+        ]),
+        div({ style: "outline-bottom: 1px solid var(--fg-color);" })
+    ])
 
     const outerComponent = makeComponent<AppArgs>(root, () => {
         const names = getAvailableTrees();
@@ -2484,10 +2469,14 @@ const setCssVars = (vars: [string, string][]) => {
     }
 };
 
+type RenderOptions = {
+    shouldScroll: boolean;
+}
+
 type AppArgs = {
     state: State;
     loadTree: (name: string) => void;
-    rerenderApp(): void;
+    rerenderApp(opts?: RenderOptions): void;
     debouncedSave(): void;
     handleErrors(fn: () => void, onError?: (err: any) => void): void;
     currentTreeName: string;
@@ -2496,6 +2485,7 @@ type AppArgs = {
     newTree(shouldRerender?: boolean): void;
     showStatusText(text: string, color?: string, timeout?: number): void;
     setCurrentModal(modal: Modal): void;
+    renderOptions: RenderOptions;
 };
 
 
@@ -2594,30 +2584,34 @@ const makeDarkModeToggle = () => {
 type Modal = null | "analytics-view" | "scratch-pad";
 
 const App = () => {
-    const infoButton = htmlf(`<button class="info-button" title="click for help">help?</button>`);
+    const infoButton = el("BUTTON", { class: "info-button", title: "click for help" }, [
+        "help?"
+    ]);
     infoButton.el.addEventListener("click", () => {
         showInfo = !showInfo;
         rerenderApp();
     });
 
-    const noteTreeHelp = htmlf(
-        `<div>
-            <p>
-                Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing.
-            </p>
-            <ul>
-                <li>[Enter] to create a new entry under the current one</li>
-                <li>[Shift] + [Enter] to create a new entry at the same level as the current one</li>
-                <li>[Tab] or [Shift]+[Tab] to indent/unindent a note when applicable</li>
-                <li>[Arrows] to move up and down visually</li>
-                <li>[Alt] + [Arrows] to move across the tree. [Up] and [Down] moves on the same level, [Left] and [Right] to move out of or into a note</li>
-                <li>[Alt] + [Backspace] to move focus back to the last note we edited</li>
-                <li>[Ctrl] + [Shift] + [F] to toggle filters</li>
-            </ul>
-        </div>`
-    );
+    function li(str: string) {
+        return el("LI", {}, [ str ]);
+    }
 
-    const statusTextIndicator = htmlf(`<div class="pre-wrap" style="background-color: var(--bg-color)"></div>`);
+    const noteTreeHelp = div({}, [
+        el("P", {}, [
+            "Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing."
+        ]),
+        el("UL", {}, [
+            li(`[Enter] to create a new entry under the current one`),
+            li(`[Shift] + [Enter] to create a new entry at the same level as the current one`),
+            li(`[Tab] or [Shift]+[Tab] to indent/unindent a note when applicable`),
+            li(`[Arrows] to move up and down visually`),
+            li(`[Alt] + [Arrows] to move across the tree. [Up] and [Down] moves on the same level, [Left] and [Right] to move out of or into a note`),
+            li(`[Alt] + [Backspace] to move focus back to the last note we edited`),
+            li(`[Ctrl] + [Shift] + [F] to toggle filters`),
+        ])
+    ]);
+
+    const statusTextIndicator = div({ class: "pre-wrap", style: "background-color: var(--bg-color)" })
 
     const notesList = NotesList();
     const activityList = ActivityList();
@@ -2630,121 +2624,98 @@ const App = () => {
 
     let currentModal: Modal = null;
 
-    const appRoot = htmlf(
-        `<div class="relative" style="padding-bottom: 100px">
-            %{titleRow}
-            %{info1}
-            %{treeTabs}
-            %{notesList}
-            <div class="row" style="gap: 10px">
-                <div style="flex: 1">%{todoNotes}</div>
-                <div style="flex: 1">%{activityList}</div>
-            </div>
-            %{fixedButtons}
-            %{analyticsModal}
-            %{scratchPadModal}
-        </div>`,
-        {
-            titleRow: htmlf(
-                `<div class="row align-items-center">%{title}<span class="flex-1"></span>%{infoButton}</div>`,
-                {
-                    title: htmlf(`<h2>Currently working on</h2>`),
-                    infoButton
-                }
-            ),
-            info1: noteTreeHelp,
-            treeTabs: htmlf(
-                `<div>
-                    <div class="row align-items-end">
-                        %{treeSelector}
-                    </div>
-                </div>`,
-                { treeSelector }
-            ),
-            analyticsModal,
-            scratchPadModal,
-            notesList: notesList,
+    const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;"}, [
+        div({}, [ makeDarkModeToggle() ]),
+        div({ class: "flex-1" }),
+        div({}, [statusTextIndicator]),
+        div({ class: "flex-1" }),
+        div({ class: "row" }, [
             filters,
-            todoNotes: htmlf(`<div>%{title}%{todoNotes}</div>`, {
-                title: htmlf(`<h3 style="marginTop: 20px;">TODO Notes</h3>`),
-                todoNotes
+            makeButtonWithCallback("Scratch Pad", () => {
+                setCurrentModal("scratch-pad");
             }),
-            activityList: htmlf(`<div>%{title}%{activityList}</div>`, {
-                title: htmlf(`<h3 style="marginTop: 20px;">Activity List</h3>`),
-                activityList, 
+            makeButtonWithCallback("Analytics", () => {
+                setCurrentModal("analytics-view");
             }),
-            fixedButtons: htmlf(
-                `<div class="fixed row align-items-end" style="bottom: 5px; right: 5px; left: 5px; gap: 5px;">
-                    <div>%{leftButtons}</div>
-                    <span class="flex-1"></span>
-                    <div>%{statusIndicator}</div>
-                    <span class="flex-1"></span>
-                    <div class="row">%{rightButtons}</div>
-                </div>`,
-                {
-                    filters,
-                    leftButtons: [makeDarkModeToggle()],
-                    statusIndicator: statusTextIndicator,
-                    rightButtons: [
-                        filters,
-                        makeButtonWithCallback("Scratch Pad", () => {
-                            setCurrentModal("scratch-pad");
-                        }),
-                        makeButtonWithCallback("Analytics", () => {
-                            setCurrentModal("analytics-view");
-                        }),
-                        makeButtonWithCallback("Clear all", () => {
-                            if (!confirm("Are you sure you want to clear your note tree?")) {
-                                return;
-                            }
-
-                            state = defaultState();
-                            rerenderApp();
-
-                            showStatusText("Cleared notes");
-                        }),
-                        makeButtonWithCallback("Copy as text", () => {
-                            handleErrors(() => {
-                                navigator.clipboard.writeText(exportAsText(state));
-                                showStatusText("Copied as text");
-                            });
-                        }),
-                        makeButtonWithCallback("Load JSON from scratch pad", () => {
-                            handleErrors(() => {
-                                try {
-                                    const lsKeys = JSON.parse(state.scratchPad);
-                                    localStorage.clear();
-                                    for (const key in lsKeys) {
-                                        localStorage.setItem(key, lsKeys[key]);
-                                    }
-                                } catch {
-                                    throw new Error("Scratch pad must contain valid JSON");
-                                }
-
-                                if (!confirm("This will erase all your current trees. Are you sure?")) {
-                                    return;
-                                }
-
-                                initState();
-                            });
-                        }),
-                        makeButtonWithCallback("Copy as JSON", () => {
-                            handleErrors(() => {
-                                const lsKeys = {};
-                                for (const [key, value] of Object.entries(localStorage)) {
-                                    // @ts-ignore typescript doesn't like copying keys like this
-                                    lsKeys[key] = value;
-                                }
-
-                                navigator.clipboard.writeText(JSON.stringify(lsKeys));
-                                showStatusText("Copied JSON");
-                            });
-                        })
-                    ]
+            makeButtonWithCallback("Clear all", () => {
+                if (!confirm("Are you sure you want to clear your note tree?")) {
+                    return;
                 }
-            )
-        }
-    );
+
+                state = defaultState();
+                rerenderApp();
+
+                showStatusText("Cleared notes");
+            }),
+            makeButtonWithCallback("Copy as text", () => {
+                handleErrors(() => {
+                    navigator.clipboard.writeText(exportAsText(state));
+                    showStatusText("Copied as text");
+                });
+            }),
+            makeButtonWithCallback("Load JSON from scratch pad", () => {
+                handleErrors(() => {
+                    try {
+                        const lsKeys = JSON.parse(state.scratchPad);
+                        localStorage.clear();
+                        for (const key in lsKeys) {
+                            localStorage.setItem(key, lsKeys[key]);
+                        }
+                    } catch {
+                        throw new Error("Scratch pad must contain valid JSON");
+                    }
+
+                    if (!confirm("This will erase all your current trees. Are you sure?")) {
+                        return;
+                    }
+
+                    initState();
+                });
+            }),
+            makeButtonWithCallback("Copy as JSON", () => {
+                handleErrors(() => {
+                    const lsKeys = {};
+                    for (const [key, value] of Object.entries(localStorage)) {
+                        // @ts-ignore typescript doesn't like copying keys like this
+                        lsKeys[key] = value;
+                    }
+
+                    navigator.clipboard.writeText(JSON.stringify(lsKeys));
+                    showStatusText("Copied JSON");
+                });
+            })
+        ])
+    ]);
+
+    const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
+        div({ class: "row align-items-center" }, [
+            el("H2", {}, [ "Currently working on" ]),
+            div({ class: "flex-1" }),
+            div({}, [ infoButton ]),
+        ]),
+        noteTreeHelp,
+        div({ class: "row align-items-end" }, [
+            treeSelector
+        ]),
+        notesList,
+        div({ class: "row", style: "gap: 10px"}, [
+            div({ style: "flex:1; padding-top: 20px" }, [ 
+                div({}, [
+                    el("H3", {}, [ "TODO Notes"]),
+                    todoNotes
+                ])
+            ]),
+            div({ style: "flex:1; padding-top: 20px" }, [ 
+                div({}, [
+                    el("H3", {}, [ "Activity List"]),
+                    activityList 
+                ])
+            ])
+        ]),
+        fixedButtons,
+        scratchPadModal,
+        analyticsModal,
+    ]);
 
     let currentTreeName = "";
     // @ts-ignore state gets set before it is used ...
@@ -2869,7 +2840,6 @@ const App = () => {
             setCurrentModal(null);
         }
 
-        const altPressed = e.altKey;
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
 
@@ -2887,7 +2857,7 @@ const App = () => {
                 }
                 break;
             case "Backspace":
-                if (altPressed) {
+                if (ctrlPressed && shiftPressed) {
                     moveToLastEditedNote(state);
                     rerenderApp();
                     return true;
@@ -2903,7 +2873,7 @@ const App = () => {
         }
 
         currentModal = modal;
-        rerenderApp();
+        rerenderApp({ shouldScroll: true });
     }
 
     const deleteCurrentTree = () => {
@@ -2972,7 +2942,16 @@ const App = () => {
         });
     };
 
-    const rerenderApp = () => appComponent.rerender(undefined);
+    const renderOptions : RenderOptions = {
+        shouldScroll: false
+    };
+
+    const rerenderApp = (opts?: RenderOptions) => {
+        // there are actually very few times when we don't want to scroll to the current note
+        renderOptions.shouldScroll = opts ? opts.shouldScroll : true;
+
+        appComponent.rerender(undefined);
+    }
 
     const appComponent = makeComponent<undefined>(appRoot, () => {
         setVisible(noteTreeHelp, showInfo);
@@ -2992,6 +2971,7 @@ const App = () => {
             newTree,
             showStatusText,
             setCurrentModal,
+            renderOptions,
         };
 
         // rerender the things

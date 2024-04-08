@@ -2,7 +2,7 @@
 // This tree is supposed to be JSON-serializable. 
 // T is an index into the TreeStore which stores the actual data, rather than an in-memory reference
 
-import { assert } from "./htmlf";
+import { assert } from "./dom-utils";
 
 // to the node object.
 export type TreeNode<T> = {

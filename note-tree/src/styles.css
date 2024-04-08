@@ -93,3 +93,12 @@ button:active {
     border-top-right-radius: 5px;
     border-top-left-radius: 5px;
 }
+
+.checkbox.checked {
+    background-color: var(--fg-color);
+}
+
+.checkbox:hover {
+    outline: 1px solid var(--fg-color);
+    border-radius: 3px;
+}
