@@ -412,6 +412,11 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
         return false;
     }
 
+    if (note.childIds.length > 0) {
+        note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
+        return true;
+    }
+
     if (!note.parentId) {
         return false;
     }
@@ -611,76 +616,77 @@ function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = 
     return true;
 }
 
-// type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
-// function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-//     let idx = childIds.indexOf(id) + 1;
-//     while (idx < childIds.length) {
-//         const note = getNote(state, childIds[idx]);
-//         if (filterFn(state, note)) {
-//             return note.id;
-//         }
+type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
+function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+    let idx = childIds.indexOf(id) + 1;
+    while (idx < childIds.length) {
+        const note = getNote(state, childIds[idx]);
+        if (filterFn(state, note)) {
+            return note.id;
+        }
 
-//         idx++;
-//     }
+        idx++;
+    }
 
-//     return null;
-// }
+    return null;
+}
 
-// function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-//     let idx = childIds.indexOf(id) - 1;
-//     while (idx >= 0)  {
-//         const note = getNote(state, childIds[idx]);
-//         if (filterFn(state, note)) {
-//             return note.id;
-//         }
+function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+    let idx = childIds.indexOf(id) - 1;
+    while (idx >= 0)  {
+        const note = getNote(state, childIds[idx]);
+        if (filterFn(state, note)) {
+            return note.id;
+        }
 
-//         idx--;
-//     }
+        idx--;
+    }
 
-//     return null;
-// }
+    return null;
+}
 
 
-// function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
-//     if (!note.parentId) {
-//         return null;
-//     }
+function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
+    }
 
-//     // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-//     // const parent = getNote(state, note.parentId);
-//     // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
-//     // now, we hop between unfiltered
-//     return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
-// }
+    // now, we hop between unfiltered
+    return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
+}
 
-// function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
-//     if (!note.parentId) {
-//         return true;
-//     }
+function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
+    if (!note.parentId) {
+        return true;
+    }
 
-//     const siblings = getNote(state, note.parentId).childIds;
-//     const idx = siblings.indexOf(note.id);
+    const siblings = getNote(state, note.parentId).childIds;
+    const idx = siblings.indexOf(note.id);
 
-//     return (
-//         idx === 0 ||
-//         idx === siblings.length - 1 ||
-//         getRealChildCount(note) !== 0 ||
-//         note.data._status === STATUS_IN_PROGRESS
-//     );
-// }
+    return (
+        idx === 0 ||
+        idx === siblings.length - 1 ||
+        // note.data._isSelected ||
+        getRealChildCount(note) !== 0 ||
+        note.data._status === STATUS_IN_PROGRESS
+    );
+}
 
-// function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
-//     if (!note.parentId) {
-//         return null;
-//     }
+function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
+    if (!note.parentId) {
+        return null;
+    }
 
-//     // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-//     // const parent = getNote(state, note.parentId);
-//     // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+    // const parent = getNote(state, note.parentId);
+    // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
-//     return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
-// }
+    return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
+}
 
 function unindentCurrentNoteIfPossible(state: State) {
     const note = getCurrentNote(state);
@@ -811,8 +817,7 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
         case "K": // cause of vim binds, I use hjkl and not ijkl as a gamer might expect
             if (ctrlPressed && shiftPressed) {
                 e.preventDefault();
-                // setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
-                setCurrentNote(state, getOneNoteUp(state, currentNote));
+                setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
             }
             break;
         case "ArrowUp":
@@ -835,12 +840,14 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
         case "J":
             if (ctrlPressed && shiftPressed) {
                 e.preventDefault();
-                // setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
-                setCurrentNote(state, getOneNoteDown(state, currentNote));
-            }
+                setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
+            } 
             break;
         case "ArrowDown":
-            setCurrentNote(state, getOneNoteDown(state, currentNote));
+            if (!(ctrlPressed && shiftPressed)) {
+                e.preventDefault();
+                setCurrentNote(state, getOneNoteDown(state, currentNote));
+            }
             break;
         case "H":
             if (ctrlPressed && shiftPressed) {
