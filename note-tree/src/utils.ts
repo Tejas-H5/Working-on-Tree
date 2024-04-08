@@ -40,7 +40,7 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
     }
 
     const [
-        matchStr,
+        _matchStr,
         dateStr,
         monthStr,
         yearStr, 

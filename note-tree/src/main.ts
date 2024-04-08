@@ -309,9 +309,9 @@ function getLastActivity(state: State): Activity | undefined {
     return state.activities[state.activities.length - 1];
 }
 
-function getSecondLastActivity(state: State): Activity | undefined {
-    return state.activities[state.activities.length - 2];
-}
+// function getSecondLastActivity(state: State): Activity | undefined {
+//     return state.activities[state.activities.length - 2];
+// }
 
 // function popLastActivity(state: State): Activity | undefined {
 //     return state.activities.pop();
@@ -611,76 +611,76 @@ function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = 
     return true;
 }
 
-type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
-function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-    let idx = childIds.indexOf(id) + 1;
-    while (idx < childIds.length) {
-        const note = getNote(state, childIds[idx]);
-        if (filterFn(state, note)) {
-            return note.id;
-        }
+// type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
+// function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+//     let idx = childIds.indexOf(id) + 1;
+//     while (idx < childIds.length) {
+//         const note = getNote(state, childIds[idx]);
+//         if (filterFn(state, note)) {
+//             return note.id;
+//         }
 
-        idx++;
-    }
+//         idx++;
+//     }
 
-    return null;
-}
+//     return null;
+// }
 
-function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-    let idx = childIds.indexOf(id) - 1;
-    while (idx >= 0)  {
-        const note = getNote(state, childIds[idx]);
-        if (filterFn(state, note)) {
-            return note.id;
-        }
+// function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
+//     let idx = childIds.indexOf(id) - 1;
+//     while (idx >= 0)  {
+//         const note = getNote(state, childIds[idx]);
+//         if (filterFn(state, note)) {
+//             return note.id;
+//         }
 
-        idx--;
-    }
+//         idx--;
+//     }
 
-    return null;
-}
+//     return null;
+// }
 
 
-function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
-    if (!note.parentId) {
-        return null;
-    }
+// function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
+//     if (!note.parentId) {
+//         return null;
+//     }
 
-    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-    // const parent = getNote(state, note.parentId);
-    // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+//     // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+//     // const parent = getNote(state, note.parentId);
+//     // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
-    // now, we hop between unfiltered
-    return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
-}
+//     // now, we hop between unfiltered
+//     return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
+// }
 
-function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
-    if (!note.parentId) {
-        return true;
-    }
+// function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
+//     if (!note.parentId) {
+//         return true;
+//     }
 
-    const siblings = getNote(state, note.parentId).childIds;
-    const idx = siblings.indexOf(note.id);
+//     const siblings = getNote(state, note.parentId).childIds;
+//     const idx = siblings.indexOf(note.id);
 
-    return (
-        idx === 0 ||
-        idx === siblings.length - 1 ||
-        getRealChildCount(note) !== 0 ||
-        note.data._status === STATUS_IN_PROGRESS
-    );
-}
+//     return (
+//         idx === 0 ||
+//         idx === siblings.length - 1 ||
+//         getRealChildCount(note) !== 0 ||
+//         note.data._status === STATUS_IN_PROGRESS
+//     );
+// }
 
-function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
-    if (!note.parentId) {
-        return null;
-    }
+// function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
+//     if (!note.parentId) {
+//         return null;
+//     }
 
-    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-    // const parent = getNote(state, note.parentId);
-    // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
+//     // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
+//     // const parent = getNote(state, note.parentId);
+//     // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
-    return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
-}
+//     return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
+// }
 
 function unindentCurrentNoteIfPossible(state: State) {
     const note = getCurrentNote(state);
@@ -777,7 +777,6 @@ function moveToLastEditedNote(state: State) {
 function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
     const ctrlPressed = e.ctrlKey || e.metaKey;
     const shiftPressed = e.shiftKey;
-    const currentNoteId = state.currentNoteId;
     const currentNote = getCurrentNote(state);
 
     switch (e.key) {
@@ -1822,9 +1821,9 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
             //     top: window.scrollY + textArea.el.getBoundingClientRect().height,
             //     behavior: "instant",
             // });
-     }
+        }
 
-        // updateScrollPosition()
+        updateScrollPosition()
     });
 
     return {
@@ -2598,7 +2597,10 @@ const App = () => {
 
     const noteTreeHelp = div({}, [
         el("P", {}, [
-            "Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing."
+            "Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing." + 
+            "NOTE: this help might be out of date, as I am currently updating this quite regularly. Right now I can't make any " + 
+            "guarantees that your data will be safe or will still work in the next version of the app (this app is a static page that stores" +
+            "all its data on your browser's local storage)"
         ]),
         el("UL", {}, [
             li(`[Enter] to create a new entry under the current one`),
