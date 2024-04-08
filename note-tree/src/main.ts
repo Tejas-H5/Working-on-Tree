@@ -18,7 +18,7 @@ import {
 } from "./dom-utils";
 
 import * as tree from "./tree";
-import { filterInPlace, swap } from "./array-utils";
+import { filterInPlace } from "./array-utils";
 import { Checkbox, DateTimeInput, FractionBar, Modal, makeButton } from "./generic-components";
 import { formatDate, truncate } from "./utils";
 
@@ -150,7 +150,7 @@ type Activity = {
 
     // only apply to breaks:
     breakInfo?: string;
-    locked: undefined | true;
+    locked?: true;
 }
 
 function defaultNote() : Note {
@@ -238,7 +238,8 @@ type State = {
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
     lastEditedNoteIds: NoteId[];
-
+    // NOTE: we're kinda using the note's index like it's ID here. this is fine,
+    // because activities are guaranteed to not change order (at least that is what we would like)
     currentNoteFilterIdx: number;
 
     scratchPad: string;
@@ -248,6 +249,9 @@ type State = {
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+    // The last activity that we appended which cannot be popped due to debounce logic
+    lastFixedActivityIdx: number | null;
+
 
     // non-serializable fields
     _flatNoteIds: NoteId[];
@@ -259,15 +263,46 @@ type NoteFilter = null | {
 };
 
 
-function pushActivity(state: State, activity: Activity) {
+function pushActivity(state: State, activity: Activity, shouldDebounce: boolean) {
     const last = getLastActivity(state);
-
-    if (last?.nId && activity.nId && last.nId === activity.nId) {
-        // don't add the same activity twice in a row
+    const lastIdx = state.activities.length - 1;
+    if (!last) {
+        state.lastFixedActivityIdx = state.activities.length;
+        state.activities.push(activity);
         return;
     }
 
+    if (last && last.nId) {
+        if (
+            shouldDebounce &&
+            lastIdx !== state.lastFixedActivityIdx
+        ) {
+            const duration = getActivityDurationMs(last, undefined);
+            const ONE_MINUTE = 1000 * 60;
+
+            if (duration < ONE_MINUTE) {
+                // we are debouncing this append operation, so that we don't append like 10 activities by just moving around for example.
+                // This would just mean that we replace the last thing we pushed instead of pushing a new thing
+                state.activities.pop();
+            } else {
+                // Actually, we don't even need to do this. The simple fact that
+                // it is older than 1 minute will already have the same effect as the lastFixedActivity variable, i.e
+                // prevent the activities.pop() from happening.
+                // But there's no real harm to put this here either
+                state.lastFixedActivityIdx = lastIdx
+            }
+        }
+         
+        if (getLastActivity(state)?.nId === activity.nId) {
+            // don't add the same activity twice in a row
+            return;
+        }
+    }
+
     state.activities.push(activity);
+    if (!shouldDebounce) {
+        state.lastFixedActivityIdx = state.activities.length - 1;
+    }
 }
 
 function getLastActivity(state: State): Activity | undefined {
@@ -300,6 +335,7 @@ function defaultState(): State {
         lastEditedNoteIds: [],
         todoNoteIds: [],
         activities: [],
+        lastFixedActivityIdx: 0,
 
         currentNoteFilterIdx: 0,
 
@@ -419,7 +455,7 @@ function insertNoteAfterCurrent(state: State) {
     const parent = getNote(state, currentNote.parentId);
     tree.addUnder(state.notes, parent, newNote)
 
-    setCurrentNote(state, newNote.id);
+    setCurrentNote(state, newNote.id, false);
     return true;
 }
 
@@ -434,7 +470,7 @@ function insertChildNode(state: State) {
     const newNote = createNewNote("");
 
     tree.addUnder(state.notes, currentNote, newNote);
-    setCurrentNote(state, newNote.id);
+    setCurrentNote(state, newNote.id, false);
 
     return true;
 }
@@ -511,7 +547,7 @@ function pushBreakActivity(state: State, breakInfoText: string, locked: undefine
         t: getTimestamp(new Date()),
         breakInfo: breakInfoText,
         locked: locked,
-    });
+    }, false);
 }
 
 function isCurrentlyTakingABreak(state: State): boolean {
@@ -519,62 +555,69 @@ function isCurrentlyTakingABreak(state: State): boolean {
     return !!last?.breakInfo;
 }
 
-function getOneNoteDown(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getOneNoteDown(state: State, note: tree.TreeNode<Note>): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
     const idx = state._flatNoteIds.indexOf(note.id);
     if (idx < state._flatNoteIds.length - 1) {
-        return getNote(state, state._flatNoteIds[idx + 1]);
+        return state._flatNoteIds[idx + 1];
     }
 
     return null;
 }
 
-function getOneNoteUp(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getOneNoteUp(state: State, note: tree.TreeNode<Note>): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
     const idx = state._flatNoteIds.indexOf(note.id);
     if (idx > 0) {
-        return getNote(state, state._flatNoteIds[idx - 1]);
+        return state._flatNoteIds[idx - 1];
     }
 
     return null;
 }
 
-function setCurrentNote(state: State, noteId: NoteId) {
-    const currentNoteBeforeMove = getCurrentNote(state);
-    if (currentNoteBeforeMove.id === noteId) {
+function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = true) {
+    if (!noteId) {
         return;
     }
 
-    if (!tree.hasNode(state.notes, noteId)) {
-        return;
-    }
-
-    state.currentNoteId = noteId;
-    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
-}
-
-function moveToNote(state: State, note: tree.TreeNode<Note> | null | undefined) {
+    const note = getNote(state, noteId);
     if (!note || note === getRootNote(state)) {
         return false;
     }
 
-    setCurrentNote(state, note.id);
+    const currentNoteBeforeMove = getCurrentNote(state);
+    if (currentNoteBeforeMove.id === note.id) {
+        return;
+    }
+
+    if (!tree.hasNode(state.notes, note.id)) {
+        return;
+    }
+
+    state.currentNoteId = note.id;
+    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+
+    pushActivity(state, {
+        t: getTimestamp(new Date()),
+        nId: note.id,
+    }, debounceActivity);
+
     return true;
 }
 
-type NoteFilterFunction = (note: tree.TreeNode<Note>) => boolean;
+type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
 function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(note)) {
-            return note;
+        if (filterFn(state, note)) {
+            return note.id;
         }
 
         idx++;
@@ -587,8 +630,8 @@ function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn
     let idx = childIds.indexOf(id) - 1;
     while (idx >= 0)  {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(note)) {
-            return note;
+        if (filterFn(state, note)) {
+            return note.id;
         }
 
         idx--;
@@ -611,8 +654,20 @@ function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
     return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
 }
 
-function isNoteImportant(note: tree.TreeNode<Note>) : boolean {
-    return getRealChildCount(note) !== 0 || note.data._status === STATUS_IN_PROGRESS;
+function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
+    if (!note.parentId) {
+        return true;
+    }
+
+    const siblings = getNote(state, note.parentId).childIds;
+    const idx = siblings.indexOf(note.id);
+
+    return (
+        idx === 0 ||
+        idx === siblings.length - 1 ||
+        getRealChildCount(note) !== 0 ||
+        note.data._status === STATUS_IN_PROGRESS
+    );
 }
 
 function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
@@ -684,48 +739,6 @@ function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
     return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
 }
 
-/** 
- * Swaps the current note with the lower note in the priority queue. 
- * The note gets unshifted if it doesn't exist, and removed if it's already lowest priority
- */
-function decreaseNotePriority(state: State) {
-    const note = getCurrentNote(state);
-    const idx = state.todoNoteIds.indexOf(note.id);
-    if (idx === -1) {
-        state.todoNoteIds.unshift(note.id);
-        return;
-    }
-
-    if (idx === state.todoNoteIds.length - 1) {
-        state.todoNoteIds.splice(idx, 1);
-        return;
-    }
-
-    // swap with the next note
-    swap(state.todoNoteIds, idx, idx + 1);
-}
-
-/** 
- * Swaps the current note with the higher note in the priority queue. 
- * The note gets pushed if it doesn't exist, and removed if it's already a P1
- */
-function increaseNotePriority(state: State) {
-    const note = getCurrentNote(state);
-    const idx = state.todoNoteIds.indexOf(note.id);
-    if (idx === -1) {
-        state.todoNoteIds.push(note.id);
-        return;
-    }
-
-    if (idx === 0) {
-        state.todoNoteIds.splice(idx, 1);
-        return;
-    }
-
-    swap(state.todoNoteIds, idx, idx - 1);
-}
-
-
 function getLastEditedNoteId(state: State) {
     return state.lastEditedNoteIds[state.lastEditedNoteIds.length - 1];
 }
@@ -762,28 +775,23 @@ function moveToLastEditedNote(state: State) {
 
 // returns true if the app should re-render
 function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
-    const altPressed = e.altKey;
     const ctrlPressed = e.ctrlKey || e.metaKey;
     const shiftPressed = e.shiftKey;
+    const currentNoteId = state.currentNoteId;
     const currentNote = getCurrentNote(state);
-
-    if (altPressed) {
-        e.preventDefault();
-    }
 
     switch (e.key) {
         case "Enter":
             e.preventDefault();
 
             if (shiftPressed) {
-                insertChildNode(state);
+                return insertChildNode(state);
             } else {
-                insertNoteAfterCurrent(state);
+                return insertNoteAfterCurrent(state);
             }
-            break;
         case "Backspace":
             // NOTE: alt + backspace is a global key-bind
-            if (!altPressed) {
+            if (!ctrlPressed && !shiftPressed) {
                 return deleteNoteIfEmpty(state, state.currentNoteId);
             }
             break;
@@ -801,46 +809,58 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             }
 
             break;
+        case "K": // cause of vim binds, I use hjkl and not ijkl as a gamer might expect
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                // setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
+                setCurrentNote(state, getOneNoteUp(state, currentNote));
+            }
+            break;
         case "ArrowUp":
-            moveToNote(state, 
-                altPressed ? getNoteOneUpLocally(state, currentNote) : 
-                    getOneNoteUp(state, currentNote)
-            );
+            if (!(ctrlPressed && shiftPressed)) {
+                e.preventDefault();
+                setCurrentNote(state, getOneNoteUp(state, currentNote));
+            }
             break;
         case "PageUp":
             for (let i = 0; i < 10; i++) {
-                moveToNote(state, getOneNoteUp(state, getCurrentNote(state)));
+                e.preventDefault();
+                setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state)));
             }
             break;
         case "PageDown":
             for (let i = 0; i < 10; i++) {
-                moveToNote(state, getOneNoteDown(state, getCurrentNote(state)));
+                setCurrentNote(state, getOneNoteDown(state, getCurrentNote(state)));
+            }
+            break;
+        case "J":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                // setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
+                setCurrentNote(state, getOneNoteDown(state, currentNote));
             }
             break;
         case "ArrowDown":
-            moveToNote(state, 
-                altPressed ? getNoteOneDownLocally(state, currentNote) : 
-                    getOneNoteDown(state, currentNote)
-            );
+            setCurrentNote(state, getOneNoteDown(state, currentNote));
             break;
-        case "ArrowLeft":
-            if (altPressed) {
-                moveToNote(state, 
-                    currentNote.parentId ? getNote(state, currentNote.parentId) : null
-                );
+        case "H":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
+                setCurrentNote(state, currentNote.parentId)
             }
             break;
-        case "ArrowRight":
-            if (altPressed) {
+        case "L":
+            if (ctrlPressed && shiftPressed) {
+                e.preventDefault();
                 if (
                     currentNote.data.lastSelectedChildId && 
                     // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
                     // TODO: just don't set this to an invalid value
                     tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
                 ) {
-                    moveToNote(state, getNote(state, currentNote.data.lastSelectedChildId));
+                    setCurrentNote(state, currentNote.data.lastSelectedChildId);
                 } else {
-                    moveToNote(state, getFinalChildNote(state, currentNote));
+                    setCurrentNote(state, getFinalChildNote(state, currentNote));
                 }
             }
             break;
@@ -850,27 +870,17 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
                 nextFilter(state);
             }
             break;
-        case "O":
-            if (shiftPressed && altPressed) {
-                increaseNotePriority(state);
-            }
-            break;
-        case "P":
-            if (shiftPressed && altPressed) {
-                decreaseNotePriority(state);
-            }
-            break;
     }
 
     return true;
 }
 
-function getFinalChildNote(state: State, note: tree.TreeNode<Note>): tree.TreeNode<Note> | null {
+function getFinalChildNote(state: State, note: tree.TreeNode<Note>): NoteId | null {
     let finalNoteIdx = note.childIds.length - 1;
     while (finalNoteIdx >= 0) {
         const childNote = getNote(state, note.childIds[finalNoteIdx]);
         if (!childNote.data._filteredOut) {
-            return childNote;
+            return childNote.id;
         }
 
         finalNoteIdx--;
@@ -1062,6 +1072,14 @@ function recomputeState(state: State) {
         const current = getCurrentNote(state);
         tree.forEachParent(state.notes, current, (note) => {
             note.data._isSelected = true;
+
+            // Also let's add these notes to the todoNoteIds list if applicable.
+            if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
+                // this will get auto-deleted from recomputeState, so we don't have to do that here
+                state.todoNoteIds.push(note.id);
+            }
+
+
             if (note.parentId) { 
                 const parent = getNote(state, note.parentId);
                 parent.data.lastSelectedChildId = note.id;
@@ -1412,7 +1430,7 @@ function TodoList(): Renderable<AppArgs> {
             state.todoNoteIds.splice(insertPoint, 0, note.id);
             setCurrentNote(state, note.id);
 
-            rerenderApp();
+            rerenderApp({ shouldScroll: false });
         });
 
         return component;
@@ -1904,18 +1922,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
             pushLastEditedNoteId(state, note.id);
         }
 
-        if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
-            // this will get auto-deleted from recomputeState, so we don't have to do that here
-            state.todoNoteIds.push(note.id);
-        }
-
         const last = getLastActivity(state);
         if (last?.nId !== note.id) {
             pushActivity(state, {
                 t: getTimestamp(new Date()),
                 nId: note.id,
                 locked: undefined,
-            });
+            }, true);
         }
 
         debouncedSave();
@@ -2028,39 +2041,78 @@ type AnalyticsFilters = {
 
 function AnalyticsFilters() : Renderable<AnalyticsFilters> {
     const dateFrom = DateTimeInput();
-    // const dateFromEnabled = Checkbox();
-    const dateFromEnabled = div({});
+    const dateTo = DateTimeInput();
+    const dateFromEnabled = Checkbox();
+    const dateToEnabled = Checkbox();
 
-    const root = div({ class: "table" }, [
-        div({}, [
-            div({}, [ dateFromEnabled ]),
-            div({}, [ dateFrom ]),
-        ])
+    const width = "150px";
+
+    const root = div({}, [
+        div({ class: "row", style: "padding-bottom: 5px"}, [ 
+            div({ style: "width: " + width }, [ dateFromEnabled ]),
+            dateFrom
+        ]),
+        div({ class: "row", style: "padding-bottom: 5px"}, [ 
+            div({ style: "width: " + width }, [ dateToEnabled ]),
+            dateTo 
+        ]),
     ]);
 
-    const analyticsFilters : AnalyticsFilters  = {
-        dateFrom: new Date(),
-        dateFromEnabled: false,
-        dateTo: new Date(),
-        dateToEnabled: false,
+    function rerender() {
+        component.rerender(component.args);
     }
 
     function updateDateFrom(date: Date) {
+        const analyticsFilters = component.args;
+
         analyticsFilters.dateFrom = date;
-        component.rerender(component.args);
+        rerender();
     }
 
     function updateDateTo(date: Date) {
+        const analyticsFilters = component.args;
+
         analyticsFilters.dateTo = date;
-        component.rerender(component.args);
+        rerender();
     }
 
     const component = makeComponent<AnalyticsFilters>(root, () => {
-        dateFrom.rerender({
-            date: analyticsFilters.dateFrom,
-            onChange: updateDateFrom,
-            readOnly: false,
+        const analyticsFilters = component.args;
+
+        dateFromEnabled.rerender({
+            checked: analyticsFilters.dateFromEnabled,
+            onToggle: () => {
+                analyticsFilters.dateFromEnabled = !analyticsFilters.dateFromEnabled
+                rerender();
+            },
+            label: "From"
         });
+
+        dateToEnabled.rerender({
+            checked: analyticsFilters.dateToEnabled,
+            onToggle: () => {
+                analyticsFilters.dateToEnabled = !analyticsFilters.dateToEnabled
+                rerender();
+            },
+            label: "To"
+        });
+
+        if (setVisible(dateFrom, analyticsFilters.dateFromEnabled)) {
+            dateFrom.rerender({
+                date: analyticsFilters.dateFrom,
+                onChange: updateDateFrom,
+                readOnly: false,
+            });
+        }
+
+        if (setVisible(dateTo, analyticsFilters.dateToEnabled)) {
+            dateTo.rerender({
+                date: analyticsFilters.dateTo,
+                onChange: updateDateTo,
+                readOnly: false,
+            });
+        }
+
     });
 
     return component;
@@ -2074,9 +2126,16 @@ function ActivityAnalytics(): Renderable<AppArgs> {
         totalTime: 0,
     };
 
+    const analyticsFilters : AnalyticsFilters  = {
+        dateFrom: new Date(),
+        dateFromEnabled: false,
+        dateTo: new Date(),
+        dateToEnabled: false,
+    }
+
     const taskColWidth = "300px";
     const durationsListRoot = div({ class: "table w-100" }) 
-    const analyticsFilters = AnalyticsFilters();
+    const analyticsFiltersEditor = AnalyticsFilters();
 
     type DurationListItemArgs = {
         taskName: string;
@@ -2112,7 +2171,7 @@ function ActivityAnalytics(): Renderable<AppArgs> {
             durationsListRoot,
         ]),
         el("H3", {}, [ "Filters" ]),
-        analyticsFilters
+        analyticsFiltersEditor
     ])
 
     const component = makeComponent<AppArgs>(root, () => {
@@ -2132,6 +2191,7 @@ function ActivityAnalytics(): Renderable<AppArgs> {
             timeMs: analytics.uncategorisedTime,
             totalTimeMs: analytics.totalTime
         });
+
         const entries = [...analytics.taskTimes]; 
         for (let i = 0; i < entries.length; i++) {
             durationsList.components[i + 2].rerender({
@@ -2140,6 +2200,8 @@ function ActivityAnalytics(): Renderable<AppArgs> {
                 totalTimeMs: analytics.totalTime,
             });
         }
+
+        analyticsFiltersEditor.rerender(analyticsFilters);
     });
 
     return component;
@@ -2778,7 +2840,6 @@ const App = () => {
             setCurrentModal(null);
         }
 
-        const altPressed = e.altKey;
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
 
@@ -2796,7 +2857,7 @@ const App = () => {
                 }
                 break;
             case "Backspace":
-                if (altPressed) {
+                if (ctrlPressed && shiftPressed) {
                     moveToLastEditedNote(state);
                     rerenderApp();
                     return true;

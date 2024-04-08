@@ -1,6 +1,6 @@
 // TODO: import the missing CSS styles
 
-import { Insertable, Renderable, div, el, makeComponent, setInputValue, setTextContent, setVisible } from "./dom-utils";
+import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setTextContent, setVisible } from "./dom-utils";
 import { formatDate, parseYMDTDateTime } from "./utils";
 
 type ModalArgs = { onClose(): void };
@@ -90,15 +90,14 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     const component = makeComponent<DateTimeInputArgs>(root, () => {
         const { date, readOnly } = component.args;
 
-        const showEdit = !readOnly;
         lastDate = date;
         const dateText = formatDate(date);
 
-        if (setVisible(show, !showEdit)) {
+        if (setVisible(show, readOnly)) {
             setTextContent(show, dateText);
         }
 
-        if (setVisible(edit, showEdit)) {
+        if (setVisible(edit, !readOnly)) {
             setInputValue(edit, dateText);
         }
     });
@@ -130,6 +129,7 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
 }
 
 type CheckboxArguments = {
+    label: string;
     checked: boolean;
     // The call-site should already have access to the value of checked. So why would I pass it
     // back to them through here?
@@ -138,14 +138,20 @@ type CheckboxArguments = {
 
 export function Checkbox(): Renderable<CheckboxArguments> {
     const label = div({});
-    const button = div({});
+    const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
     const checkbox = div({ class: "row align-items-center" }, [
-        button, label
+        div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;"}, [
+            button, 
+        ]),
+        div({ style: "width: 20px"}),
+        label
     ]);
 
     const component = makeComponent<CheckboxArguments>(checkbox, () => {
-        const { checked } = component.args;
-        button.el.style.backgroundColor = checked ? "var(--fg-color)" : "var(--bg-color)";
+        const { checked, label: labelText } = component.args;
+
+        setTextContent(label, labelText);
+        setClass(button, "checked", checked);
     });
 
     button.el.addEventListener("click", () => {
