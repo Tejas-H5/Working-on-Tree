@@ -71,11 +71,9 @@ export function makeButton(text: string, classes: string = "", styles: string = 
     );
 }
 
-type DateTimeInputArgs = {
+type DateTimeInputArgs = GenericInputArguments<Date | null> & {
     readOnly: boolean;
-    date: Date;
-    onChange(date: Date | undefined): void;
-}
+};
 
 export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     const show = div();
@@ -85,13 +83,13 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
         [show, edit]
     );
 
-    let lastDate: Date | undefined = undefined;
+    let lastDate: Date | null = null;
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
-        const { date, readOnly } = component.args;
+        const { value, readOnly } = component.args;
 
-        lastDate = date;
-        const dateText = formatDate(date);
+        lastDate = value;
+        const dateText = value ? formatDate(value) : "<no date>";
 
         if (setVisible(show, readOnly)) {
             setTextContent(show, dateText);
@@ -128,16 +126,19 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     return component;
 }
 
-type CheckboxArguments = {
-    label: string;
-    checked: boolean;
-    // The call-site should already have access to the value of checked. So why would I pass it
-    // back to them through here?
-    onToggle():void;
+// Don't export this type, it's terrible. 
+// Keeps tempting me into making form abstractions, which I should avoid until typescript introduces Exact<T>, 
+// When I can add OneLevelDeepForm<T> = { [key in T]: Renderable<GenericInputArguments<T[key]>> }.
+//      (it doesnt work now, because renderables need ALL their props to render correctly, 
+//          but they can be implicitly downcasted into Renderable<GenericInput<T>>)
+type GenericInputArguments<T> = {
+    label?: string;
+    value: T;
+    onChange(val: T):void;
 }
 
-export function Checkbox(): Renderable<CheckboxArguments> {
-    const label = div({});
+export function Checkbox(initialLabel?: string): Renderable<GenericInputArguments<boolean>> {
+    const label = div({}, initialLabel !== undefined ? [ initialLabel ] : undefined);
     const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
     const checkbox = div({ class: "row align-items-center" }, [
         div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;"}, [
@@ -147,15 +148,17 @@ export function Checkbox(): Renderable<CheckboxArguments> {
         label
     ]);
 
-    const component = makeComponent<CheckboxArguments>(checkbox, () => {
-        const { checked, label: labelText } = component.args;
+    const component = makeComponent<GenericInputArguments<boolean>>(checkbox, () => {
+        const { value, label: labelText } = component.args;
 
-        setTextContent(label, labelText);
-        setClass(button, "checked", checked);
+        if (labelText !== undefined) {
+            setTextContent(label, labelText);
+        }
+        setClass(button, "checked", value);
     });
 
     button.el.addEventListener("click", () => {
-        component.args.onToggle();
+        component.args.onChange(!component.args.value);
     })
 
     return component;

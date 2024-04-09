@@ -1554,7 +1554,7 @@ function ActivityList(): Renderable<AppArgs> {
             }
 
             timestamp.rerender({
-                date: new Date(activity.t),
+                value: new Date(activity.t),
                 onChange: updateActivityTime,
                 readOnly: false, 
             });
@@ -1567,7 +1567,7 @@ function ActivityList(): Renderable<AppArgs> {
             setVisible(deleteButton, isEditable);
         });
 
-        function updateActivityTime(date?: Date) {
+        function updateActivityTime(date: Date | null) {
             if (!date) {
                 return;
             }
@@ -1988,13 +1988,15 @@ type ActivityListItemArgs = {
 // All times are in milliseconds
 type Analytics = {
     breakTime: number;
+    multiDayBreakTime: number;
     uncategorisedTime: number; 
     taskTimes: Map<TaskId, number>;
     totalTime: number;
 }
 
-function recomputeAnalytics(state: State, analytics: Analytics) {
+function recomputeAnalytics(state: State, activities: Activity[], analytics: Analytics) {
     analytics.breakTime = 0;
+    analytics.multiDayBreakTime = 0;
     analytics.uncategorisedTime = 0;
     analytics.taskTimes.clear();
     analytics.totalTime = 0;
@@ -2021,14 +2023,26 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
 
 
     // compute the amount of time spent in each group
-    for (let i = 0; i < state.activities.length; i++) { 
-        const activity = state.activities[i];
-        const nextActivity  = state.activities[i + 1] as Activity | undefined;
+    for (let i = 0; i < activities.length; i++) { 
+        const activity = activities[i];
+        const nextActivity  = activities[i + 1] as Activity | undefined;
 
         const duration = getActivityDurationMs(activity, nextActivity);
 
         if (activity.breakInfo) {
-            analytics.breakTime += duration;
+            const t = new Date(activity.t);
+            const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
+
+            if (
+                t.getDate() === t1.getDate() &&
+                t.getMonth() === t1.getMonth() &&
+                t.getFullYear() === t1.getFullYear()
+            ) {
+                analytics.breakTime += duration;
+                continue;
+            } 
+
+            analytics.multiDayBreakTime += duration;
             continue;
         }
 
@@ -2051,115 +2065,160 @@ function recomputeAnalytics(state: State, analytics: Analytics) {
     // compute the total time
     analytics.totalTime += analytics.uncategorisedTime;
     analytics.totalTime += analytics.breakTime;
+    analytics.totalTime += analytics.multiDayBreakTime;
     for (const time of analytics.taskTimes.values()) {
         analytics.totalTime += time;
     }
 }
 
-type AnalyticsFilters = {
-    dateFromEnabled: boolean;
-    dateFrom: Date;
-    dateToEnabled: boolean;
-    dateTo: Date;
+
+function activityMatchesFilters(activity: Activity, _nextActivity: Activity | undefined, filter: ActivityFilters): boolean {
+    const t = new Date(activity.t);
+    // const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
+    if (
+        filter.is.dateFromEnabled &&
+        t < filter.date.from
+    ) {
+        return false;
+    }
+
+    if (
+        filter.is.dateToEnabled &&
+        t > filter.date.to
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
-function AnalyticsFilters() : Renderable<AnalyticsFilters> {
-    const dateFrom = DateTimeInput();
-    const dateTo = DateTimeInput();
-    const dateFromEnabled = Checkbox();
-    const dateToEnabled = Checkbox();
+function filterActivities(dst: Activity[], src: Activity[], filter: ActivityFilters) {
+    dst.splice(0, dst.length);
 
-    const width = "150px";
+    for (let i = 0; i < src.length; i++) {
+        const a = src[i];
+        const aNext: Activity | undefined = src[i + 1];
+
+        if (activityMatchesFilters(a, aNext, filter)) {
+            dst.push(a);
+        }
+    }
+}
+
+
+// I am grouping all variables of a particular type into their own sub-object.
+// This is a certified Typescript keyof moment (see usage to understand this meme, I cant be bothered explaining it here)
+type ActivityFilters = {
+    date: {
+        from: Date;
+        to: Date;
+    },
+    is: {
+        dateToEnabled: boolean;
+        dateFromEnabled: boolean;
+        // Some breaks will start on monday and end on tuesday.
+        // Typically they will over-inflate the total break time, if we only care about lunch breaks and what not.
+        multiDayBreakIncluded: boolean;
+    }
+}
+
+type ActivityFiltersEditorArgs = {
+    filter: ActivityFilters;
+    onChange(): void;
+}
+function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
+    const dates = {
+        from: DateTimeInput(),
+        to: DateTimeInput(),
+    } as const;
+
+    const checkboxes = {
+        dateFromEnabled: Checkbox("Date from"),
+        dateToEnabled: Checkbox("Date to"),
+        multiDayBreakIncluded: Checkbox("Include multi-day breaks"),
+    } as const;
+
+    const width = "250px";
 
     const root = div({}, [
         div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width }, [ dateFromEnabled ]),
-            dateFrom
+            div({ style: "width: " + width }, [ checkboxes.multiDayBreakIncluded ]),
+            div(),
         ]),
         div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width }, [ dateToEnabled ]),
-            dateTo 
+            div({ style: "width: " + width }, [ checkboxes.dateFromEnabled ]),
+            dates.from
+        ]),
+        div({ class: "row", style: "padding-bottom: 5px"}, [ 
+            div({ style: "width: " + width }, [ checkboxes.dateToEnabled ]),
+            dates.to
         ]),
     ]);
 
-    function rerender() {
-        component.rerender(component.args);
-    }
+    const component = makeComponent<ActivityFiltersEditorArgs>(root, () => {
+        const { filter, onChange } = component.args;
 
-    function updateDateFrom(date: Date) {
-        const analyticsFilters = component.args;
+        // I have the chance to be the 1000th person to re-invent forms from the ground up rn
+        // But I failed...
 
-        analyticsFilters.dateFrom = date;
-        rerender();
-    }
+        for (const nameUntyped in dates) {
+            const name = nameUntyped as keyof ActivityFilters["date"];
+            const date = dates[name];
 
-    function updateDateTo(date: Date) {
-        const analyticsFilters = component.args;
-
-        analyticsFilters.dateTo = date;
-        rerender();
-    }
-
-    const component = makeComponent<AnalyticsFilters>(root, () => {
-        const analyticsFilters = component.args;
-
-        dateFromEnabled.rerender({
-            checked: analyticsFilters.dateFromEnabled,
-            onToggle: () => {
-                analyticsFilters.dateFromEnabled = !analyticsFilters.dateFromEnabled
-                rerender();
-            },
-            label: "From"
-        });
-
-        dateToEnabled.rerender({
-            checked: analyticsFilters.dateToEnabled,
-            onToggle: () => {
-                analyticsFilters.dateToEnabled = !analyticsFilters.dateToEnabled
-                rerender();
-            },
-            label: "To"
-        });
-
-        if (setVisible(dateFrom, analyticsFilters.dateFromEnabled)) {
-            dateFrom.rerender({
-                date: analyticsFilters.dateFrom,
-                onChange: updateDateFrom,
+            date.rerender({
+                onChange: (val) => { 
+                    if(val) {
+                        filter.date[name] = val;
+                        onChange();
+                    }
+                },
+                value: filter.date[name],
                 readOnly: false,
-            });
+            })
         }
 
-        if (setVisible(dateTo, analyticsFilters.dateToEnabled)) {
-            dateTo.rerender({
-                date: analyticsFilters.dateTo,
-                onChange: updateDateTo,
-                readOnly: false,
+        for (const nameUntyped in checkboxes) {
+            const name = nameUntyped as keyof ActivityFilters["is"];
+            const checkbox = checkboxes[name];
+
+            checkbox.rerender({
+                onChange: (val) => {
+                    filter.is[name] = val;
+                    onChange();
+                },
+                value: filter.is[name],
             });
         }
-
     });
 
     return component;
 }
 
 function ActivityAnalytics(): Renderable<AppArgs> {
+    const filteredActivities: Activity[] = [];
     const analytics: Analytics = {
+        multiDayBreakTime: 0,
         breakTime: 0,
         uncategorisedTime: 0,
         taskTimes: new Map<TaskId, number>(),
         totalTime: 0,
     };
 
-    const analyticsFilters : AnalyticsFilters  = {
-        dateFrom: new Date(),
-        dateFromEnabled: false,
-        dateTo: new Date(),
-        dateToEnabled: false,
+    const analyticsActivityFilter : ActivityFilters  = {
+        date: {
+            from: new Date(),
+            to: new Date(),
+        },
+        is: {
+            dateFromEnabled: false,
+            dateToEnabled: false,
+            multiDayBreakIncluded: false,
+        }
     }
 
     const taskColWidth = "300px";
     const durationsListRoot = div({ class: "table w-100" }) 
-    const analyticsFiltersEditor = AnalyticsFilters();
+    const analyticsFiltersEditor = ActivityFiltersEditor();
 
     type DurationListItemArgs = {
         taskName: string;
@@ -2201,31 +2260,53 @@ function ActivityAnalytics(): Renderable<AppArgs> {
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
-        recomputeAnalytics(state, analytics);
+        analyticsFiltersEditor.rerender({
+            filter: analyticsActivityFilter,
+            onChange: () => {
+                component.rerender(component.args);
+            }
+        });
+        filterActivities(filteredActivities, state.activities, analyticsActivityFilter);
 
-        durationsList.resize(analytics.taskTimes.size + 2);
-        durationsList.components[0].rerender({
+        recomputeAnalytics(state, filteredActivities, analytics);
+
+        durationsList.resize(analytics.taskTimes.size + 3);
+        if (setVisible(durationsList.components[0], analyticsActivityFilter.is.multiDayBreakIncluded)) {
+            durationsList.components[0].rerender({
+                taskName: "Multi-Day Break Time",
+                timeMs: analytics.multiDayBreakTime,
+                totalTimeMs: analytics.totalTime
+            });
+        }
+
+        durationsList.components[1].rerender({
             taskName: "Break Time",
             timeMs: analytics.breakTime,
             totalTimeMs: analytics.totalTime
         });
 
-        durationsList.components[1].rerender({
+        durationsList.components[2].rerender({
             taskName: "Uncategorised Time",
             timeMs: analytics.uncategorisedTime,
             totalTimeMs: analytics.totalTime
         });
 
-        const entries = [...analytics.taskTimes]; 
-        for (let i = 0; i < entries.length; i++) {
-            durationsList.components[i + 2].rerender({
-                taskName: entries[i][0], 
-                timeMs: entries[i][1], 
-                totalTimeMs: analytics.totalTime,
+
+        const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
+            analytics.totalTime :
+            analytics.totalTime - analytics.multiDayBreakTime;
+
+        let i = 0;
+        for (const [name, time] of analytics.taskTimes) {
+            durationsList.components[i + 3].rerender({
+                taskName: name,
+                timeMs: time,
+                totalTimeMs: total,
             });
+
+            i++;
         }
 
-        analyticsFiltersEditor.rerender(analyticsFilters);
     });
 
     return component;
