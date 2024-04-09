@@ -153,11 +153,18 @@ type Activity = {
     locked?: true;
 }
 
-function defaultNote() : Note {
+function defaultNote(state: State | null) : Note {
+    let id = uuid();
+    if (state) {
+        while(tree.hasNode(state.notes, id)) {
+            // I would dread to debug these collisions in the 1/100000000 chance they happen, so might as well do this
+            id = uuid();
+        }
+    }
+
     return {
         // the following is valuable user data
-
-        id: uuid(),
+        id, 
         text: "",
         openedAt: getTimestamp(new Date()), 
         lastSelectedChildId: "",
@@ -192,8 +199,8 @@ function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : nu
 }
 
 
-function createNewNote(text: string): tree.TreeNode<Note> {
-    const note = defaultNote();
+function createNewNote(state: State, text: string): tree.TreeNode<Note> {
+    const note = defaultNote(state);
     note.text = text;
 
     return tree.newTreeNode(note, note.id);
@@ -237,7 +244,6 @@ type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-    lastEditedNoteIds: NoteId[];
     // NOTE: we're kinda using the note's index like it's ID here. this is fine,
     // because activities are guaranteed to not change order (at least that is what we would like)
     currentNoteFilterIdx: number;
@@ -323,7 +329,7 @@ function getLastActivity(state: State): Activity | undefined {
 // Typically if state will contain references, non-serializable objects, or are in some way computed from other canonical state,
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
 function defaultState(): State {
-    const rootNote = defaultNote();
+    const rootNote = defaultNote(null);
     rootNote.id = tree.ROOT_KEY;
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
@@ -332,7 +338,6 @@ function defaultState(): State {
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
-        lastEditedNoteIds: [],
         todoNoteIds: [],
         activities: [],
         lastFixedActivityIdx: 0,
@@ -362,7 +367,7 @@ function loadState(name: string): State {
 
         tree.forEachNode(mergedLoadedState.notes, (id) => {
             const node = tree.getNode(mergedLoadedState.notes, id);
-            node.data = merge(node.data, defaultNote());
+            node.data = merge(node.data, defaultNote(null));
         });
 
         return mergedLoadedState;
@@ -442,7 +447,6 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
 
     // delete relevant activities from the activity list and last viewed list
     filterInPlace(state.activities, (activity) => activity.nId !== note.id);
-    filterInPlace(state.lastEditedNoteIds, (id) => id !== note.id);
 
     return true;
 }
@@ -455,7 +459,7 @@ function insertNoteAfterCurrent(state: State) {
         return false;
     }
 
-    const newNote = createNewNote("");
+    const newNote = createNewNote(state, "");
 
     const parent = getNote(state, currentNote.parentId);
     tree.addUnder(state.notes, parent, newNote)
@@ -472,7 +476,7 @@ function insertChildNode(state: State) {
         return false;
     }
 
-    const newNote = createNewNote("");
+    const newNote = createNewNote(state, "");
 
     tree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id, false);
@@ -534,7 +538,7 @@ function getCurrentNote(state: State) {
         const rootChildIds = getRootNote(state).childIds;
         if (rootChildIds.length === 0) {
             // create the first note if we have no notes
-            const newNote = createNewNote("First Note");
+            const newNote = createNewNote(state, "First Note");
             tree.addUnder(state.notes, getRootNote(state), newNote);
         }
 
@@ -670,8 +674,8 @@ function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
     return (
         idx === 0 ||
         idx === siblings.length - 1 ||
-        // note.data._isSelected ||
-        getRealChildCount(note) !== 0 ||
+        note.data._isSelected ||
+        // getRealChildCount(note) !== 0 ||
         note.data._status === STATUS_IN_PROGRESS
     );
 }
@@ -745,38 +749,38 @@ function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
     return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
 }
 
-function getLastEditedNoteId(state: State) {
-    return state.lastEditedNoteIds[state.lastEditedNoteIds.length - 1];
-}
-
-const MAX_LAST_EDITED_NOTE_MEMORY_LENGTH = 10;
-function pushLastEditedNoteId(state: State, noteId: NoteId) {
-    state.lastEditedNoteIds.push(noteId);
-    // Totally arbitrary number
-    while (state.lastEditedNoteIds.length > MAX_LAST_EDITED_NOTE_MEMORY_LENGTH) {
-        state.lastEditedNoteIds.splice(0, 1);
-    }
-}
-
-function moveToLastEditedNote(state: State) {
-    if (state.lastEditedNoteIds.length === 0) {
-        return;
+function getPreviousActivityWithNoteIdx(state: State, idx: number): number {
+    if (idx === -1) {
+        return -1;
     }
 
+    if (idx > 1){
+        idx--;
+    }
 
-    const note = getCurrentNote(state);
-    if (
-        note &&
-        getLastEditedNoteId(state) === note.id
+    while(idx > 0 && !state.activities[idx].nId) {
+        idx--;
+    }
+
+    return idx;
+}
+function getNextActivityWithNoteIdx(state: State, idx: number): number {
+    if (idx === -1) {
+        return -1;
+    }
+
+    if (idx < state.activities.length - 1) {
+        idx++;
+    }
+
+    while(
+        idx < state.activities.length - 1 && 
+        !state.activities[idx].nId
     ) {
-        state.lastEditedNoteIds.pop();
-
-        if (state.lastEditedNoteIds.length === 0) {
-            return;
-        }
+        idx++;
     }
 
-    setCurrentNote(state, getLastEditedNoteId(state));
+    return idx;
 }
 
 // returns true if the app should re-render
@@ -1110,6 +1114,17 @@ function recomputeState(state: State) {
             return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
         });
     }
+
+    // recompute the last fixed note
+    {
+        if (
+            state.lastFixedActivityIdx && 
+            state.lastFixedActivityIdx >= state.activities.length
+        ) {
+            // sometimes we backspace notes we create. So this needs to be recomputed
+            state.lastFixedActivityIdx = state.activities.length - 1;
+        }
+    }
 }
 
 
@@ -1314,10 +1329,15 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     root.el.addEventListener("click", () => {
         const { noteId, app: { state, rerenderApp }}  = component.args;
 
-        if (noteId) {
-            setCurrentNote(state, noteId);
-            rerenderApp();
-        }
+        // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
+        // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
+        // something like this allowed to happen. LOL.
+        setTimeout(() => {
+            if (noteId) {
+                setCurrentNote(state, noteId);
+                rerenderApp();
+            }
+        }, 1);
     });
 
     return component;
@@ -1527,7 +1547,8 @@ function ActivityList(): Renderable<AppArgs> {
                     focusAnyway: false,
                     noteId: activity.nId,
                     text: activityText,
-                })
+                });
+
                 setClass(noteLink, "hover-link", !!activity.nId);
                 noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
             }
@@ -1924,9 +1945,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
-        if (getLastEditedNoteId(state) !== note.id) {
-            pushLastEditedNoteId(state, note.id);
-        }
 
         const last = getLastActivity(state);
         if (last?.nId !== note.id) {
@@ -2271,20 +2289,14 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 }
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
-    const lastTouchedFlag = div({ class: "font-weight: bold" }, [ " <-- "]);
-    const root = div({ class: "row" }, [ lastTouchedFlag ]);
+    const duration = div();
+    const root = div({ class: "row", style: "padding-left: 10px;" }, [ duration ]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state }, note } = component.args;
 
-        const idx = state.lastEditedNoteIds.lastIndexOf(note.id);
-        if (setVisible(lastTouchedFlag, idx !== -1)) {
-            const percentage = (idx + 1) * 100 / state.lastEditedNoteIds.length;
-            lastTouchedFlag.el.style.backgroundColor = `color-mix(in srgb, var(--bg-in-progress) ${percentage}%, transparent)`
-            lastTouchedFlag.el.style.color = `color-mix(in srgb, var(--fg-color) ${percentage}%, transparent)`
-
-            lastTouchedFlag.el.setAttribute("title", `This is the note you edited ${idx - state.lastEditedNoteIds.length + 1} notes ago`)
-        }
+        const durationMs = getNoteDuration(state, note);
+        setTextContent(duration, formatDuration(durationMs));
     });
 
     return component;
@@ -2844,6 +2856,8 @@ const App = () => {
         rerenderApp();
     };
 
+    // I use this for the ctrl + shift + </> keybinds to move through previous activities
+    let lastActivityIndex = 0;
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
             setCurrentModal(null);
@@ -2851,6 +2865,19 @@ const App = () => {
 
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
+
+        if (!e.repeat) {
+            console.log("key", e.key);
+        }
+
+        if (
+            ctrlPressed && 
+            shiftPressed &&
+            (e.key === "Shift" || e.key === "Control") &&
+            !e.repeat
+        ) {
+            lastActivityIndex = state.activities.length - 1;
+        }
 
         switch (e.key) {
             case "S":
@@ -2865,11 +2892,28 @@ const App = () => {
                     setCurrentModal("analytics-view");
                 }
                 break;
-            case "Backspace":
+            case "<":
                 if (ctrlPressed && shiftPressed) {
-                    moveToLastEditedNote(state);
-                    rerenderApp();
-                    return true;
+                    lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
+                    if (lastActivityIndex !== -1) {
+                        const activity = state.activities[lastActivityIndex];
+                        if (activity.nId) {
+                            setCurrentNote(state, activity.nId);
+                            rerenderApp();
+                        }
+                    }
+                }
+                break;
+            case ">":
+                if (ctrlPressed && shiftPressed) {
+                    lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
+                    if (lastActivityIndex !== -1) {
+                        const activity = state.activities[lastActivityIndex];
+                        if (activity.nId) {
+                            setCurrentNote(state, activity.nId);
+                            rerenderApp();
+                        }
+                    }
                 }
                 break;
 
