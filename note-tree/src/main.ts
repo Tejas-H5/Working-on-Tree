@@ -692,62 +692,62 @@ function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
     return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
 }
 
-function unindentCurrentNoteIfPossible(state: State) {
-    const note = getCurrentNote(state);
-    if (!note.parentId) {
-        return;
-    }
+// function unindentCurrentNoteIfPossible(state: State) {
+//     const note = getCurrentNote(state);
+//     if (!note.parentId) {
+//         return;
+//     }
 
-    if (!isLastNote(state, note)) {
-        // can't indent or unindent the last note in the sequence
-        return;
-    }
+//     if (!isLastNote(state, note)) {
+//         // can't indent or unindent the last note in the sequence
+//         return;
+//     }
 
-    const parent = getNote(state, note.parentId);
-    if (
-        !parent.parentId ||        // parent parent can't be null, that is where the unindented note will go
-        !isLastNote(state, parent) // for unindent, the parent should also be the last note in it's sequence
-    ) {
-        return;
-    }
+//     const parent = getNote(state, note.parentId);
+//     if (
+//         !parent.parentId ||        // parent parent can't be null, that is where the unindented note will go
+//         !isLastNote(state, parent) // for unindent, the parent should also be the last note in it's sequence
+//     ) {
+//         return;
+//     }
 
-    const parentParent = getNote(state, parent.parentId);
+//     const parentParent = getNote(state, parent.parentId);
 
-    tree.remove(state.notes, note);
-    tree.addUnder(state.notes, parentParent, note);
-}
+//     tree.remove(state.notes, note);
+//     tree.addUnder(state.notes, parentParent, note);
+// }
 
-function indentCurrentNoteIfPossible(state: State) {
-    const note = getCurrentNote(state);
-    if (!note.parentId) {
-        return;
-    }
+// function indentCurrentNoteIfPossible(state: State) {
+//     const note = getCurrentNote(state);
+//     if (!note.parentId) {
+//         return;
+//     }
 
 
-    const parent = getNote(state, note.parentId);
-    const idx = parent.childIds.indexOf(note.id);
-    const isLast = idx === parent.childIds.length - 1;
-    if (
-        !isLast ||  // can't indent or unindent the last note in the sequence
-        idx === 0   // can't indent the first note
-    ) {
-        return;
-    }
+//     const parent = getNote(state, note.parentId);
+//     const idx = parent.childIds.indexOf(note.id);
+//     const isLast = idx === parent.childIds.length - 1;
+//     if (
+//         !isLast ||  // can't indent or unindent the last note in the sequence
+//         idx === 0   // can't indent the first note
+//     ) {
+//         return;
+//     }
 
-    const previousNote = getNote(state, parent.childIds[idx - 1]);
-    tree.remove(state.notes, note);
-    tree.addUnder(state.notes, previousNote, note);
-}
+//     const previousNote = getNote(state, parent.childIds[idx - 1]);
+//     tree.remove(state.notes, note);
+//     tree.addUnder(state.notes, previousNote, note);
+// }
 
-function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
-    if (!note.parentId) {
-        // root is the last note, technically
-        return true;
-    }
+// function isLastNote(state: State, note: tree.TreeNode<Note>) : boolean{
+//     if (!note.parentId) {
+//         // root is the last note, technically
+//         return true;
+//     }
 
-    const parent = getNote(state, note.parentId);
-    return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
-}
+//     const parent = getNote(state, note.parentId);
+//     return parent.childIds.indexOf(note.id) === parent.childIds.length - 1;
+// }
 
 function getPreviousActivityWithNoteIdx(state: State, idx: number): number {
     if (idx === -1) {
@@ -811,11 +811,11 @@ function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
             // I don't like this. It's convenient, but it means that we can't use tab for other things.
             // But 
 
-            if (shiftPressed) {
-                unindentCurrentNoteIfPossible(state);
-            } else {
-                indentCurrentNoteIfPossible(state);
-            }
+            // if (shiftPressed) {
+            //     unindentCurrentNoteIfPossible(state);
+            // } else {
+            //     indentCurrentNoteIfPossible(state);
+            // }
 
             break;
         case "K": // cause of vim binds, I use hjkl and not ijkl as a gamer might expect
@@ -2974,6 +2974,7 @@ const App = () => {
                 }
                 break;
             case "<":
+            case ",":
                 if (ctrlPressed && shiftPressed) {
                     lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
                     if (lastActivityIndex !== -1) {
@@ -2986,6 +2987,7 @@ const App = () => {
                 }
                 break;
             case ">":
+            case ".":
                 if (ctrlPressed && shiftPressed) {
                     lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
                     if (lastActivityIndex !== -1) {
