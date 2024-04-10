@@ -90,3 +90,14 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
 
     return [date, ""];
 }
+
+// export function countNewlines(value: string): number {
+//     let newLines = 0;
+//     for (const c of value) {
+//         if (c === '\n') {
+//             newLines ++;
+//         }
+//     }
+
+//     return newLines;
+// }

@@ -244,8 +244,7 @@ type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-    // NOTE: we're kinda using the note's index like it's ID here. this is fine,
-    // because activities are guaranteed to not change order (at least that is what we would like)
+    
     currentNoteFilterIdx: number;
 
     scratchPad: string;
@@ -255,12 +254,16 @@ type State = {
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+
     // The last activity that we appended which cannot be popped due to debounce logic
+    // NOTE: we're kinda using the note's index like it's ID here. this is fine,
+    // because activities are guaranteed to not change order (at least that is what we would like)
     lastFixedActivityIdx: number | null;
 
 
     // non-serializable fields
     _flatNoteIds: NoteId[];
+    _isEditingFocusedNote: boolean;
 };
 
 type NoteFilter = null | {
@@ -335,6 +338,7 @@ function defaultState(): State {
 
     const state: State = {
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
+        _isEditingFocusedNote: false, // global flag to control if we're editing a note
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
@@ -426,21 +430,18 @@ function deleteNoteIfEmpty(state: State, id: NoteId) {
         return false;
     }
 
-    if (note.id === state.currentNoteId) {
-        // don't delete the note we're working on rn
-        return false;
-    }
-
     if (tree.getSize(state.notes) <= 1) {
-        // don't delete our only note!
+        // don't delete our only note! (other than the root note)
         return false
     }
 
-    const noteToMoveTo = getOneNoteUp(state, note) || getOneNoteDown(state, note);
+    const noteToMoveTo = getOneNoteUp(state, note, false) || getOneNoteDown(state, note, false);
     if (!noteToMoveTo) {
         // cant delete this note if there are no other notes we can move to
         return false;
     }
+
+    setCurrentNote(state, noteToMoveTo);
 
     // delete from the ids list, as well as the note database
     tree.remove(state.notes, note);
@@ -468,12 +469,12 @@ function insertNoteAfterCurrent(state: State) {
     return true;
 }
 
-function insertChildNode(state: State) {
+function insertChildNode(state: State): tree.TreeNode<Note> | null {
     const currentNote = getCurrentNote(state);
     assert(currentNote.parentId, "Cant insert after the root note");
     if (!currentNote.data.text) {
         // REQ: don't insert new notes while we're editing blank notes
-        return false;
+        return null;
     }
 
     const newNote = createNewNote(state, "");
@@ -481,7 +482,7 @@ function insertChildNode(state: State) {
     tree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id, false);
 
-    return true;
+    return newNote;
 }
 
 function hasNote(state: State, id: NoteId): boolean {
@@ -564,27 +565,29 @@ function isCurrentlyTakingABreak(state: State): boolean {
     return !!last?.breakInfo;
 }
 
-function getOneNoteDown(state: State, note: tree.TreeNode<Note>): NoteId | null {
+function getOneNoteDown(state: State, note: tree.TreeNode<Note>, useSiblings: boolean): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
-    const idx = state._flatNoteIds.indexOf(note.id);
-    if (idx < state._flatNoteIds.length - 1) {
-        return state._flatNoteIds[idx + 1];
+    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const idx = list.indexOf(note.id);
+    if (idx < list.length - 1) {
+        return list[idx + 1];
     }
 
     return null;
 }
 
-function getOneNoteUp(state: State, note: tree.TreeNode<Note>): NoteId | null {
+function getOneNoteUp(state: State, note: tree.TreeNode<Note>, useSiblings: boolean): NoteId | null {
     if (!note.parentId) {
         return null;
     }
 
-    const idx = state._flatNoteIds.indexOf(note.id);
+    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    let idx = list.indexOf(note.id);
     if (idx > 0) {
-        return state._flatNoteIds[idx - 1];
+        return list[idx - 1];
     }
 
     return null;
@@ -610,12 +613,14 @@ function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = 
     }
 
     state.currentNoteId = note.id;
+    state._isEditingFocusedNote = false;
     deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
 
     pushActivity(state, {
         t: getTimestamp(new Date()),
         nId: note.id,
     }, debounceActivity);
+
 
     return true;
 }
@@ -655,12 +660,8 @@ function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
         return null;
     }
 
-    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-    // const parent = getNote(state, note.parentId);
-    // return findNextNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
-
-    // now, we hop between unfiltered
-    return findNextNote(state, state._flatNoteIds, note.id, isNoteImportant);
+    const siblings = getNote(state, note.parentId).childIds;
+    return findNextNote(state, siblings, note.id, isNoteImportant);
 }
 
 function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
@@ -689,7 +690,8 @@ function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
     // const parent = getNote(state, note.parentId);
     // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
-    return findPreviousNote(state, state._flatNoteIds, note.id, isNoteImportant);
+    const siblings = getNote(state, note.parentId).childIds;
+    return findPreviousNote(state, siblings, note.id, isNoteImportant);
 }
 
 // function unindentCurrentNoteIfPossible(state: State) {
@@ -781,108 +783,6 @@ function getNextActivityWithNoteIdx(state: State, idx: number): number {
     }
 
     return idx;
-}
-
-// returns true if the app should re-render
-function handleNoteInputKeyDown(state: State, e: KeyboardEvent) : boolean {
-    const ctrlPressed = e.ctrlKey || e.metaKey;
-    const shiftPressed = e.shiftKey;
-    const currentNote = getCurrentNote(state);
-
-    switch (e.key) {
-        case "Enter":
-            e.preventDefault();
-
-            if (shiftPressed) {
-                return insertChildNode(state);
-            } else {
-                return insertNoteAfterCurrent(state);
-            }
-        case "Backspace":
-            // NOTE: alt + backspace is a global key-bind
-            if (!ctrlPressed && !shiftPressed) {
-                return deleteNoteIfEmpty(state, state.currentNoteId);
-            }
-            break;
-        case "Tab":
-            // TODO: move between the tabs
-            e.preventDefault();
-
-            // I don't like this. It's convenient, but it means that we can't use tab for other things.
-            // But 
-
-            // if (shiftPressed) {
-            //     unindentCurrentNoteIfPossible(state);
-            // } else {
-            //     indentCurrentNoteIfPossible(state);
-            // }
-
-            break;
-        case "K": // cause of vim binds, I use hjkl and not ijkl as a gamer might expect
-            if (ctrlPressed && shiftPressed) {
-                e.preventDefault();
-                setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
-            }
-            break;
-        case "ArrowUp":
-            if (!(ctrlPressed && shiftPressed)) {
-                e.preventDefault();
-                setCurrentNote(state, getOneNoteUp(state, currentNote));
-            }
-            break;
-        case "PageUp":
-            for (let i = 0; i < 10; i++) {
-                e.preventDefault();
-                setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state)));
-            }
-            break;
-        case "PageDown":
-            for (let i = 0; i < 10; i++) {
-                setCurrentNote(state, getOneNoteDown(state, getCurrentNote(state)));
-            }
-            break;
-        case "J":
-            if (ctrlPressed && shiftPressed) {
-                e.preventDefault();
-                setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
-            } 
-            break;
-        case "ArrowDown":
-            if (!(ctrlPressed && shiftPressed)) {
-                e.preventDefault();
-                setCurrentNote(state, getOneNoteDown(state, currentNote));
-            }
-            break;
-        case "H":
-            if (ctrlPressed && shiftPressed) {
-                e.preventDefault();
-                setCurrentNote(state, currentNote.parentId)
-            }
-            break;
-        case "L":
-            if (ctrlPressed && shiftPressed) {
-                e.preventDefault();
-                if (
-                    currentNote.data.lastSelectedChildId && 
-                    // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
-                    // TODO: just don't set this to an invalid value
-                    tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
-                ) {
-                    setCurrentNote(state, currentNote.data.lastSelectedChildId);
-                } else {
-                    setCurrentNote(state, getFinalChildNote(state, currentNote));
-                }
-            }
-            break;
-        case "F":
-            if (ctrlPressed && shiftPressed) {
-                e.preventDefault();
-                nextFilter(state);
-            }
-            break;
-    }
-
-    return true;
 }
 
 function getFinalChildNote(state: State, note: tree.TreeNode<Note>): NoteId | null {
@@ -1881,18 +1781,27 @@ type NoteRowArgs = {
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = div({ class: "pre" });
-    const whenNotEditing = div({ class: "pre-wrap" });
+    const whenNotEditing = div({ class: "pre-wrap", style: "" });
+    const whenEditing = el<HTMLInputElement>("TEXTAREA", { rows: "1", class: "flex-1", style: "overflow-y: hidden; padding: 0;" });
 
-    let isEditing = false;
+    let isFocused = false;
 
-    // Soon, I plan to have multiline notes
-    const whenEditing = el<HTMLInputElement>("TEXTAREA", { class: "flex-1", style: "overflow-y: hidden;"});
     const root = div(
         {
-            class: "pre-wrap flex-1", style:"margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
+            class: "pre-wrap flex-1", 
+            style:"overflow-y: hidden; margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
         },
         [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
     );
+
+    function onRerenderWhenEditing() {
+        const { note } = component.args;
+
+        setInputValue(whenEditing, note.data.text);
+
+        whenEditing.el.style.height = "0";
+        whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
+    }
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { app: { state, renderOptions }, note } = component.args;
@@ -1905,46 +1814,48 @@ function NoteRowText(): Renderable<NoteRowArgs> {
             `${getIndentStr(note.data)} ${getNoteStateString(note.data)}${childCountText} ${dashChar} `
         );
 
+        const wasFocused = isFocused;
+        isFocused = state.currentNoteId === note.id;
 
-        const wasEditing = isEditing;
-        isEditing = state.currentNoteId === note.id;
-        setVisible(whenEditing, isEditing);
-        setVisible(whenNotEditing, !isEditing);
-        if (isEditing && renderOptions.shouldScroll) {
-            setInputValue(whenEditing, note.data.text);
-            whenEditing.el.style.height = "0px";
-            whenEditing.el.style.height = whenEditing.el.scrollHeight + "px"; 
+        const isEditing = state._isEditingFocusedNote && isFocused;
 
+        if (renderOptions.shouldScroll && !wasFocused && isFocused) {
+            // without setTimeout here, calling focus won't work as soon as the page loads.
+            setTimeout(() => {
+                // scroll view into position.
+                // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
+                // ideally we don't want to do this when we click on a note.
+                // I haven't worked out how to do that yet though
+                {
+                    const wantedY = root.el.getBoundingClientRect().top + window.scrollY;
 
-            if (!wasEditing) {
-                // without setTimeout here, calling focus won't work as soon as the page loads.
-                setTimeout(() => {
-                    whenEditing.el.focus({ preventScroll: true });
+                    window.scrollTo({
+                        left: 0,
+                        top: wantedY - window.innerHeight / 2,
+                        behavior: "instant"
+                    });
+                }
+            }, 1);
+        }
 
-                    // scroll view into position.
-                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
-                    // ideally we don't want to do this when we click on a note.
-                    // I haven't worked out how to do that yet though
-                    {
-                        const wantedY = whenEditing.el.getBoundingClientRect().top + window.scrollY;
+        if (setVisible(whenEditing, isEditing)) {
+            whenEditing.el.focus({ preventScroll: true });
+        }
 
-                        window.scrollTo({
-                            left: 0,
-                            top: wantedY - window.innerHeight / 2,
-                            behavior: "instant"
-                        });
-                    }
-                }, 1);
-            }
-        } else {
+        if (setVisible(whenNotEditing, !isEditing)) {
             setTextContent(whenNotEditing, note.data.text);
         }
+        
+        root.el.style.backgroundColor = isFocused ? "var(--bg-color-focus)" : "var(--bg-color)";
+
+        onRerenderWhenEditing();
     });
 
     whenEditing.el.addEventListener("input", () => {
         const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
+        onRerenderWhenEditing();
 
         const last = getLastActivity(state);
         if (last?.nId !== note.id) {
@@ -1959,18 +1870,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         rerenderApp();
     });
-
-    whenEditing.el.addEventListener("keydown", (e) => {
-        const { app: { state, rerenderApp } } = component.args;
-
-        if (handleNoteInputKeyDown(state, e)) {
-            rerenderApp();
-        }
-    });
-
-    whenEditing.el.addEventListener("blur", () => {
-        isEditing = false;
-    })
 
     return component;
 }
@@ -2680,6 +2579,23 @@ const makeDarkModeToggle = () => {
     return button;
 };
 
+function isEditingTextSomewhereInDocument(): boolean {
+    const el = document.activeElement;
+    if (!el) {
+        return false;
+    }
+
+    const type = el.nodeName.toLocaleLowerCase();
+    if (
+        type === "textarea" || 
+        type === "input"
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
 type Modal = null | "analytics-view" | "scratch-pad";
 
 const App = () => {
@@ -2712,6 +2628,7 @@ const App = () => {
             li(`[Ctrl] + [Shift] + [F] to toggle filters`),
         ])
     ]);
+
 
     const statusTextIndicator = div({ class: "pre-wrap", style: "background-color: var(--bg-color)" })
 
@@ -2937,19 +2854,14 @@ const App = () => {
         rerenderApp();
     };
 
+
     // I use this for the ctrl + shift + </> keybinds to move through previous activities
     let lastActivityIndex = 0;
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-            setCurrentModal(null);
-        }
-
+        // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
-
-        if (!e.repeat) {
-            console.log("key", e.key);
-        }
+        const currentNote = getCurrentNote(state);
 
         if (
             ctrlPressed && 
@@ -2960,46 +2872,154 @@ const App = () => {
             lastActivityIndex = state.activities.length - 1;
         }
 
-        switch (e.key) {
-            case "S":
-                if (ctrlPressed && shiftPressed) {
-                    e.preventDefault();
-                    setCurrentModal("scratch-pad");
+        // handle modals
+        if (
+            e.key === "S" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal("scratch-pad");
+            return;
+        } else if (
+            e.key === "A" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal("analytics-view");
+            return;
+        } else if (
+            currentModal !== null &&
+            e.key === "Escape"
+        ) {
+            setCurrentModal(null);
+            return;
+        }
+
+        const isEditingSomeText = isEditingTextSomewhereInDocument();
+
+        let shouldPreventDefault = true;
+        let needsRerender = true;
+        if (
+            !state._isEditingFocusedNote &&
+            !isEditingSomeText
+        ) {
+            // handle movements here
+
+            if (ctrlPressed && e.key === "ArrowDown") {
+                setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
+            } else if (e.key === "ArrowDown") {
+                setCurrentNote(state, getOneNoteDown(state, currentNote, true));
+            } else if (ctrlPressed && e.key === "ArrowUp") {
+                setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
+            } else if (e.key === "ArrowUp") {
+                setCurrentNote(state, getOneNoteUp(state, currentNote, true));
+            } else if (e.key === "ArrowLeft") {
+                setCurrentNote(state, currentNote.parentId)
+            } else if (
+                e.key === "ArrowRight" &&
+                currentNote.data.lastSelectedChildId && 
+                // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
+                // TODO: just don't set this to an invalid value
+                tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
+            ) {
+                setCurrentNote(state, currentNote.data.lastSelectedChildId);
+            } else if (e.key === "ArrowRight") {
+                setCurrentNote(state, getFinalChildNote(state, currentNote));
+            } else if (e.key === "PageUp") {
+                for (let i = 0; i < 10; i++) {
+                    setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state), true));
                 }
-                break;
-            case "A":
-                if (ctrlPressed && shiftPressed) {
-                    e.preventDefault();
-                    setCurrentModal("analytics-view");
+            } else if (e.key === "PageDown") {
+                for (let i = 0; i < 10; i++) {
+                    setCurrentNote(state, getOneNoteDown(state, getCurrentNote(state), true));
                 }
-                break;
-            case "<":
-            case ",":
+            } else if (shiftPressed && e.key === "Enter") {
+                const newNote = insertChildNode(state);
+                if (newNote) {
+                    state._isEditingFocusedNote = true;
+                }
+            } else if (e.key === "Enter") {
+                state._isEditingFocusedNote = true;
+            } else if (
+                (e.key === "<" || e.key === ",") &&
+                ctrlPressed &&
+                shiftPressed
+            ) {
                 if (ctrlPressed && shiftPressed) {
                     lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
                     if (lastActivityIndex !== -1) {
                         const activity = state.activities[lastActivityIndex];
                         if (activity.nId) {
                             setCurrentNote(state, activity.nId);
-                            rerenderApp();
                         }
                     }
                 }
-                break;
-            case ">":
-            case ".":
+            } else if (
+                (e.key === ">" || e.key === ".") &&
+                ctrlPressed &&
+                shiftPressed
+            ) {
                 if (ctrlPressed && shiftPressed) {
                     lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
                     if (lastActivityIndex !== -1) {
                         const activity = state.activities[lastActivityIndex];
                         if (activity.nId) {
                             setCurrentNote(state, activity.nId);
-                            rerenderApp();
                         }
                     }
                 }
-                break;
+            } else {
+                needsRerender = false;
+            }
 
+            if (needsRerender) {
+                if (shouldPreventDefault) {
+                    e.preventDefault();
+                }
+
+                rerenderApp();
+            }
+
+            return;
+        }
+
+
+        if (e.key === "Escape") {
+            if (isEditingSomeText) {
+                state._isEditingFocusedNote = false;
+            } else {
+                setCurrentModal(null);
+                needsRerender = false;
+            }
+        } else if (e.key === "Enter" && !shiftPressed) {
+            const oneNoteDown = getOneNoteDown(state, currentNote, true);
+            if (oneNoteDown) {
+                setCurrentNote(state, oneNoteDown);
+            } else {
+                insertNoteAfterCurrent(state);
+            }
+
+            state._isEditingFocusedNote = true;
+        } else if (e.key === "Backspace") {
+            deleteNoteIfEmpty(state, currentNote.id);
+            shouldPreventDefault = false;
+        } else if (
+            e.key === "F" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            nextFilter(state);
+        }  else {
+            needsRerender = false;
+        }
+
+        if (needsRerender) {
+            if (shouldPreventDefault) {
+                e.preventDefault();
+            }
+            rerenderApp();
         }
     });
 
@@ -3008,7 +3028,9 @@ const App = () => {
             return;
         }
 
+        state._isEditingFocusedNote = false;
         currentModal = modal;
+
         rerenderApp({ shouldScroll: true });
     }
 
