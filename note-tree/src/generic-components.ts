@@ -113,7 +113,7 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
         }
 
         onChange(date);
-
+        edit.el.blur();
         // no render call here, onChange is responsible for rendering stuff
     }
 
@@ -121,6 +121,47 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
         if (e.key === "Enter") {
             handleChange();
         }
+    });
+
+    edit.el.addEventListener("blur", () => {
+        component.rerender(component.args);
+    });
+
+    return component;
+}
+
+export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
+    let dateTimeInput, zeroButton, incrDay, decrDay;
+    const root = div({ class: "row " + (clazz || "") }, [
+        div({}, [dateTimeInput = DateTimeInput()]),
+        zeroButton = makeButton("0am"),
+        incrDay = makeButton("day + 1"),
+        decrDay = makeButton("day - 1"),
+    ]);
+
+    const component = makeComponent<DateTimeInputArgs>(root, () => {
+        dateTimeInput.rerender(component.args);
+    });
+
+    function updateDate(updateFn: (d: Date) => void) {
+        const { value, onChange } = component.args;
+        if (value) {
+            const newDate = new Date(value);
+            updateFn(newDate);
+            onChange(newDate);
+        }
+    }
+
+    zeroButton.el.addEventListener("click", () => {
+        updateDate((d) => d.setHours(0, 0, 0, 0));
+    });
+
+    incrDay.el.addEventListener("click", () => {
+        updateDate((d) => d.setDate(d.getDate() + 1));
+    });
+
+    decrDay.el.addEventListener("click", () => {
+        updateDate((d) => d.setDate(d.getDate() - 1));
     });
 
     return component;

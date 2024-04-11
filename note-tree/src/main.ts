@@ -19,7 +19,7 @@ import {
 
 import * as tree from "./tree";
 import { filterInPlace } from "./array-utils";
-import { Checkbox, DateTimeInput, FractionBar, Modal, makeButton } from "./generic-components";
+import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { formatDate, truncate } from "./utils";
 
 // const INDENT_BASE_WIDTH = 100;
@@ -2169,8 +2169,8 @@ type ActivityFiltersEditorArgs = {
 }
 function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
     const dates = {
-        from: DateTimeInput(),
-        to: DateTimeInput(),
+        from: DateTimeInputEx("flex-1"),
+        to: DateTimeInputEx("flex-1"),
     } as const;
 
     const checkboxes = {
@@ -2179,20 +2179,21 @@ function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
         multiDayBreakIncluded: Checkbox("Include multi-day breaks"),
     } as const;
 
-    const width = "250px";
+    const width = 400;
 
     const root = div({}, [
-        div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width }, [ checkboxes.multiDayBreakIncluded ]),
+        div({ class: "row", style: "padding-bottom: 10px; padding-top: 10px;"}, [ 
+            div({}, [ checkboxes.multiDayBreakIncluded ]),
+            div(),
             div(),
         ]),
         div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width }, [ checkboxes.dateFromEnabled ]),
-            dates.from
+            div({ style: "width: " + width + "px" }, [ checkboxes.dateFromEnabled ]),
+            dates.from,
         ]),
         div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width }, [ checkboxes.dateToEnabled ]),
-            dates.to
+            div({ style: "width: " + width + "px" }, [ checkboxes.dateToEnabled ]),
+            dates.to,
         ]),
     ]);
 
@@ -2230,6 +2231,9 @@ function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
                 value: filter.is[name],
             });
         }
+
+        setVisible(dates.from, filter.is.dateFromEnabled);
+        setVisible(dates.to, filter.is.dateToEnabled);
     });
 
     return component;
@@ -2290,12 +2294,12 @@ function ActivityAnalytics(): Renderable<AppArgs> {
     });
 
     const root = div({ class: "w-100 h-100 col" }, [
+        el("H3", {}, [ "Filters" ]),
+        analyticsFiltersEditor,
         el("H3", {}, [ "Timings" ]),
         div({ class: "relative", style: "overflow-y: scroll" }, [
             durationsListRoot,
         ]),
-        el("H3", {}, [ "Filters" ]),
-        analyticsFiltersEditor
     ])
 
     const component = makeComponent<AppArgs>(root, () => {
@@ -2311,7 +2315,7 @@ function ActivityAnalytics(): Renderable<AppArgs> {
 
         recomputeAnalytics(state, filteredActivities, analytics);
 
-        durationsList.resize(analytics.taskTimes.size + 3);
+        durationsList.resize(analytics.taskTimes.size + 4);
         if (setVisible(durationsList.components[0], analyticsActivityFilter.is.multiDayBreakIncluded)) {
             durationsList.components[0].rerender({
                 taskName: "Multi-Day Break Time",
@@ -2332,6 +2336,11 @@ function ActivityAnalytics(): Renderable<AppArgs> {
             totalTimeMs: analytics.totalTime
         });
 
+        durationsList.components[durationsList.components.length - 1].rerender({
+            taskName: "Total time",
+            timeMs: analytics.totalTime,
+            totalTimeMs: analytics.totalTime
+        });
 
         const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
             analytics.totalTime :
