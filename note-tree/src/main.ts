@@ -36,6 +36,33 @@ function isTodoNote(note: Note) {
     return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
 }
 
+function getTodoNotePriorityId(state: State, id: NoteId): number {
+    const note = getNote(state, id);
+    return getTodoNotePriority(note.data);
+}
+
+function getTodoNotePriority(note: Note): number{
+    let priority = 0;
+    let i = "TODO".length;
+
+    let character = note.text[i];
+    if (character === "?") {
+        while (i < note.text.length && note.text[i] === "?") {
+            priority--;
+            i++;
+        }
+    }
+
+    if (character === "!") {
+        while (i < note.text.length && note.text[i] === "!") {
+            priority++;
+            i++;
+        }
+    }
+
+    return priority;
+}
+
 type NoteStatus = 1 | 2 | 3;
 
 /** This is a task that is currently in progress */
@@ -808,6 +835,39 @@ function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<N
     }
 }
 
+function moveNotePriorityIntoPriorityGroup(
+    state: State, 
+    noteId: NoteId,
+) {
+    const idxThis = state.todoNoteIds.indexOf(noteId);
+    if (idxThis === -1) {
+        // this code should never run
+        throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
+    }
+
+    let idx = idxThis;
+    const currentPriority = getTodoNotePriorityId(state, noteId);
+
+    while (
+        idx < state.todoNoteIds.length - 1 && 
+        getTodoNotePriorityId(state, state.todoNoteIds[idx + 1]) > currentPriority
+    ) {
+        idx++;
+    }
+
+    while (
+        idx > 0 &&
+        getTodoNotePriorityId(state, state.todoNoteIds[idx - 1]) < currentPriority
+    ) {
+        idx--;
+    }
+
+    if (idxThis !== idx) {
+        state.todoNoteIds.splice(idxThis, 1);
+        state.todoNoteIds.splice(idx, 0, noteId);
+    }
+}
+
 // function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
 //     for (const id of note.childIds) {
 //         const note = getNote(state, id);
@@ -1212,7 +1272,7 @@ type NoteLinkArgs = {
 };
 
 function NoteLink(): Renderable<NoteLinkArgs> {
-    const root = div({ style: "padding:5px" })
+    const root = div({ style: "padding:5px; word;", class: "handle-long-words" })
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
         const { text, noteId, app: { state }, focusAnyway }  = component.args;
@@ -1251,6 +1311,7 @@ function TodoList(): Renderable<AppArgs> {
 
     const componentList = makeComponentList(div(), () => {
         const moveUpButton = makeButton("↑", "hover-target", "height: 20px;"); 
+        const moveDownButton = makeButton("↓", "hover-target", "height: 20px;"); 
         const noteLink = NoteLink();
 
         const nestedNotesList = makeComponentList(div(), () => {
@@ -1288,7 +1349,8 @@ function TodoList(): Renderable<AppArgs> {
                 noteLink,
                 div({ class: "flex-1" }),
                 div({ class: "row" }, [
-                    moveUpButton
+                    moveUpButton, 
+                    moveDownButton
                 ]),
             ]),
             nestedNotesList
@@ -1335,25 +1397,57 @@ function TodoList(): Renderable<AppArgs> {
             });
         });
 
-        moveUpButton.el.addEventListener("click", () => {
-            const { note, app: { state, rerenderApp} } = component.args;
-
-            const idxThis = state.todoNoteIds.indexOf(note.id);
+        function moveNotePriorityUpOrDown(
+            state: State, 
+            noteId: NoteId,
+            down: boolean,  // setting this to false moves the note's priority up (obviously)
+        ) {
+            const idxThis = state.todoNoteIds.indexOf(noteId);
             if (idxThis === -1) {
                 // this code should never run
                 throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
             }
 
-            const idxSelected = state.todoNoteIds.findIndex(id => {
-                const note = getNote(state, id);
-                return note.data._isSelected;
-            });
+            const currentNote = getCurrentNote(state);
 
-            // this also works when idxSelected === -1
-            const insertPoint = idxThis <= idxSelected ? 0 : idxSelected + 1;
+            let idx = idxThis;
+            const direction = down ? 1 : -1;
+            while(
+                (direction === -1 && idx > 0) || 
+                (direction === 1 && idx < state.todoNoteIds.length - 1)
+            ) {
+                idx += direction;
+                
+                const noteId = state.todoNoteIds[idx];
+                const note = getNote(state, noteId);
+                if (
+                    note.id === currentNote.id ||
+                    note.data._isSelected
+                ) {
+                    idx -= direction;
+                    break;
+                }
+            }
 
-            state.todoNoteIds.splice(idxThis, 1);
-            state.todoNoteIds.splice(insertPoint, 0, note.id);
+            if (idxThis !== idx) {
+                state.todoNoteIds.splice(idxThis, 1);
+                state.todoNoteIds.splice(idx, 0, noteId);
+            }
+        }
+
+        moveDownButton.el.addEventListener("click", () => {
+            const { note, app: { state, rerenderApp} } = component.args;
+
+            moveNotePriorityUpOrDown(state, note.id, true);
+            setCurrentNote(state, note.id);
+
+            rerenderApp({ shouldScroll: false });
+        });
+
+        moveUpButton.el.addEventListener("click", () => {
+            const { note, app: { state, rerenderApp} } = component.args;
+
+            moveNotePriorityUpOrDown(state, note.id, false);
             setCurrentNote(state, note.id);
 
             rerenderApp({ shouldScroll: false });
@@ -1659,10 +1753,15 @@ function ActivityList(): Renderable<AppArgs> {
             return;
         }
 
+        e.preventDefault();
         addBreak();
     });
 
-    breakButton.el.addEventListener("click", addBreak);
+    breakButton.el.addEventListener("click", (e) => {
+
+        e.preventDefault();
+        addBreak();
+    });
 
     return component;
 }
@@ -1781,8 +1880,12 @@ type NoteRowArgs = {
 };
 function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = div({ class: "pre" });
-    const whenNotEditing = div({ class: "pre-wrap", style: "" });
-    const whenEditing = el<HTMLInputElement>("TEXTAREA", { rows: "1", class: "flex-1", style: "overflow-y: hidden; padding: 0;" });
+    const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
+    const whenEditing = el<HTMLInputElement>("TEXTAREA", {
+        rows: "1",
+        class: "flex-1",
+        style: "overflow-y: hidden; padding: 0;"
+    });
 
     let isFocused = false;
 
@@ -1855,6 +1958,11 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { app: { state, rerenderApp, debouncedSave }, note, } = component.args;
 
         note.data.text = whenEditing.el.value;
+
+        if (state.todoNoteIds.includes(note.id)) {
+            moveNotePriorityIntoPriorityGroup(state, note.id);
+        }
+
         onRerenderWhenEditing();
 
         const last = getLastActivity(state);
@@ -1869,6 +1977,40 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         debouncedSave();
 
         rerenderApp();
+    });
+
+    whenEditing.el.addEventListener("keydown", (e) => {
+        const { app: { state, rerenderApp } } = component.args;
+        const currentNote = getCurrentNote(state);
+
+        const shiftPressed = e.shiftKey;
+
+        let needsRerender = true;
+        let shouldPreventDefault = true;
+
+        if (e.key === "Enter" && !shiftPressed) {
+            const oneNoteDown = getOneNoteDown(state, currentNote, true);
+            if (oneNoteDown) {
+                setCurrentNote(state, oneNoteDown);
+            } else {
+                insertNoteAfterCurrent(state);
+            }
+
+            state._isEditingFocusedNote = true;
+        } else if (e.key === "Backspace") {
+            deleteNoteIfEmpty(state, currentNote.id);
+            shouldPreventDefault = false;
+        } else {
+            needsRerender = false;
+        }
+
+        if (needsRerender) {
+            if (shouldPreventDefault) {
+                e.preventDefault();
+            }
+
+            rerenderApp();
+        }
     });
 
     return component;
@@ -2916,17 +3058,43 @@ const App = () => {
             } else if (e.key === "ArrowUp") {
                 setCurrentNote(state, getOneNoteUp(state, currentNote, true));
             } else if (e.key === "ArrowLeft") {
-                setCurrentNote(state, currentNote.parentId)
-            } else if (
-                e.key === "ArrowRight" &&
-                currentNote.data.lastSelectedChildId && 
-                // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
-                // TODO: just don't set this to an invalid value
-                tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)  
-            ) {
-                setCurrentNote(state, currentNote.data.lastSelectedChildId);
+                // The browser can't detect ctrl when it's pressed on its own :((((
+                // Otherwise I would have liked for this to just be ctrl
+                if (ctrlPressed && shiftPressed) {
+                    lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
+                    if (lastActivityIndex !== -1) {
+                        const activity = state.activities[lastActivityIndex];
+                        if (activity.nId) {
+                            setCurrentNote(state, activity.nId);
+                        }
+                    }
+                } else {
+                    setCurrentNote(state, currentNote.parentId)
+                }
             } else if (e.key === "ArrowRight") {
-                setCurrentNote(state, getFinalChildNote(state, currentNote));
+                if (ctrlPressed && shiftPressed) {
+                    if (ctrlPressed && shiftPressed) {
+                        lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
+                        if (lastActivityIndex !== -1) {
+                            const activity = state.activities[lastActivityIndex];
+                            if (activity.nId) {
+                                setCurrentNote(state, activity.nId);
+                            }
+                        }
+                    }
+                } else {
+                    // move into note
+                    if (
+                        currentNote.data.lastSelectedChildId && 
+                        // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
+                        // TODO: just don't set this to an invalid value 
+                        tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)
+                    ) {
+                        setCurrentNote(state, currentNote.data.lastSelectedChildId);
+                    } else {
+                        setCurrentNote(state, getFinalChildNote(state, currentNote));
+                    }
+                }
             } else if (e.key === "PageUp") {
                 for (let i = 0; i < 10; i++) {
                     setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state), true));
@@ -2942,34 +3110,6 @@ const App = () => {
                 }
             } else if (e.key === "Enter") {
                 state._isEditingFocusedNote = true;
-            } else if (
-                (e.key === "<" || e.key === ",") &&
-                ctrlPressed &&
-                shiftPressed
-            ) {
-                if (ctrlPressed && shiftPressed) {
-                    lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
-                    if (lastActivityIndex !== -1) {
-                        const activity = state.activities[lastActivityIndex];
-                        if (activity.nId) {
-                            setCurrentNote(state, activity.nId);
-                        }
-                    }
-                }
-            } else if (
-                (e.key === ">" || e.key === ".") &&
-                ctrlPressed &&
-                shiftPressed
-            ) {
-                if (ctrlPressed && shiftPressed) {
-                    lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
-                    if (lastActivityIndex !== -1) {
-                        const activity = state.activities[lastActivityIndex];
-                        if (activity.nId) {
-                            setCurrentNote(state, activity.nId);
-                        }
-                    }
-                }
             } else {
                 needsRerender = false;
             }
@@ -2993,18 +3133,6 @@ const App = () => {
                 setCurrentModal(null);
                 needsRerender = false;
             }
-        } else if (e.key === "Enter" && !shiftPressed) {
-            const oneNoteDown = getOneNoteDown(state, currentNote, true);
-            if (oneNoteDown) {
-                setCurrentNote(state, oneNoteDown);
-            } else {
-                insertNoteAfterCurrent(state);
-            }
-
-            state._isEditingFocusedNote = true;
-        } else if (e.key === "Backspace") {
-            deleteNoteIfEmpty(state, currentNote.id);
-            shouldPreventDefault = false;
         } else if (
             e.key === "F" &&
             ctrlPressed &&

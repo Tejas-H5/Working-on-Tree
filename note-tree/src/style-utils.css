@@ -194,3 +194,8 @@
 .hover-link:hover::after {
     content: " -->";
 }
+
+.handle-long-words {
+    overflow-wrap: anywhere; 
+    word-break: normal;
+}
