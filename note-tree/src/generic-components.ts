@@ -1,7 +1,7 @@
 // TODO: import the missing CSS styles
 
 import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setTextContent, setVisible } from "./dom-utils";
-import { formatDate, parseYMDTDateTime } from "./utils";
+import { decrementDay, floorDateLocalTime, formatDate, incrementDay, parseYMDTDateTime } from "./utils";
 
 type ModalArgs = { onClose(): void };
 
@@ -153,15 +153,15 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
     }
 
     zeroButton.el.addEventListener("click", () => {
-        updateDate((d) => d.setHours(0, 0, 0, 0));
+        updateDate((d) => floorDateLocalTime(d));
     });
 
     incrDay.el.addEventListener("click", () => {
-        updateDate((d) => d.setDate(d.getDate() + 1));
+        updateDate((d) => incrementDay(d));
     });
 
     decrDay.el.addEventListener("click", () => {
-        updateDate((d) => d.setDate(d.getDate() - 1));
+        updateDate((d) => decrementDay(d));
     });
 
     return component;

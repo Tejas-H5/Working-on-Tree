@@ -70,6 +70,8 @@ type ValidAttributeName = string;
 type Attrs = { [qualifiedName: ValidAttributeName]: string } & {
     style?: string;
     class?: string;
+    href?: string;
+    src?: string;
 }
 
 export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?: (Insertable | string)[]): InsertableGeneric<T> {

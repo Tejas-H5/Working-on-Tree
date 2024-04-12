@@ -91,6 +91,18 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
     return [date, ""];
 }
 
+export function floorDateLocalTime(date: Date) {
+    date.setHours(0, 0, 0, 0);
+}
+
+export function incrementDay(date: Date) {
+    date.setDate(date.getDate() + 1)
+}
+
+export function decrementDay(date: Date) {
+    date.setDate(date.getDate() - 1)
+}
+
 // export function countNewlines(value: string): number {
 //     let newLines = 0;
 //     for (const c of value) {

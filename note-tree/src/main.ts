@@ -15,12 +15,13 @@ import {
     makeComponentList as makeComponentList,
     div,
     el,
+    InsertableGeneric,
 } from "./dom-utils";
 
 import * as tree from "./tree";
 import { filterInPlace } from "./array-utils";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
-import { formatDate, truncate } from "./utils";
+import { floorDateLocalTime, formatDate, incrementDay, truncate } from "./utils";
 
 // const INDENT_BASE_WIDTH = 100;
 // const INDENT_WIDTH_PX = 50;
@@ -34,6 +35,10 @@ function isDoneNote(note: Note) {
 }
 function isTodoNote(note: Note) {
     return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
+}
+
+function isSubtaskNote(note: Note) {
+    return note.text.startsWith("*"); 
 }
 
 function getTodoNotePriorityId(state: State, id: NoteId): number {
@@ -984,7 +989,7 @@ function recomputeState(state: State) {
                     continue;
                 }
 
-                if (isTodoNote(child.data)) {
+                if (isTodoNote(child.data) || isSubtaskNote(child.data)) {
                     child.data._status = STATUS_IN_PROGRESS;
                     continue;
                 }
@@ -1269,6 +1274,7 @@ type NoteLinkArgs = {
     noteId?: NoteId;
     app: AppArgs;
     focusAnyway: boolean;
+    preventScroll?: boolean;
 };
 
 function NoteLink(): Renderable<NoteLinkArgs> {
@@ -1287,7 +1293,7 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     });
 
     root.el.addEventListener("click", () => {
-        const { noteId, app: { state, rerenderApp }}  = component.args;
+        const { noteId, app: { state, rerenderApp }, preventScroll, }  = component.args;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
         // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
@@ -1295,7 +1301,7 @@ function NoteLink(): Renderable<NoteLinkArgs> {
         setTimeout(() => {
             if (noteId) {
                 setCurrentNote(state, noteId);
-                rerenderApp();
+                rerenderApp({ shouldScroll: preventScroll || false });
             }
         }, 1);
     });
@@ -1307,13 +1313,10 @@ function TodoList(): Renderable<AppArgs> {
     type TodoItemArgs = {
         app: AppArgs;
         note: tree.TreeNode<Note>;
+        hasDivider: boolean;
     }
 
     const componentList = makeComponentList(div(), () => {
-        const moveUpButton = makeButton("↑", "hover-target", "height: 20px;"); 
-        const moveDownButton = makeButton("↓", "hover-target", "height: 20px;"); 
-        const noteLink = NoteLink();
-
         const nestedNotesList = makeComponentList(div(), () => {
             const status = div();
             const link = NoteLink();
@@ -1341,25 +1344,33 @@ function TodoList(): Renderable<AppArgs> {
             return component;
         });
 
-        const root = div({ 
-            class: "hover-parent", 
-            style: "border-bottom: 1px solid var(--fg-color); border-top: 1px solid var(--fg-color);"
-        }, [
-            div({ class: "row align-items-center" }, [
-                noteLink,
-                div({ class: "flex-1" }),
-                div({ class: "row" }, [
-                    moveUpButton, 
-                    moveDownButton
+        let noteLink, moveUpButton, moveDownButton, divider;
+        const root = div({}, [
+            div({ 
+                class: "hover-parent flex-1", 
+                style: "border-top: 1px solid var(--fg-color);" + 
+                    "border-left: 4px solid var(--fg-color);" +
+                    "border-bottom: 1px solid var(--fg-color);" + 
+                    "padding-left: 3px;"
+            }, [
+                div({ class: "row align-items-center" }, [
+                    noteLink = NoteLink(),
+                    div({ class: "flex-1" }),
+                    div({ class: "row" }, [
+                        moveUpButton = makeButton("↑", "hover-target", "height: 20px;"),
+                        moveDownButton = makeButton("↓", "hover-target", "height: 20px;"),
+                    ]),
                 ]),
+                nestedNotesList,
             ]),
-            nestedNotesList
+            divider = div({ style: "height: 20px"}),
         ]);
 
         const component = makeComponent<TodoItemArgs>(root, () => {
-            const { note, app } = component.args;
+            const { note, app, hasDivider } = component.args;
             const { state } = app;
 
+            setVisible(divider, hasDivider);
 
             moveUpButton.el.setAttribute("title", "Move this note up");
 
@@ -1384,6 +1395,7 @@ function TodoList(): Renderable<AppArgs> {
                         noteId: note.id,
                         text: note.data.text,
                         focusAnyway: false,
+                        preventScroll: true,
                     },
                     previousNotesCount: childCount,
                 });
@@ -1394,6 +1406,7 @@ function TodoList(): Renderable<AppArgs> {
                 noteId: note.id,
                 text: note.data.text,
                 focusAnyway,
+                preventScroll: true,
             });
         });
 
@@ -1409,6 +1422,7 @@ function TodoList(): Renderable<AppArgs> {
             }
 
             const currentNote = getCurrentNote(state);
+            const currentPriority = getTodoNotePriority(currentNote.data);
 
             let idx = idxThis;
             const direction = down ? 1 : -1;
@@ -1422,7 +1436,8 @@ function TodoList(): Renderable<AppArgs> {
                 const note = getNote(state, noteId);
                 if (
                     note.id === currentNote.id ||
-                    note.data._isSelected
+                    note.data._isSelected || 
+                    getTodoNotePriority(note.data) !== currentPriority
                 ) {
                     idx -= direction;
                     break;
@@ -1438,19 +1453,23 @@ function TodoList(): Renderable<AppArgs> {
         moveDownButton.el.addEventListener("click", () => {
             const { note, app: { state, rerenderApp} } = component.args;
 
-            moveNotePriorityUpOrDown(state, note.id, true);
-            setCurrentNote(state, note.id);
+            setTimeout(() => {
+                moveNotePriorityUpOrDown(state, note.id, true);
+                setCurrentNote(state, note.id);
 
-            rerenderApp({ shouldScroll: false });
+                rerenderApp({ shouldScroll: false });
+            }, 1);
         });
 
         moveUpButton.el.addEventListener("click", () => {
             const { note, app: { state, rerenderApp} } = component.args;
 
-            moveNotePriorityUpOrDown(state, note.id, false);
-            setCurrentNote(state, note.id);
+            setTimeout(() => {
+                moveNotePriorityUpOrDown(state, note.id, false);
+                setCurrentNote(state, note.id);
 
-            rerenderApp({ shouldScroll: false });
+                rerenderApp({ shouldScroll: false });
+            }, 1);
         });
 
         return component;
@@ -1461,9 +1480,16 @@ function TodoList(): Renderable<AppArgs> {
         
         componentList.resize(state.todoNoteIds.length);
         for (let i = 0; i < componentList.components.length; i++) {
+            const id = state.todoNoteIds[i];
+            const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
+
+            const note = getNote(state, id);
+            const nextNote = nextId ? getNote(state, nextId) : undefined;
+
             componentList.components[i].rerender({
                 app: component.args,
-                note: getNote(state, state.todoNoteIds[i]),
+                note: getNote(state, id),
+                hasDivider: !!nextNote && getTodoNotePriority(note.data) !== getTodoNotePriority(nextNote.data),
             });
         }
     });
@@ -1486,6 +1512,53 @@ function isEditableBreak(activity: Activity) {
     }
 
     return true;
+}
+
+function BreakInput(): Renderable<AppArgs> {
+    const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    const breakButton = makeButton("");
+    const root = div({ style: "padding: 5px;", class: "row align-items-center" }, [
+        div({ class: "flex-1" }, [ breakInput ]),
+        div({}, [ breakButton ]),
+    ]);
+
+    const component = makeComponent<AppArgs>(root, () => {
+        const { state } = component.args;
+
+        const isTakingABreak = isCurrentlyTakingABreak(state);
+
+        setTextContent(breakButton, isTakingABreak ? "Extend break" : "Take a break");
+        breakInput.el.setAttribute("placeholder", "Enter break reason (optional)");
+    });
+
+    function addBreak() {
+        const { state, rerenderApp, debouncedSave } = component.args;
+
+        let text = breakInput.el.value ||  "Taking a break ...";
+
+        pushBreakActivity(state, text, true);
+        breakInput.el.value = "";
+
+        debouncedSave();
+        rerenderApp();
+    }
+
+    breakInput.el.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") {
+            return;
+        }
+
+        e.preventDefault();
+        addBreak();
+    });
+
+    breakButton.el.addEventListener("click", (e) => {
+
+        e.preventDefault();
+        addBreak();
+    });
+
+    return component;
 }
 
 function ActivityList(): Renderable<AppArgs> {
@@ -1657,16 +1730,10 @@ function ActivityList(): Renderable<AppArgs> {
 
     const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid black" }), ActivityListItem);
 
-    const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
-    const breakButton = makeButton("");
     const leftButton = makeButton("<");
     const leftLeftButton = makeButton("<<");
     const rightButton = makeButton(">");
     const root = div({ class: "w-100", style: "border-top: 1px solid var(--fg-color);" }, [
-        div({ style: "padding: 5px;", class: "row align-items-center" }, [
-            div({ class: "flex-1" }, [ breakInput ]),
-            div({}, [ breakButton ]),
-        ]),
         listRoot,
         div({ style: "border-top: 1px solid var(--fg-color);", class: "row"}, [
             leftLeftButton, 
@@ -1701,14 +1768,7 @@ function ActivityList(): Renderable<AppArgs> {
     const component = makeComponent<AppArgs>(root, () => {
         const { state } = component.args;
 
-        const isTakingABreak = isCurrentlyTakingABreak(state);
 
-        setTextContent(breakButton, "Take a break");
-        breakInput.el.setAttribute("placeholder", isTakingABreak ? (
-            "Enter resume reason (optional)"
-        ): (
-            "Enter break reason (optional)"
-        ));
 
 
         const activities = state.activities;
@@ -1736,43 +1796,34 @@ function ActivityList(): Renderable<AppArgs> {
         setVisible(rightButton, page !== getMaxPages());
     });
 
-    function addBreak() {
-        const { state, rerenderApp, debouncedSave } = component.args;
-
-        let text = breakInput.el.value ||  "Taking a break ...";
-
-        pushBreakActivity(state, text, true);
-        breakInput.el.value = "";
-
-        debouncedSave();
-        rerenderApp();
-    }
-
-    breakInput.el.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter") {
-            return;
-        }
-
-        e.preventDefault();
-        addBreak();
-    });
-
-    breakButton.el.addEventListener("click", (e) => {
-
-        e.preventDefault();
-        addBreak();
-    });
-
     return component;
+}
+
+function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
+    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100"});
+
+    textArea.el.addEventListener("keydown", (e) => {
+        if (e.key === "Tab") {
+            e.preventDefault();
+            // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
+
+            // inserting a tab like this should preserve undo
+            // TODO: stop using deprecated API
+            document.execCommand("insertText", false, "\t");
+        }
+    })
+
+    return textArea;
 }
 
 // exposing the text area so that we can focus it, but
 // really, TODO: just expose a focus() function...
 function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
-    const yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
-    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100"});
+    let yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
+    let textArea = TextArea();
     const root = div({ class: "relative h-100" }, [
-        yardStick, textArea
+        yardStick, 
+        textArea,
     ]);
 
     const component = makeComponent<AppArgs>(root, () => {
@@ -1796,15 +1847,6 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
     textArea.el.addEventListener("change", onEdit);
 
     textArea.el.addEventListener("keydown", (e) => {
-        if (e.key === "Tab") {
-            e.preventDefault();
-            // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
-
-            // inserting a tab like this should preserve undo
-            // TODO: stop using deprecated API
-            document.execCommand("insertText", false, "\t");
-        }
-
         function updateScrollPosition() {
             // This function scrolls the window to the current cursor position inside the text area.
             // This code is loosely based off the solution from https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
@@ -1850,7 +1892,7 @@ function ScratchPad(): Renderable<AppArgs> & { textArea: HTMLTextAreaElement } {
             // });
         }
 
-        updateScrollPosition()
+        updateScrollPosition();
     });
 
     return {
@@ -1881,11 +1923,11 @@ type NoteRowArgs = {
 function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = div({ class: "pre" });
     const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
-    const whenEditing = el<HTMLInputElement>("TEXTAREA", {
-        rows: "1",
-        class: "flex-1",
-        style: "overflow-y: hidden; padding: 0;"
-    });
+
+    const whenEditing = TextArea();
+    whenEditing.el.setAttribute("rows", "1");
+    whenEditing.el.setAttribute("class", "flex-1");
+    whenEditing.el.setAttribute("style", "overflow-y: hidden; padding: 0;");
 
     let isFocused = false;
 
@@ -2163,10 +2205,19 @@ type ActivityFilters = {
     }
 }
 
+function resetActivityFilters(filters: ActivityFilters) {
+    filters.date.from = new Date();
+    filters.date.to = new Date();
+    filters.is.dateFromEnabled = false;
+    filters.is.dateToEnabled = false;
+    filters.is.multiDayBreakIncluded = false;
+}
+
 type ActivityFiltersEditorArgs = {
     filter: ActivityFilters;
     onChange(): void;
 }
+
 function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
     const dates = {
         from: DateTimeInputEx("flex-1"),
@@ -2181,20 +2232,52 @@ function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
 
     const width = 400;
 
+    const todayButton = makeButton("Today");
+    todayButton.el.addEventListener("click", () => {
+        const { filter, onChange } = component.args;
+
+        filter.is.dateFromEnabled = true;
+        filter.is.dateToEnabled = true;
+
+        const dateFrom = new Date();
+        const dateTo = new Date();
+        floorDateLocalTime(dateFrom);
+        floorDateLocalTime(dateTo);
+        incrementDay(dateTo);
+        filter.date.from = dateFrom;
+        filter.date.to = dateTo;
+
+        onChange();
+    });
+
+    const noFiltersButton = makeButton("No filters");
+    noFiltersButton.el.addEventListener("click", () => {
+        const { filter, onChange } = component.args;
+
+        resetActivityFilters(filter);
+
+        onChange();
+    });
+
     const root = div({}, [
-        div({ class: "row", style: "padding-bottom: 10px; padding-top: 10px;"}, [ 
-            div({}, [ checkboxes.multiDayBreakIncluded ]),
+        div({ class: "row align-items-center", style: "gap: 30px; padding-bottom: 10px; padding-top: 10px;" }, [
+            div({}, ["Presets"]),
+            todayButton,
+            noFiltersButton
+        ]),
+        div({ class: "row", style: "padding-bottom: 10px; padding-top: 10px;" }, [
+            div({}, [checkboxes.multiDayBreakIncluded]),
             div(),
-            div(),
+            div()
         ]),
-        div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width + "px" }, [ checkboxes.dateFromEnabled ]),
-            dates.from,
+        div({ class: "row", style: "padding-bottom: 5px" }, [
+            div({ style: "width: " + width + "px" }, [checkboxes.dateFromEnabled]),
+            dates.from
         ]),
-        div({ class: "row", style: "padding-bottom: 5px"}, [ 
-            div({ style: "width: " + width + "px" }, [ checkboxes.dateToEnabled ]),
-            dates.to,
-        ]),
+        div({ class: "row", style: "padding-bottom: 5px" }, [
+            div({ style: "width: " + width + "px" }, [checkboxes.dateToEnabled]),
+            dates.to
+        ])
     ]);
 
     const component = makeComponent<ActivityFiltersEditorArgs>(root, () => {
@@ -2261,33 +2344,69 @@ function ActivityAnalytics(): Renderable<AppArgs> {
         }
     }
 
-    const taskColWidth = "300px";
-    const durationsListRoot = div({ class: "table w-100" }) 
+    const taskColWidth = "250px";
+    const durationsListRoot = div({ class: "w-100" }) 
     const analyticsFiltersEditor = ActivityFiltersEditor();
 
     type DurationListItemArgs = {
         taskName: string;
         timeMs: number;
         totalTimeMs: number;
+        setExpandedActivity?(activity: string): void;
+        activityList: Renderable<AppArgs> | null;
+    }
+
+    const activityList = ActivityList();
+
+    let expandedActivityName = ""
+    function setExpandedActivity(analyticName: string) {
+        expandedActivityName = analyticName;
+
+        component.rerender(component.args);
     }
 
     const durationsList = makeComponentList(durationsListRoot, () => {
         const taskNameComponent = div({ style: `padding:5px;padding-bottom:0; width: ${taskColWidth}` })
         const durationBar = FractionBar();
+        const expandButton = makeButton(">");
 
-        const root = div({}, [
-            taskNameComponent, 
-            div({}, [ durationBar ])
-        ])
-        
+        expandButton.el.addEventListener("click", () => {
+            const { setExpandedActivity, activityList } = component.args;
+
+            if (!setExpandedActivity) {
+                return;
+            }
+
+            if (activityList) {
+                setExpandedActivity("");
+            } else {
+                setExpandedActivity(component.args.taskName);
+            }
+        });
+
+        const root = div({ class: "w-100" }, [
+            div({ class: "w-100 row align-items-center" }, [
+                expandButton,
+                taskNameComponent, 
+                div({ class: "flex-1" }, [ durationBar ])
+            ])
+        ]);
+
         const component = makeComponent<DurationListItemArgs>(root, () => {
-            const { taskName, timeMs, totalTimeMs } = component.args;
+            const { taskName, timeMs, totalTimeMs, setExpandedActivity, activityList } = component.args;
+
+            setVisible(expandButton, !!setExpandedActivity);
 
             setTextContent(taskNameComponent, taskName);
             durationBar.rerender({
                 fraction: timeMs / totalTimeMs,
                 text: formatDuration(timeMs),
             });
+
+            if (activityList) {
+                setVisible(activityList, true);
+                root.el.appendChild(activityList.el);
+            }
         });
 
         return component;
@@ -2315,43 +2434,51 @@ function ActivityAnalytics(): Renderable<AppArgs> {
 
         recomputeAnalytics(state, filteredActivities, analytics);
 
+        const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
+            analytics.totalTime :
+            analytics.totalTime - analytics.multiDayBreakTime;
+
         durationsList.resize(analytics.taskTimes.size + 4);
         if (setVisible(durationsList.components[0], analyticsActivityFilter.is.multiDayBreakIncluded)) {
             durationsList.components[0].rerender({
                 taskName: "Multi-Day Break Time",
                 timeMs: analytics.multiDayBreakTime,
-                totalTimeMs: analytics.totalTime
+                totalTimeMs: total,
+                activityList: null,
             });
         }
 
         durationsList.components[1].rerender({
             taskName: "Break Time",
             timeMs: analytics.breakTime,
-            totalTimeMs: analytics.totalTime
+            totalTimeMs: total,
+            activityList: null,
         });
 
         durationsList.components[2].rerender({
             taskName: "Uncategorised Time",
             timeMs: analytics.uncategorisedTime,
-            totalTimeMs: analytics.totalTime
+            totalTimeMs: total,
+            // TODOL uncategorized acitivities
+            activityList: null,
         });
 
         durationsList.components[durationsList.components.length - 1].rerender({
             taskName: "Total time",
-            timeMs: analytics.totalTime,
-            totalTimeMs: analytics.totalTime
+            timeMs: total,
+            totalTimeMs: total,
+            activityList: null,
         });
 
-        const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
-            analytics.totalTime :
-            analytics.totalTime - analytics.multiDayBreakTime;
-
         let i = 0;
+        setVisible(activityList, false);
         for (const [name, time] of analytics.taskTimes) {
             durationsList.components[i + 3].rerender({
                 taskName: name,
                 timeMs: time,
                 totalTimeMs: total,
+                setExpandedActivity,
+                activityList: expandedActivityName === name ? activityList : null,
             });
 
             i++;
@@ -2660,7 +2787,6 @@ const makeDarkModeToggle = () => {
                 ["--bg-color-focus", "#CCC"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
                 ["--fg-color", "#000"],
-                ["--unfocus-text-color", "gray"]
             ]);
         } else {
             // assume dark theme
@@ -2671,7 +2797,7 @@ const makeDarkModeToggle = () => {
                 ["--bg-color-focus", "#333"],
                 ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
                 ["--fg-color", "#EEE"],
-                ["--unfocus-text-color", "gray"]
+                ["--unfocus-text-color", "gray"],
             ]);
         }
 
@@ -2785,6 +2911,7 @@ const App = () => {
 
     const notesList = NotesList();
     const activityList = ActivityList();
+    const breakInput = BreakInput();
     const filters = NoteFilters();
     const treeSelector = TreeTabsRow();
     const todoNotes = TodoList();
@@ -2878,6 +3005,7 @@ const App = () => {
             div({ style: "flex:1; padding-top: 20px" }, [ 
                 div({}, [
                     el("H3", {}, [ "Activity List"]),
+                    breakInput,
                     activityList 
                 ])
             ])
@@ -3058,7 +3186,9 @@ const App = () => {
         ) {
             // handle movements here
 
-            if (ctrlPressed && e.key === "ArrowDown") {
+            if (e.key === "End" || e.key === "Home") {
+                // Do nothing. Ignore the default behaviour of the browser as well.
+            } if (ctrlPressed && e.key === "ArrowDown") {
                 setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
             } else if (e.key === "ArrowDown") {
                 setCurrentNote(state, getOneNoteDown(state, currentNote, true));
@@ -3272,6 +3402,7 @@ const App = () => {
         // rerender the things
         notesList.rerender(args);
         activityList.rerender(args);
+        breakInput.rerender(args);
         treeSelector.rerender(args);
         filters.rerender(args);
         todoNotes.rerender(args);
