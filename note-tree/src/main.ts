@@ -2,21 +2,17 @@ import "./styles.css"
 import "./style-utils.css"
 
 import {
-    ALL_FILTERS,
     Activity,
-    Note,
     NoteId,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
     State,
-    TaskId,
     TreeNote,
     deleteNoteIfEmpty,
     dfsPre,
     getActivityDurationMs,
     getActivityText,
     getCurrentNote,
-    getFinalChildNote,
     getFirstPartOfRow,
     getIndentStr,
     getLastActivity,
@@ -26,7 +22,6 @@ import {
     getNoteOneDownLocally,
     getNoteOneUpLocally,
     getNoteStateString,
-    getNoteTag,
     getNoteNDown,
     getNoteNUp,
     getPreviousActivityWithNoteIdx,
@@ -39,8 +34,6 @@ import {
     isEditableBreak,
     loadStateFromJSON,
     moveNotePriorityIntoPriorityGroup,
-    nextFilter,
-    previousFilter,
     pushActivity,
     pushBreakActivity,
     recomputeFlatNotes,
@@ -59,7 +52,6 @@ import {
     makeComponent,
     setClass,
     setInputValue,
-    setInputValueAndResize,
     setTextContent,
     setVisible,
     makeComponentList as makeComponentList,
@@ -74,34 +66,6 @@ import {
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
-import { swap } from "./array-utils";
-
-function NoteFilters(): Renderable {
-    const lb = makeButton("<");
-    const rb = makeButton(">");
-    const currentFilterText = div({ class: "flex-1 text-align-center", style: "background:var(--bg-color)"})
-    const root = div({ class: "row align-items-center", style: "width: 200px;"}, [
-        lb, currentFilterText, rb
-    ]);
-
-
-    const component = makeComponent(root, () => {
-        const [ name, _filter ] = ALL_FILTERS[state.currentNoteFilterIdx];
-        setTextContent(currentFilterText, name);
-    });
-
-    lb.el.addEventListener("click", () => {
-        nextFilter(state);
-        rerenderApp();
-    });
-
-    rb.el.addEventListener("click", () => {
-        previousFilter(state);
-        rerenderApp();
-    });
-
-    return component;
-}
 
 type NoteLinkArgs = {
     text: string; 
@@ -617,7 +581,7 @@ function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
     textArea.el.addEventListener("input", onEdit);
     textArea.el.addEventListener("change", onEdit);
 
-    textArea.el.addEventListener("keydown", (e) => {
+    textArea.el.addEventListener("keydown", () => {
         function updateScrollPosition() {
             // This function scrolls the window to the current cursor position inside the text area.
             // This code is loosely based off the solution from https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
@@ -716,7 +680,7 @@ function getCurrentEnd(pagination: Pagination) {
 }
 
 function getMaxPages(pagination: Pagination) {
-    return idxToPage(pagination, pagination.totalCount - 1);
+    return idxToPage(pagination, pagination.totalCount);
 }
 
 type PaginationControlArgs = {
@@ -1505,97 +1469,6 @@ function NotesList(): Renderable {
     return component;
 }
 
-type TabRowArgs = {
-    name: string;
-}
-
-function TreeTabsRowTab(): Renderable<TabRowArgs> {
-    const btn = el("BUTTON", { type: "button", class: "tab-button pre-wrap text-align-center z-index-100" });
-    const input = el<HTMLInputElement>("INPUT", { 
-        class: "pre-wrap text-align-center z-index-100", 
-        style: "margin-right: 20px;padding: 2px 20px; "
-    });
-
-    const closeBtn = el("BUTTON", {
-        type: "button",
-        class: "pre-wrap text-align-center z-index-100",
-        style: "position:absolute; right: 5px; background-color:transparent;",
-    }, [ " x " ]);
-
-    // Tabs
-    const root = div({ class: "relative tab" }, [ btn, input, closeBtn ]);
-    const component = makeComponent<TabRowArgs>(root, () => {
-        const { name } = component.args;
-
-        const isFocused = currentTreeName === name;
-
-        setVisible(closeBtn, isFocused);
-        setVisible(btn, !isFocused);
-        setClass(root, "focused", isFocused);
-
-        if (setVisible(input, isFocused)) {
-            setVisible(input, true);
-            setInputValueAndResize(input, name);
-
-            root.el.style.color = "var(--fg-color)";
-        } else {
-            setTextContent(btn, name);
-
-            root.el.style.color = "var(--unfocus-text-color)";
-        }
-    });
-
-    btn.el.addEventListener("click", () => {
-        const { name } = component.args;
-
-        loadTree(name);
-    });
-
-    input.el.addEventListener("change", () => {
-        renameCurrentTreeName(input.el.value);
-    });
-
-    closeBtn.el.addEventListener("click", () => {
-        deleteCurrentTree();
-    });
-
-    return component;
-}
-
-// will be more of a tabbed view
-const TreeTabsRow = () => {
-    const tabsRoot = div({ class: "row pre-wrap align-items-center", });
-    const tabsList = makeComponentList(tabsRoot, TreeTabsRowTab);
-
-    const newButton = el("BUTTON", {
-        type: "button",
-        class: "pre-wrap text-align-center",
-        style: "margin-left: 5px;",
-    }, [ " + "])
-
-    const root = div({}, [
-        div({ class: "row pre-wrap align-items-center" }, [
-            tabsRoot, newButton,
-        ]),
-        div({ style: "outline-bottom: 1px solid var(--fg-color);" })
-    ])
-
-    const outerComponent = makeComponent(root, () => {
-        const names = getAvailableTrees();
-        tabsList.resize(names.length);
-        for (let i = 0; i < names.length; i++) {
-            tabsList.components[i].render({ name: names[i] });
-        }
-    });
-
-    newButton.el.addEventListener("click", () => {
-        newTree();
-    })
-
-    return outerComponent;
-}
-
-
 const renderOptions : RenderOptions = {
     shouldScroll: false
 };
@@ -1780,18 +1653,9 @@ const setCurrentModal = (modal: Modal) => {
 }
 
 const initState = () => {
-    let savedCurrentTreeName = localStorage.getItem("State.currentTreeName") as string;
-    const availableTrees = getAvailableTrees();
-    if (!availableTrees.includes(savedCurrentTreeName)) {
-        savedCurrentTreeName = availableTrees[0];
-    }
-
-    if (!savedCurrentTreeName || availableTrees.length === 0) {
-        newTree();
-        saveCurrentState();
-    } else {
-        loadTree(savedCurrentTreeName);
-    }
+    // I used to have tabs, but I literally never used then, so I've removed them now.
+    // However, "Everything" is the name of my current note tree
+    loadState("Everything");
 };
 
 export const App = () => {
@@ -1809,27 +1673,16 @@ export const App = () => {
 
     const noteTreeHelp = div({}, [
         el("P", {}, [
-            "Use this note tree to keep track of what you are currently doing, and how long you are spending on each thing." + 
-            "NOTE: this help might be out of date, as I am currently updating this quite regularly. Right now I can't make any " + 
-            "guarantees that your data will be safe or will still work in the next version of the app (this app is a static page that stores" +
-            "all its data on your browser's local storage)"
+`Use this program to keep track of what you're currently working on, what your going to work on, and what you've been working on.`
         ]),
         el("UL", {}, [
-            li(`[Enter] to create a new entry under the current one`),
-            li(`[Shift] + [Enter] to create a new entry at the same level as the current one`),
-            li(`[Tab] or [Shift]+[Tab] to indent/unindent a note when applicable`),
-            li(`[Arrows] to move up and down visually`),
-            li(`[Alt] + [Arrows] to move across the tree. [Up] and [Down] moves on the same level, [Left] and [Right] to move out of or into a note`),
-            li(`[Alt] + [Backspace] to move focus back to the last note we edited`),
-            li(`[Ctrl] + [Shift] + [F] to toggle filters`),
+            li(``),
         ])
     ]);
 
     const notesList = NotesList();
     const activityList = EditableActivityList();
     const breakInput = BreakInput();
-    const filters = NoteFilters();
-    const treeSelector = TreeTabsRow();
     const todoNotes = TodoList();
 
     const scratchPadModal = ScratchPadModal();
@@ -1841,7 +1694,6 @@ export const App = () => {
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
-            filters,
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal("scratch-pad");
             }),
@@ -1905,9 +1757,6 @@ export const App = () => {
             div({}, [ infoButton ]),
         ]),
         noteTreeHelp,
-        div({ class: "row align-items-end" }, [
-            treeSelector
-        ]),
         notesList,
         div({ class: "row", style: "gap: 10px"}, [
             div({ style: "flex:1; padding-top: 20px" }, [ 
@@ -2020,7 +1869,7 @@ export const App = () => {
 
                 if (!e.altKey) {
                     // move into the current note
-                    setCurrentNote(state, getInnerNoteId(state, currentNote));
+                    setCurrentNote(state, getInnerNoteId(currentNote));
                 } else {
                     if (currentNote.parentId) {
                         // move this note into the note above it
@@ -2031,7 +1880,7 @@ export const App = () => {
                             if (upperNote.childIds.length === 0) {
                                 tree.addUnder(state.notes, upperNote, currentNote);
                             } else {
-                                const noteInsideUpperNoteId = getInnerNoteId(state, upperNote);
+                                const noteInsideUpperNoteId = getInnerNoteId(upperNote);
                                 if (noteInsideUpperNoteId) {
                                     const noteInsideUpperNote = getNote(state, noteInsideUpperNoteId);
                                     tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
@@ -2117,13 +1966,7 @@ export const App = () => {
                 setCurrentModal(null);
                 needsRerender = false;
             }
-        } else if (
-            e.key === "F" &&
-            ctrlPressed &&
-            shiftPressed
-        ) {
-            nextFilter(state);
-        }  else {
+        } else {
             needsRerender = false;
         }
 
@@ -2144,8 +1987,6 @@ export const App = () => {
         notesList.render(undefined);
         activityList.render(undefined);
         breakInput.render(undefined);
-        treeSelector.render(undefined);
-        filters.render(undefined);
         todoNotes.render(undefined);
 
         if (setVisible(analyticsModal, currentModal === "analytics-view")) {
@@ -2195,23 +2036,6 @@ const showStatusText = (text: string, color: string = "var(--fg-color)", timeout
     }
 };
 
-const loadTree = (name: string) => {
-    handleErrors(
-        () => {
-            loadState(name);
-            currentTreeName = name;
-        },
-        () => {
-            // try to fallback to the first available tree.
-            const availableTrees = getAvailableTrees();
-            loadState(availableTrees[0]);
-            currentTreeName = availableTrees[0];
-
-            console.log(availableTrees)
-        }
-    );
-};
-
 const saveCurrentState = ({ debounced } = { debounced: false }) => {
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
@@ -2245,18 +2069,6 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
     }, SAVE_DEBOUNCE);
 };
 
-const renameCurrentTreeName = (newName: string) => {
-    let oldName = currentTreeName;
-    if (localStorage.getItem(getLocalStorageKeyForTreeName(newName))) {
-        throw new Error("That name is already taken.");
-    }
-
-    currentTreeName = newName;
-    localStorage.removeItem(getLocalStorageKeyForTreeName(oldName));
-
-    saveCurrentState();
-};
-
 const debouncedSave = () => {
     saveCurrentState({
         debounced: true
@@ -2285,107 +2097,13 @@ const ERROR_TIMEOUT_TIME = 5000;
 let currentTreeName = "";
 let saveTimeout = 0;
 
-const deleteCurrentTree = () => {
-    handleErrors(() => {
-        const availableTrees = getAvailableTrees();
-        let idx = availableTrees.indexOf(currentTreeName);
-        if (idx === -1) {
-            throw new Error("The current tree has not yet been saved.");
-        }
 
-        if (availableTrees.length <= 1) {
-            if (availableTrees.length === 0) {
-                throw new Error("There aren't any notes. How in the fuck did that happen?");
-            }
-
-            showStatusText("Can't delete the only note tree page");
-            return;
-        }
-
-        if (!confirm(`Are you sure you want to delete the note tree ${currentTreeName}?`)) {
-            return;
-        }
-
-        localStorage.removeItem(getLocalStorageKeyForTreeName(currentTreeName));
-        const availableTrees2 = getAvailableTrees();
-
-        if (idx >= availableTrees2.length) {
-            idx = availableTrees2.length - 1;
-        }
-
-        loadTree(availableTrees2[idx]);
-    });
-};
+const STATE_KEY_PREFIX = "NoteTree.";
 
 function getLocalStorageKeyForTreeName(name: string) {
     return STATE_KEY_PREFIX + name;
 }
 
-const STATE_KEY_PREFIX = "NoteTree.";
-function getAvailableTrees(): string[] {
-    const keys = Object.keys(localStorage)
-        .map((key) => {
-            if (!key.startsWith(STATE_KEY_PREFIX)) {
-                return undefined;
-            }
-
-            const name = key.substring(STATE_KEY_PREFIX.length);
-            if (!name) {
-                return undefined;
-            }
-
-            return name;
-        })
-        .filter((key) => !!key)
-        .sort();
-
-    return keys as string[];
-}
-
-const newTree = () => {
-    function generateUnusedName() {
-        function canUseName(name: string) {
-            return !localStorage.getItem(getLocalStorageKeyForTreeName(name));
-        }
-
-        // try to name it 22 FEB 2023 or something
-        const now = new Date();
-        const months = [
-            "JAN",
-            "FEB",
-            "MAR",
-            "APR",
-            "MAY",
-            "JUN",
-            "JUL",
-            "AUG",
-            "SEP",
-            "OCT",
-            "NOV",
-            "DEC"
-        ];
-        const dayName = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
-        if (canUseName(dayName)) {
-            return dayName;
-        }
-
-        let i = 0;
-        while (i < 100000) {
-            i++;
-            const name = "New " + i;
-            if (canUseName(name)) {
-                return name;
-            }
-        }
-
-        throw new Error("ERROR - Out of name ideas for this new note :(");
-    }
-
-    resetState();
-
-    currentTreeName = generateUnusedName();
-    saveCurrentState();
-};
 
 
 // Entry point

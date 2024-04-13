@@ -1,5 +1,5 @@
 import { filterInPlace } from "./array-utils";
-import { formatDate, formatDuration, getDurationMS, getTimestamp } from "./datetime";
+import { formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
 import * as tree from "./tree";
 import { uuid } from "./uuid";
@@ -49,9 +49,7 @@ export type Note = {
     _isSelected: boolean; // used to display '>' or - in the note status
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task.
     _depth: number; // used to visually indent the notes
-    _filteredOut: boolean; // Has this note been filtered out?
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
-
 };
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
@@ -208,7 +206,6 @@ export function defaultNote(state: State | null) : Note {
         _isSelected: false, 
         _isUnderCurrent: false, 
         _depth: 0, 
-        _filteredOut: false, 
         _task: null,
     };
 }
@@ -233,10 +230,6 @@ export function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
                 !note.data._isSelected
             ) {
                 if (note.parentId !== currentNote.parentId) {
-                    continue;
-                }
-
-                if (note.data._filteredOut) {
                     continue;
                 }
             }
@@ -345,15 +338,6 @@ export function recomputeState(state: State) {
         };
 
         dfs(getRootNote(state));
-    }
-
-    // recompute _filteredOut (depends on _status)
-    {
-        tree.forEachNode(state.notes, (id) => {
-            const note = getNote(state, id);
-            note.data._filteredOut = shouldFilterOutNote(note.data, ALL_FILTERS[state.currentNoteFilterIdx][1]);
-        });
-
     }
 
     // recompute _isSelected to just be the current note + all parent notes 
@@ -822,20 +806,6 @@ export function getNextActivityWithNoteIdx(state: State, idx: number): number {
     return idx;
 }
 
-export function getFinalChildNote(state: State, note: TreeNote): NoteId | null {
-    let finalNoteIdx = note.childIds.length - 1;
-    while (finalNoteIdx >= 0) {
-        const childNote = getNote(state, note.childIds[finalNoteIdx]);
-        if (!childNote.data._filteredOut) {
-            return childNote.id;
-        }
-
-        finalNoteIdx--;
-    }
-
-    return null;
-}
-
 export function dfsPre(state: State, note: TreeNote, fn: (n: TreeNote) => void) {
     fn(note);
 
@@ -878,31 +848,9 @@ export function moveNotePriorityIntoPriorityGroup(
     }
 }
 
-// function dfsPost(state: State, note: TreeNote, fn: (n: TreeNote) => void) {
-//     for (const id of note.childIds) {
-//         const note = getNote(state, id);
-//         dfsPost(state, note, fn);
-//     }
-
-//     fn(note);
-// }
-
-// function copyState(state: State) {
-//     return JSON.parse(JSON.stringify(recursiveShallowCopy(state)));
-// }
-
 export function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
-
-// function getNotePriority(state: State, noteId: NoteId) {
-//     const priority = state.todoNoteIds.indexOf(noteId);
-//     if (priority === -1) {
-//         return undefined;
-//     }
-
-//     return priority + 1;
-// }
 
 export function getTimeStr(note: Note) {
     const { openedAt } = note;
@@ -979,20 +927,6 @@ export function getFirstPartOfRow(state: State, note: TreeNote) {
     return `${getTimeStr(noteData)} | ${getRowIndentPrefix(state, noteData)} ${dashChar} ${noteData.text || " "}`;
 }
 
-export function previousFilter(state: State) {
-    state.currentNoteFilterIdx++;
-    if (state.currentNoteFilterIdx >= ALL_FILTERS.length) {
-        state.currentNoteFilterIdx = 0;
-    }
-}
-
-export function nextFilter(state: State) {
-    state.currentNoteFilterIdx--;
-    if (state.currentNoteFilterIdx < 0) {
-        state.currentNoteFilterIdx = ALL_FILTERS.length - 1;
-    }
-}
-
 export function isEditableBreak(activity: Activity) {
     if (!activity) {
         return false;
@@ -1019,11 +953,6 @@ function merge<T extends object>(a: T, b: T) {
 
     return a;
 }
-export const ALL_FILTERS: [string, NoteFilter][] = [
-    ["No filters", null],
-    ["Done", { not: false, status: STATUS_DONE }],
-    ["Not-done", { not: true, status: STATUS_DONE }],
-];
 
 type AnalyticsSeries = {
     activityIndices: number[];
@@ -1143,7 +1072,7 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
     }
 }
 
-export function getInnerNoteId(state: State, currentNote: TreeNote): NoteId | null {
+export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
     const id = currentNote.childIds[currentNote.data.lastSelectedChildIdx];
     if (id) {
         return id;
