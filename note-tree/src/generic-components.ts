@@ -1,7 +1,7 @@
 // TODO: import the missing CSS styles
 
 import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setTextContent, setVisible } from "./dom-utils";
-import { decrementDay, floorDateLocalTime, formatDate, incrementDay, parseYMDTDateTime } from "./utils";
+import { decrementDay, floorDateLocalTime, formatDate, incrementDay, parseYMDTDateTime } from "./datetime";
 
 type ModalArgs = { onClose(): void };
 
@@ -124,7 +124,7 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     });
 
     edit.el.addEventListener("blur", () => {
-        component.rerender(component.args);
+        component.rerender();
     });
 
     return component;
@@ -140,7 +140,7 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
     ]);
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
-        dateTimeInput.rerender(component.args);
+        dateTimeInput.rerender();
     });
 
     function updateDate(updateFn: (d: Date) => void) {

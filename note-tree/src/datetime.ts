@@ -103,13 +103,51 @@ export function decrementDay(date: Date) {
     date.setDate(date.getDate() - 1)
 }
 
-// export function countNewlines(value: string): number {
-//     let newLines = 0;
-//     for (const c of value) {
-//         if (c === '\n') {
-//             newLines ++;
-//         }
+export function formatDuration(ms: number) {
+    const seconds = Math.floor(ms / 1000) % 60;
+    const minutes = Math.floor(ms / 1000 / 60) % 60;
+    const hours = Math.floor(ms / 1000 / 60 / 60) % 24;
+    const days = Math.floor(ms / 1000 / 60 / 60 / 24);
+
+    if (ms < 1000) {
+        return `${ms} ms`;
+    }
+
+    const str = [];
+    if (days) {
+        str.push(`${days} days`);
+    }
+
+    if (hours) {
+        // str.push(`${hours} hours`);
+        str.push(`${hours} h`);
+    }
+
+    if (minutes) {
+        // str.push(`${minutes} minutes`);
+        str.push(`${minutes} m`);
+    }
+
+    if (seconds) {
+        // str.push(`${seconds} seconds`);
+        str.push(`${seconds} s`);
+    }
+
+    return str.join(", ");
+}
+
+export function getDurationMS(aIsoString: string, bIsoString: string) {
+    return new Date(bIsoString).getTime() - new Date(aIsoString).getTime();
+}
+
+// function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
+//     while (lastNote.childIds.length > 0) {
+//         lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
 //     }
 
-//     return newLines;
+//     return lastNote;
 // }
+
+export function getTimestamp(date: Date) {
+    return date.toISOString();
+}

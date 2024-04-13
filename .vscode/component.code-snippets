@@ -1,0 +1,22 @@
+{
+    "Component": {
+        "scope": "typescript",
+        "prefix": ["Component", "component"],
+        "body": [
+            "type ${0:ComponentName}Args = {",
+            "}",
+            "",
+            "function ${0:ComponentName}(): Renderable<${0:ComponentName}Args> {",
+            "    const root = div();",
+            "",
+            "    const component = makeComponent<${0:ComponentName}Args>(root, () => {",
+            "        const { } = component.args;",
+            "",
+            "    });",
+            "",
+            "    return component;",
+            "}",
+        ],
+        "description": "A basic component with re-useable logic. The sheer amount of boilerplate is probably the one thing I don't like about this approach, but I think I've fixed it pretty easily like this"
+    }
+}

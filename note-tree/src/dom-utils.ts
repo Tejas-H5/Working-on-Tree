@@ -1,3 +1,28 @@
+/**
+   
+// Component boilerplate snippet:
+// If you use VS-Code, there's already a code snippet in this project for this.
+// Vim users will have to copy-paste this and :s/CN/NewName/g over it
+
+type CNArgs = {
+
+}
+
+function CN<CNArgs>() {
+    const root = div();
+
+    const component = makeComponent<CNArgs>(root, () => {
+        const { } = component.args;
+
+    });
+
+    return component;
+}
+   
+*/
+
+
+
 export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     if (!trueVal) { 
         console.error(...msg); 
@@ -99,7 +124,7 @@ export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?
 }
 
 export function div(attrs?: Attrs, children?: (Insertable | string)[]) {
-    return el("DIV", attrs, children);
+    return el<HTMLDivElement>("DIV", attrs, children);
 }
 
 export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
@@ -143,6 +168,10 @@ export function resizeInputToValue(inputComponent: Insertable) {
 }
 
 export function setTextContent(component: Insertable, text: string) {
+    // @ts-ignore
+    if (component.rerender) {
+        console.warn("You might be overwriting a component's internal contents by setting it's text");
+    };
     if (component.el.textContent === text) {
         // Actually a huge performance speedup!
         return;
@@ -178,21 +207,41 @@ export function setInputValue(component: Insertable, text: string) {
  * It stores args in the `args` object, so that any event listeners can update their behaviours when the main
  * component re-renders.
  */
-export function makeComponent<T>(root: Insertable, renderFn: () => void) {
+export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
     const component : Renderable<T> = {
         ...root,
         // @ts-ignore this is always set before we render the component
         args: null,
-        rerender: function(argsIn) {
+        render: function(argsIn) {
             component.args = argsIn;
             renderFn();
         },
+        rerender() {
+            this.render(this.args);
+        }
     };
 
     return component;
 }
 
-export type Renderable<T> = Insertable & {
+export type Renderable<T = undefined> = Insertable & {
     args: T;
-    rerender(args: T):void;
+    render(args: T):void;
+}
+
+export function isEditingTextSomewhereInDocument(): boolean {
+    const el = document.activeElement;
+    if (!el) {
+        return false;
+    }
+
+    const type = el.nodeName.toLocaleLowerCase();
+    if (
+        type === "textarea" || 
+        type === "input"
+    ) {
+        return true;
+    }
+
+    return false;
 }

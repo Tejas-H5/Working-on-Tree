@@ -13,4 +13,16 @@ type GenericInputArguments<T> = {
     value: T;
     onChange(val: T):void;
 }
+
+// Just an index into our activities array. Activities ideally never reorder.
+// Except I kinda do want them to reorder soon. Even though this description is right,
+// defining this type will just lead to mistakes, because I will assume that the id of an object will never change
+// and write incorrect code with this assumption.
+type ActivityId = number;
+
+
+
+
 ```
+
+
