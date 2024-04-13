@@ -371,6 +371,7 @@ export function recomputeState(state: State) {
             if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
                 // this will get auto-deleted from recomputeState, so we don't have to do that here
                 state.todoNoteIds.push(note.id);
+                moveNotePriorityIntoPriorityGroup(state, note.id);
             }
 
             if (note.parentId) { 
