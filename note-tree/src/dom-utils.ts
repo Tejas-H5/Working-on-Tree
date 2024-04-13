@@ -216,9 +216,6 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
             component.args = argsIn;
             renderFn();
         },
-        rerender() {
-            this.render(this.args);
-        }
     };
 
     return component;

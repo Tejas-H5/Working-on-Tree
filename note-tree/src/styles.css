@@ -62,6 +62,10 @@ button:hover {
     background-color: var(--bg-color-focus);
 }
 
+.hover:hover {
+    background-color: var(--bg-color-focus);
+}
+
 button:active {
     background-color: var(--bg-color-focus-2);
 }

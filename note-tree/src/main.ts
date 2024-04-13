@@ -63,14 +63,13 @@ import {
     el,
     InsertableGeneric,
     isEditingTextSomewhereInDocument,
+    appendChild,
+    Insertable,
 } from "./dom-utils";
 
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
-
-// should be the only 'circular' dependency in the project
-import { app } from ".";    
 
 function NoteFilters(): Renderable {
     const lb = makeButton("<");
@@ -103,7 +102,6 @@ type NoteLinkArgs = {
     text: string; 
     focusAnyway: boolean;
     noteId?: NoteId;
-    maxLength?: number;
     preventScroll?: boolean;
 };
 
@@ -111,10 +109,10 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     const root = div({ style: "padding:5px; word;", class: "handle-long-words" })
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
-        const { text, maxLength, noteId, focusAnyway }  = component.args;
+        const { text, noteId, focusAnyway }  = component.args;
 
         setClass(root, "hover-link", !!noteId);
-        setTextContent(root, truncate(text, maxLength || 500));
+        setTextContent(root, truncate(text, 500));
         root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)" 
         ) : (
@@ -971,13 +969,13 @@ function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) {
     }
 }
 
-function recomputeAnalytics(state: State, activities: Activity[], analytics: Analytics) {
+function recomputeAnalytics(state: State, activityIndices: number[], analytics: Analytics) {
     resetAnalyticsSeries(analytics.breaks);
     resetAnalyticsSeries(analytics.multiDayBreaks);
     analytics.taskTimes.clear();
     analytics.totalTime = 0;
 
-    // recompute which tasks each note belong to 
+    // recompute which tasks each note belong to.
     {
         const dfs = (id: NoteId) => {
             const note = getNote(state, id);
@@ -999,7 +997,8 @@ function recomputeAnalytics(state: State, activities: Activity[], analytics: Ana
 
 
     // compute which activities belong to which group
-    for (let i = 0; i < activities.length; i++) { 
+    const activities = state.activities;
+    for (const i of activityIndices) { 
         const activity = activities[i];
         const nextActivity  = activities[i + 1] as Activity | undefined;
 
@@ -1021,7 +1020,7 @@ function recomputeAnalytics(state: State, activities: Activity[], analytics: Ana
             } 
 
 
-            analytics.breaks.activityIndices.push(i);
+            analytics.multiDayBreaks.activityIndices.push(i);
             continue;
         }
 
@@ -1073,15 +1072,16 @@ function activityMatchesFilters(activity: Activity, _nextActivity: Activity | un
     return true;
 }
 
-function filterActivities(dst: Activity[], src: Activity[], filter: ActivityFilters) {
-    dst.splice(0, dst.length);
+function filterActivities(state: State, filter: ActivityFilters, indices: number[]) {
+    const activities = state.activities;
+    indices.splice(0, indices.length);
 
-    for (let i = 0; i < src.length; i++) {
-        const a = src[i];
-        const aNext: Activity | undefined = src[i + 1];
+    for (let i = 0; i < activities.length; i++) {
+        const a = activities[i];
+        const aNext: Activity | undefined = activities[i + 1];
 
         if (activityMatchesFilters(a, aNext, filter)) {
-            dst.push(a);
+            indices.push(i);
         }
     }
 }
@@ -1231,19 +1231,23 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
     }
     
     function ActivityRow(): Renderable<ActivityRowArgs> {
+        const timestamp = NoteLink();
         const text = NoteLink();
         const duration = div();
         const root = div({ class: "row" }, [
+            timestamp, 
             text, 
+            div({ class: "flex-1"}),
             duration
         ]);
     
         const component = makeComponent<ActivityRowArgs>(root, () => {
             const { activity, nextActivity } = component.args;
 
+            setTextContent(timestamp, formatDate(new Date(activity.t)));
+
             text.render({
                 text: getActivityText(state, activity),
-                maxLength: 100,
                 noteId: activity.nId,
                 preventScroll: false,
                 focusAnyway: false,
@@ -1294,7 +1298,7 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
 }
 
 function ActivityAnalytics(): Renderable {
-    const filteredActivities: Activity[] = [];
+    const filteredActivityIndices: number[] = [];
     const analytics: Analytics = {
         breaks: newAnalyticsSeries(),
         multiDayBreaks: newAnalyticsSeries(),
@@ -1340,10 +1344,11 @@ function ActivityAnalytics(): Renderable {
         component.render(undefined);
     }
 
+
     const durationsList = makeComponentList(durationsListRoot, () => {
         const taskNameComponent = div({ style: `padding:5px;padding-bottom:0;` })
         const durationBar = FractionBar();
-        const expandButton = makeButton(">");
+        const expandButton = div({ class: "hover", style: "padding: 0.25em;"}, [">"]);
 
         expandButton.el.addEventListener("click", () => {
             const { setExpandedActivity, activityListComponent: activityList } = component.args;
@@ -1379,7 +1384,9 @@ function ActivityAnalytics(): Renderable {
                 activityIndices,
             } = component.args;
 
-            setVisible(expandButton, !!setExpandedActivity);
+            if (setVisible(expandButton, !!setExpandedActivity)) {
+                setTextContent(expandButton, !!activityListComponent ? "v" : ">");
+            }
 
             setTextContent(taskNameComponent, taskName);
             durationBar.render({
@@ -1391,8 +1398,8 @@ function ActivityAnalytics(): Renderable {
                 setVisible(activityListComponent, true);
                 root.el.appendChild(activityListComponent.el);
 
-                activityListComponent.render({
-                    activityIndexes: activityIndices,
+                activityListComponent.render({ 
+                    activityIndexes: activityIndices
                 });
             }
         });
@@ -1417,8 +1424,8 @@ function ActivityAnalytics(): Renderable {
             }
         });
 
-        filterActivities(filteredActivities, state.activities, analyticsActivityFilter);
-        recomputeAnalytics(state, filteredActivities, analytics);
+        filterActivities(state, analyticsActivityFilter, filteredActivityIndices);
+        recomputeAnalytics(state, filteredActivityIndices, analytics);
 
         const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
             analytics.totalTime :
@@ -2436,3 +2443,14 @@ const newTree = () => {
     currentTreeName = generateUnusedName();
     saveCurrentState();
 };
+
+
+// Entry point
+const root: Insertable = {
+    el: document.getElementById("app")!
+};
+
+const app = App();
+appendChild(root, app);
+
+app.render(undefined);

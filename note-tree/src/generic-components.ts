@@ -124,7 +124,7 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     });
 
     edit.el.addEventListener("blur", () => {
-        component.rerender();
+        component.render(component.args);
     });
 
     return component;
@@ -140,7 +140,7 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
     ]);
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
-        dateTimeInput.rerender();
+        dateTimeInput.render(component.args);
     });
 
     function updateDate(updateFn: (d: Date) => void) {
