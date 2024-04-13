@@ -140,7 +140,7 @@ export function getDurationMS(aIsoString: string, bIsoString: string) {
     return new Date(bIsoString).getTime() - new Date(aIsoString).getTime();
 }
 
-// function getLastNote(state: State, lastNote: tree.TreeNode<Note>) {
+// function getLastNote(state: State, lastNote: TreeNote) {
 //     while (lastNote.childIds.length > 0) {
 //         lastNote = getNote(state, lastNote.childIds[lastNote.childIds.length - 1]);
 //     }

@@ -27,8 +27,8 @@ import {
     getNoteOneUpLocally,
     getNoteStateString,
     getNoteTag,
-    getOneNoteDown,
-    getOneNoteUp,
+    getNoteNDown,
+    getNoteNUp,
     getPreviousActivityWithNoteIdx,
     getSecondPartOfRow,
     getTimeStr,
@@ -48,7 +48,11 @@ import {
     recursiveShallowCopy,
     resetState,
     setCurrentNote,
-    state
+    state,
+    Analytics,
+    newAnalyticsSeries,
+    recomputeAnalytics,
+    getInnerNoteId
 } from "./state";
 import {
     Renderable,
@@ -70,6 +74,7 @@ import {
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
+import { swap } from "./array-utils";
 
 function NoteFilters(): Renderable {
     const lb = makeButton("<");
@@ -139,7 +144,7 @@ function NoteLink(): Renderable<NoteLinkArgs> {
 
 function TodoList(): Renderable {
     type TodoItemArgs = {
-        note: tree.TreeNode<Note>;
+        note: TreeNote;
         hasDivider: boolean;
     }
 
@@ -200,7 +205,7 @@ function TodoList(): Renderable {
 
             moveUpButton.el.setAttribute("title", "Move this note up");
 
-            const nestedNotes: tree.TreeNode<Note>[] = [];
+            const nestedNotes: TreeNote[] = [];
             dfsPre(state, note, (n) => {
                 if (n !== note && n.data._status === STATUS_IN_PROGRESS) {
                     nestedNotes.push(n);
@@ -667,7 +672,7 @@ function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
     };
 }
 
-function getRealChildCount(note: tree.TreeNode<Note>): number {
+function getRealChildCount(note: TreeNote): number {
     if (note.childIds.length === 0) {
         return 0;
     }
@@ -897,7 +902,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         let shouldPreventDefault = true;
 
         if (e.key === "Enter" && !shiftPressed) {
-            const oneNoteDown = getOneNoteDown(state, currentNote, true);
+            const oneNoteDown = getNoteNDown(state, currentNote, true);
             if (oneNoteDown) {
                 setCurrentNote(state, oneNoteDown);
             } else {
@@ -932,124 +937,6 @@ type ActivityListItemArgs = {
     showDuration: boolean;
 };
 
-
-type AnalyticsSeries = {
-    activityIndices: number[];
-
-    // These values can be computed off the activities in the series
-    duration: number;
-}
-
-function newAnalyticsSeries(): AnalyticsSeries {
-    return { activityIndices: [], duration: 0 };
-}
-
-function resetAnalyticsSeries(series: AnalyticsSeries) {
-    series.activityIndices.splice(0, series.activityIndices.length);
-    series.duration = 0;
-}
-
-// All times are in milliseconds
-type Analytics = {
-    multiDayBreaks: AnalyticsSeries;
-    breaks: AnalyticsSeries;
-    taskTimes: Map<TaskId, AnalyticsSeries>;
-    totalTime: number;
-}
-
-function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) {
-    // recompute duration
-
-    series.duration = 0;
-    for (const idx of series.activityIndices) {
-        const activity = state.activities[idx];
-        const nextActivity  = state.activities[idx + 1] as Activity | undefined;
-
-        series.duration += getActivityDurationMs(activity, nextActivity);
-    }
-}
-
-function recomputeAnalytics(state: State, activityIndices: number[], analytics: Analytics) {
-    resetAnalyticsSeries(analytics.breaks);
-    resetAnalyticsSeries(analytics.multiDayBreaks);
-    analytics.taskTimes.clear();
-    analytics.totalTime = 0;
-
-    // recompute which tasks each note belong to.
-    {
-        const dfs = (id: NoteId) => {
-            const note = getNote(state, id);
-
-            let task = getNoteTag(note, "Task");
-            if (!task && note.parentId) {
-                task = getNote(state, note.parentId).data._task;
-            }
-
-            note.data._task = task;
-
-            for (const id of note.childIds) {
-                dfs(id);
-            }
-        }
-
-        dfs(state.notes.rootId);
-    }
-
-
-    // compute which activities belong to which group
-    const activities = state.activities;
-    for (const i of activityIndices) { 
-        const activity = activities[i];
-        const nextActivity  = activities[i + 1] as Activity | undefined;
-
-        if (activity.breakInfo) {
-            // Some breaks span from end of day to start of next day. 
-            // They aren't very useful for most analytics questions, like 
-            //      "How long did I spent working on stuff today vs Lunch?".
-
-            const t = new Date(activity.t);
-            const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
-
-            if (
-                t.getDate() === t1.getDate() &&
-                t.getMonth() === t1.getMonth() &&
-                t.getFullYear() === t1.getFullYear()
-            ) {
-                analytics.breaks.activityIndices.push(i);
-                continue;
-            } 
-
-
-            analytics.multiDayBreaks.activityIndices.push(i);
-            continue;
-        }
-
-        if (activity.nId) { 
-            const note = getNote(state, activity.nId);
-            // has the side-effect that a user can just do [Task=<Uncategorized>], that is fine I think
-            const task = note.data._task || "<Uncategorized>";
-
-            if (!analytics.taskTimes.has(task)) {
-                analytics.taskTimes.set(task, newAnalyticsSeries());
-            }
-
-            const series = analytics.taskTimes.get(task)!;
-            series.activityIndices.push(i);
-            continue;
-        }
-    }
-
-    // recompute the numbers and aggregates
-    recomputeAnalyticsSeries(state, analytics.breaks);
-    analytics.totalTime += analytics.breaks.duration;
-
-    recomputeAnalyticsSeries(state, analytics.multiDayBreaks);
-    analytics.totalTime += analytics.multiDayBreaks.duration;
-    for (const s of analytics.taskTimes.values()) {
-        recomputeAnalyticsSeries(state, s);
-        analytics.totalTime += s.duration;
-    }
-}
 
 
 function activityMatchesFilters(activity: Activity, _nextActivity: Activity | undefined, filter: ActivityFilters): boolean {
@@ -1536,8 +1423,14 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
 
-        const durationMs = getNoteDuration(state, note);
-        setTextContent(duration, formatDuration(durationMs));
+        // only doing it for 1 note for now for performance reasons.
+        // In future we can use memoisation to make it faster. i.e
+        // duration = sum of child durations + duration of this note, if we even care to.
+
+        // if (setVisible(duration, note.id === state.currentNoteId)) {
+            const durationMs = getNoteDuration(state, note);
+            setTextContent(duration, formatDuration(durationMs));
+        // }
     });
 
     return component;
@@ -2088,16 +1981,85 @@ export const App = () => {
         ) {
             // handle movements here
 
+            function handleUpDownMovement(nextNoteId: NoteId | null) {
+                if (!nextNoteId) {
+                    return;
+                }
+
+                if (!e.altKey) {
+                    setCurrentNote(state, nextNoteId);
+                } else {
+                    const nextNote = getNote(state, nextNoteId);
+                    if (
+                        currentNote.parentId && 
+                        currentNote.parentId === nextNote.parentId
+                    ) {
+                        const parent = getNote(state, currentNote.parentId);
+                        const siblings = parent.childIds;
+                        const idxNext = siblings.indexOf(nextNote.id);
+                        tree.insertAt(state.notes, parent, currentNote, idxNext);
+                    }
+                }
+            }
+
+            function handleMovingOut(nextNoteId: NoteId | null) {
+                if (!nextNoteId) {
+                    return;
+                }
+
+                if (!e.altKey) {
+                    setCurrentNote(state, nextNoteId);
+                } else {
+                    const nextNote = getNote(state, nextNoteId);
+                    tree.addAfter(state.notes, nextNote, currentNote);
+                }
+            }
+
+            function handleMovingIn() {
+
+
+                if (!e.altKey) {
+                    // move into the current note
+                    setCurrentNote(state, getInnerNoteId(state, currentNote));
+                } else {
+                    if (currentNote.parentId) {
+                        // move this note into the note above it
+                        const siblings = getNote(state, currentNote.parentId).childIds;
+                        const idx = siblings.indexOf(currentNote.id);
+                        if (idx !== 0) {
+                            const upperNote = getNote(state, siblings[idx - 1]);
+                            if (upperNote.childIds.length === 0) {
+                                tree.addUnder(state.notes, upperNote, currentNote);
+                            } else {
+                                const noteInsideUpperNoteId = getInnerNoteId(state, upperNote);
+                                if (noteInsideUpperNoteId) {
+                                    const noteInsideUpperNote = getNote(state, noteInsideUpperNoteId);
+                                    tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (e.key === "End" || e.key === "Home") {
                 // Do nothing. Ignore the default behaviour of the browser as well.
-            } if (ctrlPressed && e.key === "ArrowDown") {
-                setCurrentNote(state, getNoteOneDownLocally(state, currentNote));
-            } else if (e.key === "ArrowDown") {
-                setCurrentNote(state, getOneNoteDown(state, currentNote, true));
-            } else if (ctrlPressed && e.key === "ArrowUp") {
-                setCurrentNote(state, getNoteOneUpLocally(state, currentNote));
+            } if (e.key === "ArrowDown") {
+                if (ctrlPressed) {
+                    handleUpDownMovement(getNoteOneDownLocally(state, currentNote));
+                } else {
+                    handleUpDownMovement(getNoteNDown(state, currentNote, true));
+                }
             } else if (e.key === "ArrowUp") {
-                setCurrentNote(state, getOneNoteUp(state, currentNote, true));
+                if (ctrlPressed) {
+                    handleUpDownMovement(getNoteOneUpLocally(state, currentNote));
+                } else {
+                    handleUpDownMovement(getNoteNUp(state, currentNote, true));
+                }
+            } else if (e.key === "PageUp") {
+                handleUpDownMovement(getNoteNUp(state, currentNote, true, 10));
+            } else if (e.key === "PageDown") {
+                handleUpDownMovement(getNoteNDown(state, currentNote, true, 10));
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((
                 // Otherwise I would have liked for this to just be ctrl
@@ -2110,39 +2072,20 @@ export const App = () => {
                         }
                     }
                 } else {
-                    setCurrentNote(state, currentNote.parentId)
+                    handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
-                    if (ctrlPressed && shiftPressed) {
-                        lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
-                        if (lastActivityIndex !== -1) {
-                            const activity = state.activities[lastActivityIndex];
-                            if (activity.nId) {
-                                setCurrentNote(state, activity.nId);
-                            }
+                    lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
+                    if (lastActivityIndex !== -1) {
+                        const activity = state.activities[lastActivityIndex];
+                        if (activity.nId) {
+                            handleMovingOut(activity.nId);
                         }
                     }
                 } else {
                     // move into note
-                    if (
-                        currentNote.data.lastSelectedChildId && 
-                        // We could start editing an empty note and then move up. In which case it was deleted, but the id is now invalid :(
-                        // TODO: just don't set this to an invalid value 
-                        tree.hasNode(state.notes, currentNote.data.lastSelectedChildId)
-                    ) {
-                        setCurrentNote(state, currentNote.data.lastSelectedChildId);
-                    } else {
-                        setCurrentNote(state, getFinalChildNote(state, currentNote));
-                    }
-                }
-            } else if (e.key === "PageUp") {
-                for (let i = 0; i < 10; i++) {
-                    setCurrentNote(state, getOneNoteUp(state, getCurrentNote(state), true));
-                }
-            } else if (e.key === "PageDown") {
-                for (let i = 0; i < 10; i++) {
-                    setCurrentNote(state, getOneNoteDown(state, getCurrentNote(state), true));
+                    handleMovingIn();
                 }
             } else if (shiftPressed && e.key === "Enter") {
                 const newNote = insertChildNode(state);

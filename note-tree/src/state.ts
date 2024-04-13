@@ -42,14 +42,16 @@ export type Note = {
     id: NoteId;
     text: string;
     openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
-    lastSelectedChildId: NoteId;
+    lastSelectedChildIdx: number; // this is now an index into 
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _isSelected: boolean; // used to display '>' or - in the note status
+    _isUnderCurrent: boolean; // used to calculate the duration of a specific task.
     _depth: number; // used to visually indent the notes
     _filteredOut: boolean; // Has this note been filtered out?
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
+
 };
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
@@ -198,12 +200,13 @@ export function defaultNote(state: State | null) : Note {
         id, 
         text: "",
         openedAt: getTimestamp(new Date()), 
-        lastSelectedChildId: "",
+        lastSelectedChildIdx: 0,
 
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
         _isSelected: false, 
+        _isUnderCurrent: false, 
         _depth: 0, 
         _filteredOut: false, 
         _task: null,
@@ -221,7 +224,7 @@ export function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
 
     const currentNote = getCurrentNote(state);
 
-    const dfs = (note: tree.TreeNode<Note>) => {
+    const dfs = (note: TreeNote) => {
         for (const id of note.childIds) {
             const note = getNote(state, id);
 
@@ -273,7 +276,7 @@ export function recomputeState(state: State) {
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
     {
-        const dfs = (note: tree.TreeNode<Note>, depth: number) => {
+        const dfs = (note: TreeNote, depth: number) => {
             note.data._depth = depth;
 
             for (let i = 0; i < note.childIds.length; i++) {
@@ -291,7 +294,7 @@ export function recomputeState(state: State) {
             getNote(state, id).data._status = STATUS_IN_PROGRESS;
         })
 
-        const dfs = (note: tree.TreeNode<Note>) => {
+        const dfs = (note: TreeNote) => {
             if (note.childIds.length === 0) {
                 return;
             }
@@ -370,10 +373,9 @@ export function recomputeState(state: State) {
                 state.todoNoteIds.push(note.id);
             }
 
-
             if (note.parentId) { 
                 const parent = getNote(state, note.parentId);
-                parent.data.lastSelectedChildId = note.id;
+                parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
             }
             return false;
         });
@@ -428,7 +430,7 @@ export function getActivityDurationMs(activity: Activity, nextActivity?: Activit
 }
 
 
-export function createNewNote(state: State, text: string): tree.TreeNode<Note> {
+export function createNewNote(state: State, text: string): TreeNote {
     const note = defaultNote(state);
     note.text = text;
 
@@ -527,7 +529,7 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
         return false
     }
 
-    const noteToMoveTo = getOneNoteUp(state, note, false) || getOneNoteDown(state, note, false);
+    const noteToMoveTo = getNoteNUp(state, note, false) || getNoteNDown(state, note, false);
     if (!noteToMoveTo) {
         // cant delete this note if there are no other notes we can move to
         return false;
@@ -561,7 +563,7 @@ export function insertNoteAfterCurrent(state: State) {
     return true;
 }
 
-export function insertChildNode(state: State): tree.TreeNode<Note> | null {
+export function insertChildNode(state: State): TreeNote | null {
     const currentNote = getCurrentNote(state);
     assert(currentNote.parentId, "Cant insert after the root note");
     if (!currentNote.data.text) {
@@ -585,7 +587,7 @@ export function getNote(state: State, id: NoteId) {
     return tree.getNode(state.notes, id);
 }
 
-export function getNoteTag(note: tree.TreeNode<Note>, tagName: string): string | null {
+export function getNoteTag(note: TreeNote, tagName: string): string | null {
     const text = note.data.text;
     let idxStart = 0;
 
@@ -656,7 +658,7 @@ export function isCurrentlyTakingABreak(state: State): boolean {
     return !!last?.breakInfo;
 }
 
-export function getOneNoteDown(state: State, note: tree.TreeNode<Note>, useSiblings: boolean): NoteId | null {
+export function getNoteNDown(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | null {
     if (!note.parentId) {
         return null;
     }
@@ -664,13 +666,13 @@ export function getOneNoteDown(state: State, note: tree.TreeNode<Note>, useSibli
     const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
     const idx = list.indexOf(note.id);
     if (idx < list.length - 1) {
-        return list[idx + 1];
+        return list[Math.min(list.length - 1, idx + amount)];
     }
 
     return null;
 }
 
-export function getOneNoteUp(state: State, note: tree.TreeNode<Note>, useSiblings: boolean): NoteId | null {
+export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | null {
     if (!note.parentId) {
         return null;
     }
@@ -678,7 +680,7 @@ export function getOneNoteUp(state: State, note: tree.TreeNode<Note>, useSibling
     const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
     let idx = list.indexOf(note.id);
     if (idx > 0) {
-        return list[idx - 1];
+        return list[Math.max(0, idx - amount)];
     }
 
     return null;
@@ -716,7 +718,7 @@ export function setCurrentNote(state: State, noteId: NoteId | null, debounceActi
     return true;
 }
 
-type NoteFilterFunction = (state: State, note: tree.TreeNode<Note>) => boolean;
+type NoteFilterFunction = (state: State, note: TreeNote) => boolean;
 export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
@@ -746,7 +748,7 @@ export function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, f
 }
 
 
-export function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
+export function getNoteOneDownLocally(state: State, note: TreeNote) {
     if (!note.parentId) {
         return null;
     }
@@ -755,7 +757,7 @@ export function getNoteOneDownLocally(state: State, note: tree.TreeNode<Note>) {
     return findNextNote(state, siblings, note.id, isNoteImportant);
 }
 
-export function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boolean {
+export function isNoteImportant(state: State, note: TreeNote) : boolean {
     if (!note.parentId) {
         return true;
     }
@@ -772,7 +774,7 @@ export function isNoteImportant(state: State, note: tree.TreeNode<Note>) : boole
     );
 }
 
-export function getNoteOneUpLocally(state: State, note: tree.TreeNode<Note>) {
+export function getNoteOneUpLocally(state: State, note: TreeNote) {
     if (!note.parentId) {
         return null;
     }
@@ -819,7 +821,7 @@ export function getNextActivityWithNoteIdx(state: State, idx: number): number {
     return idx;
 }
 
-export function getFinalChildNote(state: State, note: tree.TreeNode<Note>): NoteId | null {
+export function getFinalChildNote(state: State, note: TreeNote): NoteId | null {
     let finalNoteIdx = note.childIds.length - 1;
     while (finalNoteIdx >= 0) {
         const childNote = getNote(state, note.childIds[finalNoteIdx]);
@@ -833,7 +835,7 @@ export function getFinalChildNote(state: State, note: tree.TreeNode<Note>): Note
     return null;
 }
 
-export function dfsPre(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
+export function dfsPre(state: State, note: TreeNote, fn: (n: TreeNote) => void) {
     fn(note);
 
     for (const id of note.childIds) {
@@ -875,7 +877,7 @@ export function moveNotePriorityIntoPriorityGroup(
     }
 }
 
-// function dfsPost(state: State, note: tree.TreeNode<Note>, fn: (n: tree.TreeNode<Note>) => void) {
+// function dfsPost(state: State, note: TreeNote, fn: (n: TreeNote) => void) {
 //     for (const id of note.childIds) {
 //         const note = getNote(state, id);
 //         dfsPost(state, note, fn);
@@ -913,50 +915,50 @@ export function getIndentStr(note: Note) {
     return "     ".repeat(repeats);
 }
 
-export function getNoteDuration(state: State, note: tree.TreeNode<Note>) {
+/** 
+ * This is the sum of all activities with this note, or any descendant 
+ */
+export function getNoteDuration(state: State, note: TreeNote) {
+    // recompute _isUnderCurrentNote 
+    {
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._isUnderCurrent = false;
+        });
+
+        dfsPre(state, note, (n) => {
+            n.data._isUnderCurrent = true;
+        });
+    }
+
     if (!note.parentId) {
         return 0;
     }
 
-    const parent = getNote(state, note.parentId);
+    const activities = state.activities;
+    let duration = 0;
 
-    const noteData = note.data;
-    if (noteData._status === STATUS_IN_PROGRESS) {
-        return getDurationMS(noteData.openedAt, getTimestamp(new Date()));
-    }
-
-    if (note.childIds.length === 0) {
-        // the duration is the difference between this note and the next non-TODO note.
-        const idx = parent.childIds.indexOf(note.id);
-        if (idx < parent.childIds.length - 1) {
-            // skip over todo notes
-            let nextNoteIdx = idx + 1;
-            while (nextNoteIdx < parent.childIds.length - 1) {
-                const nextNoteId = parent.childIds[nextNoteIdx];
-                if (isTodoNote(getNote(state, nextNoteId).data)) {
-                    nextNoteIdx++;
-                }
-                break;
-            }
-
-            const nextNoteId = parent.childIds[nextNoteIdx];
-            return getDurationMS(noteData.openedAt, getNote(state, nextNoteId).data.openedAt);
+    for(let i = 0; i < activities.length; i++) {
+        const activity = activities[i];
+        if (!activity.nId) {
+            continue;
         }
 
-        return 0;
+        if (!tree.hasNode(state.notes, activity.nId)) {
+            continue;
+        }
+
+        const note = getNote(state, activity.nId);
+        if (note.data._isUnderCurrent) {
+            const nextActivity = activities[i + 1];
+            duration += getActivityDurationMs(activity, nextActivity);
+        }
     }
 
-    let latestNote = note;
-    dfsPre(state, note, (note) => {
-        if (latestNote.data.openedAt < note.data.openedAt) {
-            latestNote = note;
-        }
-    });
-
-    return getDurationMS(noteData.openedAt, latestNote.data.openedAt);
+    return duration;
 }
 
-export function getSecondPartOfRow(state: State, note: tree.TreeNode<Note>) {
+export function getSecondPartOfRow(state: State, note: TreeNote) {
     const duration = getNoteDuration(state, note);
     const durationStr = formatDuration(duration);
     const secondPart = " " + durationStr;
@@ -967,7 +969,7 @@ export function getRowIndentPrefix(_state: State, note: Note) {
     return `${getIndentStr(note)} ${getNoteStateString(note)}`;
 }
 
-export function getFirstPartOfRow(state: State, note: tree.TreeNode<Note>) {
+export function getFirstPartOfRow(state: State, note: TreeNote) {
     const noteData = note.data;
     // const dashChar = note.data._isSelected ? ">" : "-"
     // having ">" in exported text looks ugly, so I've commented this out for now
@@ -1021,6 +1023,137 @@ export const ALL_FILTERS: [string, NoteFilter][] = [
     ["Done", { not: false, status: STATUS_DONE }],
     ["Not-done", { not: true, status: STATUS_DONE }],
 ];
+
+type AnalyticsSeries = {
+    activityIndices: number[];
+
+    // These values can be computed off the activities in the series
+    duration: number;
+}
+
+export function newAnalyticsSeries(): AnalyticsSeries {
+    return { activityIndices: [], duration: 0 };
+}
+
+export function resetAnalyticsSeries(series: AnalyticsSeries) {
+    series.activityIndices.splice(0, series.activityIndices.length);
+    series.duration = 0;
+}
+
+// All times are in milliseconds
+export type Analytics = {
+    multiDayBreaks: AnalyticsSeries;
+    breaks: AnalyticsSeries;
+    taskTimes: Map<TaskId, AnalyticsSeries>;
+    totalTime: number;
+}
+
+export function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) {
+    // recompute duration
+
+    series.duration = 0;
+    for (const idx of series.activityIndices) {
+        const activity = state.activities[idx];
+        const nextActivity  = state.activities[idx + 1] as Activity | undefined;
+
+        series.duration += getActivityDurationMs(activity, nextActivity);
+    }
+}
+
+export function recomputeAnalytics(state: State, activityIndices: number[], analytics: Analytics) {
+    resetAnalyticsSeries(analytics.breaks);
+    resetAnalyticsSeries(analytics.multiDayBreaks);
+    analytics.taskTimes.clear();
+    analytics.totalTime = 0;
+
+    // recompute which tasks each note belong to.
+    {
+        const dfs = (id: NoteId) => {
+            const note = getNote(state, id);
+
+            let task = getNoteTag(note, "Task");
+            if (!task && note.parentId) {
+                task = getNote(state, note.parentId).data._task;
+            }
+
+            note.data._task = task;
+
+            for (const id of note.childIds) {
+                dfs(id);
+            }
+        }
+
+        dfs(state.notes.rootId);
+    }
+
+
+    // compute which activities belong to which group
+    const activities = state.activities;
+    for (const i of activityIndices) { 
+        const activity = activities[i];
+        const nextActivity  = activities[i + 1] as Activity | undefined;
+
+        if (activity.breakInfo) {
+            // Some breaks span from end of day to start of next day. 
+            // They aren't very useful for most analytics questions, like 
+            //      "How long did I spent working on stuff today vs Lunch?".
+
+            const t = new Date(activity.t);
+            const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
+
+            if (
+                t.getDate() === t1.getDate() &&
+                t.getMonth() === t1.getMonth() &&
+                t.getFullYear() === t1.getFullYear()
+            ) {
+                analytics.breaks.activityIndices.push(i);
+                continue;
+            } 
+
+
+            analytics.multiDayBreaks.activityIndices.push(i);
+            continue;
+        }
+
+        if (activity.nId) { 
+            const note = getNote(state, activity.nId);
+            // has the side-effect that a user can just do [Task=<Uncategorized>], that is fine I think
+            const task = note.data._task || "<Uncategorized>";
+
+            if (!analytics.taskTimes.has(task)) {
+                analytics.taskTimes.set(task, newAnalyticsSeries());
+            }
+
+            const series = analytics.taskTimes.get(task)!;
+            series.activityIndices.push(i);
+            continue;
+        }
+    }
+
+    // recompute the numbers and aggregates
+    recomputeAnalyticsSeries(state, analytics.breaks);
+    analytics.totalTime += analytics.breaks.duration;
+
+    recomputeAnalyticsSeries(state, analytics.multiDayBreaks);
+    analytics.totalTime += analytics.multiDayBreaks.duration;
+    for (const s of analytics.taskTimes.values()) {
+        recomputeAnalyticsSeries(state, s);
+        analytics.totalTime += s.duration;
+    }
+}
+
+export function getInnerNoteId(state: State, currentNote: TreeNote): NoteId | null {
+    const id = currentNote.childIds[currentNote.data.lastSelectedChildIdx];
+    if (id) {
+        return id;
+    }
+
+    if (currentNote.childIds.length !== 0) {
+        return currentNote.childIds[currentNote.childIds.length - 1];
+    }
+
+    return null;
+}
 
 export function resetState() {
     state = defaultState();
