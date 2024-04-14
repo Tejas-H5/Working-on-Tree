@@ -119,8 +119,8 @@ export const STATUS_ASSUMED_DONE: NoteStatus = 2;
  */
 export const STATUS_DONE: NoteStatus = 3;
 
-export function getNoteStateString(note: Note) {
-    switch (note._status) {
+export function noteStatusToString(noteStatus: NoteStatus) {
+    switch (noteStatus) {
         case STATUS_IN_PROGRESS:
             return "[...]";
         case STATUS_ASSUMED_DONE:
@@ -128,6 +128,8 @@ export function getNoteStateString(note: Note) {
         case STATUS_DONE:
             return "[ x ]";
     }
+
+    return "??";
 }
 
 
@@ -540,11 +542,9 @@ export function insertNoteAfterCurrent(state: State) {
     }
 
     const newNote = createNewNote(state, "");
-
-    const parent = getNote(state, currentNote.parentId);
-    tree.addUnder(state.notes, parent, newNote)
-
+    tree.addAfter(state.notes, currentNote, newNote)
     setCurrentNote(state, newNote.id, false);
+    state._isEditingFocusedNote = true;
     return true;
 }
 
@@ -915,7 +915,7 @@ export function getSecondPartOfRow(state: State, note: TreeNote) {
 }
 
 export function getRowIndentPrefix(_state: State, note: Note) {
-    return `${getIndentStr(note)} ${getNoteStateString(note)}`;
+    return `${getIndentStr(note)} ${noteStatusToString(note._status)}`;
 }
 
 export function getFirstPartOfRow(state: State, note: TreeNote) {

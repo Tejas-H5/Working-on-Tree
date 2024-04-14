@@ -21,7 +21,7 @@ import {
     getNoteDuration,
     getNoteOneDownLocally,
     getNoteOneUpLocally,
-    getNoteStateString,
+    noteStatusToString,
     getNoteNDown,
     getNoteNUp,
     getPreviousActivityWithNoteIdx,
@@ -45,7 +45,8 @@ import {
     Analytics,
     newAnalyticsSeries,
     recomputeAnalytics,
-    getInnerNoteId
+    getInnerNoteId,
+    STATUS_ASSUMED_DONE
 } from "./state";
 import {
     Renderable,
@@ -66,6 +67,11 @@ import {
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
+
+
+const SAVE_DEBOUNCE = 1000;
+const ERROR_TIMEOUT_TIME = 5000;
+
 
 type NoteLinkArgs = {
     text: string; 
@@ -134,7 +140,7 @@ function TodoList(): Renderable {
 
                 link.render(linkedNoteArgs);
                 setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === noteId ? " > " : " - "));
-                setTextContent(status, getNoteStateString(note.data) ?? "??");
+                setTextContent(status, noteStatusToString(note.data._status) ?? "??");
             });
 
             return component;
@@ -680,7 +686,7 @@ function getCurrentEnd(pagination: Pagination) {
 }
 
 function getMaxPages(pagination: Pagination) {
-    return idxToPage(pagination, pagination.totalCount);
+    return Math.max(0, idxToPage(pagination, pagination.totalCount - 1));
 }
 
 type PaginationControlArgs = {
@@ -792,7 +798,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const childCountText = count ? ` (${count})` : "";
         setTextContent(
             indent,
-            `${getIndentStr(note.data)} ${getNoteStateString(note.data)}${childCountText} ${dashChar} `
+            `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${childCountText} ${dashChar} `
         );
 
         const wasFocused = isFocused;
@@ -866,14 +872,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         let shouldPreventDefault = true;
 
         if (e.key === "Enter" && !shiftPressed) {
-            const oneNoteDown = getNoteNDown(state, currentNote, true);
-            if (oneNoteDown) {
-                setCurrentNote(state, oneNoteDown);
-            } else {
-                insertNoteAfterCurrent(state);
-            }
-
-            state._isEditingFocusedNote = true;
+            insertNoteAfterCurrent(state);
         } else if (e.key === "Backspace") {
             deleteNoteIfEmpty(state, currentNote.id);
             shouldPreventDefault = false;
@@ -1495,6 +1494,7 @@ const makeDarkModeToggle = () => {
                 ["--bg-color-focus", "#CCC"],
                 ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
                 ["--fg-color", "#000"],
+                ["--unfocus-text-color", "gray"],
             ]);
         } else {
             // assume dark theme
@@ -1557,7 +1557,9 @@ const makeDarkModeToggle = () => {
 
     button.el.style.whiteSpace = "pre";
     button.el.style.fontSize = "6px";
+    button.el.style.fontFamily = "Courier";
     button.el.style.fontWeight = "bold";
+    button.el.style.textShadow = "2px 2px 0px var(--fg-color)";
 
     setTheme(getTheme());
 
@@ -1652,34 +1654,148 @@ const setCurrentModal = (modal: Modal) => {
     rerenderApp({ shouldScroll: true });
 }
 
+function makeUnorderedList(text: (string | Insertable)[]) {
+    return el("UL", {}, text.map(s => el("LI", {}, [ s ])));
+}
+
+function CheatSheet(): Renderable {
+    return makeComponent(div({}, [
+        el("H3", {}, [ "Cheatsheet" ]),
+        el("H4", {}, [ "Movement" ]),
+        makeUnorderedList([
+            `[Enter] to start editing a note`,
+            `[Shift] + [Enter] will make a new note under the current note when not editing, or will input new lines when editing`,
+            `[Up]/[PageUp]/[Home]/[Ctrl+Up] to move upwards on the same level. ([Down]/[PageDown]/[Home]/[Ctrl+Down] to move downwards, obviously) `,
+            `[Left] to move 'out' of a note, or up a level. [Right] to move back 'into' a note, or down a level`,
+            `[Alt] + [Any normal movement] to move the current note around the tree`,
+            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the activity list. 
+                Mainly Useful when you want to make some new TODOs real quick, and then go back to what you were working on.`,
+        ]),
+        el("H4", {}, [ "Task statuses" ]),
+        div({}, [
+            `Tasks have 3 statuses:`, 
+            makeUnorderedList([
+                noteStatusToString(STATUS_IN_PROGRESS) + ` - "In Progress" - this note is assumed to be something you're working on`,
+                noteStatusToString(STATUS_ASSUMED_DONE) + ` - "Assumed Done" - this note is assumed to be completed. You will see it if you write several entries after one another. All entries before the most recent entry are assumed to be completed.`,
+                noteStatusToString(STATUS_DONE) + ` - "Done" - this note has been marked as 'Done' by the user themselves. Any note starting with the text "DONE" or "Done" will get this status, and if this note is also the final note underneath a note, that parent note gets this status as well, unless there are other tasks in progress`,
+            ])
+        ]),
+        el("H4", {}, [ "The TODO List" ]),
+        makeUnorderedList([
+            `Notes can be kept In Progress by starting thier text with "TODO" or "Todo". 
+            These notes will also get added to the TODO list for quick access from any view.`,
+            `Alternatively, you can start a note with "*" to keep it open without creating a TODO entry.`,
+            `These notes can also be given priorities using ! and ?. TODO! has a priority of 1, TODO!! has 2, etc. Conversely, TODO? has priority -1, TODO?? -2, etc.`
+        ]),
+        el("H4", {}, [ "The Activity List" ]),
+        makeUnorderedList([
+            `Each time you move to a different note (within over a minute), it gets recorded here`,
+            `All times can be edited in case you forget to move to a note for some reason. However, activities can't be inserted or re-ordered.`,
+            `You can also append breaks here by clicking "Take a break". Breaks are used to prevent time from contributing towards duration calculations.`,
+            `If you mouse-over breaks, you will be given the option to insert breaks between two activities. This break can be edited, or removed later, and is typically what you would use to retroactively delete time from duration calculations if you forgot to add the break at the time.`,
+        ]),
+        el("H4", {}, [ "Analytics" ]),
+        makeUnorderedList([
+            `The analytics view can be opened by clicking the "Analytics" button, or with [Ctrl] + [Shift] + [A]`,
+            `The analytics modal is where you see how long you've spent on particular high level tasks. It's supposed to be useful when you need to fill out time-sheets, (and to see where all your time went).`,
+            `By default all notes will appear under "<Uncategorized>"`,
+            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it. I am open to changing this behaviour in the future if I think of a better system.`
+        ]),
+        el("H4", {}, [ "Scratchpad" ]),
+        makeUnorderedList([
+            `The scratchpad can be opened by clicking the "Scratchpad" button, or with [Ctrl] + [Shift] + [S]`,
+            `The scratchpad was originally used for a lot more, but it has since been replaced by the activity list and the TODO list. However, it is still somewhat important`,
+            `You can copy a JSON file containing all of your data to your system clipboard by clicking "Copy as JSON". 
+            (Right now, this data is stored in your browser's local storage, which is actually somewhat volatile. 
+            If Github decide to change their URL, or I decide to change my GitHub user handle, the page's address will have changed, and all your data will be lost. 
+            However, I would rather not make a SAAS product requiring you to log in to my server, because it removes a lot of agency from the user, and I would need to start charging you money to use my product. 
+            I would recommend saving this page to your computer as a static page, and running it from there.
+            It will work without an internet connection, just like any other HTML document.
+            If there is demand for it then I may make a self-hostable solution in the future.)`,
+            `Once you have clicked "Copy as JSON", you can save that JSON somewhere. And then if you are on another computer, you will need to paste your JSON into the scratch pad, and click "Load JSON from scratchpad" to transfer across your data.`
+        ]),
+    ]), () => {});
+}
+
+// function Help(): Renderable {
+//     let idx = 0;
+
+//     const title = el("h3", {}, [ "How do I use this web app?" ]);
+//     const helpText = el("p", {});
+//     const doneButton = makeButton("Next");
+//     const backButton = makeButton("Go back");
+//     const componentInsertPoint = div();
+//     const noteTreeHelp = div({}, [
+//         title,
+//         helpText,
+//         div({ class: "row justify-content-center"}, [
+//             backButton,
+//             doneButton, 
+//         ]),
+//         componentInsertPoint,
+//     ]);
+
+
+//     const component = makeComponent(noteTreeHelp, () => {
+//         setTextContent(title, helpItems[idx].title);
+//         setTextContent(helpText, helpItems[idx].text);
+
+//         const component = helpItems[idx].component;
+//         replaceChildren(componentInsertPoint, component);
+
+//         setVisible(backButton, idx > 0);
+//         setVisible(doneButton, idx < helpItems.length - 1);
+//     });
+
+//     doneButton.el.addEventListener("click", () => {
+//         idx++;
+//         if (idx >= helpItems.length) {
+//             idx = helpItems.length - 1;
+//         }
+
+//         component.render(component.args);
+//     });
+
+//     backButton.el.addEventListener("click", () => {
+//         idx--;
+//         if (idx < 0) {
+//             idx = 0;
+//         }
+
+//         component.render(component.args);
+//     });
+
+//     return component;
+// }
+
+// I used to have tabs, but I literally never used then, so I've just removed those components.
+// However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
+// The main benefit of having just a single tree (apart from simplicity and less code) is that
+// You can track all your activities and see analytics for all of them in one place. 
+const STATE_KEY = "NoteTree.Everything";
 const initState = () => {
-    // I used to have tabs, but I literally never used then, so I've removed them now.
-    // However, "Everything" is the name of my current note tree
-    loadState("Everything");
+    loadState();
 };
 
 export const App = () => {
-    const infoButton = el("BUTTON", { class: "info-button", title: "click for help" }, [
-        "help?"
+    // const infoButton = el("BUTTON", { class: "info-button", title: "click for help, with developer commentary" }, [
+    //     "help?"
+    // ]);
+    const infoButton2 = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
+        "cheatsheet?"
     ]);
-    infoButton.el.addEventListener("click", () => {
-        showInfo = !showInfo;
+    let currentHelpInfo = 1;
+    // infoButton.el.addEventListener("click", () => {
+    //     currentHelpInfo = currentHelpInfo !== 1 ? 1 : 0;
+    //     rerenderApp();
+    // });
+    infoButton2.el.addEventListener("click", () => {
+        currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
     });
 
-    function li(str: string) {
-        return el("LI", {}, [ str ]);
-    }
-
-    const noteTreeHelp = div({}, [
-        el("P", {}, [
-`Use this program to keep track of what you're currently working on, what your going to work on, and what you've been working on.`
-        ]),
-        el("UL", {}, [
-            li(``),
-        ])
-    ]);
-
+    // const help = Help();
+    const cheatSheet = CheatSheet();
     const notesList = NotesList();
     const activityList = EditableActivityList();
     const breakInput = BreakInput();
@@ -1751,12 +1867,17 @@ export const App = () => {
     ]);
 
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
-        div({ class: "row align-items-center" }, [
-            el("H2", {}, [ "Currently working on" ]),
-            div({ class: "flex-1" }),
-            div({}, [ infoButton ]),
+        div({ class: "row" }, [
+            div({ class: "flex-1" }, [
+                // help,
+                cheatSheet,
+                el("H2", {}, [ "Currently working on" ]),
+            ]),
+            div({}, [
+                // infoButton, 
+                infoButton2
+            ]),
         ]),
-        noteTreeHelp,
         notesList,
         div({ class: "row", style: "gap: 10px"}, [
             div({ style: "flex:1; padding-top: 20px" }, [ 
@@ -1907,8 +2028,16 @@ export const App = () => {
                 }
             } else if (e.key === "PageUp") {
                 handleUpDownMovement(getNoteNUp(state, currentNote, true, 10));
-            } else if (e.key === "PageDown") {
+            } else if (currentNote.parentId && e.key === "PageDown") {
                 handleUpDownMovement(getNoteNDown(state, currentNote, true, 10));
+            } else if (currentNote.parentId && e.key === "End") {
+                const parent = getNote(state, currentNote.parentId);
+                const siblings = parent.childIds;
+                handleUpDownMovement(siblings[siblings.length - 1] || null);
+            } else if (currentNote.parentId && e.key === "Home") {
+                const parent = getNote(state, currentNote.parentId);
+                const siblings = parent.childIds;
+                handleUpDownMovement(siblings[0] || null);
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((
                 // Otherwise I would have liked for this to just be ctrl
@@ -1979,7 +2108,13 @@ export const App = () => {
     });
 
     const appComponent = makeComponent(appRoot, () => {
-        setVisible(noteTreeHelp, showInfo);
+        // if (setVisible(help, showHelpInfo === 1)) {
+        //     help.render(undefined);
+        // }
+
+        if (setVisible(cheatSheet, currentHelpInfo === 2)) {
+            cheatSheet.render(undefined);
+        }
 
         recomputeState(state);
 
@@ -2017,7 +2152,6 @@ function makeButtonWithCallback(text: string, fn: () => void, classes: string = 
 };
 
 
-let showInfo = false;
 let statusTextClearTimeout = 0;
 const statusTextIndicator = div({ class: "pre-wrap", style: "background-color: var(--bg-color)" })
 const showStatusText = (text: string, color: string = "var(--fg-color)", timeout: number = STATUS_TEXT_PERSIST_TIME) => {
@@ -2040,15 +2174,11 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 
-    const thisTreeName = currentTreeName;
     const thisState = state;
 
     const save = () => {
         // save current note
-        saveState(thisState, thisTreeName);
-
-        // save what ting we were on
-        localStorage.setItem("State.currentTreeName", thisTreeName);
+        saveState(thisState);
 
         // notification
         showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
@@ -2075,33 +2205,21 @@ const debouncedSave = () => {
     });
 };
 
-function loadState(name: string) {
-    const savedStateJSON = localStorage.getItem(STATE_KEY_PREFIX + name);
+function loadState() {
+    const savedStateJSON = localStorage.getItem(STATE_KEY);
     if (!savedStateJSON) {
-        throw new Error(`Couldn't find ${name}.`);
+        return;
     }
 
     loadStateFromJSON(savedStateJSON);
 }
 
-function saveState(state: State, name: string) {
+
+let saveTimeout = 0;
+function saveState(state: State) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
-    localStorage.setItem(getLocalStorageKeyForTreeName(name), serialized);
-}
-
-// TODO: move to APP.ts
-const SAVE_DEBOUNCE = 1000;
-const ERROR_TIMEOUT_TIME = 5000;
-
-let currentTreeName = "";
-let saveTimeout = 0;
-
-
-const STATE_KEY_PREFIX = "NoteTree.";
-
-function getLocalStorageKeyForTreeName(name: string) {
-    return STATE_KEY_PREFIX + name;
+    localStorage.setItem(STATE_KEY, serialized);
 }
 
 

@@ -33,8 +33,10 @@ export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
 export type InsertableGeneric<T extends HTMLElement | Text> = { el: T };
 export type Insertable = InsertableGeneric<HTMLElement>
 
-export function replaceChildren(comp: Insertable, ...children: Insertable[]) {
-    comp.el.replaceChildren(...children.map((c) => c.el));
+export function replaceChildren(comp: Insertable, ...children: (Insertable | undefined)[]) {
+    comp.el.replaceChildren(
+        ...children.filter(c => !!c).map((c) => c!.el)
+    );
 };
 
 export function appendChild(mountPoint: Insertable, child: Insertable) {
