@@ -1,4 +1,4 @@
-import { filterInPlace } from "./array-utils";
+import { countOccurances, filterInPlace } from "./array-utils";
 import { formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
 import * as tree from "./tree";
@@ -15,7 +15,7 @@ export type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-    
+
     currentNoteFilterIdx: number;
 
     scratchPad: string;
@@ -71,7 +71,7 @@ export function isTodoNote(note: Note) {
 }
 
 export function isSubtaskNote(note: Note) {
-    return note.text.startsWith("*"); 
+    return note.text.startsWith("*");
 }
 
 export function getTodoNotePriorityId(state: State, id: NoteId): number {
@@ -79,7 +79,7 @@ export function getTodoNotePriorityId(state: State, id: NoteId): number {
     return getTodoNotePriority(note.data);
 }
 
-export function getTodoNotePriority(note: Note): number{
+export function getTodoNotePriority(note: Note): number {
     let priority = 0;
     let i = "TODO".length;
 
@@ -186,10 +186,10 @@ export function getLastActivity(state: State): Activity | undefined {
     return state.activities[state.activities.length - 1];
 }
 
-export function defaultNote(state: State | null) : Note {
+export function defaultNote(state: State | null): Note {
     let id = uuid();
     if (state) {
-        while(tree.hasNode(state.notes, id)) {
+        while (tree.hasNode(state.notes, id)) {
             // I would dread to debug these collisions in the 1/100000000 chance they happen, so might as well do this
             id = uuid();
         }
@@ -197,17 +197,17 @@ export function defaultNote(state: State | null) : Note {
 
     return {
         // the following is valuable user data
-        id, 
+        id,
         text: "",
-        openedAt: getTimestamp(new Date()), 
+        openedAt: getTimestamp(new Date()),
         lastSelectedChildIdx: 0,
 
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
-        _isSelected: false, 
-        _isUnderCurrent: false, 
-        _depth: 0, 
+        _isSelected: false,
+        _isUnderCurrent: false,
+        _depth: 0,
         _task: null,
     };
 }
@@ -217,8 +217,8 @@ export type NoteFilter = null | {
     not: boolean;
 };
 
-// NOTE: depends on _filteredOut, _isSelected
-export function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
+// NOTE: depends on _isSelected
+export function recomputeFlatNotes(state: State, flatNotes: NoteId[], allNotes: boolean) {
     flatNotes.splice(0, flatNotes.length);
 
     const currentNote = getCurrentNote(state);
@@ -227,12 +227,14 @@ export function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
         for (const id of note.childIds) {
             const note = getNote(state, id);
 
-            if (
-                // never remove the path we are currently on from the flat notes.
-                !note.data._isSelected
-            ) {
-                if (note.parentId !== currentNote.parentId) {
-                    continue;
+            if (!allNotes) {
+                if (
+                    // never remove the path we are currently on from the flat notes.
+                    !note.data._isSelected
+                ) {
+                    if (note.parentId !== currentNote.parentId) {
+                        continue;
+                    }
                 }
             }
 
@@ -321,10 +323,16 @@ export function recomputeState(state: State) {
                 }
             }
 
-            // Current "Done" upward-propagation criteria criteria:
-            // - It has zero children and starts with Done done DONE
-            // - it has 1+ children, and the final child starts with Done done DONE
-            // I am actually reconsidering this. I don't think it is good that I am losing notes...
+            // Current "Done" upward-propagation criteria:
+            // - It has zero children and starts with Done done DONE (Computed Above)
+            // - it has 1+ children, and (Computed below):
+            //      - all the notes are TODO Notes, and every note is done
+            //      - every note is done, and either: the final child has zero children and is DONE, or every note is also a TODO note.
+
+            const everyChildNoteIsTODO = note.childIds.every((id) => {
+                const note = getNote(state, id);
+                return isTodoNote(note.data) && note.data._status === STATUS_DONE;
+            });
 
             const everyChildNoteIsDone = note.childIds.every((id) => {
                 const note = getNote(state, id);
@@ -335,8 +343,13 @@ export function recomputeState(state: State) {
             const finalNote = getNote(state, finalNoteId);
             const finalNoteIsDoneLeafNote = isDoneNote(finalNote.data);
 
-            note.data._status =
-                everyChildNoteIsDone && finalNoteIsDoneLeafNote ? STATUS_DONE : STATUS_IN_PROGRESS;
+            const isDone = everyChildNoteIsDone 
+                // && (
+                //     everyChildNoteIsTODO ||
+                //         finalNoteIsDoneLeafNote
+                // );
+
+            note.data._status = isDone ? STATUS_DONE : STATUS_IN_PROGRESS;
         };
 
         dfs(getRootNote(state));
@@ -360,7 +373,7 @@ export function recomputeState(state: State) {
                 moveNotePriorityIntoPriorityGroup(state, note.id);
             }
 
-            if (note.parentId) { 
+            if (note.parentId) {
                 const parent = getNote(state, note.parentId);
                 parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
             }
@@ -368,13 +381,13 @@ export function recomputeState(state: State) {
         });
     }
 
-    // recompute _flatNoteIds (after deleting things, and computing _filteredOut)
+    // recompute _flatNoteIds (after deleting things)
     {
         if (!state._flatNoteIds) {
             state._flatNoteIds = [];
         }
 
-        recomputeFlatNotes(state, state._flatNoteIds);
+        recomputeFlatNotes(state, state._flatNoteIds, false);
     }
 
     // recompute the TODO notes
@@ -388,7 +401,7 @@ export function recomputeState(state: State) {
     // recompute the last fixed note
     {
         if (
-            state.lastFixedActivityIdx && 
+            state.lastFixedActivityIdx &&
             state.lastFixedActivityIdx >= state.activities.length
         ) {
             // sometimes we backspace notes we create. So this needs to be recomputed
@@ -410,9 +423,9 @@ export function getActivityText(state: State, activity: Activity): string {
     return "< unknown activity text! >";
 }
 
-export function getActivityDurationMs(activity: Activity, nextActivity?: Activity) : number {
+export function getActivityDurationMs(activity: Activity, nextActivity?: Activity): number {
     const startTimeMs = new Date(activity.t).getTime();
-    const nextStart = (nextActivity ? new Date(nextActivity.t): new Date()).getTime();
+    const nextStart = (nextActivity ? new Date(nextActivity.t) : new Date()).getTime();
     return nextStart - startTimeMs;
 }
 
@@ -456,7 +469,7 @@ export function pushActivity(state: State, activity: Activity, shouldDebounce: b
                 state.lastFixedActivityIdx = lastIdx
             }
         }
-         
+
         if (getLastActivity(state)?.nId === activity.nId) {
             // don't add the same activity twice in a row
             return;
@@ -584,7 +597,7 @@ export function getNoteTag(note: TreeNote, tagName: string): string | null {
         idxStart++;
 
         const idxEnd = text.indexOf("]", idxStart);
-        if (idxEnd === -1) { 
+        if (idxEnd === -1) {
             return null;
         }
 
@@ -596,7 +609,7 @@ export function getNoteTag(note: TreeNote, tagName: string): string | null {
         idxStart = idxEnd + 1;
 
         const midPoint = tagText.indexOf("=");
-        if (midPoint === -1)  {
+        if (midPoint === -1) {
             continue;
         }
 
@@ -720,7 +733,7 @@ export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filte
 
 export function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) - 1;
-    while (idx >= 0)  {
+    while (idx >= 0) {
         const note = getNote(state, childIds[idx]);
         if (filterFn(state, note)) {
             return note.id;
@@ -742,7 +755,7 @@ export function getNoteOneDownLocally(state: State, note: TreeNote) {
     return findNextNote(state, siblings, note.id, isNoteImportant);
 }
 
-export function isNoteImportant(state: State, note: TreeNote) : boolean {
+export function isNoteImportant(state: State, note: TreeNote): boolean {
     if (!note.parentId) {
         return true;
     }
@@ -754,7 +767,6 @@ export function isNoteImportant(state: State, note: TreeNote) : boolean {
         idx === 0 ||
         idx === siblings.length - 1 ||
         note.data._isSelected ||
-        // getRealChildCount(note) !== 0 ||
         note.data._status === STATUS_IN_PROGRESS
     );
 }
@@ -763,10 +775,6 @@ export function getNoteOneUpLocally(state: State, note: TreeNote) {
     if (!note.parentId) {
         return null;
     }
-
-    // this was the old way. but now, we only display notes on the same level as the parent, or all ancestors
-    // const parent = getNote(state, note.parentId);
-    // return findPreviousNote(state, parent.childIds, note.id, (note) => note.data._filteredOut);
 
     const siblings = getNote(state, note.parentId).childIds;
     return findPreviousNote(state, siblings, note.id, isNoteImportant);
@@ -777,11 +785,11 @@ export function getPreviousActivityWithNoteIdx(state: State, idx: number): numbe
         return -1;
     }
 
-    if (idx > 1){
+    if (idx > 1) {
         idx--;
     }
 
-    while(idx > 0 && !state.activities[idx].nId) {
+    while (idx > 0 && !state.activities[idx].nId) {
         idx--;
     }
 
@@ -796,8 +804,8 @@ export function getNextActivityWithNoteIdx(state: State, idx: number): number {
         idx++;
     }
 
-    while(
-        idx < state.activities.length - 1 && 
+    while (
+        idx < state.activities.length - 1 &&
         !state.activities[idx].nId
     ) {
         idx++;
@@ -816,7 +824,7 @@ export function dfsPre(state: State, note: TreeNote, fn: (n: TreeNote) => void) 
 }
 
 export function moveNotePriorityIntoPriorityGroup(
-    state: State, 
+    state: State,
     noteId: NoteId,
 ) {
     const idxThis = state.todoNoteIds.indexOf(noteId);
@@ -829,7 +837,7 @@ export function moveNotePriorityIntoPriorityGroup(
     const currentPriority = getTodoNotePriorityId(state, noteId);
 
     while (
-        idx < state.todoNoteIds.length - 1 && 
+        idx < state.todoNoteIds.length - 1 &&
         getTodoNotePriorityId(state, state.todoNoteIds[idx + 1]) > currentPriority
     ) {
         idx++;
@@ -887,7 +895,7 @@ export function getNoteDuration(state: State, note: TreeNote) {
     const activities = state.activities;
     let duration = 0;
 
-    for(let i = 0; i < activities.length; i++) {
+    for (let i = 0; i < activities.length; i++) {
         const activity = activities[i];
         if (!activity.nId) {
             continue;
@@ -984,7 +992,7 @@ export function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) 
     series.duration = 0;
     for (const idx of series.activityIndices) {
         const activity = state.activities[idx];
-        const nextActivity  = state.activities[idx + 1] as Activity | undefined;
+        const nextActivity = state.activities[idx + 1] as Activity | undefined;
 
         series.duration += getActivityDurationMs(activity, nextActivity);
     }
@@ -1019,9 +1027,9 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
 
     // compute which activities belong to which group
     const activities = state.activities;
-    for (const i of activityIndices) { 
+    for (const i of activityIndices) {
         const activity = activities[i];
-        const nextActivity  = activities[i + 1] as Activity | undefined;
+        const nextActivity = activities[i + 1] as Activity | undefined;
 
         if (activity.breakInfo) {
             // Some breaks span from end of day to start of next day. 
@@ -1038,14 +1046,14 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
             ) {
                 analytics.breaks.activityIndices.push(i);
                 continue;
-            } 
+            }
 
 
             analytics.multiDayBreaks.activityIndices.push(i);
             continue;
         }
 
-        if (activity.nId) { 
+        if (activity.nId) {
             const note = getNote(state, activity.nId);
             // has the side-effect that a user can just do [Task=<Uncategorized>], that is fine I think
             const task = note.data._task || "<Uncategorized>";
@@ -1090,3 +1098,4 @@ export function resetState() {
 }
 
 export let state = defaultState();
+

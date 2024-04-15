@@ -1,7 +1,7 @@
 export function swap(arr: unknown[], a: number, b: number) {
     if (
         a < 0 || a >= arr.length ||
-        b < 0 || b >= arr.length 
+        b < 0 || b >= arr.length
     ) {
         throw new Error("Index a or b out of bounds");
     }
@@ -19,3 +19,14 @@ export function filterInPlace<T>(arr: T[], predicate: (v: T) => boolean) {
         }
     }
 }
+
+export function countOccurances<T>(arr: T[], predicate: (v: T) => boolean): number {
+    let count = 0;
+    for (const val of arr) {
+        if (predicate(val)) {
+            count++;
+        }
+    }
+    return count;
+}
+

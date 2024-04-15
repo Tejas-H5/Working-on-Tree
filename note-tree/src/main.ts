@@ -46,7 +46,9 @@ import {
     newAnalyticsSeries,
     recomputeAnalytics,
     getInnerNoteId,
-    STATUS_ASSUMED_DONE
+    STATUS_ASSUMED_DONE,
+    isTodoNote,
+    getRootNote
 } from "./state";
 import {
     Renderable,
@@ -67,6 +69,7 @@ import {
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
+import { countOccurances } from "./array-utils";
 
 
 const SAVE_DEBOUNCE = 1000;
@@ -74,7 +77,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 
 
 type NoteLinkArgs = {
-    text: string; 
+    text: string;
     focusAnyway: boolean;
     noteId?: NoteId;
     preventScroll?: boolean;
@@ -84,19 +87,19 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     const root = div({ style: "padding:5px; word;", class: "handle-long-words" })
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
-        const { text, noteId, focusAnyway }  = component.args;
+        const { text, noteId, focusAnyway } = component.args;
 
         setClass(root, "hover-link", !!noteId);
         setTextContent(root, truncate(text, 500));
         root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === noteId) ? (
-            "var(--bg-color-focus)" 
+            "var(--bg-color-focus)"
         ) : (
-            "var(--bg-color)" 
+            "var(--bg-color)"
         );
     });
 
     root.el.addEventListener("click", () => {
-        const { noteId, preventScroll, }  = component.args;
+        const { noteId, preventScroll, } = component.args;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
         // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
@@ -139,7 +142,7 @@ function TodoList(): Renderable {
                 const note = getNote(state, noteId);
 
                 link.render(linkedNoteArgs);
-                setTextContent(thing, " " + previousNotesCount +  (state.currentNoteId === noteId ? " > " : " - "));
+                setTextContent(thing, " " + previousNotesCount + (state.currentNoteId === noteId ? " > " : " - "));
                 setTextContent(status, noteStatusToString(note.data._status) ?? "??");
             });
 
@@ -148,11 +151,11 @@ function TodoList(): Renderable {
 
         let noteLink, moveUpButton, moveDownButton, divider;
         const root = div({}, [
-            div({ 
-                class: "hover-parent flex-1", 
-                style: "border-top: 1px solid var(--fg-color);" + 
+            div({
+                class: "hover-parent flex-1",
+                style: "border-top: 1px solid var(--fg-color);" +
                     "border-left: 4px solid var(--fg-color);" +
-                    "border-bottom: 1px solid var(--fg-color);" + 
+                    "border-bottom: 1px solid var(--fg-color);" +
                     "padding-left: 3px;"
             }, [
                 div({ class: "row align-items-center" }, [
@@ -165,7 +168,7 @@ function TodoList(): Renderable {
                 ]),
                 nestedNotesList,
             ]),
-            divider = div({ style: "height: 20px"}),
+            divider = div({ style: "height: 20px" }),
         ]);
 
         const component = makeComponent<TodoItemArgs>(root, () => {
@@ -176,15 +179,27 @@ function TodoList(): Renderable {
             moveUpButton.el.setAttribute("title", "Move this note up");
 
             const nestedNotes: TreeNote[] = [];
-            dfsPre(state, note, (n) => {
-                if (n !== note && n.data._status === STATUS_IN_PROGRESS) {
-                    nestedNotes.push(n);
+            const dfs = (note: TreeNote, nestedNotes: TreeNote[]) => {
+                for (const id of note.childIds) {
+                    const note = getNote(state, id);
+
+                    if (isTodoNote(note.data)) {
+                        continue;
+                    }
+
+                    if (note.data._status === STATUS_IN_PROGRESS) {
+                        nestedNotes.push(note);
+                    }
+
+                    dfs(note, nestedNotes);
                 }
-            });
+            }
+
+            dfs(note, nestedNotes);
 
             nestedNotesList.resize(nestedNotes.length);
             let focusAnyway = note.id === state.currentNoteId;
-            for(let i = 0; i < nestedNotes.length; i++) {
+            for (let i = 0; i < nestedNotes.length; i++) {
                 const note = nestedNotes[i];
                 focusAnyway = focusAnyway || note.id === state.currentNoteId;
 
@@ -210,7 +225,7 @@ function TodoList(): Renderable {
         });
 
         function moveNotePriorityUpOrDown(
-            state: State, 
+            state: State,
             noteId: NoteId,
             down: boolean,  // setting this to false moves the note's priority up (obviously)
         ) {
@@ -225,17 +240,17 @@ function TodoList(): Renderable {
 
             let idx = idxThis;
             const direction = down ? 1 : -1;
-            while(
-                (direction === -1 && idx > 0) || 
+            while (
+                (direction === -1 && idx > 0) ||
                 (direction === 1 && idx < state.todoNoteIds.length - 1)
             ) {
                 idx += direction;
-                
+
                 const noteId = state.todoNoteIds[idx];
                 const note = getNote(state, noteId);
                 if (
                     note.id === currentNote.id ||
-                    note.data._isSelected || 
+                    note.data._isSelected ||
                     getTodoNotePriority(note.data) !== currentPriority
                 ) {
                     idx -= direction;
@@ -297,8 +312,8 @@ function BreakInput(): Renderable {
     const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const breakButton = makeButton("");
     const root = div({ style: "padding: 5px;", class: "row align-items-center" }, [
-        div({ class: "flex-1" }, [ breakInput ]),
-        div({}, [ breakButton ]),
+        div({ class: "flex-1" }, [breakInput]),
+        div({}, [breakButton]),
     ]);
 
     const component = makeComponent(root, () => {
@@ -309,7 +324,7 @@ function BreakInput(): Renderable {
     });
 
     function addBreak() {
-        let text = breakInput.el.value ||  "Taking a break ...";
+        let text = breakInput.el.value || "Taking a break ...";
 
         pushBreakActivity(state, text, true);
         breakInput.el.value = "";
@@ -339,7 +354,7 @@ function BreakInput(): Renderable {
 function EditableActivityList(): Renderable {
     function ActivityListItem(): Renderable<ActivityListItemArgs> {
         const timestamp = DateTimeInput();
-        const timestampWrapper = div({ style: "width: 200px;" }, [ timestamp ]);
+        const timestampWrapper = div({ style: "width: 200px;" }, [timestamp]);
         const noteLink = NoteLink();
         const breakEdit = el<HTMLInputElement>(
             "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
@@ -354,12 +369,12 @@ function EditableActivityList(): Renderable {
 
         const deleteButton = makeButton("x");
         const root = div({}, [
-            div({class: "hover-parent", style: "min-height: 10px"}, [
-                div({class: "hover-target"}, [
+            div({ class: "hover-parent", style: "min-height: 10px" }, [
+                div({ class: "hover-target" }, [
                     breakInsertRow
                 ])
             ]),
-            div({class: "hover-parent" }, [
+            div({ class: "hover-parent" }, [
                 div({ class: "row", style: "gap: 20px" }, [
                     timestampWrapper,
                     div({ class: "flex-1 row" }, [
@@ -396,11 +411,11 @@ function EditableActivityList(): Renderable {
             timestamp.render({
                 value: new Date(activity.t),
                 onChange: updateActivityTime,
-                readOnly: false, 
+                readOnly: false,
             });
 
             if (setVisible(durationText, showDuration)) {
-                const durationStr = (isEditable ? "~" : "" ) + formatDuration(getActivityDurationMs(activity, nextActivity));
+                const durationStr = (isEditable ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
                 setTextContent(durationText, durationStr);
             }
 
@@ -433,7 +448,7 @@ function EditableActivityList(): Renderable {
             rerenderApp({ shouldScroll: false });
             debouncedSave();
         }
-        
+
         insertBreakButton.el.addEventListener("click", () => {
             const { activity, nextActivity } = component.args;
 
@@ -446,7 +461,7 @@ function EditableActivityList(): Renderable {
             const duration = getActivityDurationMs(activity, nextActivity);
             const midpoint = timeA + duration / 2;
 
-            const newBreak : Activity =  {
+            const newBreak: Activity = {
                 t: getTimestamp(new Date(midpoint)),
                 breakInfo: "New break",
                 nId: undefined,
@@ -523,7 +538,7 @@ function EditableActivityList(): Renderable {
         const activities = state.activities;
         const start = pagination.start;
         const end = getCurrentEnd(pagination);
-        const activitiesToRender = end - start; 
+        const activitiesToRender = end - start;
 
         listRoot.resize(activitiesToRender);
         for (let i = 0; i < activitiesToRender; i++) {
@@ -534,7 +549,7 @@ function EditableActivityList(): Renderable {
 
             listRoot.components[activitiesToRender - 1 - i].render({
                 previousActivity,
-                activity, 
+                activity,
                 nextActivity,
                 showDuration: true,
             });
@@ -545,7 +560,7 @@ function EditableActivityList(): Renderable {
 }
 
 function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
-    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100"});
+    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100" });
 
     textArea.el.addEventListener("keydown", (e) => {
         if (e.key === "Tab") {
@@ -567,7 +582,7 @@ function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
     let yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
     let textArea = TextArea();
     const root = div({ class: "relative h-100" }, [
-        yardStick, 
+        yardStick,
         textArea,
     ]);
 
@@ -642,20 +657,6 @@ function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
     };
 }
 
-function getRealChildCount(note: TreeNote): number {
-    if (note.childIds.length === 0) {
-        return 0;
-    }
-
-    if (note.data._status === STATUS_DONE) {
-        // Don't include the DONE note at the end. This artificially increases the child count from 0 to 1.
-        // This will matter in certain movement schemes where i want to move directly to notes with children for example
-        return note.childIds.length - 1;
-    }
-
-    return note.childIds.length;
-}
-
 type Pagination = {
     start: number;
     pageSize: number;
@@ -701,15 +702,15 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
     const leftLeftButton = makeButton("<<");
     const rightButton = makeButton(">");
     const rightRightButton = makeButton(">>");
-    const pageReadout = div({ style: "width: 100px"});
+    const pageReadout = div({ style: "width: 100px" });
 
-    const root = div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center"}, [
+    const root = div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
         pageReadout,
-        div({style: "width: 100px", class: "row"}, [
-            leftLeftButton, 
+        div({ style: "width: 100px", class: "row" }, [
+            leftLeftButton,
             leftButton,
         ]),
-        div({style: "width: 100px", class: "row"}, [
+        div({ style: "width: 100px", class: "row" }, [
             rightButton,
             rightRightButton,
         ]),
@@ -731,26 +732,26 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
 
 
     leftButton.el.addEventListener("click", () => {
-        const { pagination, rerender} = component.args;
+        const { pagination, rerender } = component.args;
         setPage(pagination, getPage(pagination) - 1);
         rerender();
     });
 
     leftLeftButton.el.addEventListener("click", () => {
-        const { pagination, rerender} = component.args;
+        const { pagination, rerender } = component.args;
         pagination.start = 0;
         rerender();
     });
 
     rightRightButton.el.addEventListener("click", () => {
-        const { pagination, rerender} = component.args;
+        const { pagination, rerender } = component.args;
         pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
         rerender();
     });
 
 
     rightButton.el.addEventListener("click", () => {
-        const { pagination, rerender} = component.args;
+        const { pagination, rerender } = component.args;
         setPage(pagination, getPage(pagination) + 1);
         rerender();
     });
@@ -775,8 +776,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
     const root = div(
         {
-            class: "pre-wrap flex-1", 
-            style:"overflow-y: hidden; margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
+            class: "pre-wrap flex-1",
+            style: "overflow-y: hidden; margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
         },
         [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
     );
@@ -794,11 +795,23 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { note } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
-        const count = getRealChildCount(note)
-        const childCountText = count ? ` (${count})` : "";
+        const totalCount = note.childIds.length;
+        const doneCount = countOccurances(note.childIds, (id) => {
+            const note = getNote(state, id);
+            return note.data._status === STATUS_DONE;
+        });
+
+
+        let progressText = "";
+        if (totalCount !== 0) {
+            if (!(doneCount === 1 && totalCount === 1)) {
+                progressText = totalCount !== 0 ? ` (${doneCount}/${totalCount})` : "";
+            }
+        }
+
         setTextContent(
             indent,
-            `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${childCountText} ${dashChar} `
+            `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${progressText} ${dashChar} `
         );
 
         const wasFocused = isFocused;
@@ -832,7 +845,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (setVisible(whenNotEditing, !isEditing)) {
             setTextContent(whenNotEditing, note.data.text);
         }
-        
+
         root.el.style.backgroundColor = isFocused ? "var(--bg-color-focus)" : "var(--bg-color)";
 
         onRerenderWhenEditing();
@@ -966,7 +979,7 @@ type ActivityFiltersEditorArgs = {
     onChange(): void;
 }
 
-function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
+function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     const dates = {
         from: DateTimeInputEx("flex-1"),
         to: DateTimeInputEx("flex-1"),
@@ -1039,8 +1052,8 @@ function ActivityFiltersEditor() : Renderable<ActivityFiltersEditorArgs> {
             const date = dates[name];
 
             date.render({
-                onChange: (val) => { 
-                    if(val) {
+                onChange: (val) => {
+                    if (val) {
                         filter.date[name] = val;
                         onChange();
                     }
@@ -1079,18 +1092,18 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
         activity: Activity;
         nextActivity: Activity | undefined;
     }
-    
+
     function ActivityRow(): Renderable<ActivityRowArgs> {
         const timestamp = NoteLink();
         const text = NoteLink();
         const duration = div();
         const root = div({ class: "row" }, [
-            timestamp, 
-            text, 
-            div({ class: "flex-1"}),
+            timestamp,
+            text,
+            div({ class: "flex-1" }),
             duration
         ]);
-    
+
         const component = makeComponent<ActivityRowArgs>(root, () => {
             const { activity, nextActivity } = component.args;
 
@@ -1106,7 +1119,7 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
             const durationMs = getActivityDurationMs(activity, nextActivity);
             setTextContent(duration, formatDuration(durationMs));
         });
-    
+
         return component;
     }
 
@@ -1131,15 +1144,15 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
         const count = end - start;
         activityList.resize(count);
         for (let i = 0; i < count; i++) {
-            const idx =  activityIndexes[
+            const idx = activityIndexes[
                 activityIndexes.length - 1 - i - start
             ];
             const activity = state.activities[idx];
-            const nextActivity = state.activities[idx + 1]; 
+            const nextActivity = state.activities[idx + 1];
 
             activityList.components[i].render({
-                activity, 
-                nextActivity, 
+                activity,
+                nextActivity,
             });
         }
     });
@@ -1156,7 +1169,7 @@ function ActivityAnalytics(): Renderable {
         totalTime: 0,
     };
 
-    const analyticsActivityFilter : ActivityFilters  = {
+    const analyticsActivityFilter: ActivityFilters = {
         date: {
             from: new Date(),
             to: new Date(),
@@ -1169,7 +1182,7 @@ function ActivityAnalytics(): Renderable {
     }
 
     const taskColWidth = "250px";
-    const durationsListRoot = div({ class: "w-100" }) 
+    const durationsListRoot = div({ class: "w-100" })
     const analyticsFiltersEditor = ActivityFiltersEditor();
 
     type DurationListItemArgs = {
@@ -1183,9 +1196,9 @@ function ActivityAnalytics(): Renderable {
 
     const activityListInternal = ReadonlyActivityList();
     const activityList = makeComponent<ReadonlyActivityListArgs>(
-        div({ style: "padding: 20px;"}, [ activityListInternal ]), () => {
-        activityListInternal.render(activityList.args);;
-    });
+        div({ style: "padding: 20px;" }, [activityListInternal]), () => {
+            activityListInternal.render(activityList.args);;
+        });
 
     let expandedActivityName = ""
     function setExpandedActivity(analyticName: string) {
@@ -1198,7 +1211,7 @@ function ActivityAnalytics(): Renderable {
     const durationsList = makeComponentList(durationsListRoot, () => {
         const taskNameComponent = div({ style: `padding:5px;padding-bottom:0;` })
         const durationBar = FractionBar();
-        const expandButton = div({ class: "hover", style: "padding: 0.25em;"}, [">"]);
+        const expandButton = div({ class: "hover", style: "padding: 0.25em;" }, [">"]);
 
         expandButton.el.addEventListener("click", () => {
             const { setExpandedActivity, activityListComponent: activityList } = component.args;
@@ -1218,9 +1231,9 @@ function ActivityAnalytics(): Renderable {
             div({ class: "w-100 row align-items-center" }, [
                 div({ class: "row", style: `width: ${taskColWidth}` }, [
                     expandButton,
-                    taskNameComponent, 
+                    taskNameComponent,
                 ]),
-                div({ class: "flex-1" }, [ durationBar ])
+                div({ class: "flex-1" }, [durationBar])
             ])
         ]);
 
@@ -1248,7 +1261,7 @@ function ActivityAnalytics(): Renderable {
                 setVisible(activityListComponent, true);
                 root.el.appendChild(activityListComponent.el);
 
-                activityListComponent.render({ 
+                activityListComponent.render({
                     activityIndexes: activityIndices
                 });
             }
@@ -1258,9 +1271,9 @@ function ActivityAnalytics(): Renderable {
     });
 
     const root = div({ class: "w-100 h-100 col" }, [
-        el("H3", {}, [ "Filters" ]),
+        el("H3", {}, ["Filters"]),
         analyticsFiltersEditor,
-        el("H3", {}, [ "Timings" ]),
+        el("H3", {}, ["Timings"]),
         div({ class: "relative", style: "overflow-y: scroll" }, [
             durationsListRoot,
         ]),
@@ -1277,7 +1290,7 @@ function ActivityAnalytics(): Renderable {
         filterActivities(state, analyticsActivityFilter, filteredActivityIndices);
         recomputeAnalytics(state, filteredActivityIndices, analytics);
 
-        const total = analyticsActivityFilter.is.multiDayBreakIncluded ? 
+        const total = analyticsActivityFilter.is.multiDayBreakIncluded ?
             analytics.totalTime :
             analytics.totalTime - analytics.multiDayBreaks.duration;
 
@@ -1333,10 +1346,10 @@ function AnalyticsModal(): Renderable {
             activityAnalytics
         ])
     );
-    
+
     const component = makeComponent(modalComponent, () => {
-        modalComponent.render({ 
-            onClose: () => setCurrentModal(null) 
+        modalComponent.render({
+            onClose: () => setCurrentModal(null)
         });
 
         activityAnalytics.render(undefined);
@@ -1381,7 +1394,7 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const duration = div();
-    const root = div({ class: "row", style: "padding-left: 10px;" }, [ duration ]);
+    const root = div({ class: "row", style: "padding-left: 10px;" }, [duration]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -1391,8 +1404,8 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
         // duration = sum of child durations + duration of this note, if we even care to.
 
         // if (setVisible(duration, note.id === state.currentNoteId)) {
-            const durationMs = getNoteDuration(state, note);
-            setTextContent(duration, formatDuration(durationMs));
+        const durationMs = getNoteDuration(state, note);
+        setTextContent(duration, formatDuration(durationMs));
         // }
     });
 
@@ -1403,7 +1416,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const timestamp = NoteRowTimestamp();
     const text = NoteRowText();
     const statistic = NoteRowStatistic();
-    const root = div({ class: "row" }, [ timestamp, text, statistic ]);
+    const root = div({ class: "row" }, [timestamp, text, statistic]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -1411,8 +1424,8 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         const textColor = note.data._isSelected
             ? "var(--fg-color)"
             : note.data._status === STATUS_IN_PROGRESS
-            ? "var(--fg-color)"
-            : "var(--unfocus-text-color)";
+                ? "var(--fg-color)"
+                : "var(--unfocus-text-color)";
 
         root.el.style.color = textColor;
 
@@ -1436,9 +1449,9 @@ type NoteListInternalArgs = {
 }
 
 function NoteListInternal(): Renderable<NoteListInternalArgs> {
-    const root = div({ 
-        class: "w-100", 
-        style: "border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);" 
+    const root = div({
+        class: "w-100",
+        style: "border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"
     });
 
     const noteList = makeComponentList(root, NoteRowInput);
@@ -1459,7 +1472,7 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 
 function NotesList(): Renderable {
     const list1 = NoteListInternal();
-    const root = div({}, [ list1 ]);
+    const root = div({}, [list1]);
 
     const component = makeComponent(root, () => {
         list1.render({ flatNotes: state._flatNoteIds, });
@@ -1468,7 +1481,7 @@ function NotesList(): Renderable {
     return component;
 }
 
-const renderOptions : RenderOptions = {
+const renderOptions: RenderOptions = {
     shouldScroll: false
 };
 
@@ -1515,7 +1528,7 @@ const makeDarkModeToggle = () => {
             if (theme === "Light") {
                 return (
                     // https://www.asciiart.eu/nature/sun
-`      ;   :   ;
+                    `      ;   :   ;
    .   \\_,!,_/   ,
     \`.,':::::\`.,'
      /:::::::::\\
@@ -1529,7 +1542,7 @@ const makeDarkModeToggle = () => {
 
             return (
                 // https://www.asciiart.eu/space/moons
-`
+                `
        _..._    *
   *  .::'   \`.    
     :::       :    |  
@@ -1583,7 +1596,7 @@ function exportAsText(state: State) {
     const header = (text: string) => `----------------${text}----------------`;
 
     const flatNotes: NoteId[] = [];
-    recomputeFlatNotes(state, flatNotes);
+    recomputeFlatNotes(state, flatNotes, true);
 
     const table = [];
     for (const id of flatNotes) {
@@ -1644,7 +1657,7 @@ const rerenderApp = (opts?: RenderOptions) => {
 type Modal = null | "analytics-view" | "scratch-pad";
 let currentModal: Modal = null;
 const setCurrentModal = (modal: Modal) => {
-    if (currentModal === modal) { 
+    if (currentModal === modal) {
         return;
     }
 
@@ -1655,13 +1668,13 @@ const setCurrentModal = (modal: Modal) => {
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
-    return el("UL", {}, text.map(s => el("LI", {}, [ s ])));
+    return el("UL", {}, text.map(s => el("LI", {}, [s])));
 }
 
 function CheatSheet(): Renderable {
     return makeComponent(div({}, [
-        el("H3", {}, [ "Cheatsheet" ]),
-        el("H4", {}, [ "Movement" ]),
+        el("H3", {}, ["Cheatsheet"]),
+        el("H4", {}, ["Movement"]),
         makeUnorderedList([
             `[Enter] to start editing a note`,
             `[Shift] + [Enter] will make a new note under the current note when not editing, or will input new lines when editing`,
@@ -1671,37 +1684,37 @@ function CheatSheet(): Renderable {
             `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the activity list. 
                 Mainly Useful when you want to make some new TODOs real quick, and then go back to what you were working on.`,
         ]),
-        el("H4", {}, [ "Task statuses" ]),
+        el("H4", {}, ["Task statuses"]),
         div({}, [
-            `Tasks have 3 statuses:`, 
+            `Tasks have 3 statuses:`,
             makeUnorderedList([
                 noteStatusToString(STATUS_IN_PROGRESS) + ` - "In Progress" - this note is assumed to be something you're working on`,
                 noteStatusToString(STATUS_ASSUMED_DONE) + ` - "Assumed Done" - this note is assumed to be completed. You will see it if you write several entries after one another. All entries before the most recent entry are assumed to be completed.`,
                 noteStatusToString(STATUS_DONE) + ` - "Done" - this note has been marked as 'Done' by the user themselves. Any note starting with the text "DONE" or "Done" will get this status, and if this note is also the final note underneath a note, that parent note gets this status as well, unless there are other tasks in progress`,
             ])
         ]),
-        el("H4", {}, [ "The TODO List" ]),
+        el("H4", {}, ["The TODO List"]),
         makeUnorderedList([
             `Notes can be kept In Progress by starting thier text with "TODO" or "Todo". 
             These notes will also get added to the TODO list for quick access from any view.`,
             `Alternatively, you can start a note with "*" to keep it open without creating a TODO entry.`,
             `These notes can also be given priorities using ! and ?. TODO! has a priority of 1, TODO!! has 2, etc. Conversely, TODO? has priority -1, TODO?? -2, etc.`
         ]),
-        el("H4", {}, [ "The Activity List" ]),
+        el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
             `Each time you move to a different note (within over a minute), it gets recorded here`,
             `All times can be edited in case you forget to move to a note for some reason. However, activities can't be inserted or re-ordered.`,
             `You can also append breaks here by clicking "Take a break". Breaks are used to prevent time from contributing towards duration calculations.`,
             `If you mouse-over breaks, you will be given the option to insert breaks between two activities. This break can be edited, or removed later, and is typically what you would use to retroactively delete time from duration calculations if you forgot to add the break at the time.`,
         ]),
-        el("H4", {}, [ "Analytics" ]),
+        el("H4", {}, ["Analytics"]),
         makeUnorderedList([
             `The analytics view can be opened by clicking the "Analytics" button, or with [Ctrl] + [Shift] + [A]`,
             `The analytics modal is where you see how long you've spent on particular high level tasks. It's supposed to be useful when you need to fill out time-sheets, (and to see where all your time went).`,
             `By default all notes will appear under "<Uncategorized>"`,
             `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it. I am open to changing this behaviour in the future if I think of a better system.`
         ]),
-        el("H4", {}, [ "Scratchpad" ]),
+        el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
             `The scratchpad can be opened by clicking the "Scratchpad" button, or with [Ctrl] + [Shift] + [S]`,
             `The scratchpad was originally used for a lot more, but it has since been replaced by the activity list and the TODO list. However, it is still somewhat important`,
@@ -1714,7 +1727,7 @@ function CheatSheet(): Renderable {
             If there is demand for it then I may make a self-hostable solution in the future.)`,
             `Once you have clicked "Copy as JSON", you can save that JSON somewhere. And then if you are on another computer, you will need to paste your JSON into the scratch pad, and click "Load JSON from scratchpad" to transfer across your data.`
         ]),
-    ]), () => {});
+    ]), () => { });
 }
 
 // function Help(): Renderable {
@@ -1804,8 +1817,8 @@ export const App = () => {
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
 
-    const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;"}, [
-        div({}, [ makeDarkModeToggle() ]),
+    const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
+        div({}, [makeDarkModeToggle()]),
         div({ class: "flex-1" }),
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
@@ -1871,7 +1884,7 @@ export const App = () => {
             div({ class: "flex-1" }, [
                 // help,
                 cheatSheet,
-                el("H2", {}, [ "Currently working on" ]),
+                el("H2", {}, ["Currently working on"]),
             ]),
             div({}, [
                 // infoButton, 
@@ -1879,18 +1892,18 @@ export const App = () => {
             ]),
         ]),
         notesList,
-        div({ class: "row", style: "gap: 10px"}, [
-            div({ style: "flex:1; padding-top: 20px" }, [ 
+        div({ class: "row", style: "gap: 10px" }, [
+            div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
-                    el("H3", {}, [ "TODO Notes"]),
+                    el("H3", {}, ["TODO Notes"]),
                     todoNotes
                 ])
             ]),
-            div({ style: "flex:1; padding-top: 20px" }, [ 
+            div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
-                    el("H3", {}, [ "Activity List"]),
+                    el("H3", {}, ["Activity List"]),
                     breakInput,
-                    activityList 
+                    activityList
                 ])
             ])
         ]),
@@ -1908,7 +1921,7 @@ export const App = () => {
         const currentNote = getCurrentNote(state);
 
         if (
-            ctrlPressed && 
+            ctrlPressed &&
             shiftPressed &&
             (e.key === "Shift" || e.key === "Control") &&
             !e.repeat
@@ -1958,17 +1971,19 @@ export const App = () => {
 
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
-                } else {
-                    const nextNote = getNote(state, nextNoteId);
-                    if (
-                        currentNote.parentId && 
-                        currentNote.parentId === nextNote.parentId
-                    ) {
-                        const parent = getNote(state, currentNote.parentId);
-                        const siblings = parent.childIds;
-                        const idxNext = siblings.indexOf(nextNote.id);
-                        tree.insertAt(state.notes, parent, currentNote, idxNext);
-                    }
+                    return;
+                } 
+
+                const nextNote = getNote(state, nextNoteId);
+                if (
+                    currentNote.parentId &&
+                    currentNote.parentId === nextNote.parentId
+                ) {
+                    const parent = getNote(state, currentNote.parentId);
+                    const siblings = parent.childIds;
+                    const idxNext = siblings.indexOf(nextNote.id);
+                    tree.insertAt(state.notes, parent, currentNote, idxNext);
+                    debouncedSave();
                 }
             }
 
@@ -1979,36 +1994,45 @@ export const App = () => {
 
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
-                } else {
-                    const nextNote = getNote(state, nextNoteId);
-                    tree.addAfter(state.notes, nextNote, currentNote);
-                }
+                    return;
+                } 
+
+                const nextNote = getNote(state, nextNoteId);
+                tree.addAfter(state.notes, nextNote, currentNote);
+                debouncedSave();
             }
 
             function handleMovingIn() {
-
-
                 if (!e.altKey) {
                     // move into the current note
                     setCurrentNote(state, getInnerNoteId(currentNote));
-                } else {
-                    if (currentNote.parentId) {
-                        // move this note into the note above it
-                        const siblings = getNote(state, currentNote.parentId).childIds;
-                        const idx = siblings.indexOf(currentNote.id);
-                        if (idx !== 0) {
-                            const upperNote = getNote(state, siblings[idx - 1]);
-                            if (upperNote.childIds.length === 0) {
-                                tree.addUnder(state.notes, upperNote, currentNote);
-                            } else {
-                                const noteInsideUpperNoteId = getInnerNoteId(upperNote);
-                                if (noteInsideUpperNoteId) {
-                                    const noteInsideUpperNote = getNote(state, noteInsideUpperNoteId);
-                                    tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
-                                }
-                            }
-                        }
-                    }
+                    return;
+                } 
+
+                if (!currentNote.parentId) {
+                    return;
+                }
+
+                // move this note into the note above it
+                const siblings = getNote(state, currentNote.parentId).childIds;
+                const idx = siblings.indexOf(currentNote.id);
+                if (idx === 0) {
+                    return;
+                }
+
+                const upperNote = getNote(state, siblings[idx - 1]);
+                if (upperNote.childIds.length === 0) {
+                    tree.addUnder(state.notes, upperNote, currentNote);
+                    debouncedSave();
+                    return;
+                } 
+
+                const noteInsideUpperNoteId = getInnerNoteId(upperNote);
+                if (noteInsideUpperNoteId) {
+                    const noteInsideUpperNote = getNote(state, noteInsideUpperNoteId);
+                    tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
+                    debouncedSave();
+                    return;
                 }
             }
 
