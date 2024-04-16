@@ -65,7 +65,6 @@ import {
     appendChild,
     Insertable,
     replaceChildren,
-    setInputValueAndResize,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -1412,7 +1411,7 @@ function FuzzyFinder(): Renderable {
         dfsPre(state, getRootNote(state), (n) => {
             if (!n.parentId) {
                 // ignore the root note
-                return:
+                return;
             }
             let text = n.data.text.toLowerCase();
             let results = fuzzyFind(text, query);
