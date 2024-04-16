@@ -198,3 +198,8 @@
     overflow-wrap: anywhere; 
     word-break: normal;
 }
+
+.inverted {
+    color: var(--bg-color);
+    background-color: var(--fg-color);
+}

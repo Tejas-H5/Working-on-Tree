@@ -9,7 +9,6 @@ import {
     State,
     TreeNote,
     deleteNoteIfEmpty,
-    dfsPre,
     getActivityDurationMs,
     getActivityText,
     getCurrentNote,
@@ -48,7 +47,8 @@ import {
     getInnerNoteId,
     STATUS_ASSUMED_DONE,
     isTodoNote,
-    getRootNote
+    dfsPre,
+    getRootNote,
 } from "./state";
 import {
     Renderable,
@@ -64,12 +64,15 @@ import {
     isEditingTextSomewhereInDocument,
     appendChild,
     Insertable,
+    replaceChildren,
+    setInputValueAndResize,
 } from "./dom-utils";
 
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
 import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
-import { countOccurances } from "./array-utils";
+import { countOccurances, filterInPlace } from "./array-utils";
+import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 
 
 const SAVE_DEBOUNCE = 1000;
@@ -1339,6 +1342,178 @@ function ActivityAnalytics(): Renderable {
     return component;
 }
 
+function FuzzyFinder(): Renderable {
+    const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    type ResultArgs = {
+        text: string;
+        ranges: Range[];
+        hasFocus: boolean;
+    }
+
+    const resultList = makeComponentList(div({ class: "h-100" }), () => {
+        const textDiv = div();
+        const cursor = div({ class: "pre" }, [ " --> " ]);
+        const root = div({ class: "row" }, [
+            cursor,
+            textDiv,
+        ]);
+        let lastRanges: any = null;
+        const component = makeComponent<ResultArgs>(root, () => {
+            const { text, ranges, hasFocus } = component.args;
+
+            // This is basically the same as the React code, to render a diff list, actually, useMemo and all
+            if (ranges !== lastRanges) {
+                lastRanges = ranges;
+                
+                const spans: Insertable[] = [];
+                let lastRangeEnd = 0;
+                for (let i = 0; i < ranges.length; i++) {
+                    spans.push(el("SPAN", {}, [ text.substring(lastRangeEnd, ranges[i][0]) ]));
+                    spans.push(el("SPAN", { class: "inverted" }, [ text.substring(ranges[i][0], ranges[i][1]) ]));
+                    lastRangeEnd = ranges[i][1];
+                }
+                spans.push(el("SPAN", {}, [ text.substring(lastRangeEnd) ]));
+
+                replaceChildren(textDiv, ...spans);
+            }
+
+            setVisible(cursor, hasFocus);
+            root.el.style.backgroundColor = hasFocus ? "var(--bg-color-focus)" : "var(--bg-color)";
+            root.el.style.padding = hasFocus ? "10px" : "";
+        });
+
+        return component;
+    });
+
+    type Match = { 
+        note: TreeNote;
+        ranges: Range[];
+    };
+    const matches: Match[] = [];
+    let currentSelectionIdx = 0;
+
+    const root = div({ class: "col" }, [
+        div({ class: "row align-items-center" }, [
+            div({}, ["Search:"]),
+            searchInput,
+        ]),
+        div({ style: "height: 10px" }),
+        div({ class: "flex-1" }, [
+            resultList
+        ]),
+    ]);
+
+    function rerenderSearch() {
+        matches.splice(0, matches.length);
+        currentSelectionIdx = 0;
+
+        const query = searchInput.el.value.toLowerCase();
+
+        dfsPre(state, getRootNote(state), (n) => {
+            let text = n.data.text.toLowerCase();
+            let results = fuzzyFind(text, query);
+            if (results.length > 0) {
+                matches.push({
+                    note: n,
+                    ranges: results,
+                });
+            }
+        });
+
+        matches.sort((a, b) => {
+            return scoreFuzzyFind(b.ranges) - scoreFuzzyFind(a.ranges);
+        });
+
+        const minScore = 0 * Math.pow(query.length * 0.7, 2);
+        filterInPlace(matches, (m) => scoreFuzzyFind(m.ranges) > minScore); 
+
+        // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
+
+        const MAX_MATCHES = 20;
+        if (matches.length > MAX_MATCHES) {
+            matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
+        }
+
+        resultList.resize(matches.length);
+        for(let i = 0; i < matches.length; i++) {
+            resultList.components[i].render({
+                text: matches[i].note.data.text,
+                ranges: matches[i].ranges,
+                hasFocus: i === currentSelectionIdx,
+            });
+        }
+    }
+
+    function rerenderList() {
+        for (let i = 0; i < matches.length; i++) {
+            const c = resultList.components[i];
+            c.args.hasFocus = i === currentSelectionIdx;
+            c.render(c.args);
+        }
+    }
+
+
+    const component = makeComponent(root, () => {
+        searchInput.el.value = "";
+        searchInput.el.focus();
+
+        rerenderSearch();
+    });
+
+    searchInput.el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            const note = matches[currentSelectionIdx].note;
+            setCurrentNote(state, note.id);
+            setCurrentModal(null);
+            rerenderApp();
+            return;
+        }
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            currentSelectionIdx++;
+            if (currentSelectionIdx >= matches.length) {
+                currentSelectionIdx--;
+            }
+            rerenderList();
+            return;
+        }
+
+        if (e.key === "ArrowUp") {
+            e.preventDefault();
+            currentSelectionIdx--;
+            if (currentSelectionIdx < 0) {
+                currentSelectionIdx++;
+            };
+            rerenderList();
+            return;
+        }
+    });
+    searchInput.el.addEventListener("input", rerenderSearch);
+
+    return component;
+}
+
+function FuzzyFindModal(): Renderable {
+    const fuzzyFind = FuzzyFinder();
+    const modalComponent = Modal(
+        div({ class: "col h-100", style: "padding: 10px" }, [
+            fuzzyFind
+        ])
+    );
+
+    const component = makeComponent(modalComponent, () => {
+        modalComponent.render({
+            onClose: () => setCurrentModal(null)
+        });
+
+        fuzzyFind.render(undefined);
+    });
+
+    return component;
+}
+
 function AnalyticsModal(): Renderable {
     const activityAnalytics = ActivityAnalytics();
     const modalComponent = Modal(
@@ -1654,7 +1829,7 @@ const rerenderApp = (opts?: RenderOptions) => {
     app.render(undefined);
 }
 
-type Modal = null | "analytics-view" | "scratch-pad";
+type Modal = null | "analytics-view" | "scratch-pad" | "fuzzy-finder";
 let currentModal: Modal = null;
 const setCurrentModal = (modal: Modal) => {
     if (currentModal === modal) {
@@ -1816,6 +1991,7 @@ export const App = () => {
 
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
+    const fuzzyFindModal = FuzzyFindModal();
 
     const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
         div({}, [makeDarkModeToggle()]),
@@ -1823,6 +1999,9 @@ export const App = () => {
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
+            makeButtonWithCallback("Search", () => {
+                setCurrentModal("fuzzy-finder");
+            }),
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal("scratch-pad");
             }),
@@ -1910,6 +2089,7 @@ export const App = () => {
         fixedButtons,
         scratchPadModal,
         analyticsModal,
+        fuzzyFindModal,
     ]);
 
     // I use this for the ctrl + shift + </> keybinds to move through previous activities
@@ -1931,6 +2111,14 @@ export const App = () => {
 
         // handle modals
         if (
+            e.key === "F" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal("fuzzy-finder");
+            return;
+        } else if (
             e.key === "S" &&
             ctrlPressed &&
             shiftPressed
@@ -2147,6 +2335,10 @@ export const App = () => {
         activityList.render(undefined);
         breakInput.render(undefined);
         todoNotes.render(undefined);
+
+        if (setVisible(fuzzyFindModal, currentModal === "fuzzy-finder")) {
+            fuzzyFindModal.render(undefined);
+        }
 
         if (setVisible(analyticsModal, currentModal === "analytics-view")) {
             analyticsModal.render(undefined);

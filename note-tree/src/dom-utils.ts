@@ -101,6 +101,10 @@ type Attrs = { [qualifiedName: ValidAttributeName]: string } & {
     src?: string;
 }
 
+/**
+ * Creates an element, gives it some attributes, then appends it's children.
+ * This is all you need for 99.9% of web dev use-cases
+ */
 export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?: (Insertable | string)[]): InsertableGeneric<T> {
     const element = document.createElement(type);
 
@@ -125,6 +129,10 @@ export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?
     };
 }
 
+/**
+ * Creates a div, gives it some attributes, and then appends some children. 
+ * I use this instead of {@link el} 90% of the time
+ */
 export function div(attrs?: Attrs, children?: (Insertable | string)[]) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
@@ -199,11 +207,11 @@ export function setInputValue(component: Insertable, text: string) {
 
 /** 
  * Makes a 'component'.
- * A component is exactly like a `htmf` return value in that it can be inserted into the dom with `htmf`, but
+ * A component is exactly like a {@link el} return value in that it can be inserted into the dom with {@link el}, but
  * it also has a `rerender` function that can be used to hydrate itself, and possibly it's children.
  * You would need to do this yourself in renderFn, however.
  * 
- * @param root is a return-value from `htmf` that will be the root dom-node of this component
+ * @param root is a return-value from {@link el} that will be the root dom-node of this component
  * @param renderFn is called each time to rerender the comopnent.
  * 
  * It stores args in the `args` object, so that any event listeners can update their behaviours when the main
