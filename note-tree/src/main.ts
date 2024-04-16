@@ -1410,6 +1410,10 @@ function FuzzyFinder(): Renderable {
         const query = searchInput.el.value.toLowerCase();
 
         dfsPre(state, getRootNote(state), (n) => {
+            if (!n.parentId) {
+                // ignore the root note
+                return:
+            }
             let text = n.data.text.toLowerCase();
             let results = fuzzyFind(text, query);
             if (results.length > 0) {
