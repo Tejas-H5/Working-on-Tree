@@ -1402,49 +1402,54 @@ function FuzzyFinder(): Renderable {
         ]),
     ]);
 
+    let timeoutId = 0;
+    const DEBOUNCE_MS = 100;
     function rerenderSearch() {
-        matches.splice(0, matches.length);
-        currentSelectionIdx = 0;
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+            matches.splice(0, matches.length);
+            currentSelectionIdx = 0;
 
-        const query = searchInput.el.value.toLowerCase();
+            const query = searchInput.el.value.toLowerCase();
 
-        dfsPre(state, getRootNote(state), (n) => {
-            if (!n.parentId) {
-                // ignore the root note
-                return;
+            dfsPre(state, getRootNote(state), (n) => {
+                if (!n.parentId) {
+                    // ignore the root note
+                    return;
+                }
+                let text = n.data.text.toLowerCase();
+                let results = fuzzyFind(text, query);
+                if (results.length > 0) {
+                    matches.push({
+                        note: n,
+                        ranges: results,
+                    });
+                }
+            });
+
+            matches.sort((a, b) => {
+                return scoreFuzzyFind(b.ranges) - scoreFuzzyFind(a.ranges);
+            });
+
+            const minScore = 0 * Math.pow(query.length * 0.7, 2);
+            filterInPlace(matches, (m) => scoreFuzzyFind(m.ranges) > minScore); 
+
+            // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
+
+            const MAX_MATCHES = 20;
+            if (matches.length > MAX_MATCHES) {
+                matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
             }
-            let text = n.data.text.toLowerCase();
-            let results = fuzzyFind(text, query);
-            if (results.length > 0) {
-                matches.push({
-                    note: n,
-                    ranges: results,
+
+            resultList.resize(matches.length);
+            for(let i = 0; i < matches.length; i++) {
+                resultList.components[i].render({
+                    text: matches[i].note.data.text,
+                    ranges: matches[i].ranges,
+                    hasFocus: i === currentSelectionIdx,
                 });
             }
-        });
-
-        matches.sort((a, b) => {
-            return scoreFuzzyFind(b.ranges) - scoreFuzzyFind(a.ranges);
-        });
-
-        const minScore = 0 * Math.pow(query.length * 0.7, 2);
-        filterInPlace(matches, (m) => scoreFuzzyFind(m.ranges) > minScore); 
-
-        // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
-
-        const MAX_MATCHES = 20;
-        if (matches.length > MAX_MATCHES) {
-            matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
-        }
-
-        resultList.resize(matches.length);
-        for(let i = 0; i < matches.length; i++) {
-            resultList.components[i].render({
-                text: matches[i].note.data.text,
-                ranges: matches[i].ranges,
-                hasFocus: i === currentSelectionIdx,
-            });
-        }
+        }, DEBOUNCE_MS);
     }
 
     function rerenderList() {
@@ -1473,24 +1478,27 @@ function FuzzyFinder(): Renderable {
             return;
         }
 
+        let handled = true;
+        let nextSelectionIdx = currentSelectionIdx;
+
+        // TODO: home, end
         if (e.key === "ArrowDown") {
-            e.preventDefault();
             currentSelectionIdx++;
-            if (currentSelectionIdx >= matches.length) {
-                currentSelectionIdx--;
-            }
-            rerenderList();
-            return;
+        } else if (e.key === "PageDown") {
+            currentSelectionIdx+=10;
+        } else if (e.key === "ArrowUp") {
+            currentSelectionIdx--;
+        } else if (e.key === "PageUp") {
+            currentSelectionIdx-=10;
+        } else {
+            handled=false;
         }
 
-        if (e.key === "ArrowUp") {
+        if (handled) {
             e.preventDefault();
-            currentSelectionIdx--;
-            if (currentSelectionIdx < 0) {
-                currentSelectionIdx++;
-            };
+            currentSelectionIdx = Math.max(0, currentSelectionIdx);
+            currentSelectionIdx = Math.min(currentSelectionIdx, matches.length - 1);
             rerenderList();
-            return;
         }
     });
     searchInput.el.addEventListener("input", rerenderSearch);
