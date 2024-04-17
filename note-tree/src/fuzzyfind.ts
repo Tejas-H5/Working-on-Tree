@@ -29,7 +29,11 @@ export function fuzzyFind(text: string, query: string) : Range[] {
         if (maxMatchIdx === -1) {
             querySubstr = querySubstr.substring(1);
         } else {
-            ranges.push([maxMatchIdx, maxMatchIdx + maxMatchLength]);
+            // needed to reduce the absolute trash matches I was getting
+            if (maxMatchLength > 1) {
+                ranges.push([maxMatchIdx, maxMatchIdx + maxMatchLength]);
+            }
+
             querySubstr = querySubstr.substring(maxMatchLength);
         }
     }

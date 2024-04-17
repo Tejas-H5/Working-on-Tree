@@ -15,7 +15,6 @@ import {
     getFirstPartOfRow,
     getIndentStr,
     getLastActivity,
-    getNextActivityWithNoteIdx,
     getNote,
     getNoteDuration,
     getNoteOneDownLocally,
@@ -23,7 +22,6 @@ import {
     noteStatusToString,
     getNoteNDown,
     getNoteNUp,
-    getPreviousActivityWithNoteIdx,
     getSecondPartOfRow,
     getTimeStr,
     getTodoNotePriority,
@@ -69,7 +67,7 @@ import {
 
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
-import { floorDateLocalTime, formatDate, formatDuration, getTimestamp, incrementDay, truncate } from "./datetime";
+import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 
@@ -522,7 +520,9 @@ function EditableActivityList(): Renderable {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
     const root = div({ class: "w-100", style: "border-top: 1px solid var(--fg-color);" }, [
-        listRoot,
+        div({ style: "height: 600px; overflow-y: auto;" }, [
+            listRoot,
+        ]),
         paginationControl,
     ]);
 
@@ -567,10 +567,11 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     textArea.el.addEventListener("keydown", (e) => {
         if (e.key === "Tab") {
             e.preventDefault();
-            // HTML doesn't like tabs, we need this additional code to be able to insert tabs.
 
-            // inserting a tab like this should preserve undo
-            // TODO: stop using deprecated API
+            // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs.
+            // inserting a tab like this should also preserve undo, unlike value setting approaches
+            // TODO: stop using deprecated API 
+            //      (I doubt it will be a problem though - I bet most browsers will support this for a long while, else risk breaking a LOT of websites)
             document.execCommand("insertText", false, "\t");
         }
     })
@@ -578,7 +579,7 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     return textArea;
 }
 
-// exposing the text area so that we can focus it, but
+// exposing the textArea so that we can focus it, but
 // really, TODO: just expose a focus() function...
 function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
     let yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
@@ -800,7 +801,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const totalCount = note.childIds.length;
         const doneCount = countOccurances(note.childIds, (id) => {
             const note = getNote(state, id);
-            return note.data._status === STATUS_DONE;
+            return note.data._status === STATUS_DONE || note.data._status === STATUS_ASSUMED_DONE;
         });
 
 
@@ -1006,7 +1007,7 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
         const dateTo = new Date();
         floorDateLocalTime(dateFrom);
         floorDateLocalTime(dateTo);
-        incrementDay(dateTo);
+        addDays(dateTo, 1);
         filter.date.from = dateFrom;
         filter.date.to = dateTo;
 
@@ -1351,7 +1352,7 @@ function FuzzyFinder(): Renderable {
 
     const resultList = makeComponentList(div({ class: "h-100" }), () => {
         const textDiv = div();
-        const cursor = div({ class: "pre" }, [ " --> " ]);
+        const cursor = div({ class: "pre" }, [" --> "]);
         const root = div({ class: "row" }, [
             cursor,
             textDiv,
@@ -1363,15 +1364,15 @@ function FuzzyFinder(): Renderable {
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
             if (ranges !== lastRanges) {
                 lastRanges = ranges;
-                
+
                 const spans: Insertable[] = [];
                 let lastRangeEnd = 0;
                 for (let i = 0; i < ranges.length; i++) {
-                    spans.push(el("SPAN", {}, [ text.substring(lastRangeEnd, ranges[i][0]) ]));
-                    spans.push(el("SPAN", { class: "inverted" }, [ text.substring(ranges[i][0], ranges[i][1]) ]));
+                    spans.push(el("SPAN", {}, [text.substring(lastRangeEnd, ranges[i][0])]));
+                    spans.push(el("SPAN", { class: "inverted" }, [text.substring(ranges[i][0], ranges[i][1])]));
                     lastRangeEnd = ranges[i][1];
                 }
-                spans.push(el("SPAN", {}, [ text.substring(lastRangeEnd) ]));
+                spans.push(el("SPAN", {}, [text.substring(lastRangeEnd)]));
 
                 replaceChildren(textDiv, ...spans);
             }
@@ -1384,16 +1385,17 @@ function FuzzyFinder(): Renderable {
         return component;
     });
 
-    type Match = { 
+    type Match = {
         note: TreeNote;
         ranges: Range[];
+        score: number;
     };
     const matches: Match[] = [];
     let currentSelectionIdx = 0;
 
     const root = div({ class: "col" }, [
         div({ class: "row align-items-center" }, [
-            div({}, ["Search:"]),
+            div({ style: "padding: 10px" }, ["Search:"]),
             searchInput,
         ]),
         div({ style: "height: 10px" }),
@@ -1408,7 +1410,6 @@ function FuzzyFinder(): Renderable {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             matches.splice(0, matches.length);
-            currentSelectionIdx = 0;
 
             const query = searchInput.el.value.toLowerCase();
 
@@ -1423,16 +1424,17 @@ function FuzzyFinder(): Renderable {
                     matches.push({
                         note: n,
                         ranges: results,
+                        score: scoreFuzzyFind(results),
                     });
                 }
             });
 
             matches.sort((a, b) => {
-                return scoreFuzzyFind(b.ranges) - scoreFuzzyFind(a.ranges);
+                return b.score - a.score;
             });
 
-            const minScore = 0 * Math.pow(query.length * 0.7, 2);
-            filterInPlace(matches, (m) => scoreFuzzyFind(m.ranges) > minScore); 
+            const minScore = Math.pow(query.length * 0.3, 2);
+            filterInPlace(matches, (m) => m.score > minScore);
 
             // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
 
@@ -1441,8 +1443,12 @@ function FuzzyFinder(): Renderable {
                 matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
             }
 
+            if (currentSelectionIdx >= matches.length) {
+                currentSelectionIdx = 0;
+            }
+
             resultList.resize(matches.length);
-            for(let i = 0; i < matches.length; i++) {
+            for (let i = 0; i < matches.length; i++) {
                 resultList.components[i].render({
                     text: matches[i].note.data.text,
                     ranges: matches[i].ranges,
@@ -1462,9 +1468,7 @@ function FuzzyFinder(): Renderable {
 
 
     const component = makeComponent(root, () => {
-        searchInput.el.value = "";
         searchInput.el.focus();
-
         rerenderSearch();
     });
 
@@ -1479,19 +1483,18 @@ function FuzzyFinder(): Renderable {
         }
 
         let handled = true;
-        let nextSelectionIdx = currentSelectionIdx;
 
-        // TODO: home, end
+        // NOTE: no home, end, we need that for the search input
         if (e.key === "ArrowDown") {
             currentSelectionIdx++;
         } else if (e.key === "PageDown") {
-            currentSelectionIdx+=10;
+            currentSelectionIdx += 10;
         } else if (e.key === "ArrowUp") {
             currentSelectionIdx--;
         } else if (e.key === "PageUp") {
-            currentSelectionIdx-=10;
+            currentSelectionIdx -= 10;
         } else {
-            handled=false;
+            handled = false;
         }
 
         if (handled) {
@@ -1528,7 +1531,7 @@ function FuzzyFindModal(): Renderable {
 function AnalyticsModal(): Renderable {
     const activityAnalytics = ActivityAnalytics();
     const modalComponent = Modal(
-        div({ class: "col h-100", style: "padding: 10px" }, [
+        div({ class: "col", style: "width: calc(100% - 20px); height: calc(100% - 20px); padding: 10px;" }, [
             activityAnalytics
         ])
     );
@@ -1579,8 +1582,13 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 }
 
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
+    // const workdayDuration = div();
     const duration = div();
-    const root = div({ class: "row", style: "padding-left: 10px;" }, [duration]);
+    const root = div({ class: "row", style: "padding-left: 10px; gap: 10px;" }, [
+        duration,
+        // div({ style: "background-color: var(--fg-color); width: 4px;"}),
+        // workdayDuration,
+    ]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -1591,7 +1599,8 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
 
         // if (setVisible(duration, note.id === state.currentNoteId)) {
         const durationMs = getNoteDuration(state, note);
-        setTextContent(duration, formatDuration(durationMs));
+        // setTextContent(workdayDuration, formatDurationInWorkdays(durationMs));
+        setTextContent(duration, formatDuration(durationMs, 2));
         // }
     });
 
@@ -1778,11 +1787,8 @@ const handleErrors = (fn: () => void, onError?: (err: any) => void) => {
 
 const STATUS_TEXT_PERSIST_TIME = 1000;
 
-function exportAsText(state: State) {
+function exportAsText(state: State, flatNotes: NoteId[]) {
     const header = (text: string) => `----------------${text}----------------`;
-
-    const flatNotes: NoteId[] = [];
-    recomputeFlatNotes(state, flatNotes, true);
 
     const table = [];
     for (const id of flatNotes) {
@@ -1867,23 +1873,29 @@ function CheatSheet(): Renderable {
             `[Up]/[PageUp]/[Home]/[Ctrl+Up] to move upwards on the same level. ([Down]/[PageDown]/[Home]/[Ctrl+Down] to move downwards, obviously) `,
             `[Left] to move 'out' of a note, or up a level. [Right] to move back 'into' a note, or down a level`,
             `[Alt] + [Any normal movement] to move the current note around the tree`,
-            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the activity list. 
-                Mainly Useful when you want to make some new TODOs real quick, and then go back to what you were working on.`,
+            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the TODO list (starting from the top)`,
         ]),
         el("H4", {}, ["Task statuses"]),
         div({}, [
             `Tasks have 3 statuses:`,
             makeUnorderedList([
                 noteStatusToString(STATUS_IN_PROGRESS) + ` - "In Progress" - this note is assumed to be something you're working on`,
-                noteStatusToString(STATUS_ASSUMED_DONE) + ` - "Assumed Done" - this note is assumed to be completed. You will see it if you write several entries after one another. All entries before the most recent entry are assumed to be completed.`,
-                noteStatusToString(STATUS_DONE) + ` - "Done" - this note has been marked as 'Done' by the user themselves. Any note starting with the text "DONE" or "Done" will get this status, and if this note is also the final note underneath a note, that parent note gets this status as well, unless there are other tasks in progress`,
+                noteStatusToString(STATUS_ASSUMED_DONE) + ` - "Assumed Done" - this note is assumed to be completed. 
+                    You will see it if you write several entries after one another. 
+                    All entries before the bottom-most entry are assumed to be completed.`,
+                noteStatusToString(STATUS_DONE) + ` - "Done" - this note has been marked as 'Done' by the user themselves. 
+                    Any note starting with the text "DONE", "Done", "done", "DECLINED", "MERGED" will get this status, and apply it to all the notes behind it 
+                        (if that note isn't being kept open for other reasons). 
+                        Any note with every note under it marked as "Done" will also be marked as "Done".`,
             ])
         ]),
         el("H4", {}, ["The TODO List"]),
         makeUnorderedList([
             `Notes can be kept In Progress by starting thier text with "TODO" or "Todo". 
             These notes will also get added to the TODO list for quick access from any view.`,
-            `Alternatively, you can start a note with "*" to keep it open without creating a TODO entry.`,
+            `Alternatively, you can start a note with the text "PIN" to temporarily boost a note's priority. 
+            Useful for when you want to edit some other notes real quick or do other tasks, and then come back to the pinned note with [Ctrl] + [Shift] + [LeftArrow]`,
+            `Alternatively, you can start a note with "*" to keep it 'in progress' without creating a TODO entry.`,
             `These notes can also be given priorities using ! and ?. TODO! has a priority of 1, TODO!! has 2, etc. Conversely, TODO? has priority -1, TODO?? -2, etc.`
         ]),
         el("H4", {}, ["The Activity List"]),
@@ -1898,7 +1910,9 @@ function CheatSheet(): Renderable {
             `The analytics view can be opened by clicking the "Analytics" button, or with [Ctrl] + [Shift] + [A]`,
             `The analytics modal is where you see how long you've spent on particular high level tasks. It's supposed to be useful when you need to fill out time-sheets, (and to see where all your time went).`,
             `By default all notes will appear under "<Uncategorized>"`,
-            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it. I am open to changing this behaviour in the future if I think of a better system.`
+            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. 
+            Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it. 
+            In the future, I would like tasks to also collate their sub-tasks somehow, inferring this relationship from their positions in the tree.`
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
@@ -2029,10 +2043,22 @@ export const App = () => {
 
                 showStatusText("Cleared notes");
             }),
-            makeButtonWithCallback("Copy as text", () => {
+            makeButtonWithCallback("Copy as text (everything)", () => {
                 handleErrors(() => {
-                    navigator.clipboard.writeText(exportAsText(state));
-                    showStatusText("Copied as text");
+                    const flatNotes: NoteId[] = [];
+                    recomputeFlatNotes(state, flatNotes, true);
+
+                    navigator.clipboard.writeText(exportAsText(state, flatNotes));
+                    showStatusText("Copied all notes as text");
+                });
+            }),
+            makeButtonWithCallback("Copy open notes text", () => {
+                handleErrors(() => {
+                    const flatNotes: NoteId[] = [];
+                    recomputeFlatNotes(state, flatNotes, false);
+
+                    navigator.clipboard.writeText(exportAsText(state, flatNotes));
+                    showStatusText("Copied current open notes as text");
                 });
             }),
             makeButtonWithCallback("Load JSON from scratch pad", () => {
@@ -2104,7 +2130,7 @@ export const App = () => {
     ]);
 
     // I use this for the ctrl + shift + </> keybinds to move through previous activities
-    let lastActivityIndex = 0;
+    let lastTodoIndex = 0;
     document.addEventListener("keydown", (e) => {
         // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
@@ -2117,7 +2143,8 @@ export const App = () => {
             (e.key === "Shift" || e.key === "Control") &&
             !e.repeat
         ) {
-            lastActivityIndex = state.activities.length - 1;
+            // lastTodoIndex = state.activities.length - 1;
+            lastTodoIndex = 0;
         }
 
         // handle modals
@@ -2149,6 +2176,7 @@ export const App = () => {
             currentModal !== null &&
             e.key === "Escape"
         ) {
+            e.preventDefault();
             setCurrentModal(null);
             return;
         }
@@ -2171,7 +2199,7 @@ export const App = () => {
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
                     return;
-                } 
+                }
 
                 const nextNote = getNote(state, nextNoteId);
                 if (
@@ -2194,7 +2222,7 @@ export const App = () => {
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
                     return;
-                } 
+                }
 
                 const nextNote = getNote(state, nextNoteId);
                 tree.addAfter(state.notes, nextNote, currentNote);
@@ -2206,7 +2234,7 @@ export const App = () => {
                     // move into the current note
                     setCurrentNote(state, getInnerNoteId(currentNote));
                     return;
-                } 
+                }
 
                 if (!currentNote.parentId) {
                     return;
@@ -2224,7 +2252,7 @@ export const App = () => {
                     tree.addUnder(state.notes, upperNote, currentNote);
                     debouncedSave();
                     return;
-                } 
+                }
 
                 const noteInsideUpperNoteId = getInnerNoteId(upperNote);
                 if (noteInsideUpperNoteId) {
@@ -2265,11 +2293,14 @@ export const App = () => {
                 // The browser can't detect ctrl when it's pressed on its own :((((
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
-                    lastActivityIndex = getPreviousActivityWithNoteIdx(state, lastActivityIndex);
-                    if (lastActivityIndex !== -1) {
-                        const activity = state.activities[lastActivityIndex];
-                        if (activity.nId) {
-                            setCurrentNote(state, activity.nId);
+                    if (state.currentNoteId !== state.todoNoteIds[lastTodoIndex]) {
+                        setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
+                    } else {
+                        lastTodoIndex++;
+                        if (lastTodoIndex >= state.todoNoteIds.length) {
+                            lastTodoIndex = state.todoNoteIds.length - 1;
+                        } else {
+                            setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
                         }
                     }
                 } else {
@@ -2277,12 +2308,13 @@ export const App = () => {
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
-                    lastActivityIndex = getNextActivityWithNoteIdx(state, lastActivityIndex);
-                    if (lastActivityIndex !== -1) {
-                        const activity = state.activities[lastActivityIndex];
-                        if (activity.nId) {
-                            handleMovingOut(activity.nId);
-                        }
+                    // lastTodoIndex = getNextActivityWithNoteIdx(state, lastTodoIndex);
+                    lastTodoIndex--;
+                    if (lastTodoIndex < 0) {
+                        lastTodoIndex = 0;
+                    } else {
+                        // const activity = state.activities[lastTodoIndex];
+                        setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
                     }
                 } else {
                     // move into note

@@ -95,15 +95,18 @@ export function floorDateLocalTime(date: Date) {
     date.setHours(0, 0, 0, 0);
 }
 
-export function incrementDay(date: Date) {
-    date.setDate(date.getDate() + 1)
+export function addDays(date: Date, days: number) {
+    date.setDate(date.getDate() + days)
 }
 
-export function decrementDay(date: Date) {
-    date.setDate(date.getDate() - 1)
+// 1 work day is actually 7.5 hours.
+export function formatDurationInWorkdays(ms: number): string {
+    const workDayHours = 7.5;
+    const hours = (ms / 1000 / 60 / 60) / workDayHours;
+    return `${hours.toFixed(2)} wd`;
 }
 
-export function formatDuration(ms: number) {
+export function formatDuration(ms: number, unitLimit = -1) {
     const seconds = Math.floor(ms / 1000) % 60;
     const minutes = Math.floor(ms / 1000 / 60) % 60;
     const hours = Math.floor(ms / 1000 / 60 / 60) % 24;
@@ -131,6 +134,10 @@ export function formatDuration(ms: number) {
     if (seconds) {
         // str.push(`${seconds} seconds`);
         str.push(`${seconds} s`);
+    }
+
+    if (unitLimit !== -1) {
+        return str.slice(0, unitLimit).join(", ");
     }
 
     return str.join(", ");

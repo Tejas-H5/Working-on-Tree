@@ -4,6 +4,8 @@ import { assert } from "./dom-utils";
 import * as tree from "./tree";
 import { uuid } from "./uuid";
 
+
+
 export type NoteId = string;
 export type TaskId = string;
 
@@ -64,10 +66,12 @@ export type Activity = {
 }
 
 export function isDoneNote(note: Note) {
-    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done");
+    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done") ||
+        note.text.startsWith("DECLINED") || note.text.startsWith("MERGED"); // funny git reference. but actually, DECLINED is somewhat useful
 }
 export function isTodoNote(note: Note) {
-    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
+    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo")
+        || note.text.startsWith("PIN"); 
 }
 
 export function isSubtaskNote(note: Note) {
@@ -82,6 +86,11 @@ export function getTodoNotePriorityId(state: State, id: NoteId): number {
 export function getTodoNotePriority(note: Note): number {
     let priority = 0;
     let i = "TODO".length;
+
+    if (note.text.startsWith("PIN")) {
+        // used to temporarily boost a note's visibility
+        return 100000;
+    }
 
     let character = note.text[i];
     if (character === "?") {
@@ -438,7 +447,21 @@ export function createNewNote(state: State, text: string): TreeNote {
 }
 
 
+export function isLastActivityTenuous(state: State) {
+    const last = getLastActivity(state);
+    const lastIdx = state.activities.length - 1;
 
+    if (last && lastIdx !== state.lastFixedActivityIdx) {
+        const duration = getActivityDurationMs(last, undefined);
+        const ONE_MINUTE = 1000 * 60;
+
+        if (duration < ONE_MINUTE) {
+            return true;
+        } 
+    }
+
+    return false;
+}
 
 export function pushActivity(state: State, activity: Activity, shouldDebounce: boolean) {
     const last = getLastActivity(state);
@@ -450,24 +473,16 @@ export function pushActivity(state: State, activity: Activity, shouldDebounce: b
     }
 
     if (last && last.nId) {
-        if (
-            shouldDebounce &&
-            lastIdx !== state.lastFixedActivityIdx
-        ) {
-            const duration = getActivityDurationMs(last, undefined);
-            const ONE_MINUTE = 1000 * 60;
-
-            if (duration < ONE_MINUTE) {
-                // we are debouncing this append operation, so that we don't append like 10 activities by just moving around for example.
-                // This would just mean that we replace the last thing we pushed instead of pushing a new thing
-                state.activities.pop();
-            } else {
-                // Actually, we don't even need to do this. The simple fact that
-                // it is older than 1 minute will already have the same effect as the lastFixedActivity variable, i.e
-                // prevent the activities.pop() from happening.
-                // But there's no real harm to put this here either
-                state.lastFixedActivityIdx = lastIdx
-            }
+        if (isLastActivityTenuous(state)) {
+            // we are debouncing this append operation, so that we don't append like 10 activities by just moving around for example.
+            // This would just mean that we replace the last thing we pushed instead of pushing a new thing
+            state.activities.pop();
+        } else {
+            // Actually, we don't even need to do this. The simple fact that
+            // it is older than 1 minute will already have the same effect as the lastFixedActivity variable, i.e
+            // prevent the activities.pop() from happening.
+            // But there's no real harm to put this here either
+            state.lastFixedActivityIdx = lastIdx
         }
 
         if (getLastActivity(state)?.nId === activity.nId) {

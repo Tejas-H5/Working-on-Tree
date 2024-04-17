@@ -1,25 +1,25 @@
 // TODO: import the missing CSS styles
 
 import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setTextContent, setVisible } from "./dom-utils";
-import { decrementDay, floorDateLocalTime, formatDate, incrementDay, parseYMDTDateTime } from "./datetime";
+import { addDays, floorDateLocalTime, formatDate, parseYMDTDateTime } from "./datetime";
 
 type ModalArgs = { onClose(): void };
 
 export function Modal(content: Insertable): Renderable<ModalArgs> {
     const closeButton = makeButton("X");
 
-    const root = div({ 
-        class: "modal-shadow fixed", 
-        style: `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` + 
+    const root = div({
+        class: "modal-shadow fixed",
+        style: `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` +
             `background-color: var(--bg-color); z-index: 9999;`
     }, [
         div({ class: "relative absolute-fill" }, [
-            div({ class: "absolute", style: "top: 0; right: 0;" }, [ closeButton ]),
+            div({ class: "absolute", style: "top: 0; right: 0;" }, [closeButton]),
             content
         ])
     ]);
 
-    const component = makeComponent<ModalArgs>(root, () => {});
+    const component = makeComponent<ModalArgs>(root, () => { });
 
     closeButton.el.addEventListener("click", () => {
         const { onClose } = component.args;
@@ -33,16 +33,16 @@ type FractionBarArgs = {
     fraction: number;
     text: string;
 }
-export function FractionBar() : Renderable<FractionBarArgs> {
+export function FractionBar(): Renderable<FractionBarArgs> {
     const baseStyles = `padding:5px;padding-bottom:0;`;
 
     const invertedText = div({ style: baseStyles + "background-color: var(--fg-color); color: var(--bg-color)" });
-    const bar = div({ class: "flex-1", style: "overflow: hidden; white-space: nowrap;" }, [ invertedText ])
+    const bar = div({ class: "flex-1", style: "overflow: hidden; white-space: nowrap;" }, [invertedText])
 
     const normalText = div({ style: baseStyles });
 
     const root = div({ class: "relative" }, [
-        normalText, 
+        normalText,
         div({ class: "absolute-fill" }, [
             bar
         ])
@@ -101,11 +101,11 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     });
 
     function handleChange() {
-        const { onChange } = component.args;  
+        const { onChange } = component.args;
         const value = edit.el.value;
 
         const [date, err] = parseYMDTDateTime(value);
-        
+
         if (date === null) {
             console.error("Error parsing date", value, err);
             onChange(lastDate);
@@ -131,12 +131,16 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
 }
 
 export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
-    let dateTimeInput, zeroButton, incrDay, decrDay;
+    let dateTimeInput, zeroButton, incrDay, decrDay, incrWeek, decrWeek, incrMonth, decrMonth;
     const root = div({ class: "row " + (clazz || "") }, [
         div({}, [dateTimeInput = DateTimeInput()]),
         zeroButton = makeButton("0am"),
-        incrDay = makeButton("day + 1"),
-        decrDay = makeButton("day - 1"),
+        incrDay = makeButton("+1 day"),
+        decrDay = makeButton("-1 day"),
+        incrWeek = makeButton("+7 days"),
+        decrWeek = makeButton("-7 days"),
+        incrMonth = makeButton("+30 days"),
+        decrMonth = makeButton("+30 days"),
     ]);
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
@@ -157,11 +161,27 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
     });
 
     incrDay.el.addEventListener("click", () => {
-        updateDate((d) => incrementDay(d));
+        updateDate((d) => addDays(d, 1));
+    });
+
+    incrWeek.el.addEventListener("click", () => {
+        updateDate((d) => addDays(d, 7));
+    });
+
+    incrMonth.el.addEventListener("click", () => {
+        updateDate((d) => addDays(d, 30));
     });
 
     decrDay.el.addEventListener("click", () => {
-        updateDate((d) => decrementDay(d));
+        updateDate((d) => addDays(d, -1));
+    });
+
+    decrWeek.el.addEventListener("click", () => {
+        updateDate((d) => addDays(d, -7));
+    });
+
+    decrMonth.el.addEventListener("click", () => {
+        updateDate((d) => addDays(d, -30));
     });
 
     return component;
@@ -175,17 +195,17 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
 type GenericInputArguments<T> = {
     label?: string;
     value: T;
-    onChange(val: T):void;
+    onChange(val: T): void;
 }
 
 export function Checkbox(initialLabel?: string): Renderable<GenericInputArguments<boolean>> {
-    const label = div({}, initialLabel !== undefined ? [ initialLabel ] : undefined);
+    const label = div({}, initialLabel !== undefined ? [initialLabel] : undefined);
     const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
     const checkbox = div({ class: "row align-items-center" }, [
-        div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;"}, [
-            button, 
+        div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;" }, [
+            button,
         ]),
-        div({ style: "width: 20px"}),
+        div({ style: "width: 20px" }),
         label
     ]);
 
