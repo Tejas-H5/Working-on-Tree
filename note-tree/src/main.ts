@@ -181,24 +181,25 @@ function TodoList(): Renderable {
 
             type NestedNotesArgs = {
                 linkedNoteArgs: Omit<NoteLinkArgs, "noteId"> & { noteId: NoteId; };
-                previousNotesCount: number;
             }
 
             const component = makeComponent<NestedNotesArgs>(root, () => {
-                const { linkedNoteArgs, previousNotesCount } = component.args;
+                const { linkedNoteArgs } = component.args;
                 const { noteId } = linkedNoteArgs;
 
                 const note = getNote(state, noteId);
+                const progressText = getNoteProgressCountText(note);
 
                 link.render(linkedNoteArgs);
-                setTextContent(thing, " " + previousNotesCount + (state.currentNoteId === noteId ? " > " : " - "));
+                // questionable whitespace practice tbh
+                setTextContent(thing, " " + progressText + " " + (state.currentNoteId === noteId ? " > " : " - "));
                 setTextContent(status, noteStatusToString(note.data._status) ?? "??");
             });
 
             return component;
         });
 
-        let noteLink, moveUpButton, moveDownButton, divider;
+        let progressText, noteLink, moveUpButton, moveDownButton, divider;
         const root = div({}, [
             div({
                 class: "hover-parent flex-1",
@@ -208,6 +209,7 @@ function TodoList(): Renderable {
                     "padding-left: 3px;"
             }, [
                 div({ class: "row align-items-center" }, [
+                    progressText = div(),
                     noteLink = NoteLink(),
                     div({ class: "flex-1" }),
                     div({ class: "row" }, [
@@ -252,8 +254,6 @@ function TodoList(): Renderable {
                 const note = nestedNotes[i];
                 focusAnyway = focusAnyway || note.id === state.currentNoteId;
 
-                const childCount = !note.parentId ? 0 : getNote(state, note.parentId).childIds.length;
-
                 nestedNotesList.components[i].render({
                     linkedNoteArgs: {
                         noteId: note.id,
@@ -261,9 +261,10 @@ function TodoList(): Renderable {
                         focusAnyway: false,
                         preventScroll: true,
                     },
-                    previousNotesCount: childCount,
                 });
             }
+
+            setTextContent(progressText, getNoteProgressCountText(note));
 
             noteLink.render({
                 noteId: note.id,
@@ -815,6 +816,25 @@ type NoteRowArgs = {
     note: TreeNote;
 };
 
+
+function getNoteProgressCountText(note: TreeNote): string {
+    const totalCount = note.childIds.length;
+    const doneCount = countOccurances(note.childIds, (id) => {
+        const note = getNote(state, id);
+        return note.data._status === STATUS_DONE || note.data._status === STATUS_ASSUMED_DONE;
+    });
+
+
+    let progressText = "";
+    if (totalCount !== 0) {
+        if (!(doneCount === 1 && totalCount === 1)) {
+            progressText = totalCount !== 0 ? ` (${doneCount}/${totalCount})` : "";
+        }
+    }
+
+    return progressText;
+}
+
 function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = div({ class: "pre" });
     const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
@@ -847,19 +867,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { note } = component.args;
 
         const dashChar = note.data._isSelected ? ">" : "-";
-        const totalCount = note.childIds.length;
-        const doneCount = countOccurances(note.childIds, (id) => {
-            const note = getNote(state, id);
-            return note.data._status === STATUS_DONE || note.data._status === STATUS_ASSUMED_DONE;
-        });
-
-
-        let progressText = "";
-        if (totalCount !== 0) {
-            if (!(doneCount === 1 && totalCount === 1)) {
-                progressText = totalCount !== 0 ? ` (${doneCount}/${totalCount})` : "";
-            }
-        }
+        const progressText = getNoteProgressCountText(note);
 
         setTextContent(
             indent,
