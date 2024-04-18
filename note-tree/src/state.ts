@@ -25,6 +25,9 @@ export type State = {
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     todoNoteIds: NoteId[];
 
+    /** These notes are the _parents_ of notes that we want to keep pinned, useful for switching back and forth between two+ tasks */
+    pinnedNoteIds: NoteId[];
+
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
 
@@ -70,12 +73,11 @@ export function isDoneNote(note: Note) {
         note.text.startsWith("DECLINED") || note.text.startsWith("MERGED"); // funny git reference. but actually, DECLINED is somewhat useful
 }
 export function isTodoNote(note: Note) {
-    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo")
-        || note.text.startsWith("PIN"); 
+    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
 }
 
 export function isSubtaskNote(note: Note) {
-    return note.text.startsWith("*");
+    return note.text.startsWith("*") || note.text.startsWith(">");
 }
 
 export function getTodoNotePriorityId(state: State, id: NoteId): number {
@@ -86,11 +88,6 @@ export function getTodoNotePriorityId(state: State, id: NoteId): number {
 export function getTodoNotePriority(note: Note): number {
     let priority = 0;
     let i = "TODO".length;
-
-    if (note.text.startsWith("PIN")) {
-        // used to temporarily boost a note's visibility
-        return 100000;
-    }
 
     let character = note.text[i];
     if (character === "?") {
@@ -159,6 +156,7 @@ function defaultState(): State {
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
         todoNoteIds: [],
+        pinnedNoteIds: [],
         activities: [],
         lastFixedActivityIdx: 0,
 
@@ -404,6 +402,18 @@ export function recomputeState(state: State) {
         filterInPlace(state.todoNoteIds, (id) => {
             const note = getNote(state, id);
             return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
+        });
+    }
+
+    // recompute the pinned notes - delete em as they get deleted.
+    // todo notes automatically get deleted, because we rerender each time we edit a note,
+    // and in order to delete a note, you have to delete the "TODO" text, which is what
+    // gives the note it's TODO status in the first place, meaning that we have to remove
+    // it's todo status before we can delete it. 
+    // There is no such guarantee for pinned notes.
+    {
+        filterInPlace(state.pinnedNoteIds, (id) => {
+            return hasNote(state, id);
         });
     }
 
@@ -1106,6 +1116,53 @@ export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
     }
 
     return null;
+}
+export function isPinned(state: State, id: NoteId): boolean {
+    return state.pinnedNoteIds.includes(id);
+}
+
+export function unpinNote(state: State, id: NoteId) {
+    const idx = state.pinnedNoteIds.indexOf(id);
+    if (idx !== -1) {
+        state.pinnedNoteIds.splice(idx, 1);
+    }
+}
+
+export function isInPinnedJumplist(state: State, note: TreeNote): boolean {
+    if (!note.parentId) {
+        return false;
+    }
+
+    if (!isPinned(state, note.parentId)) {
+        return false;
+    }
+
+    // parent is pinned, and it's last selected note is this one.
+    const parent = getNote(state, note.parentId);
+    return parent.childIds[parent.data.lastSelectedChildIdx] === note.id;
+}
+
+/** returns true if we pinned something. false if it was already pinnned */
+export function pinNote(state: State, id: NoteId): boolean {
+    if (!isPinned(state, id)) {
+        state.pinnedNoteIds.unshift(id);
+        return true;
+    }
+
+    return false;
+}
+
+export function toggleCurrentNotePinned(state: State) {
+    // We actually want to 'pin' the parent, so that it doesn't matter where we move under the parent, we can end up right back
+    // there when we move through the pinned notes
+    const note = getCurrentNote(state);
+    if (!note.parentId) {
+        return;
+    }
+    
+    if (!pinNote(state, note.parentId)) {
+        unpinNote(state, note.parentId);
+    } 
 }
 
 export function resetState() {

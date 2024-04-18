@@ -47,6 +47,8 @@ import {
     isTodoNote,
     dfsPre,
     getRootNote,
+    toggleCurrentNotePinned,
+    isInPinnedJumplist,
 } from "./state";
 import {
     Renderable,
@@ -78,7 +80,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 
 type NoteLinkArgs = {
     text: string;
-    focusAnyway: boolean;
+    focusAnyway?: boolean;
     noteId?: NoteId;
     preventScroll?: boolean;
 };
@@ -91,7 +93,7 @@ function NoteLink(): Renderable<NoteLinkArgs> {
 
         setClass(root, "hover-link", !!noteId);
         setTextContent(root, truncate(text, 500));
-        root.el.style.backgroundColor = (focusAnyway || state.currentNoteId === noteId) ? (
+        root.el.style.backgroundColor = (!!focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)"
         ) : (
             "var(--bg-color)"
@@ -110,6 +112,53 @@ function NoteLink(): Renderable<NoteLinkArgs> {
                 rerenderApp({ shouldScroll: preventScroll || false });
             }
         }, 1);
+    });
+
+    return component;
+}
+
+function PinnedList() : Renderable {
+    type PinnedNoteArgs = {
+        parentNoteId: NoteId;
+    }
+    const list = makeComponentList(div(), () => {
+        const parent = NoteLink();
+        const parentSelected = NoteLink();
+        const root = div({}, [
+            parent,
+            div({ style: "padding-left: 40px"}, [parentSelected]),
+        ]);
+
+        const component = makeComponent<PinnedNoteArgs>(root, () => {
+            const { parentNoteId } = component.args;
+            
+            const parentNote = getNote(state, parentNoteId);
+            const jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
+            const jumpNote = getNote(state, jumpNoteId);
+
+            parentSelected.render({
+                text: jumpNote.data.text,
+                noteId: jumpNote.id,
+            });
+            
+            parent.render({
+                text: parentNote.data.text,
+                noteId: parentNote.id,
+            });
+        });
+
+        return component;
+    });
+
+    const root = div({}, [
+        list
+    ]);
+
+    const component = makeComponent(root, () => {
+        list.resize(state.pinnedNoteIds.length);
+        for(let i = 0; i < state.pinnedNoteIds.length; i++) {
+            list.components[i].render({ parentNoteId: state.pinnedNoteIds[i] });
+        }
     });
 
     return component;
@@ -1584,7 +1633,11 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     // const workdayDuration = div();
     const duration = div();
+    const isPinned = div({ style: "background-color: #00F; color: #FFF" }, [ "[PIN]" ]);
+    const isPinnedJumplist = div({ style: "background-color: #00F; color: #FFF" }, [ "[ < ]" ]);
     const root = div({ class: "row", style: "padding-left: 10px; gap: 10px;" }, [
+        isPinned,
+        isPinnedJumplist,
         duration,
         // div({ style: "background-color: var(--fg-color); width: 4px;"}),
         // workdayDuration,
@@ -1592,6 +1645,9 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
+
+        setVisible(isPinnedJumplist, isInPinnedJumplist(state, note))
+        setVisible(isPinned, state.pinnedNoteIds.includes(note.id))
 
         // only doing it for 1 note for now for performance reasons.
         // In future we can use memoisation to make it faster. i.e
@@ -1873,7 +1929,7 @@ function CheatSheet(): Renderable {
             `[Up]/[PageUp]/[Home]/[Ctrl+Up] to move upwards on the same level. ([Down]/[PageDown]/[Home]/[Ctrl+Down] to move downwards, obviously) `,
             `[Left] to move 'out' of a note, or up a level. [Right] to move back 'into' a note, or down a level`,
             `[Alt] + [Any normal movement] to move the current note around the tree`,
-            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the TODO list (starting from the top)`,
+            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the TODO list or the Pinned list if you've pinned things (starting from the top)`,
         ]),
         el("H4", {}, ["Task statuses"]),
         div({}, [
@@ -1893,10 +1949,15 @@ function CheatSheet(): Renderable {
         makeUnorderedList([
             `Notes can be kept In Progress by starting thier text with "TODO" or "Todo". 
             These notes will also get added to the TODO list for quick access from any view.`,
-            `Alternatively, you can start a note with the text "PIN" to temporarily boost a note's priority. 
-            Useful for when you want to edit some other notes real quick or do other tasks, and then come back to the pinned note with [Ctrl] + [Shift] + [LeftArrow]`,
-            `Alternatively, you can start a note with "*" to keep it 'in progress' without creating a TODO entry.`,
+            `Alternatively, you can start a note with ">" to keep it 'in progress' without creating a TODO entry (using * is deprecated)"`,
             `These notes can also be given priorities using ! and ?. TODO! has a priority of 1, TODO!! has 2, etc. Conversely, TODO? has priority -1, TODO?? -2, etc.`
+        ]),
+        el("H4", {}, ["The Pinned List"]),
+        makeUnorderedList([
+            `Pin/Unpin notes using [Ctrl] + [Shift] + [B].`,
+            `This actually pins the parent note, but [Ctrl] + [Shift] + [Left/Right] will actually jump between the last selected note underneath.`,
+            `Can be useful for keeping track of tasks you're currently working on`,
+            `The pinned list is hidden if you haven't pinned any notes.`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
@@ -1981,6 +2042,78 @@ function CheatSheet(): Renderable {
 //     return component;
 // }
 
+
+function getHotlist() {
+    return state.pinnedNoteIds.length > 0 ? state.pinnedNoteIds : state.todoNoteIds;
+}
+
+function moveToHotlistIdx(i: number) {
+    const hotlist = getHotlist();
+    if (i < 0 || i >= hotlist.length) {
+        return;
+    }
+
+    if (hotlist !== state.pinnedNoteIds) {
+        setCurrentNote(state, hotlist[i]);
+        return;
+    }
+
+    const parentId = hotlist[i];
+    const parent = getNote(state, parentId);
+    const jumpId = parent.childIds[parent.data.lastSelectedChildIdx];
+    setCurrentNote(state, jumpId);
+}
+
+// I use this for the ctrl + shift + </> keybinds to move through previous activities
+let lastHotlistIndex = 0;
+
+function isInHotlist(): boolean {
+    const hotlist = getHotlist();
+    const note = getCurrentNote(state);
+
+    return hotlist.includes(state.currentNoteId) ||
+            (hotlist === state.pinnedNoteIds && isInPinnedJumplist(state, note));
+}
+
+function moveBackOverHotlist() {
+    const hotlist = getHotlist();
+    if (lastHotlistIndex === -1) {
+        lastHotlistIndex = 0;
+
+        if (!isInHotlist()) {
+            moveToHotlistIdx(lastHotlistIndex);
+            return;
+        }
+    } 
+
+    lastHotlistIndex--;
+    if (lastHotlistIndex < 0) {
+        lastHotlistIndex = hotlist.length - 1;;
+    } 
+
+    moveToHotlistIdx(lastHotlistIndex);
+}
+
+function moveForwardsOverHotlist() {
+    const hotlist = getHotlist();
+    if (lastHotlistIndex === -1) {
+        lastHotlistIndex = 0;
+
+        if (!isInHotlist()) {
+            moveToHotlistIdx(lastHotlistIndex);
+            return;
+        }
+    } 
+
+    lastHotlistIndex++;
+    if (lastHotlistIndex >= hotlist.length) {
+        lastHotlistIndex = 0;
+    } 
+
+    moveToHotlistIdx(lastHotlistIndex);
+}
+
+
 // I used to have tabs, but I literally never used then, so I've just removed those components.
 // However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
 // The main benefit of having just a single tree (apart from simplicity and less code) is that
@@ -2013,6 +2146,11 @@ export const App = () => {
     const activityList = EditableActivityList();
     const breakInput = BreakInput();
     const todoNotes = TodoList();
+    const pinnedNotes = PinnedList();
+    const pinnedNotesContainer = div({}, [
+        el("H3", {}, ["Pinned Notes"]),
+        pinnedNotes 
+    ]);
 
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
@@ -2110,6 +2248,7 @@ export const App = () => {
         notesList,
         div({ class: "row", style: "gap: 10px" }, [
             div({ style: "flex:1; padding-top: 20px" }, [
+                pinnedNotesContainer,
                 div({}, [
                     el("H3", {}, ["TODO Notes"]),
                     todoNotes
@@ -2129,8 +2268,30 @@ export const App = () => {
         fuzzyFindModal,
     ]);
 
-    // I use this for the ctrl + shift + </> keybinds to move through previous activities
-    let lastTodoIndex = 0;
+
+    document.addEventListener("keyup", (e) => {
+        // returns true if we need a rerender
+        const ctrlPressed = e.ctrlKey || e.metaKey;
+        const shiftPressed = e.shiftKey;
+
+        if (
+            !ctrlPressed &&
+            !shiftPressed &&
+            lastHotlistIndex !== -1
+        ) {
+            const hotlist = getHotlist();
+            if (hotlist === state.pinnedNoteIds) {
+                // move the pinned note to the top of the list, like alt-tabbing between windows
+                const id = state.pinnedNoteIds[lastHotlistIndex];
+                state.pinnedNoteIds.splice(lastHotlistIndex, 1);
+                state.pinnedNoteIds.unshift(id);
+            }
+
+            lastHotlistIndex = -1;
+            rerenderApp();
+        }
+    });
+
     document.addEventListener("keydown", (e) => {
         // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
@@ -2143,8 +2304,7 @@ export const App = () => {
             (e.key === "Shift" || e.key === "Control") &&
             !e.repeat
         ) {
-            // lastTodoIndex = state.activities.length - 1;
-            lastTodoIndex = 0;
+            lastHotlistIndex = -1;
         }
 
         // handle modals
@@ -2173,6 +2333,15 @@ export const App = () => {
             setCurrentModal("analytics-view");
             return;
         } else if (
+            e.key === "B" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            toggleCurrentNotePinned(state);
+            rerenderApp();
+            return;
+        } else if (
             currentModal !== null &&
             e.key === "Escape"
         ) {
@@ -2198,6 +2367,7 @@ export const App = () => {
 
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
+                    debouncedSave();
                     return;
                 }
 
@@ -2233,6 +2403,7 @@ export const App = () => {
                 if (!e.altKey) {
                     // move into the current note
                     setCurrentNote(state, getInnerNoteId(currentNote));
+                    debouncedSave();
                     return;
                 }
 
@@ -2293,29 +2464,13 @@ export const App = () => {
                 // The browser can't detect ctrl when it's pressed on its own :((((
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
-                    if (state.currentNoteId !== state.todoNoteIds[lastTodoIndex]) {
-                        setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
-                    } else {
-                        lastTodoIndex++;
-                        if (lastTodoIndex >= state.todoNoteIds.length) {
-                            lastTodoIndex = state.todoNoteIds.length - 1;
-                        } else {
-                            setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
-                        }
-                    }
+                    moveForwardsOverHotlist();
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
-                    // lastTodoIndex = getNextActivityWithNoteIdx(state, lastTodoIndex);
-                    lastTodoIndex--;
-                    if (lastTodoIndex < 0) {
-                        lastTodoIndex = 0;
-                    } else {
-                        // const activity = state.activities[lastTodoIndex];
-                        setCurrentNote(state, state.todoNoteIds[lastTodoIndex]);
-                    }
+                    moveBackOverHotlist();
                 } else {
                     // move into note
                     handleMovingIn();
@@ -2378,6 +2533,9 @@ export const App = () => {
         activityList.render(undefined);
         breakInput.render(undefined);
         todoNotes.render(undefined);
+        if (setVisible(pinnedNotesContainer, state.pinnedNoteIds.length > 0)) {
+            pinnedNotes.render(undefined);
+        }
 
         if (setVisible(fuzzyFindModal, currentModal === "fuzzy-finder")) {
             fuzzyFindModal.render(undefined);
