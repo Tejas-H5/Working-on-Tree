@@ -1,4 +1,4 @@
-import { countOccurances, filterInPlace } from "./array-utils";
+import { filterInPlace } from "./array-utils";
 import { formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
 import * as tree from "./tree";
@@ -24,9 +24,6 @@ export type State = {
 
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     todoNoteIds: NoteId[];
-
-    /** These notes are the _parents_ of notes that we want to keep pinned, useful for switching back and forth between two+ tasks */
-    pinnedNoteIds: NoteId[];
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -156,7 +153,6 @@ function defaultState(): State {
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
         todoNoteIds: [],
-        pinnedNoteIds: [],
         activities: [],
         lastFixedActivityIdx: 0,
 
@@ -312,7 +308,18 @@ export function recomputeState(state: State) {
                     continue;
                 }
 
-                if (isTodoNote(child.data) || isSubtaskNote(child.data)) {
+                if (isTodoNote(child.data)) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                    continue;
+                }
+
+                if (isSubtaskNote(child.data)) {
+                    if (foundDoneNote) {
+                        child.data._status = STATUS_DONE;
+                        foundDoneNote = false;
+                        continue;
+                    } 
+
                     child.data._status = STATUS_IN_PROGRESS;
                     continue;
                 }
@@ -323,6 +330,7 @@ export function recomputeState(state: State) {
                     continue;
                 }
 
+
                 if (i === note.childIds.length - 1) {
                     child.data._status = STATUS_IN_PROGRESS;
                 } else {
@@ -330,32 +338,13 @@ export function recomputeState(state: State) {
                 }
             }
 
-            // Current "Done" upward-propagation criteria:
-            // - It has zero children and starts with Done done DONE (Computed Above)
-            // - it has 1+ children, and (Computed below):
-            //      - all the notes are TODO Notes, and every note is done
-            //      - every note is done, and either: the final child has zero children and is DONE, or every note is also a TODO note.
-
-            const everyChildNoteIsTODO = note.childIds.every((id) => {
-                const note = getNote(state, id);
-                return isTodoNote(note.data) && note.data._status === STATUS_DONE;
-            });
-
             const everyChildNoteIsDone = note.childIds.every((id) => {
                 const note = getNote(state, id);
-                return note.data._status === STATUS_DONE;
+                return note.data._status === STATUS_DONE 
+                    || note.data._status === STATUS_ASSUMED_DONE;
             });
 
-            const finalNoteId = note.childIds[note.childIds.length - 1];
-            const finalNote = getNote(state, finalNoteId);
-            const finalNoteIsDoneLeafNote = isDoneNote(finalNote.data);
-
-            const isDone = everyChildNoteIsDone 
-                // && (
-                //     everyChildNoteIsTODO ||
-                //         finalNoteIsDoneLeafNote
-                // );
-
+            const isDone = everyChildNoteIsDone;
             note.data._status = isDone ? STATUS_DONE : STATUS_IN_PROGRESS;
         };
 
@@ -402,18 +391,6 @@ export function recomputeState(state: State) {
         filterInPlace(state.todoNoteIds, (id) => {
             const note = getNote(state, id);
             return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
-        });
-    }
-
-    // recompute the pinned notes - delete em as they get deleted.
-    // todo notes automatically get deleted, because we rerender each time we edit a note,
-    // and in order to delete a note, you have to delete the "TODO" text, which is what
-    // gives the note it's TODO status in the first place, meaning that we have to remove
-    // it's todo status before we can delete it. 
-    // There is no such guarantee for pinned notes.
-    {
-        filterInPlace(state.pinnedNoteIds, (id) => {
-            return hasNote(state, id);
         });
     }
 
@@ -473,38 +450,16 @@ export function isLastActivityTenuous(state: State) {
     return false;
 }
 
-export function pushActivity(state: State, activity: Activity, shouldDebounce: boolean) {
-    const last = getLastActivity(state);
-    const lastIdx = state.activities.length - 1;
-    if (!last) {
-        state.lastFixedActivityIdx = state.activities.length;
-        state.activities.push(activity);
+function pushActivity(state: State, activity: Activity) {
+    if (
+        state.activities.length > 0 &&
+        state.activities[state.activities.length - 1].nId === activity.nId
+    ) {
+        // Don't push the same note twice in a row
         return;
     }
 
-    if (last && last.nId) {
-        if (isLastActivityTenuous(state)) {
-            // we are debouncing this append operation, so that we don't append like 10 activities by just moving around for example.
-            // This would just mean that we replace the last thing we pushed instead of pushing a new thing
-            state.activities.pop();
-        } else {
-            // Actually, we don't even need to do this. The simple fact that
-            // it is older than 1 minute will already have the same effect as the lastFixedActivity variable, i.e
-            // prevent the activities.pop() from happening.
-            // But there's no real harm to put this here either
-            state.lastFixedActivityIdx = lastIdx
-        }
-
-        if (getLastActivity(state)?.nId === activity.nId) {
-            // don't add the same activity twice in a row
-            return;
-        }
-    }
-
     state.activities.push(activity);
-    if (!shouldDebounce) {
-        state.lastFixedActivityIdx = state.activities.length - 1;
-    }
 }
 
 
@@ -581,8 +536,8 @@ export function insertNoteAfterCurrent(state: State) {
 
     const newNote = createNewNote(state, "");
     tree.addAfter(state.notes, currentNote, newNote)
-    setCurrentNote(state, newNote.id, false);
-    state._isEditingFocusedNote = true;
+    setCurrentNote(state, newNote.id);
+    setIsEditingCurrentNote(state, true);
     return true;
 }
 
@@ -597,7 +552,7 @@ export function insertChildNode(state: State): TreeNote | null {
     const newNote = createNewNote(state, "");
 
     tree.addUnder(state.notes, currentNote, newNote);
-    setCurrentNote(state, newNote.id, false);
+    setCurrentNote(state, newNote.id);
 
     return newNote;
 }
@@ -667,13 +622,22 @@ export function getCurrentNote(state: State) {
     return getNote(state, state.currentNoteId);
 }
 
+function pushNoteActivity(state: State, noteId: NoteId) {
+    pushActivity(state, {
+        nId: noteId,
+        t: getTimestamp(new Date()),
+    });
+}
+
 export function pushBreakActivity(state: State, breakInfoText: string, locked: undefined | true) {
     pushActivity(state, {
         nId: undefined,
         t: getTimestamp(new Date()),
         breakInfo: breakInfoText,
         locked: locked,
-    }, false);
+    });
+
+    setIsEditingCurrentNote(state, false);
 }
 
 export function isCurrentlyTakingABreak(state: State): boolean {
@@ -709,7 +673,7 @@ export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, a
     return null;
 }
 
-export function setCurrentNote(state: State, noteId: NoteId | null, debounceActivity = true) {
+export function setCurrentNote(state: State, noteId: NoteId | null) {
     if (!noteId) {
         return;
     }
@@ -729,17 +693,23 @@ export function setCurrentNote(state: State, noteId: NoteId | null, debounceActi
     }
 
     state.currentNoteId = note.id;
-    state._isEditingFocusedNote = false;
+    setIsEditingCurrentNote(state, false);
+
     deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
-
-    pushActivity(state, {
-        t: getTimestamp(new Date()),
-        nId: note.id,
-    }, debounceActivity);
-
 
     return true;
 }
+
+
+export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
+    state._isEditingFocusedNote = isEditing;
+
+    if (isEditing) {
+        const currentNote = getCurrentNote(state);
+        pushNoteActivity(state, currentNote.id);
+    }
+}
+
 
 type NoteFilterFunction = (state: State, note: TreeNote) => boolean;
 export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
@@ -1116,53 +1086,6 @@ export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
     }
 
     return null;
-}
-export function isPinned(state: State, id: NoteId): boolean {
-    return state.pinnedNoteIds.includes(id);
-}
-
-export function unpinNote(state: State, id: NoteId) {
-    const idx = state.pinnedNoteIds.indexOf(id);
-    if (idx !== -1) {
-        state.pinnedNoteIds.splice(idx, 1);
-    }
-}
-
-export function isInPinnedJumplist(state: State, note: TreeNote): boolean {
-    if (!note.parentId) {
-        return false;
-    }
-
-    if (!isPinned(state, note.parentId)) {
-        return false;
-    }
-
-    // parent is pinned, and it's last selected note is this one.
-    const parent = getNote(state, note.parentId);
-    return parent.childIds[parent.data.lastSelectedChildIdx] === note.id;
-}
-
-/** returns true if we pinned something. false if it was already pinnned */
-export function pinNote(state: State, id: NoteId): boolean {
-    if (!isPinned(state, id)) {
-        state.pinnedNoteIds.unshift(id);
-        return true;
-    }
-
-    return false;
-}
-
-export function toggleCurrentNotePinned(state: State) {
-    // We actually want to 'pin' the parent, so that it doesn't matter where we move under the parent, we can end up right back
-    // there when we move through the pinned notes
-    const note = getCurrentNote(state);
-    if (!note.parentId) {
-        return;
-    }
-    
-    if (!pinNote(state, note.parentId)) {
-        unpinNote(state, note.parentId);
-    } 
 }
 
 export function resetState() {

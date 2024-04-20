@@ -14,7 +14,6 @@ import {
     getCurrentNote,
     getFirstPartOfRow,
     getIndentStr,
-    getLastActivity,
     getNote,
     getNoteDuration,
     getNoteOneDownLocally,
@@ -31,7 +30,6 @@ import {
     isEditableBreak,
     loadStateFromJSON,
     moveNotePriorityIntoPriorityGroup,
-    pushActivity,
     pushBreakActivity,
     recomputeFlatNotes,
     recomputeState,
@@ -47,8 +45,7 @@ import {
     isTodoNote,
     dfsPre,
     getRootNote,
-    toggleCurrentNotePinned,
-    isInPinnedJumplist,
+    setIsEditingCurrentNote,
 } from "./state";
 import {
     Renderable,
@@ -112,53 +109,6 @@ function NoteLink(): Renderable<NoteLinkArgs> {
                 rerenderApp({ shouldScroll: preventScroll || false });
             }
         }, 1);
-    });
-
-    return component;
-}
-
-function PinnedList() : Renderable {
-    type PinnedNoteArgs = {
-        parentNoteId: NoteId;
-    }
-    const list = makeComponentList(div(), () => {
-        const parent = NoteLink();
-        const parentSelected = NoteLink();
-        const root = div({}, [
-            parent,
-            div({ style: "padding-left: 40px"}, [parentSelected]),
-        ]);
-
-        const component = makeComponent<PinnedNoteArgs>(root, () => {
-            const { parentNoteId } = component.args;
-            
-            const parentNote = getNote(state, parentNoteId);
-            const jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
-            const jumpNote = getNote(state, jumpNoteId);
-
-            parentSelected.render({
-                text: jumpNote.data.text,
-                noteId: jumpNote.id,
-            });
-            
-            parent.render({
-                text: parentNote.data.text,
-                noteId: parentNote.id,
-            });
-        });
-
-        return component;
-    });
-
-    const root = div({}, [
-        list
-    ]);
-
-    const component = makeComponent(root, () => {
-        list.resize(state.pinnedNoteIds.length);
-        for(let i = 0; i < state.pinnedNoteIds.length; i++) {
-            list.components[i].render({ parentNoteId: state.pinnedNoteIds[i] });
-        }
     });
 
     return component;
@@ -866,7 +816,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
 
-        const dashChar = note.data._isSelected ? ">" : "-";
+        const dashChar = note.data._isSelected ? "-" : "-";
         const progressText = getNoteProgressCountText(note);
 
         setTextContent(
@@ -891,7 +841,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
                     window.scrollTo({
                         left: 0,
-                        top: wantedY - window.innerHeight / 2,
+                        // With the note tree it's much more important for me to see what I've done, as below that isn't very important. 
+                        top: wantedY - (3 * window.innerHeight / 4),
                         behavior: "instant"
                     });
                 }
@@ -916,20 +867,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         note.data.text = whenEditing.el.value;
 
+        // Perform a partial update on the state, to just the thing we're editing
+
         if (state.todoNoteIds.includes(note.id)) {
             moveNotePriorityIntoPriorityGroup(state, note.id);
         }
 
         onRerenderWhenEditing();
-
-        const last = getLastActivity(state);
-        if (last?.nId !== note.id) {
-            pushActivity(state, {
-                t: getTimestamp(new Date()),
-                nId: note.id,
-                locked: undefined,
-            }, true);
-        }
 
         debouncedSave();
 
@@ -1641,11 +1585,7 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     // const workdayDuration = div();
     const duration = div();
-    const isPinned = div({ style: "background-color: #00F; color: #FFF" }, [ "[PIN]" ]);
-    const isPinnedJumplist = div({ style: "background-color: #00F; color: #FFF" }, [ "[ < ]" ]);
     const root = div({ class: "row", style: "padding-left: 10px; gap: 10px;" }, [
-        isPinned,
-        isPinnedJumplist,
         duration,
         // div({ style: "background-color: var(--fg-color); width: 4px;"}),
         // workdayDuration,
@@ -1654,18 +1594,11 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
 
-        setVisible(isPinnedJumplist, isInPinnedJumplist(state, note))
-        setVisible(isPinned, state.pinnedNoteIds.includes(note.id))
-
         // only doing it for 1 note for now for performance reasons.
         // In future we can use memoisation to make it faster. i.e
         // duration = sum of child durations + duration of this note, if we even care to.
-
-        // if (setVisible(duration, note.id === state.currentNoteId)) {
         const durationMs = getNoteDuration(state, note);
-        // setTextContent(workdayDuration, formatDurationInWorkdays(durationMs));
         setTextContent(duration, formatDuration(durationMs, 2));
-        // }
     });
 
     return component;
@@ -1917,7 +1850,8 @@ const setCurrentModal = (modal: Modal) => {
         return;
     }
 
-    state._isEditingFocusedNote = false;
+    setIsEditingCurrentNote(state, false);
+
     currentModal = modal;
 
     rerenderApp({ shouldScroll: true });
@@ -1932,47 +1866,34 @@ function CheatSheet(): Renderable {
         el("H3", {}, ["Cheatsheet"]),
         el("H4", {}, ["Movement"]),
         makeUnorderedList([
-            `[Enter] to start editing a note`,
-            `[Shift] + [Enter] will make a new note under the current note when not editing, or will input new lines when editing`,
-            `[Up]/[PageUp]/[Home]/[Ctrl+Up] to move upwards on the same level. ([Down]/[PageDown]/[Home]/[Ctrl+Down] to move downwards, obviously) `,
-            `[Left] to move 'out' of a note, or up a level. [Right] to move back 'into' a note, or down a level`,
-            `[Alt] + [Any normal movement] to move the current note around the tree`,
-            `[Ctrl] + [Shift] + [Left/Right] to move to the previous/next activity in the TODO list or the Pinned list if you've pinned things (starting from the top)`,
+            `[Enter]: start editing the current note (when not editing), or create a new note under the current note (when editing)`,
+            `[Shift] + [Enter]: create a new note 1 level below the current note (when not editing), or insert new lines (when editing)`,
+            `[Up]/[PageUp]/[Home]/[Ctrl+Up] and [Down]/[PageDown]/[Home]/[Ctrl+Down]: Move upwards or downards on the same level (when not editing)`,
+            `[Left]: Move up 1 level 'out of' the note (when not editing)`,
+            `[Right]: Move down 1 level 'into' the note (when not editing)`,
+            `[Alt] + [Previous movement keys]: Grab and move the current note around the tree to where you would have otherwise moved`,
+            `[Ctrl] + [Shift] + [Left/Right]: to move backwards/forwards to the previous task-list you were working on. Doesn't work with [Alt]`,
         ]),
-        el("H4", {}, ["Task statuses"]),
-        div({}, [
-            `Tasks have 3 statuses:`,
-            makeUnorderedList([
-                noteStatusToString(STATUS_IN_PROGRESS) + ` - "In Progress" - this note is assumed to be something you're working on`,
-                noteStatusToString(STATUS_ASSUMED_DONE) + ` - "Assumed Done" - this note is assumed to be completed. 
-                    You will see it if you write several entries after one another. 
-                    All entries before the bottom-most entry are assumed to be completed.`,
-                noteStatusToString(STATUS_DONE) + ` - "Done" - this note has been marked as 'Done' by the user themselves. 
-                    Any note starting with the text "DONE", "Done", "done", "DECLINED", "MERGED" will get this status, and apply it to all the notes behind it 
-                        (if that note isn't being kept open for other reasons). 
-                        Any note with every note under it marked as "Done" will also be marked as "Done".`,
-            ])
-        ]),
-        el("H4", {}, ["The TODO List"]),
+        el("H4", {}, ["Note/Task statuses"]),
+        el("P", {}, [ "NOTE: I will refer to a 'note' and a 'task' somewhat interchangeably" ]),
         makeUnorderedList([
-            `Notes can be kept In Progress by starting thier text with "TODO" or "Todo". 
-            These notes will also get added to the TODO list for quick access from any view.`,
-            `Alternatively, you can start a note with ">" to keep it 'in progress' without creating a TODO entry (using * is deprecated)"`,
-            `These notes can also be given priorities using ! and ?. TODO! has a priority of 1, TODO!! has 2, etc. Conversely, TODO? has priority -1, TODO?? -2, etc.`
+            noteStatusToString(STATUS_IN_PROGRESS) + `: This note is currently in progress`,
+            noteStatusToString(STATUS_ASSUMED_DONE) + `: This note is assumed to be done`,
+            noteStatusToString(STATUS_DONE) + `: This note is done according to the user`,
         ]),
-        el("H4", {}, ["The Pinned List"]),
+        el("H4", {}, ["Completing tasks, and keeping tasks in progress"]),
+        el("P", {}, ["Notes can be started with a specific text in order to affect their status:"]),
         makeUnorderedList([
-            `Pin/Unpin notes using [Ctrl] + [Shift] + [B].`,
-            `This actually pins the parent note, but [Ctrl] + [Shift] + [Left/Right] will actually jump between the last selected note underneath.`,
-            `Can be useful for keeping track of tasks you're currently working on`,
-            `The pinned list is hidden if you haven't pinned any notes.`,
+            `TODO, Todo, todo: Keeps this note's status in progress, and places it into the Todo list, which you can use to see all your open tasks at a glance. You can use !! or ?? to increase or decrease the priority group of a TODO note. For example, TODO! has a priority of 1, TODO!! has a priority of 2, TODO? has a priority of -1, etc.`,
+            `DONE, Done, done, DECLINED, MERGED: Marks a single note (and all notes assumed to be done before it) as DONE. If all notes under a note are DONE or assumed done, the note itself becomes DONE.`,
+            `>: Keeps this note's status in progress, without placing it into the TODO list. I'm still not sure if this is very useful to be honest`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
-            `Each time you move to a different note (within over a minute), it gets recorded here`,
-            `All times can be edited in case you forget to move to a note for some reason. However, activities can't be inserted or re-ordered.`,
-            `You can also append breaks here by clicking "Take a break". Breaks are used to prevent time from contributing towards duration calculations.`,
-            `If you mouse-over breaks, you will be given the option to insert breaks between two activities. This break can be edited, or removed later, and is typically what you would use to retroactively delete time from duration calculations if you forgot to add the break at the time.`,
+            `Each time you start editing a note, the current time and the note ID gets recorded in this list`,
+            `The time between this activity and the next activity will contribute towards the overal 'duration' of a note, and all of it's parent notes.`,
+            `You can add or insert breaks to prevent some time from contributing towards the duration of a particular note`,
+            `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
         ]),
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
@@ -1999,126 +1920,67 @@ function CheatSheet(): Renderable {
     ]), () => { });
 }
 
-// function Help(): Renderable {
-//     let idx = 0;
+function getNextActivityInDirection(state: State, idx: number, backwards: boolean): number {
+    const currentNote = getCurrentNote(state);
+    const currentParentId = currentNote.parentId;
 
-//     const title = el("h3", {}, [ "How do I use this web app?" ]);
-//     const helpText = el("p", {});
-//     const doneButton = makeButton("Next");
-//     const backButton = makeButton("Go back");
-//     const componentInsertPoint = div();
-//     const noteTreeHelp = div({}, [
-//         title,
-//         helpText,
-//         div({ class: "row justify-content-center"}, [
-//             backButton,
-//             doneButton, 
-//         ]),
-//         componentInsertPoint,
-//     ]);
+    const activities = state. activities;
+    const direction = backwards? -1 : 1;
+    while (
+        (direction === -1 && idx > 0) ||
+        (direction === 1 && idx < activities.length - 1)
+    ) {
+        idx += direction;
 
+        const noteId = activities[idx].nId
+        if (noteId) {
+            const note = getNote(state, noteId);
 
-//     const component = makeComponent(noteTreeHelp, () => {
-//         setTextContent(title, helpItems[idx].title);
-//         setTextContent(helpText, helpItems[idx].text);
-
-//         const component = helpItems[idx].component;
-//         replaceChildren(componentInsertPoint, component);
-
-//         setVisible(backButton, idx > 0);
-//         setVisible(doneButton, idx < helpItems.length - 1);
-//     });
-
-//     doneButton.el.addEventListener("click", () => {
-//         idx++;
-//         if (idx >= helpItems.length) {
-//             idx = helpItems.length - 1;
-//         }
-
-//         component.render(component.args);
-//     });
-
-//     backButton.el.addEventListener("click", () => {
-//         idx--;
-//         if (idx < 0) {
-//             idx = 0;
-//         }
-
-//         component.render(component.args);
-//     });
-
-//     return component;
-// }
-
-
-function getHotlist() {
-    return state.pinnedNoteIds.length > 0 ? state.pinnedNoteIds : state.todoNoteIds;
-}
-
-function moveToHotlistIdx(i: number) {
-    const hotlist = getHotlist();
-    if (i < 0 || i >= hotlist.length) {
-        return;
+            if (
+                note.parentId && 
+                note.parentId !== currentParentId
+            ) {
+                break;
+            }
+        }
     }
 
-    if (hotlist !== state.pinnedNoteIds) {
-        setCurrentNote(state, hotlist[i]);
-        return;
-    }
 
-    const parentId = hotlist[i];
-    const parent = getNote(state, parentId);
-    const jumpId = parent.childIds[parent.data.lastSelectedChildIdx];
-    setCurrentNote(state, jumpId);
+    return idx;
 }
 
-// I use this for the ctrl + shift + </> keybinds to move through previous activities
+
 let lastHotlistIndex = 0;
-
-function isInHotlist(): boolean {
-    const hotlist = getHotlist();
-    const note = getCurrentNote(state);
-
-    return hotlist.includes(state.currentNoteId) ||
-            (hotlist === state.pinnedNoteIds && isInPinnedJumplist(state, note));
-}
-
-function moveBackOverHotlist() {
-    const hotlist = getHotlist();
+function moveInDirectonOverHotlist(backwards: boolean) {
     if (lastHotlistIndex === -1) {
-        lastHotlistIndex = 0;
+        lastHotlistIndex = state.activities.length - 1;
+    }
 
-        if (!isInHotlist()) {
-            moveToHotlistIdx(lastHotlistIndex);
-            return;
-        }
-    } 
+    const nextIdx = getNextActivityInDirection(state, lastHotlistIndex, backwards);
+    if (nextIdx < 0 || nextIdx >= state.activities.length) {
+        return;
+    }
 
-    lastHotlistIndex--;
-    if (lastHotlistIndex < 0) {
-        lastHotlistIndex = hotlist.length - 1;;
-    } 
 
-    moveToHotlistIdx(lastHotlistIndex);
-}
+    const nId = state.activities[nextIdx].nId;
+    if (!nId) {
+        return;
+    }
 
-function moveForwardsOverHotlist() {
-    const hotlist = getHotlist();
-    if (lastHotlistIndex === -1) {
-        lastHotlistIndex = 0;
+    const note = getNote(state, nId);
+    if (!note.parentId) {
+        return;
+    }
 
-        if (!isInHotlist()) {
-            moveToHotlistIdx(lastHotlistIndex);
-            return;
-        }
-    } 
+    const parentNote = getNote(state, note.parentId);
+    const jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
+    if (!jumpNoteId) {
+        return;
+    }
 
-    lastHotlistIndex++;
-    if (lastHotlistIndex >= hotlist.length) {
-        lastHotlistIndex = 0;
-    } 
-
-    moveToHotlistIdx(lastHotlistIndex);
+    setCurrentNote(state, jumpNoteId);
+    setIsEditingCurrentNote(state, false);
+    lastHotlistIndex = nextIdx;
 }
 
 
@@ -2154,11 +2016,6 @@ export const App = () => {
     const activityList = EditableActivityList();
     const breakInput = BreakInput();
     const todoNotes = TodoList();
-    const pinnedNotes = PinnedList();
-    const pinnedNotesContainer = div({}, [
-        el("H3", {}, ["Pinned Notes"]),
-        pinnedNotes 
-    ]);
 
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
@@ -2256,7 +2113,6 @@ export const App = () => {
         notesList,
         div({ class: "row", style: "gap: 10px" }, [
             div({ style: "flex:1; padding-top: 20px" }, [
-                pinnedNotesContainer,
                 div({}, [
                     el("H3", {}, ["TODO Notes"]),
                     todoNotes
@@ -2276,29 +2132,6 @@ export const App = () => {
         fuzzyFindModal,
     ]);
 
-
-    document.addEventListener("keyup", (e) => {
-        // returns true if we need a rerender
-        const ctrlPressed = e.ctrlKey || e.metaKey;
-        const shiftPressed = e.shiftKey;
-
-        if (
-            !ctrlPressed &&
-            !shiftPressed &&
-            lastHotlistIndex !== -1
-        ) {
-            const hotlist = getHotlist();
-            if (hotlist === state.pinnedNoteIds) {
-                // move the pinned note to the top of the list, like alt-tabbing between windows
-                const id = state.pinnedNoteIds[lastHotlistIndex];
-                state.pinnedNoteIds.splice(lastHotlistIndex, 1);
-                state.pinnedNoteIds.unshift(id);
-            }
-
-            lastHotlistIndex = -1;
-            rerenderApp();
-        }
-    });
 
     document.addEventListener("keydown", (e) => {
         // returns true if we need a rerender
@@ -2339,15 +2172,6 @@ export const App = () => {
         ) {
             e.preventDefault();
             setCurrentModal("analytics-view");
-            return;
-        } else if (
-            e.key === "B" &&
-            ctrlPressed &&
-            shiftPressed
-        ) {
-            e.preventDefault();
-            toggleCurrentNotePinned(state);
-            rerenderApp();
             return;
         } else if (
             currentModal !== null &&
@@ -2472,13 +2296,13 @@ export const App = () => {
                 // The browser can't detect ctrl when it's pressed on its own :((((
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
-                    moveForwardsOverHotlist();
+                    moveInDirectonOverHotlist(true);
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
-                    moveBackOverHotlist();
+                    moveInDirectonOverHotlist(false);
                 } else {
                     // move into note
                     handleMovingIn();
@@ -2486,10 +2310,10 @@ export const App = () => {
             } else if (shiftPressed && e.key === "Enter") {
                 const newNote = insertChildNode(state);
                 if (newNote) {
-                    state._isEditingFocusedNote = true;
+                    setIsEditingCurrentNote(state, true);
                 }
             } else if (e.key === "Enter") {
-                state._isEditingFocusedNote = true;
+                setIsEditingCurrentNote(state, true);
             } else {
                 needsRerender = false;
             }
@@ -2508,7 +2332,7 @@ export const App = () => {
 
         if (e.key === "Escape") {
             if (isEditingSomeText) {
-                state._isEditingFocusedNote = false;
+                setIsEditingCurrentNote(state, false);
             } else {
                 setCurrentModal(null);
                 needsRerender = false;
@@ -2541,9 +2365,6 @@ export const App = () => {
         activityList.render(undefined);
         breakInput.render(undefined);
         todoNotes.render(undefined);
-        if (setVisible(pinnedNotesContainer, state.pinnedNoteIds.length > 0)) {
-            pinnedNotes.render(undefined);
-        }
 
         if (setVisible(fuzzyFindModal, currentModal === "fuzzy-finder")) {
             fuzzyFindModal.render(undefined);
