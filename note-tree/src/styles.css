@@ -64,6 +64,7 @@ button:hover {
 
 .hover:hover {
     background-color: var(--bg-color-focus);
+    cursor: pointer;
 }
 
 button:active {

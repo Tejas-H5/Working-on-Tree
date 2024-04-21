@@ -101,16 +101,20 @@ type Attrs = { [qualifiedName: ValidAttributeName]: string } & {
     src?: string;
 }
 
-/**
- * Creates an element, gives it some attributes, then appends it's children.
- * This is all you need for 99.9% of web dev use-cases
+/** 
+ * Useful for when you need to append to attributes/children 
+ * on an Insertable returned by a function
  */
-export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?: (Insertable | string)[]): InsertableGeneric<T> {
-    const element = document.createElement(type);
+export function buildEl<T extends Insertable>(
+    ins: T,
+    attrs?: Attrs,
+    children?: (Insertable | string)[],
+): T {
+    const element = ins.el;
 
     if (attrs) {
         for (const attr in attrs) { 
-            element.setAttribute(attr, attrs[attr]);
+            element.setAttribute(attr, (element.getAttribute(attr) || "") + attrs[attr]);
         }
     }
 
@@ -124,9 +128,28 @@ export function el<T extends HTMLElement>(type: string, attrs?: Attrs, children?
         }
     }
 
-    return {
+    return ins;
+}
+
+/**
+ * Creates an element, gives it some attributes, then appends it's children.
+ * This is all you need for 99.9% of web dev use-cases
+ */
+export function el<T extends HTMLElement>(
+    type: string, 
+    attrs?: Attrs,
+    children?: (Insertable | string)[],
+): InsertableGeneric<T> {
+    const element = document.createElement(type);
+
+    const insertable: InsertableGeneric<T> = {
         el: element as T
     };
+
+
+    buildEl(insertable, attrs, children);
+
+    return insertable;
 }
 
 /**

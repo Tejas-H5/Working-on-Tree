@@ -406,8 +406,7 @@ export function recomputeState(state: State) {
     }
 }
 
-
-export function getActivityText(state: State, activity: Activity): string {
+export function getActivityTextOrUndefined(state: State, activity: Activity): string | undefined {
     if (activity.nId) {
         return getNote(state, activity.nId).data.text;
     }
@@ -416,7 +415,11 @@ export function getActivityText(state: State, activity: Activity): string {
         return activity.breakInfo;
     }
 
-    return "< unknown activity text! >";
+    return undefined;
+}
+
+export function getActivityText(state: State, activity: Activity): string {
+    return getActivityTextOrUndefined(state, activity) || "< unknown activity text! >";
 }
 
 export function getActivityDurationMs(activity: Activity, nextActivity?: Activity): number {
@@ -993,32 +996,47 @@ export function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) 
     }
 }
 
+export function recomputeNoteTasks(state: State) {
+    const dfs = (id: NoteId) => {
+        const note = getNote(state, id);
+
+        let task = getNoteTag(note, "Task");
+        if (!task && note.parentId) {
+            task = getNote(state, note.parentId).data._task;
+        }
+
+        note.data._task = task;
+
+        for (const id of note.childIds) {
+            dfs(id);
+        }
+    }
+
+    dfs(state.notes.rootId);
+}
+
+
+export function isBreak(activity: Activity): boolean {
+    return !!activity.breakInfo;
+}
+
+export function isMultiDay(activity: Activity, nextActivity: Activity | undefined) : boolean {
+    const t = new Date(activity.t);
+    const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
+
+    return !(
+        t.getDate() === t1.getDate() &&
+        t.getMonth() === t1.getMonth() &&
+        t.getFullYear() === t1.getFullYear()
+    );
+}
+
+// Assumes you've already recomputed a note's tasks
 export function recomputeAnalytics(state: State, activityIndices: number[], analytics: Analytics) {
     resetAnalyticsSeries(analytics.breaks);
     resetAnalyticsSeries(analytics.multiDayBreaks);
     analytics.taskTimes.clear();
     analytics.totalTime = 0;
-
-    // recompute which tasks each note belong to.
-    {
-        const dfs = (id: NoteId) => {
-            const note = getNote(state, id);
-
-            let task = getNoteTag(note, "Task");
-            if (!task && note.parentId) {
-                task = getNote(state, note.parentId).data._task;
-            }
-
-            note.data._task = task;
-
-            for (const id of note.childIds) {
-                dfs(id);
-            }
-        }
-
-        dfs(state.notes.rootId);
-    }
-
 
     // compute which activities belong to which group
     const activities = state.activities;
@@ -1026,19 +1044,12 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
         const activity = activities[i];
         const nextActivity = activities[i + 1] as Activity | undefined;
 
-        if (activity.breakInfo) {
+        if (isBreak(activity)) {
             // Some breaks span from end of day to start of next day. 
             // They aren't very useful for most analytics questions, like 
             //      "How long did I spent working on stuff today vs Lunch?".
 
-            const t = new Date(activity.t);
-            const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
-
-            if (
-                t.getDate() === t1.getDate() &&
-                t.getMonth() === t1.getMonth() &&
-                t.getFullYear() === t1.getFullYear()
-            ) {
+            if (!isMultiDay(activity, nextActivity)) {
                 analytics.breaks.activityIndices.push(i);
                 continue;
             }
@@ -1069,6 +1080,7 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
 
     recomputeAnalyticsSeries(state, analytics.multiDayBreaks);
     analytics.totalTime += analytics.multiDayBreaks.duration;
+
     for (const s of analytics.taskTimes.values()) {
         recomputeAnalyticsSeries(state, s);
         analytics.totalTime += s.duration;

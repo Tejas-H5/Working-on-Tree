@@ -135,12 +135,12 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
     const root = div({ class: "row " + (clazz || "") }, [
         div({}, [dateTimeInput = DateTimeInput()]),
         zeroButton = makeButton("0am"),
-        incrDay = makeButton("+1 day"),
-        decrDay = makeButton("-1 day"),
-        incrWeek = makeButton("+7 days"),
-        decrWeek = makeButton("-7 days"),
-        incrMonth = makeButton("+30 days"),
-        decrMonth = makeButton("+30 days"),
+        incrDay = makeButton("+1d"),
+        decrDay = makeButton("-1d"),
+        incrWeek = makeButton("+7d"),
+        decrWeek = makeButton("-7d"),
+        incrMonth = makeButton("+30d"),
+        decrMonth = makeButton("-30d"),
     ]);
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
@@ -220,7 +220,32 @@ export function Checkbox(initialLabel?: string): Renderable<GenericInputArgument
 
     button.el.addEventListener("click", () => {
         component.args.onChange(!component.args.value);
-    })
+    });
+
+    return component;
+}
+
+export function TextField(initialLabel?: string): Renderable<GenericInputArguments<string>> {
+    const input = el<HTMLInputElement>("INPUT", { class: "pre-wrap w-100" });
+    const label = div({}, initialLabel ? [ initialLabel ] : undefined);
+    const root = div({class: "row"}, [
+        label,
+        div({style: "width: 20px"}),
+        input
+    ]);
+
+    const component = makeComponent<GenericInputArguments<string>>(root, () => {
+        const { value, label: labelText } = component.args;
+
+        setInputValue(input, value);
+        if (labelText) {
+            setTextContent(label, labelText);
+        }
+    });
+
+    input.el.addEventListener("input", () => {
+        component.args.onChange(input.el.value);
+    });
 
     return component;
 }

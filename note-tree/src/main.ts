@@ -40,12 +40,16 @@ import {
     Analytics,
     newAnalyticsSeries,
     recomputeAnalytics,
+    recomputeNoteTasks,
     getInnerNoteId,
     STATUS_ASSUMED_DONE,
     isTodoNote,
     dfsPre,
     getRootNote,
     setIsEditingCurrentNote,
+    getActivityTextOrUndefined,
+    isBreak,
+    isMultiDay,
 } from "./state";
 import {
     Renderable,
@@ -62,10 +66,11 @@ import {
     appendChild,
     Insertable,
     replaceChildren,
+    buildEl,
 } from "./dom-utils";
 
 import * as tree from "./tree";
-import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, makeButton } from "./generic-components";
+import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, TextField, makeButton } from "./generic-components";
 import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
@@ -919,7 +924,12 @@ type ActivityListItemArgs = {
 
 
 
-function activityMatchesFilters(activity: Activity, _nextActivity: Activity | undefined, filter: ActivityFilters): boolean {
+function activityMatchesFilters(
+    state: State, 
+    activity: Activity, 
+    nextActivity: Activity | undefined, 
+    filter: ActivityFilters,
+): boolean {
     const t = new Date(activity.t);
     // const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
     if (
@@ -936,6 +946,28 @@ function activityMatchesFilters(activity: Activity, _nextActivity: Activity | un
         return false;
     }
 
+    if (
+        filter.is.noMultiDayBreaks &&
+        (isBreak(activity) && isMultiDay(activity, nextActivity))
+    ) {
+        return false;
+    }
+
+    // Fuzzy finding is actually very expensive, try to keep this as the last filter we do,
+    // so it runs on the least number of notes.
+    if (filter.text.query) {
+        const noteText = getActivityTextOrUndefined(state, activity);
+        if (!noteText) {
+            return false;
+        }
+
+        const ranges = fuzzyFind(noteText, filter.text.query);
+        const score = scoreFuzzyFind(ranges);
+        if (score < getMinFuzzyFindScore(filter.text.query, true)) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -947,7 +979,7 @@ function filterActivities(state: State, filter: ActivityFilters, indices: number
         const a = activities[i];
         const aNext: Activity | undefined = activities[i + 1];
 
-        if (activityMatchesFilters(a, aNext, filter)) {
+        if (activityMatchesFilters(state, a, aNext, filter)) {
             indices.push(i);
         }
     }
@@ -964,10 +996,11 @@ type ActivityFilters = {
     is: {
         dateToEnabled: boolean;
         dateFromEnabled: boolean;
-        // Some breaks will start on monday and end on tuesday.
-        // Typically they will over-inflate the total break time, if we only care about lunch breaks and what not.
-        multiDayBreakIncluded: boolean;
-    }
+        noMultiDayBreaks: boolean;
+    },
+    text: {
+        query: string;
+    },
 }
 
 function resetActivityFilters(filters: ActivityFilters) {
@@ -975,7 +1008,10 @@ function resetActivityFilters(filters: ActivityFilters) {
     filters.date.to = new Date();
     filters.is.dateFromEnabled = false;
     filters.is.dateToEnabled = false;
-    filters.is.multiDayBreakIncluded = false;
+    filters.is.noMultiDayBreaks = true;
+
+    // nah don't reset the query
+    // filters.text.query = "";
 }
 
 type ActivityFiltersEditorArgs = {
@@ -985,17 +1021,19 @@ type ActivityFiltersEditorArgs = {
 
 function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     const dates = {
-        from: DateTimeInputEx("flex-1"),
-        to: DateTimeInputEx("flex-1"),
+        from: DateTimeInputEx(),
+        to: DateTimeInputEx(),
     } as const;
 
     const checkboxes = {
         dateFromEnabled: Checkbox("Date from"),
         dateToEnabled: Checkbox("Date to"),
-        multiDayBreakIncluded: Checkbox("Include multi-day breaks"),
+        noMultiDayBreaks: Checkbox("No multi-day breaks"),
     } as const;
 
-    const width = 400;
+    const textFields = {
+        query: buildEl(TextField("Search"), { class: " w-100" })
+    } as const;
 
     const todayButton = makeButton("Today");
     todayButton.el.addEventListener("click", () => {
@@ -1024,26 +1062,30 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
         onChange();
     });
 
-    const root = div({}, [
-        div({ class: "row align-items-center", style: "gap: 30px; padding-bottom: 10px; padding-top: 10px;" }, [
+
+    const root = div({ class: "col", style: "gap: 10px"}, [
+        textFields.query,
+        div({ 
+            class: "row align-items-center", 
+            style: "gap: 10px; padding-bottom: 10px; padding-top: 10px;" 
+        }, [
             div({}, ["Presets"]),
             todayButton,
             noFiltersButton
         ]),
-        div({ class: "row", style: "padding-bottom: 10px; padding-top: 10px;" }, [
-            div({}, [checkboxes.multiDayBreakIncluded]),
-            div(),
-            div()
+        checkboxes.noMultiDayBreaks,
+        div({class: "row"}, [ 
+            checkboxes.dateFromEnabled,
+            div({ class: "flex-1"}),
+            dates.from,
         ]),
-        div({ class: "row", style: "padding-bottom: 5px" }, [
-            div({ style: "width: " + width + "px" }, [checkboxes.dateFromEnabled]),
-            dates.from
+        div({class: "row"}, [ 
+            checkboxes.dateToEnabled,
+            div({ class: "flex-1"}),
+            dates.to,
         ]),
-        div({ class: "row", style: "padding-bottom: 5px" }, [
-            div({ style: "width: " + width + "px" }, [checkboxes.dateToEnabled]),
-            dates.to
-        ])
     ]);
+
 
     const component = makeComponent<ActivityFiltersEditorArgs>(root, () => {
         const { filter, onChange } = component.args;
@@ -1077,6 +1119,18 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
                     onChange();
                 },
                 value: filter.is[name],
+            });
+        }
+
+        for (const nameUntyped in textFields) {
+            const name = nameUntyped as keyof ActivityFilters["text"];
+            const textField = textFields[name];
+            textField.render({
+                value: filter.text[name],
+                onChange: (val) => {
+                    filter.text[name] = val;
+                    onChange();
+                }
             });
         }
 
@@ -1127,10 +1181,11 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
         return component;
     }
 
-    const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 };
+    const pagination: Pagination = { pageSize: 50, start: 0, totalCount: 0 };
     const paginationControl = PaginationControl();
-    const activityList = makeComponentList(div(), ActivityRow);
-    const root = div({}, [
+    const activityListContainer = div({ class: "flex-1", style: "overflow-y: auto" });
+    const activityList = makeComponentList(activityListContainer, ActivityRow);
+    const root = div({ class: "col h-100", style: "min-height: 0" }, [
         paginationControl,
         activityList,
     ])
@@ -1174,6 +1229,9 @@ function ActivityAnalytics(): Renderable {
     };
 
     const analyticsActivityFilter: ActivityFilters = {
+        text: {
+            query: "",
+        },
         date: {
             from: new Date(),
             to: new Date(),
@@ -1181,8 +1239,32 @@ function ActivityAnalytics(): Renderable {
         is: {
             dateFromEnabled: false,
             dateToEnabled: false,
-            multiDayBreakIncluded: false,
-        }
+            noMultiDayBreaks: true
+        },
+    };
+
+    function renderLocal() {
+        component.render(component.args);
+    }
+
+
+    let activityIndiciesGetter: (() => number[]) | undefined = undefined;
+    let activityIndicesName : string | undefined = undefined;
+    function setActivityIndices(name: string | undefined, indicesGetter: (() => number[]) | undefined) {
+        activityIndiciesGetter = indicesGetter;
+        activityIndicesName = name;
+        renderLocal();
+    }
+
+    function setExpandedActivity(taskName: string) {
+        setActivityIndices(`[Task=${taskName}]`, () => {
+            const series = analytics.taskTimes.get(taskName);
+            if (!series) {
+                return [];
+            }
+
+            return series.activityIndices;
+        });
     }
 
     const taskColWidth = "250px";
@@ -1191,50 +1273,20 @@ function ActivityAnalytics(): Renderable {
 
     type DurationListItemArgs = {
         taskName: string;
+        setExpandedTask(activity: string): void;
         timeMs: number;
         totalTimeMs: number;
-        setExpandedActivity?(activity: string): void;
-        activityListComponent: Renderable<ReadonlyActivityListArgs> | null;
         activityIndices?: number[];
     }
 
-    const activityListInternal = ReadonlyActivityList();
-    const activityList = makeComponent<ReadonlyActivityListArgs>(
-        div({ style: "padding: 20px;" }, [activityListInternal]), () => {
-            activityListInternal.render(activityList.args);;
-        });
-
-    let expandedActivityName = ""
-    function setExpandedActivity(analyticName: string) {
-        expandedActivityName = analyticName;
-
-        component.render(undefined);
-    }
-
-
+    const roActivityList = ReadonlyActivityList();
     const durationsList = makeComponentList(durationsListRoot, () => {
         const taskNameComponent = div({ style: `padding:5px;padding-bottom:0;` })
         const durationBar = FractionBar();
-        const expandButton = div({ class: "hover", style: "padding: 0.25em;" }, [">"]);
 
-        expandButton.el.addEventListener("click", () => {
-            const { setExpandedActivity, activityListComponent: activityList } = component.args;
-
-            if (!setExpandedActivity) {
-                return;
-            }
-
-            if (activityList) {
-                setExpandedActivity("");
-            } else {
-                setExpandedActivity(component.args.taskName);
-            }
-        });
-
-        const root = div({ class: "w-100" }, [
+        const root = div({ class: "w-100 hover" }, [
             div({ class: "w-100 row align-items-center" }, [
                 div({ class: "row", style: `width: ${taskColWidth}` }, [
-                    expandButton,
                     taskNameComponent,
                 ]),
                 div({ class: "flex-1" }, [durationBar])
@@ -1246,42 +1298,40 @@ function ActivityAnalytics(): Renderable {
                 taskName,
                 timeMs,
                 totalTimeMs,
-                setExpandedActivity,
-                activityListComponent,
-                activityIndices,
             } = component.args;
 
-            if (setVisible(expandButton, !!setExpandedActivity)) {
-                setTextContent(expandButton, !!activityListComponent ? "v" : ">");
-            }
-
-            setTextContent(taskNameComponent, taskName);
-            durationBar.render({
-                fraction: timeMs / totalTimeMs,
-                text: formatDuration(timeMs),
-            });
-
-            if (activityListComponent && activityIndices) {
-                setVisible(activityListComponent, true);
-                root.el.appendChild(activityListComponent.el);
-
-                activityListComponent.render({
-                    activityIndexes: activityIndices
+            if (setVisible(root, timeMs > 0)) {
+                setTextContent(taskNameComponent, taskName);
+                durationBar.render({
+                    fraction: timeMs / totalTimeMs,
+                    text: formatDuration(timeMs),
                 });
             }
+        });
+
+        root.el.addEventListener("click", () => {
+            const { taskName, setExpandedTask } = component.args;
+            setExpandedTask(taskName);
         });
 
         return component;
     });
 
-    const root = div({ class: "w-100 h-100 col" }, [
-        el("H3", {}, ["Filters"]),
-        analyticsFiltersEditor,
-        el("H3", {}, ["Timings"]),
-        div({ class: "relative", style: "overflow-y: scroll" }, [
-            durationsListRoot,
+    const activityListTitle = el("H3", {}, []);
+    const root = div({ class: "w-100 h-100 row" }, [
+        div({ class: "flex-1 col" }, [
+            el("H3", {}, ["Filters"]),
+            analyticsFiltersEditor,
+            el("H3", {}, ["Timings"]),
+            div({ class: "relative flex-1", style: "overflow-y: scroll" }, [
+                durationsListRoot,
+            ]),
         ]),
-    ])
+        div({ class: "flex-1 col" }, [
+            activityListTitle,
+            roActivityList,
+        ]),
+    ]);
 
     const component = makeComponent(root, () => {
         analyticsFiltersEditor.render({
@@ -1291,57 +1341,67 @@ function ActivityAnalytics(): Renderable {
             }
         });
 
+        recomputeNoteTasks(state);
         filterActivities(state, analyticsActivityFilter, filteredActivityIndices);
         recomputeAnalytics(state, filteredActivityIndices, analytics);
 
-        const total = analyticsActivityFilter.is.multiDayBreakIncluded ?
-            analytics.totalTime :
-            analytics.totalTime - analytics.multiDayBreaks.duration;
-
-        durationsList.resize(analytics.taskTimes.size + 3);
-        if (setVisible(durationsList.components[0], analyticsActivityFilter.is.multiDayBreakIncluded)) {
-            durationsList.components[0].render({
-                taskName: "Multi-Day Break Time",
-                timeMs: analytics.multiDayBreaks.duration,
-                totalTimeMs: total,
-                activityListComponent: null,
-            });
-        }
-
-        durationsList.components[1].render({
-            taskName: "Break Time",
-            timeMs: analytics.breaks.duration,
-            totalTimeMs: total,
-            activityListComponent: null,
+        setTextContent(activityListTitle, "Activities - " + (activityIndicesName || "All"));
+        roActivityList.render({
+            activityIndexes: activityIndiciesGetter ? activityIndiciesGetter() : filteredActivityIndices,
         });
 
-        durationsList.components[durationsList.components.length - 1].render({
-            taskName: "Total time",
+        const total = analytics.totalTime;
+
+        durationsList.resize(analytics.taskTimes.size + 3);
+
+        durationsList.components[0].render({
+            taskName: "Total Time",
+            setExpandedTask: () => setActivityIndices(undefined, undefined),
             timeMs: total,
             totalTimeMs: total,
-            activityListComponent: null,
+        });
+
+        durationsList.components[1].render({
+            taskName: "Multi-Day Break Time",
+            setExpandedTask: () => setActivityIndices("Multi-Day Break Time", () => analytics.multiDayBreaks.activityIndices),
+            timeMs: analytics.multiDayBreaks.duration,
+            totalTimeMs: total,
+        });
+
+        durationsList.components[2].render({
+            taskName: "Break Time",
+            setExpandedTask: () => setActivityIndices("Break Time", () => analytics.breaks.activityIndices),
+            timeMs: analytics.breaks.duration,
+            totalTimeMs: total,
         });
 
         let i = 0;
-        setVisible(activityList, false);
         for (const [name, series] of analytics.taskTimes) {
-            durationsList.components[i + 2].render({
+            durationsList.components[i + 3].render({
                 taskName: name,
+                setExpandedTask: setExpandedActivity,
                 timeMs: series.duration,
                 totalTimeMs: total,
-                setExpandedActivity,
-
-                activityListComponent: expandedActivityName === name ? activityList : null,
-                activityIndices: series.activityIndices,
             });
 
             i++;
         }
-
     });
 
     return component;
 }
+
+// yep, doesnt need any info about the matches, total count, etc.
+// Although, I do wonder if this is the right place for it. 
+// This only works because I know the implementation of the fuzzy find scoring algo, since I wrote it
+function getMinFuzzyFindScore(query: string, strict = false) {
+    if (!strict) {
+        return Math.pow(query.length * 0.3, 2);
+    }
+
+    return Math.pow(query.length * 0.7, 2);
+}
+
 
 function FuzzyFinder(): Renderable {
     const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
@@ -1434,7 +1494,7 @@ function FuzzyFinder(): Renderable {
                 return b.score - a.score;
             });
 
-            const minScore = Math.pow(query.length * 0.3, 2);
+            const minScore = getMinFuzzyFindScore(query);
             filterInPlace(matches, (m) => m.score > minScore);
 
             // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
@@ -1901,8 +1961,8 @@ function CheatSheet(): Renderable {
             `The analytics modal is where you see how long you've spent on particular high level tasks. It's supposed to be useful when you need to fill out time-sheets, (and to see where all your time went).`,
             `By default all notes will appear under "<Uncategorized>"`,
             `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. 
-            Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it. 
-            In the future, I would like tasks to also collate their sub-tasks somehow, inferring this relationship from their positions in the tree.`
+            Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it.
+            This is useful for when the organisation of your tasks doesn't match the organisation of the higher level tasks, like a Jira board or something`
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
