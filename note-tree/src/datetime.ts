@@ -158,3 +158,14 @@ export function getDurationMS(aIsoString: string, bIsoString: string) {
 export function getTimestamp(date: Date) {
     return date.toISOString();
 }
+
+// It's a bit better than calling new Date() directly, when I'm uncertain about the input.
+export function parseDateSafe(timestamp: string): Date | null {
+    const d = new Date(timestamp);
+
+    if (!(d instanceof Date) || isNaN(d.getTime())) {
+        return null;
+    }
+
+    return d;
+}

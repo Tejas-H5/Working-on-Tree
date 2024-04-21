@@ -50,6 +50,7 @@ import {
     getActivityTextOrUndefined,
     isBreak,
     isMultiDay,
+    pushActivity,
 } from "./state";
 import {
     Renderable,
@@ -71,7 +72,7 @@ import {
 
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, TextField, makeButton } from "./generic-components";
-import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, truncate } from "./datetime";
+import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 
@@ -925,9 +926,9 @@ type ActivityListItemArgs = {
 
 
 function activityMatchesFilters(
-    state: State, 
-    activity: Activity, 
-    nextActivity: Activity | undefined, 
+    state: State,
+    activity: Activity,
+    nextActivity: Activity | undefined,
     filter: ActivityFilters,
 ): boolean {
     const t = new Date(activity.t);
@@ -1063,25 +1064,25 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     });
 
 
-    const root = div({ class: "col", style: "gap: 10px"}, [
+    const root = div({ class: "col", style: "gap: 10px" }, [
         textFields.query,
-        div({ 
-            class: "row align-items-center", 
-            style: "gap: 10px; padding-bottom: 10px; padding-top: 10px;" 
+        div({
+            class: "row align-items-center",
+            style: "gap: 10px; padding-bottom: 10px; padding-top: 10px;"
         }, [
             div({}, ["Presets"]),
             todayButton,
             noFiltersButton
         ]),
         checkboxes.noMultiDayBreaks,
-        div({class: "row"}, [ 
+        div({ class: "row" }, [
             checkboxes.dateFromEnabled,
-            div({ class: "flex-1"}),
+            div({ class: "flex-1" }),
             dates.from,
         ]),
-        div({class: "row"}, [ 
+        div({ class: "row" }, [
             checkboxes.dateToEnabled,
-            div({ class: "flex-1"}),
+            div({ class: "flex-1" }),
             dates.to,
         ]),
     ]);
@@ -1249,7 +1250,7 @@ function ActivityAnalytics(): Renderable {
 
 
     let activityIndiciesGetter: (() => number[]) | undefined = undefined;
-    let activityIndicesName : string | undefined = undefined;
+    let activityIndicesName: string | undefined = undefined;
     function setActivityIndices(name: string | undefined, indicesGetter: (() => number[]) | undefined) {
         activityIndiciesGetter = indicesGetter;
         activityIndicesName = name;
@@ -1935,7 +1936,7 @@ function CheatSheet(): Renderable {
             `[Ctrl] + [Shift] + [Left/Right]: to move backwards/forwards to the previous task-list you were working on. Doesn't work with [Alt]`,
         ]),
         el("H4", {}, ["Note/Task statuses"]),
-        el("P", {}, [ "NOTE: I will refer to a 'note' and a 'task' somewhat interchangeably" ]),
+        el("P", {}, ["NOTE: I will refer to a 'note' and a 'task' somewhat interchangeably"]),
         makeUnorderedList([
             noteStatusToString(STATUS_IN_PROGRESS) + `: This note is currently in progress`,
             noteStatusToString(STATUS_ASSUMED_DONE) + `: This note is assumed to be done`,
@@ -1954,6 +1955,10 @@ function CheatSheet(): Renderable {
             `The time between this activity and the next activity will contribute towards the overal 'duration' of a note, and all of it's parent notes.`,
             `You can add or insert breaks to prevent some time from contributing towards the duration of a particular note`,
             `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
+            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
+            I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break. 
+            It works by running some code in a timer every 10 seconds, and if it detects that actually, a lot more than 10 seconds has elapsed, it's probably because the tab got closed, or the computer got put to sleep. 
+            It is a bit of a hack, and I'm not sure that it works in all cases. Just know that this program can automatically insert breaks sometimes`,
         ]),
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
@@ -1984,8 +1989,8 @@ function getNextActivityInDirection(state: State, idx: number, backwards: boolea
     const currentNote = getCurrentNote(state);
     const currentParentId = currentNote.parentId;
 
-    const activities = state. activities;
-    const direction = backwards? -1 : 1;
+    const activities = state.activities;
+    const direction = backwards ? -1 : 1;
     while (
         (direction === -1 && idx > 0) ||
         (direction === 1 && idx < activities.length - 1)
@@ -1997,7 +2002,7 @@ function getNextActivityInDirection(state: State, idx: number, backwards: boolea
             const note = getNote(state, noteId);
 
             if (
-                note.parentId && 
+                note.parentId &&
                 note.parentId !== currentParentId
             ) {
                 break;
@@ -2053,6 +2058,44 @@ const initState = () => {
     loadState();
 };
 
+const CHECK_INTERVAL_MS = 1000 * 10;
+function autoInsertBreakIfRequired() {
+    // This function should get run inside of a setInterval that runs every CHECK_INTERVAL_MS,
+    // as well as anywhere else that might benefit from rechecking this interval.
+
+    const healthCheckIntervalKey = "TimeLastPolled";
+    // Need to automatically add breaks if we haven't called this method in a while.
+    const time = new Date();
+    const lastCheckTime = parseDateSafe(localStorage.getItem(healthCheckIntervalKey) || "");
+
+    if (
+        !!lastCheckTime&&
+        (time.getTime() - lastCheckTime.getTime()) > CHECK_INTERVAL_MS * 2
+    ) {
+        // If this javascript was running, i.e the computer was open constantly, this code should never run.
+        // So, we can insert a break now, if we aren't already taking one. 
+        // This should solve the problem of me constantly forgetting to add breaks...
+        
+        if (!isCurrentlyTakingABreak(state)) { 
+            pushActivity(state, {
+                t: getTimestamp(lastCheckTime),
+                breakInfo: "Auto-inserted break",
+                nId: undefined,
+                locked: undefined,
+            });
+
+            rerenderApp();
+        }
+    }
+
+    localStorage.setItem(healthCheckIntervalKey, getTimestamp(time));
+}
+
+// NOTE: We should only ever have one of these ever.
+// Also, there is code here that relies on the fact that
+// setInterval won't run when a computer goes to sleep, or a tab is closed, and
+// auto-inserts a break. This might break automated tests, if we ever
+// decide to start using those
 export const App = () => {
     // const infoButton = el("BUTTON", { class: "info-button", title: "click for help, with developer commentary" }, [
     //     "help?"
@@ -2409,6 +2452,11 @@ export const App = () => {
         }
     });
 
+    // 1 minute
+    setInterval(() => {
+        autoInsertBreakIfRequired();
+    }, CHECK_INTERVAL_MS);
+
     const appComponent = makeComponent(appRoot, () => {
         // if (setVisible(help, showHelpInfo === 1)) {
         //     help.render(undefined);
@@ -2419,6 +2467,7 @@ export const App = () => {
         }
 
         recomputeState(state);
+        autoInsertBreakIfRequired();
 
         // rerender the things
         notesList.render(undefined);

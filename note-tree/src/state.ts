@@ -453,7 +453,7 @@ export function isLastActivityTenuous(state: State) {
     return false;
 }
 
-function pushActivity(state: State, activity: Activity) {
+export function pushActivity(state: State, activity: Activity) {
     if (
         state.activities.length > 0 &&
         state.activities[state.activities.length - 1].nId === activity.nId
@@ -645,7 +645,7 @@ export function pushBreakActivity(state: State, breakInfoText: string, locked: u
 
 export function isCurrentlyTakingABreak(state: State): boolean {
     const last = getLastActivity(state);
-    return !!last?.breakInfo;
+    return !!last && isBreak(last);
 }
 
 export function getNoteNDown(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | null {
