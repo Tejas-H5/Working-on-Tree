@@ -404,11 +404,18 @@ function EditableActivityList(): Renderable {
             const isEditable = isEditableBreak(activity);
             const activityText = getActivityText(state, activity);
 
-            if (setVisible(breakEdit, isEditable)) {
-                setInputValue(breakEdit, activityText);
+            // const canEditBreakText = isEditable;
+            // I think all break text should just be editable...
+            // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
+            const canEditBreakText = isBreak(activity);
+            if (setVisible(
+                breakEdit, 
+                canEditBreakText,
+            )) {
+                setInputValue(breakEdit, activity.breakInfo!);
             }
 
-            if (setVisible(noteLink, !isEditable)) {
+            if (setVisible(noteLink, !canEditBreakText)) {
                 noteLink.render({
                     focusAnyway: false,
                     noteId: activity.nId,
@@ -886,6 +893,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { note } = component.args;
 
         note.data.text = whenEditing.el.value;
+
+        state._debounceNewNoteActivity = false;
 
         // Perform a partial update on the state, to just the thing we're editing
 

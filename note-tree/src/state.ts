@@ -37,6 +37,7 @@ export type State = {
     // non-serializable fields
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
+    _debounceNewNoteActivity: boolean;
 };
 
 
@@ -149,6 +150,7 @@ function defaultState(): State {
     const state: State = {
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
+        _debounceNewNoteActivity: false,
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
@@ -471,6 +473,22 @@ export function pushActivity(state: State, activity: Activity) {
         return;
     }
 
+    if (
+        state._debounceNewNoteActivity &&
+        !isBreak(activity)
+    ) {
+        const ONE_MINUTE = 1000 * 60;
+        const lastActivity = getLastActivity(state);
+        if (
+            lastActivity && 
+            !isBreak(lastActivity) &&
+            getActivityDurationMs(lastActivity, activity) < ONE_MINUTE
+        ) {
+            state.activities.pop();
+            state._debounceNewNoteActivity = false;
+        }
+    }
+
     state.activities.push(activity);
 }
 
@@ -728,6 +746,11 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
         const currentNote = getCurrentNote(state);
         pushNoteActivity(state, currentNote.id);
 
+        // Prevents multiple notes being added when we sometimes press "Enter" on a note
+        // only to then create a new note under it.
+        // This should then be set to false as soon as we edit the note, or a similar action that would 'cement' this activity
+        state._debounceNewNoteActivity = true;
+
         if (currentNote.parentId) {
             const parent = getNote(state, currentNote.parentId);
             parent.data.lastSelectedChildIdx = parent.childIds.indexOf(currentNote.id);
@@ -788,7 +811,7 @@ export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote
         siblings[0] === note.id ||
         siblings[siblings.length - 1] === note.id ||
         note.data._isSelected ||
-        (!!nextNote && note.data._status !== nextNote.data._status)
+        (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS))
     );
 }
 
