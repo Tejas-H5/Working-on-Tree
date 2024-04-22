@@ -189,6 +189,19 @@ export function getLastActivity(state: State): Activity | undefined {
     return state.activities[state.activities.length - 1];
 }
 
+export function getLastActivityWithNoteIdx(state: State): number {
+    let i = state.activities.length - 1;
+    while (i >= 0) {
+        if(state.activities[i].nId) {
+            return i;
+        }
+
+        i--;
+    }
+
+    return -1;
+}
+
 export function defaultNote(state: State | null): Note {
     let id = uuid();
     if (state) {
@@ -369,10 +382,6 @@ export function recomputeState(state: State) {
                 moveNotePriorityIntoPriorityGroup(state, note.id);
             }
 
-            if (note.parentId) {
-                const parent = getNote(state, note.parentId);
-                parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
-            }
             return false;
         });
     }
@@ -568,6 +577,14 @@ export function getNote(state: State, id: NoteId) {
     return tree.getNode(state.notes, id);
 }
 
+export function getNoteOrUndefined(state: State, id: NoteId): TreeNote | undefined {
+    if (hasNote(state, id)) {
+        return getNote(state, id);
+    }
+
+    return undefined;
+}
+
 export function getNoteTag(note: TreeNote, tagName: string): string | null {
     const text = note.data.text;
     let idxStart = 0;
@@ -710,16 +727,22 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
     if (isEditing) {
         const currentNote = getCurrentNote(state);
         pushNoteActivity(state, currentNote.id);
+
+        if (currentNote.parentId) {
+            const parent = getNote(state, currentNote.parentId);
+            parent.data.lastSelectedChildIdx = parent.childIds.indexOf(currentNote.id);
+        }
     }
 }
 
 
-type NoteFilterFunction = (state: State, note: TreeNote) => boolean;
+type NoteFilterFunction = (state: State, note: TreeNote, nextNote: TreeNote | undefined) => boolean;
 export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(state, note)) {
+        const nextNote = getNoteOrUndefined(state, childIds[idx + 1]);
+        if (filterFn(state, note, nextNote)) {
             return note.id;
         }
 
@@ -733,7 +756,8 @@ export function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, f
     let idx = childIds.indexOf(id) - 1;
     while (idx >= 0) {
         const note = getNote(state, childIds[idx]);
-        if (filterFn(state, note)) {
+        const nextNote = getNoteOrUndefined(state, childIds[idx - 1]);
+        if (filterFn(state, note, nextNote)) {
             return note.id;
         }
 
@@ -753,19 +777,18 @@ export function getNoteOneDownLocally(state: State, note: TreeNote) {
     return findNextNote(state, siblings, note.id, isNoteImportant);
 }
 
-export function isNoteImportant(state: State, note: TreeNote): boolean {
+export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote | undefined): boolean {
     if (!note.parentId) {
         return true;
     }
 
     const siblings = getNote(state, note.parentId).childIds;
-    const idx = siblings.indexOf(note.id);
 
     return (
-        idx === 0 ||
-        idx === siblings.length - 1 ||
+        siblings[0] === note.id ||
+        siblings[siblings.length - 1] === note.id ||
         note.data._isSelected ||
-        note.data._status === STATUS_IN_PROGRESS
+        (!!nextNote && note.data._status !== nextNote.data._status)
     );
 }
 

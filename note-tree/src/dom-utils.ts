@@ -30,7 +30,9 @@ export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     } 
 };
 
-export type InsertableGeneric<T extends HTMLElement | Text> = { el: T };
+export type InsertableGeneric<T extends HTMLElement | Text> = { 
+    el: T 
+};
 export type Insertable = InsertableGeneric<HTMLElement>
 
 export function replaceChildren(comp: Insertable, ...children: (Insertable | undefined)[]) {
@@ -85,7 +87,10 @@ export function setVisible(component: Insertable, state: boolean): boolean {
 
 type ComponentPool<T extends Insertable> = {
     components: T[];
-    resize(n: number): void;
+    lastIdx: number;
+    getNext(): T;
+    getIdx(): number;
+    render(renderFn: () => void): void;
 }
 
 type ValidAttributeName = string;
@@ -164,27 +169,35 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
     return {
         el: root.el,
         components: [],
-        resize(newLength) {
-            if (newLength < 0) {
-                throw new Error("Can't resize list to a negative length! You might have an error in some math you're doing");
+        lastIdx: 0,
+        getIdx() {
+            return this.lastIdx - 1;
+        },
+        getNext() {
+            if (this.lastIdx > this.components.length) {
+                throw new Error("Something strange happened when resizing the component pool");
             }
 
-            while(this.components.length > newLength) {
-                // could also just hide these with setVisible(false)
-                const component = this.components.pop()!;
-                component.el.remove();
-            } 
-            
-            while (this.components.length < newLength) {
+            if (this.lastIdx === this.components.length) {
                 // could also just show these with setVisible(true)
                 const component = createFn();
                 this.components.push(component);
                 appendChild(root, component);
             }
 
-            if (this.components.length !== newLength) {
-                assert(false, "Error with component pool resizing");
-            }
+            return this.components[this.lastIdx++];
+        },
+        render(renderFn) {
+            this.lastIdx = 0;
+
+            renderFn();
+
+
+            while(this.components.length > this.lastIdx) {
+                // could also just hide these with setVisible(false)
+                const component = this.components.pop()!;
+                component.el.remove();
+            } 
         },
         // TODO: Smarter algorithm that adds/removes at arbitrary positions based on keys
     }

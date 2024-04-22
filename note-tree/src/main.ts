@@ -51,6 +51,8 @@ import {
     isBreak,
     isMultiDay,
     pushActivity,
+    getLastActivity,
+    getLastActivityWithNoteIdx,
 } from "./state";
 import {
     Renderable,
@@ -75,7 +77,9 @@ import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, TextField
 import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
+import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
+import CustomWorker from './activitycheck?worker';
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -204,21 +208,21 @@ function TodoList(): Renderable {
 
             dfs(note, nestedNotes);
 
-            nestedNotesList.resize(nestedNotes.length);
             let focusAnyway = note.id === state.currentNoteId;
-            for (let i = 0; i < nestedNotes.length; i++) {
-                const note = nestedNotes[i];
-                focusAnyway = focusAnyway || note.id === state.currentNoteId;
+            nestedNotesList.render(() => {
+                for (const note of nestedNotes) {
+                    focusAnyway = focusAnyway || note.id === state.currentNoteId;
 
-                nestedNotesList.components[i].render({
-                    linkedNoteArgs: {
-                        noteId: note.id,
-                        text: note.data.text,
-                        focusAnyway: false,
-                        preventScroll: true,
-                    },
-                });
-            }
+                    nestedNotesList.getNext().render({
+                        linkedNoteArgs: {
+                            noteId: note.id,
+                            text: note.data.text,
+                            focusAnyway: false,
+                            preventScroll: true,
+                        },
+                    });
+                }
+            });
 
             setTextContent(progressText, getNoteProgressCountText(note));
 
@@ -296,19 +300,20 @@ function TodoList(): Renderable {
     });
 
     const component = makeComponent(componentList, () => {
-        componentList.resize(state.todoNoteIds.length);
-        for (let i = 0; i < componentList.components.length; i++) {
-            const id = state.todoNoteIds[i];
-            const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
+        componentList.render(() => {
+            for (let i = 0; i < state.todoNoteIds.length; i++) {
+                const id = state.todoNoteIds[i];
+                const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
 
-            const note = getNote(state, id);
-            const nextNote = nextId ? getNote(state, nextId) : undefined;
+                const note = getNote(state, id);
+                const nextNote = nextId ? getNote(state, nextId) : undefined;
 
-            componentList.components[i].render({
-                note: getNote(state, id),
-                hasDivider: !!nextNote && getTodoNotePriority(note.data) !== getTodoNotePriority(nextNote.data),
-            });
-        }
+                componentList.getNext().render({
+                    note: getNote(state, id),
+                    hasDivider: !!nextNote && getTodoNotePriority(note.data) !== getTodoNotePriority(nextNote.data),
+                });
+            }
+        });
     });
 
     return component;
@@ -548,20 +553,27 @@ function EditableActivityList(): Renderable {
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
-        listRoot.resize(activitiesToRender);
-        for (let i = 0; i < activitiesToRender; i++) {
-            const idx = activities.length - end + i;
-            const previousActivity = activities[idx - 1]; // JavaScript moment - you can index past an array without crashing
-            const activity = activities[idx];
-            const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
+        listRoot.render(() => {
+            // make the elements, so we can render them backwards
+            // TODO: reverse this. eventually we want to start always rendering the n+1 activity, maybe with some grey
+            for (let i = 0; i < activitiesToRender; i++) {
+                listRoot.getNext();
+            };
 
-            listRoot.components[activitiesToRender - 1 - i].render({
-                previousActivity,
-                activity,
-                nextActivity,
-                showDuration: true,
-            });
-        }
+            for (let i = 0; i < activitiesToRender; i++) {
+                const idx = activities.length - end + i;
+                const previousActivity = activities[idx - 1]; // JavaScript moment - you can index past an array without crashing
+                const activity = activities[idx];
+                const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
+
+                listRoot.components[activitiesToRender - 1 - i].render({
+                    previousActivity,
+                    activity,
+                    nextActivity,
+                    showDuration: true,
+                });
+            }
+        });
     });
 
     return component;
@@ -770,6 +782,7 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
 
 type NoteRowArgs = {
     note: TreeNote;
+    stickyOffset?: number;
 };
 
 
@@ -843,12 +856,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
                 // ideally we don't want to do this when we click on a note.
                 // I haven't worked out how to do that yet though
                 {
-                    const wantedY = root.el.getBoundingClientRect().top + window.scrollY;
+                    const rootRect = root.el.getBoundingClientRect();
+                    const wantedY = rootRect.top + window.scrollY;
 
                     window.scrollTo({
                         left: 0,
                         // With the note tree it's much more important for me to see what I've done, as below that isn't very important. 
-                        top: wantedY - (3 * window.innerHeight / 4),
+                        top: wantedY - (3 * window.innerHeight / 4) + rootRect.height,
                         behavior: "instant"
                     });
                 }
@@ -1202,19 +1216,20 @@ function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
         const start = pagination.start;
         const end = getCurrentEnd(pagination);
         const count = end - start;
-        activityList.resize(count);
-        for (let i = 0; i < count; i++) {
-            const idx = activityIndexes[
-                activityIndexes.length - 1 - i - start
-            ];
-            const activity = state.activities[idx];
-            const nextActivity = state.activities[idx + 1];
+        activityList.render(() => {
+            for (let i = 0; i < count; i++) {
+                const idx = activityIndexes[
+                    activityIndexes.length - 1 - i - start
+                ];
+                const activity = state.activities[idx];
+                const nextActivity = state.activities[idx + 1];
 
-            activityList.components[i].render({
-                activity,
-                nextActivity,
-            });
-        }
+                activityList.getNext().render({
+                    activity,
+                    nextActivity,
+                });
+            }
+        });
     });
 
     return component;
@@ -1353,40 +1368,40 @@ function ActivityAnalytics(): Renderable {
 
         const total = analytics.totalTime;
 
-        durationsList.resize(analytics.taskTimes.size + 3);
-
-        durationsList.components[0].render({
-            taskName: "Total Time",
-            setExpandedTask: () => setActivityIndices(undefined, undefined),
-            timeMs: total,
-            totalTimeMs: total,
-        });
-
-        durationsList.components[1].render({
-            taskName: "Multi-Day Break Time",
-            setExpandedTask: () => setActivityIndices("Multi-Day Break Time", () => analytics.multiDayBreaks.activityIndices),
-            timeMs: analytics.multiDayBreaks.duration,
-            totalTimeMs: total,
-        });
-
-        durationsList.components[2].render({
-            taskName: "Break Time",
-            setExpandedTask: () => setActivityIndices("Break Time", () => analytics.breaks.activityIndices),
-            timeMs: analytics.breaks.duration,
-            totalTimeMs: total,
-        });
-
-        let i = 0;
-        for (const [name, series] of analytics.taskTimes) {
-            durationsList.components[i + 3].render({
-                taskName: name,
-                setExpandedTask: setExpandedActivity,
-                timeMs: series.duration,
+        durationsList.render(() => {
+            durationsList.getNext().render({
+                taskName: "Total Time",
+                setExpandedTask: () => setActivityIndices(undefined, undefined),
+                timeMs: total,
                 totalTimeMs: total,
             });
 
-            i++;
-        }
+            durationsList.getNext().render({
+                taskName: "Multi-Day Break Time",
+                setExpandedTask: () => setActivityIndices("Multi-Day Break Time", () => analytics.multiDayBreaks.activityIndices),
+                timeMs: analytics.multiDayBreaks.duration,
+                totalTimeMs: total,
+            });
+
+            durationsList.getNext().render({
+                taskName: "Break Time",
+                setExpandedTask: () => setActivityIndices("Break Time", () => analytics.breaks.activityIndices),
+                timeMs: analytics.breaks.duration,
+                totalTimeMs: total,
+            });
+
+            const tasks = [...analytics.taskTimes];
+            tasks.sort((a, b) => b[1].duration - a[1].duration);
+            for (const [name, series] of tasks) {
+                durationsList.getNext().render({
+                    taskName: name,
+                    setExpandedTask: setExpandedActivity,
+                    timeMs: series.duration,
+                    totalTimeMs: total,
+                });
+            }
+        });
+
     });
 
     return component;
@@ -1509,14 +1524,15 @@ function FuzzyFinder(): Renderable {
                 currentSelectionIdx = 0;
             }
 
-            resultList.resize(matches.length);
-            for (let i = 0; i < matches.length; i++) {
-                resultList.components[i].render({
-                    text: matches[i].note.data.text,
-                    ranges: matches[i].ranges,
-                    hasFocus: i === currentSelectionIdx,
-                });
-            }
+            resultList.render(() => {
+                for (const m of matches) {
+                    resultList.getNext().render({
+                        text: m.note.data.text,
+                        ranges: m.ranges,
+                        hasFocus: resultList.getIdx() === currentSelectionIdx,
+                    });
+                }
+            });
         }, DEBOUNCE_MS);
     }
 
@@ -1646,7 +1662,9 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 function NoteRowStatistic(): Renderable<NoteRowArgs> {
     // const workdayDuration = div();
     const duration = div();
+    const inProgress = div({   }, [ "" ]);
     const root = div({ class: "row", style: "padding-left: 10px; gap: 10px;" }, [
+        inProgress,
         duration,
         // div({ style: "background-color: var(--fg-color); width: 4px;"}),
         // workdayDuration,
@@ -1659,6 +1677,20 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
         // In future we can use memoisation to make it faster. i.e
         // duration = sum of child durations + duration of this note, if we even care to.
         const durationMs = getNoteDuration(state, note);
+        const lastActivity = getLastActivity(state);
+
+        const isInProgress = lastActivity?.nId === note.id;
+        if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
+            if (isInProgress) {
+                setTextContent(inProgress, "[In progress]");
+                inProgress.el.style.color = "#FFF";
+                inProgress.el.style.backgroundColor = "#F00";
+            } else {
+                setTextContent(inProgress, "[Not in progress]");
+                inProgress.el.style.color = "#FFF";
+                inProgress.el.style.backgroundColor = "#00F";
+            }
+        }
         setTextContent(duration, formatDuration(durationMs, 2));
     });
 
@@ -1669,10 +1701,10 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const timestamp = NoteRowTimestamp();
     const text = NoteRowText();
     const statistic = NoteRowStatistic();
-    const root = div({ class: "row" }, [timestamp, text, statistic]);
+    const root = div({ class: "row", style: "background-color: var(--bg-color)" }, [timestamp, text, statistic]);
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note } = component.args;
+        const { note, stickyOffset} = component.args;
 
         const textColor = note.data._isSelected
             ? "var(--fg-color)"
@@ -1681,10 +1713,17 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
                 : "var(--unfocus-text-color)";
 
         root.el.style.color = textColor;
+        if (stickyOffset !== undefined) {
+            root.el.style.position = "sticky";
+            root.el.style.top = stickyOffset + "px";
+        } else {
+            root.el.style.position = "";
+            root.el.style.top = stickyOffset + "";
+        }
 
-        timestamp.render({ note });
-        text.render({ note });
-        statistic.render({ note });
+        timestamp.render(component.args);
+        text.render(component.args);
+        statistic.render(component.args);
     });
 
     root.el.addEventListener("click", () => {
@@ -1712,12 +1751,26 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const component = makeComponent<NoteListInternalArgs>(root, () => {
         const { flatNotes } = component.args;
 
-        noteList.resize(flatNotes.length);
-        for (let i = 0; i < flatNotes.length; i++) {
-            noteList.components[i].render({
-                note: getNote(state, flatNotes[i]),
-            });
-        }
+        noteList.render(() => {
+            let stickyOffset = 0;
+            for (const id of flatNotes) {
+                const note = getNote(state, id);
+                const component = noteList.getNext();
+
+                let isSticky = note.data._isSelected;
+
+                component.render({
+                    note,
+                    stickyOffset: isSticky ? stickyOffset: undefined,
+                });
+
+                // I have no idea how I would do this in React, tbh.
+                // But it was really damn easy here lol.
+                if (isSticky) {
+                    stickyOffset += component.el.getBoundingClientRect().height;
+                }
+            }
+        });
     });
 
     return component;
@@ -1955,7 +2008,7 @@ function CheatSheet(): Renderable {
             `The time between this activity and the next activity will contribute towards the overal 'duration' of a note, and all of it's parent notes.`,
             `You can add or insert breaks to prevent some time from contributing towards the duration of a particular note`,
             `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
-            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
+            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS/ 1000).toFixed(2)} seconds.
             I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break. 
             It works by running some code in a timer every 10 seconds, and if it detects that actually, a lot more than 10 seconds has elapsed, it's probably because the tab got closed, or the computer got put to sleep. 
             It is a bit of a hack, and I'm not sure that it works in all cases. Just know that this program can automatically insert breaks sometimes`,
@@ -1985,9 +2038,9 @@ function CheatSheet(): Renderable {
     ]), () => { });
 }
 
-function getNextActivityInDirection(state: State, idx: number, backwards: boolean): number {
-    const currentNote = getCurrentNote(state);
-    const currentParentId = currentNote.parentId;
+function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean): number {
+    const currentNoteId = state.activities[idx].nId;
+    const currentParentId = !currentNoteId ? undefined : getNote(state, currentNoteId).parentId;
 
     const activities = state.activities;
     const direction = backwards ? -1 : 1;
@@ -2003,7 +2056,8 @@ function getNextActivityInDirection(state: State, idx: number, backwards: boolea
 
             if (
                 note.parentId &&
-                note.parentId !== currentParentId
+                note.parentId !== currentParentId &&
+                note.data._status === STATUS_IN_PROGRESS    // Because why would we ever want to revist something we completed? Why?
             ) {
                 break;
             }
@@ -2018,10 +2072,20 @@ function getNextActivityInDirection(state: State, idx: number, backwards: boolea
 let lastHotlistIndex = 0;
 function moveInDirectonOverHotlist(backwards: boolean) {
     if (lastHotlistIndex === -1) {
-        lastHotlistIndex = state.activities.length - 1;
+        lastHotlistIndex = getLastActivityWithNoteIdx(state);
+        if (lastHotlistIndex === -1) {
+            return;
+        }
+
+        const nId = state.activities[lastHotlistIndex].nId;
+        if (state.currentNoteId !== nId) {
+            setCurrentNote(state, nId!);
+            setIsEditingCurrentNote(state, false);
+            return;
+        }
     }
 
-    const nextIdx = getNextActivityInDirection(state, lastHotlistIndex, backwards);
+    const nextIdx = getNextHotlistActivityInDirection(state, lastHotlistIndex, backwards);
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
         return;
     }
@@ -2038,7 +2102,10 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     }
 
     const parentNote = getNote(state, note.parentId);
-    const jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
+    let jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
+    if (!jumpNoteId) {
+        jumpNoteId = parentNote.childIds[parentNote.childIds.length - 1];
+    }
     if (!jumpNoteId) {
         return;
     }
@@ -2058,7 +2125,6 @@ const initState = () => {
     loadState();
 };
 
-const CHECK_INTERVAL_MS = 1000 * 10;
 function autoInsertBreakIfRequired() {
     // This function should get run inside of a setInterval that runs every CHECK_INTERVAL_MS,
     // as well as anywhere else that might benefit from rechecking this interval.
@@ -2075,10 +2141,13 @@ function autoInsertBreakIfRequired() {
         // If this javascript was running, i.e the computer was open constantly, this code should never run.
         // So, we can insert a break now, if we aren't already taking one. 
         // This should solve the problem of me constantly forgetting to add breaks...
+        const lastActivity = getLastActivity(state);
+        const time = !lastActivity ? lastCheckTime.getTime() : 
+            Math.max(lastCheckTime.getTime(), new Date(lastActivity.t).getTime());
         
         if (!isCurrentlyTakingABreak(state)) { 
             pushActivity(state, {
-                t: getTimestamp(lastCheckTime),
+                t: getTimestamp(new Date(time)),
                 breakInfo: "Auto-inserted break",
                 nId: undefined,
                 locked: undefined,
@@ -2452,16 +2521,12 @@ export const App = () => {
         }
     });
 
-    // 1 minute
-    setInterval(() => {
+    const worker = new CustomWorker();
+    worker.onmessage = () => {
         autoInsertBreakIfRequired();
-    }, CHECK_INTERVAL_MS);
+    };
 
     const appComponent = makeComponent(appRoot, () => {
-        // if (setVisible(help, showHelpInfo === 1)) {
-        //     help.render(undefined);
-        // }
-
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
             cheatSheet.render(undefined);
         }
