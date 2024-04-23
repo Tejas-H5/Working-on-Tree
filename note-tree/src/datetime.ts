@@ -1,11 +1,11 @@
-export function formatDate(date: Date) {
+export function formatDate(date: Date, seperator = "/") {
     const dd = date.getDate();
     const mm = date.getMonth() + 1;
     const yyyy = date.getFullYear();
     const hours = date.getHours();
     const minutes = date.getMinutes();
 
-    return `${pad2(dd)}/${pad2(mm)}/${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
+    return `${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
         hours < 12 ? "am" : "pm"
     }`;
 }

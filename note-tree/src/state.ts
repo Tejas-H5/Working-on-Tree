@@ -142,7 +142,7 @@ export function noteStatusToString(noteStatus: NoteStatus) {
 // No non-owning references, i.e a reference to a node that really lives in another array
 // Typically if state will contain references, non-serializable objects, or are in some way computed from other canonical state,
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
-function defaultState(): State {
+export function defaultState(): State {
     const rootNote = defaultNote(null);
     rootNote.id = tree.ROOT_KEY;
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
@@ -166,10 +166,9 @@ function defaultState(): State {
     return state;
 }
 
-export function loadStateFromJSON(savedStateJSON: string) {
+export function loadStateFromJSON(savedStateJSON: string): State | null {
     if (!savedStateJSON) {
-        state = defaultState();
-        return;
+        return null;
     }
 
     const loadedState = JSON.parse(savedStateJSON) as State;
@@ -177,14 +176,24 @@ export function loadStateFromJSON(savedStateJSON: string) {
     // prevents missing item cases that may occur when trying to load an older version of the state.
     // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
     // TODO: handle new fields in notes. Shouldn't be too hard actually
-    const mergedLoadedState = merge(loadedState, defaultState());
+    const mergedLoadedState = autoMigrate(loadedState, defaultState());
 
     tree.forEachNode(mergedLoadedState.notes, (id) => {
         const node = tree.getNode(mergedLoadedState.notes, id);
-        node.data = merge(node.data, defaultNote(null));
+        node.data = autoMigrate(node.data, defaultNote(null));
     });
 
-    state = mergedLoadedState;
+    return mergedLoadedState;
+}
+
+export function setStateFromJSON(savedStateJSON: string) {
+    const loaded = loadStateFromJSON(savedStateJSON);
+    if (!loaded) {
+        state = defaultState();
+        return;
+    }
+    
+    state = loaded;
 }
 
 export function getLastActivity(state: State): Activity | undefined {
@@ -996,14 +1005,20 @@ export function isEditableBreak(activity: Activity) {
     return true;
 }
 
-function merge<T extends object>(a: T, b: T) {
-    for (const k in b) {
-        if (!(k in a)) {
-            a[k] = b[k];
+function autoMigrate<T extends object>(loadedData: T, defaultSchema: T) {
+    for (const k in defaultSchema) {
+        if (!(k in loadedData)) {
+            loadedData[k] = defaultSchema[k];
         }
     }
 
-    return a;
+    for (const k in loadedData) {
+        if (!(k in defaultSchema)) {
+            delete loadedData[k];
+        }
+    }
+
+    return loadedData;
 }
 
 type AnalyticsSeries = {

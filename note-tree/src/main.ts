@@ -53,6 +53,9 @@ import {
     pushActivity,
     getLastActivity,
     getLastActivityWithNoteIdx,
+    defaultNote,
+    defaultState,
+    setStateFromJSON,
 } from "./state";
 import {
     Renderable,
@@ -80,6 +83,7 @@ import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
 import CustomWorker from './activitycheck?worker';
+import { loadFile, saveText } from "./file-download";
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -1634,6 +1638,81 @@ function AnalyticsModal(): Renderable {
     return component;
 }
 
+type LoadBackupModalArgs = {
+    fileName: string;
+    text: string;
+};
+function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
+    const fileNameDiv = el("H3");
+    const infoDiv = div();
+    const loadBackupButton = makeButton("Load this backup");
+    loadBackupButton.el.addEventListener("click", () => {
+        if (!canLoad || !component.args.text) {
+            return;
+        }
+
+        if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
+            const lsKeys = JSON.parse(component.args.text);
+            localStorage.clear();
+            for (const k in lsKeys) {
+                localStorage.setItem(k, lsKeys[k]);
+            }
+
+            initState();
+            setCurrentModal(null);
+        }
+    });
+    const modal = Modal(
+        div({ class: "col", style: "width: calc(100% - 20px); height: calc(100% - 20px); padding: 10px;" }, [
+            fileNameDiv,
+            infoDiv,
+            loadBackupButton,
+        ])
+    );
+
+    let canLoad = false;
+    const component = makeComponent<LoadBackupModalArgs>(modal, () => {
+        modal.render({
+            onClose: () => setCurrentModal(null)
+        });
+
+        const { text, fileName } = component.args;
+
+        setTextContent(fileNameDiv, "Load backup - " + fileName);
+        setVisible(loadBackupButton, false);
+        canLoad = false;
+
+        try {
+            const lsKeys = JSON.parse(text);
+            const lastOnline = parseDateSafe(lsKeys[LOCAL_STORAGE_KEYS.TIME_LAST_POLLED]);
+            const backupState = loadStateFromJSON(lsKeys[LOCAL_STORAGE_KEYS.STATE]);
+            if (!backupState) {
+                throw "bruh";
+            }
+            const theme = lsKeys[LOCAL_STORAGE_KEYS.CURRENT_THEME];
+
+            replaceChildren(
+                infoDiv, 
+                div({}, ["Make sure this looks reasonable before you load the backup:"]),
+                div({}, ["Notes: ", tree.getSize(backupState.notes).toString()]),
+                div({}, ["Activities: ", backupState.activities.length.toString()]),
+                div({}, ["Last Online: ", !lastOnline ? "No idea" : formatDate(lastOnline)]),
+                div({}, ["Last Theme: ", theme]),
+            );
+
+            setVisible(loadBackupButton, true);
+            canLoad = true;
+        } catch {
+            replaceChildren(
+                infoDiv, 
+                div({}, [ "This JSON cannot be loaded" ]),
+            );
+        }
+    });
+
+    return component;
+}
+
 function ScratchPadModal(): Renderable {
     const scratchPad = ScratchPad();
     scratchPad.textArea.style.padding = "5px";
@@ -1802,43 +1881,47 @@ const renderOptions: RenderOptions = {
 
 type AppTheme = "Light" | "Dark";
 
+function getTheme(): AppTheme {
+    if (localStorage.getItem(LOCAL_STORAGE_KEYS.CURRENT_THEME) === "Dark") {
+        return "Dark";
+    }
+
+    return "Light";
+};
+
+function setTheme(theme: AppTheme) {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.CURRENT_THEME, theme);
+
+    if (theme === "Light") {
+        setCssVars([
+            ["--bg-in-progress", "rgb(255, 0, 0, 1"],
+            ["--fg-in-progress", "#FFF"],
+            ["--bg-color", "#FFF"],
+            ["--bg-color-focus", "#CCC"],
+            ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
+            ["--fg-color", "#000"],
+            ["--unfocus-text-color", "gray"],
+        ]);
+    } else {
+        // assume dark theme
+        setCssVars([
+            ["--bg-in-progress", "rgba(255, 0, 0, 1)"],
+            ["--fg-in-progress", "#FFF"],
+            ["--bg-color", "#000"],
+            ["--bg-color-focus", "#333"],
+            ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
+            ["--fg-color", "#EEE"],
+            ["--unfocus-text-color", "gray"],
+        ]);
+    }
+
+
+};
+
+
 const makeDarkModeToggle = () => {
-    const getTheme = (): AppTheme => {
-        if (localStorage.getItem("State.currentTheme") === "Dark") {
-            return "Dark";
-        }
-
-        return "Light";
-    };
-
-    const setTheme = (theme: AppTheme) => {
-        localStorage.setItem("State.currentTheme", theme);
-
-        if (theme === "Light") {
-            setCssVars([
-                ["--bg-in-progress", "rgb(255, 0, 0, 1"],
-                ["--fg-in-progress", "#FFF"],
-                ["--bg-color", "#FFF"],
-                ["--bg-color-focus", "#CCC"],
-                ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
-                ["--fg-color", "#000"],
-                ["--unfocus-text-color", "gray"],
-            ]);
-        } else {
-            // assume dark theme
-            setCssVars([
-                ["--bg-in-progress", "rgba(255, 0, 0, 1)"],
-                ["--fg-in-progress", "#FFF"],
-                ["--bg-color", "#000"],
-                ["--bg-color-focus", "#333"],
-                ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
-                ["--fg-color", "#EEE"],
-                ["--unfocus-text-color", "gray"],
-            ]);
-        }
-
-        function getThemeText() {
-            // return theme;
+    function getThemeText() {
+        const theme = getTheme();
 
             if (theme === "Light") {
                 return (
@@ -1866,10 +1949,6 @@ const makeDarkModeToggle = () => {
  *    \`':..-'  .
                * .
       `);
-
-        }
-
-        setTextContent(button, getThemeText());
     };
 
     const button = makeButtonWithCallback("", () => {
@@ -1890,6 +1969,7 @@ const makeDarkModeToggle = () => {
     button.el.style.textShadow = "2px 2px 0px var(--fg-color)";
 
     setTheme(getTheme());
+    setTextContent(button, getThemeText());
 
     return button;
 };
@@ -1966,9 +2046,8 @@ const rerenderApp = (opts?: RenderOptions) => {
     app.render(undefined);
 }
 
-type Modal = null | "analytics-view" | "scratch-pad" | "fuzzy-finder";
-let currentModal: Modal = null;
-const setCurrentModal = (modal: Modal) => {
+let currentModal: Insertable | null = null;
+const setCurrentModal = (modal: Insertable | null) => {
     if (currentModal === modal) {
         return;
     }
@@ -2034,15 +2113,12 @@ function CheatSheet(): Renderable {
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
             `The scratchpad can be opened by clicking the "Scratchpad" button, or with [Ctrl] + [Shift] + [S]`,
-            `The scratchpad was originally used for a lot more, but it has since been replaced by the activity list and the TODO list. However, it is still somewhat important`,
-            `You can copy a JSON file containing all of your data to your system clipboard by clicking "Copy as JSON". 
-            (Right now, this data is stored in your browser's local storage, which is actually somewhat volatile. 
-            If Github decide to change their URL, or I decide to change my GitHub user handle, the page's address will have changed, and all your data will be lost. 
-            However, I would rather not make a SAAS product requiring you to log in to my server, because it removes a lot of agency from the user, and I would need to start charging you money to use my product. 
-            I would recommend saving this page to your computer as a static page, and running it from there.
-            It will work without an internet connection, just like any other HTML document.
-            If there is demand for it then I may make a self-hostable solution in the future.)`,
-            `Once you have clicked "Copy as JSON", you can save that JSON somewhere. And then if you are on another computer, you will need to paste your JSON into the scratch pad, and click "Load JSON from scratchpad" to transfer across your data.`
+            `Right now it is just a normal text-area...`,   // NOTE: more to come. maybe or maybe not ....
+        ]),
+        el("H4", {}, ["Loading and saving"]),
+        makeUnorderedList([
+            `Your stuff is auto-saved 1 second after you finish typing. 
+            You can download a copy of your data, and then reload it later/elsewhere with the "Download JSON backup data" and "Load JSON backup" buttons.`,
         ]),
     ]), () => { });
 }
@@ -2129,19 +2205,27 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 // However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
 // The main benefit of having just a single tree (apart from simplicity and less code) is that
 // You can track all your activities and see analytics for all of them in one place. 
-const STATE_KEY = "NoteTree.Everything";
+const LOCAL_STORAGE_KEYS = {
+    STATE: "NoteTree.Everything",
+    // Actually quite useful to back this up with a user's data.
+    // If they ever need to revert to a backed up version of their state, 
+    // this will cause our thing to auto-insert a break corresponding to all the data they lost
+    TIME_LAST_POLLED: "TimeLastPolled",
+    CURRENT_THEME: "State.currentTheme",
+} as const;
+
 const initState = () => {
     loadState();
+    setTheme(getTheme());
 };
 
 function autoInsertBreakIfRequired() {
     // This function should get run inside of a setInterval that runs every CHECK_INTERVAL_MS,
     // as well as anywhere else that might benefit from rechecking this interval.
 
-    const healthCheckIntervalKey = "TimeLastPolled";
     // Need to automatically add breaks if we haven't called this method in a while.
     const time = new Date();
-    const lastCheckTime = parseDateSafe(localStorage.getItem(healthCheckIntervalKey) || "");
+    const lastCheckTime = parseDateSafe(localStorage.getItem(LOCAL_STORAGE_KEYS.TIME_LAST_POLLED) || "");
 
     if (
         !!lastCheckTime&&
@@ -2166,7 +2250,16 @@ function autoInsertBreakIfRequired() {
         }
     }
 
-    localStorage.setItem(healthCheckIntervalKey, getTimestamp(time));
+    localStorage.setItem(LOCAL_STORAGE_KEYS.TIME_LAST_POLLED, getTimestamp(time));
+}
+
+function getStateAsJSON() {
+    const lsKeys: any = {};
+    for (const key of Object.values(LOCAL_STORAGE_KEYS)) {
+        lsKeys[key] = localStorage.getItem(key);
+    }
+
+    return JSON.stringify(lsKeys);
 }
 
 // NOTE: We should only ever have one of these ever.
@@ -2201,6 +2294,9 @@ export const App = () => {
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
     const fuzzyFindModal = FuzzyFindModal();
+    let backupText = "";
+    let backupFilename = "";
+    const loadBackupModal = LoadBackupModal();
 
     const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
         div({}, [makeDarkModeToggle()]),
@@ -2209,13 +2305,13 @@ export const App = () => {
         div({ class: "flex-1" }),
         div({ class: "row" }, [
             makeButtonWithCallback("Search", () => {
-                setCurrentModal("fuzzy-finder");
+                setCurrentModal(fuzzyFindModal);
             }),
             makeButtonWithCallback("Scratch Pad", () => {
-                setCurrentModal("scratch-pad");
+                setCurrentModal(scratchPadModal);
             }),
             makeButtonWithCallback("Analytics", () => {
-                setCurrentModal("analytics-view");
+                setCurrentModal(analyticsModal);
             }),
             makeButtonWithCallback("Clear all", () => {
                 if (!confirm("Are you sure you want to clear your note tree?")) {
@@ -2245,37 +2341,24 @@ export const App = () => {
                     showStatusText("Copied current open notes as text");
                 });
             }),
-            makeButtonWithCallback("Load JSON from scratch pad", () => {
-                handleErrors(() => {
-                    try {
-                        const lsKeys = JSON.parse(state.scratchPad);
-                        localStorage.clear();
-                        for (const key in lsKeys) {
-                            localStorage.setItem(key, lsKeys[key]);
-                        }
-                    } catch {
-                        throw new Error("Scratch pad must contain valid JSON");
-                    }
-
-                    if (!confirm("This will erase all your current trees. Are you sure?")) {
+            makeButtonWithCallback("Load JSON Backup", () => {
+                loadFile((file) => {
+                    if (!file) {
                         return;
                     }
 
-                    initState();
+                    file.text().then((text) => {
+                        backupFilename = file.name;
+                        backupText = text;
+                        setCurrentModal(loadBackupModal);
+                    });
                 });
             }),
-            makeButtonWithCallback("Copy as JSON", () => {
+            makeButtonWithCallback("Download JSON backup data", () => {
                 handleErrors(() => {
-                    const lsKeys = {};
-                    for (const [key, value] of Object.entries(localStorage)) {
-                        // @ts-ignore typescript doesn't like copying keys like this
-                        lsKeys[key] = value;
-                    }
-
-                    navigator.clipboard.writeText(JSON.stringify(lsKeys));
-                    showStatusText("Copied JSON");
+                    saveText(getStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
                 });
-            })
+            }),
         ])
     ]);
 
@@ -2311,6 +2394,7 @@ export const App = () => {
         scratchPadModal,
         analyticsModal,
         fuzzyFindModal,
+        loadBackupModal,
     ]);
 
 
@@ -2336,7 +2420,7 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal("fuzzy-finder");
+            setCurrentModal(fuzzyFindModal);
             return;
         } else if (
             e.key === "S" &&
@@ -2344,7 +2428,7 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal("scratch-pad");
+            setCurrentModal(scratchPadModal);
             return;
         } else if (
             e.key === "A" &&
@@ -2352,7 +2436,7 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal("analytics-view");
+            setCurrentModal(analyticsModal);
             return;
         } else if (
             currentModal !== null &&
@@ -2549,15 +2633,24 @@ export const App = () => {
         breakInput.render(undefined);
         todoNotes.render(undefined);
 
-        if (setVisible(fuzzyFindModal, currentModal === "fuzzy-finder")) {
+        if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
+            loadBackupModal.render({
+                text: backupText,
+                fileName: backupFilename,
+            });
+        } else {
+            backupText = "";
+        }
+
+        if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
             fuzzyFindModal.render(undefined);
         }
 
-        if (setVisible(analyticsModal, currentModal === "analytics-view")) {
+        if (setVisible(analyticsModal, currentModal === analyticsModal)) {
             analyticsModal.render(undefined);
         }
 
-        if (setVisible(scratchPadModal, currentModal === "scratch-pad")) {
+        if (setVisible(scratchPadModal, currentModal === scratchPadModal)) {
             scratchPadModal.render(undefined);
         }
     });
@@ -2635,12 +2728,12 @@ const debouncedSave = () => {
 };
 
 function loadState() {
-    const savedStateJSON = localStorage.getItem(STATE_KEY);
+    const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEYS.STATE);
     if (!savedStateJSON) {
         return;
     }
 
-    loadStateFromJSON(savedStateJSON);
+    setStateFromJSON(savedStateJSON);
 }
 
 
@@ -2648,7 +2741,7 @@ let saveTimeout = 0;
 function saveState(state: State) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
-    localStorage.setItem(STATE_KEY, serialized);
+    localStorage.setItem(LOCAL_STORAGE_KEYS.STATE, serialized);
 }
 
 
