@@ -70,20 +70,39 @@ export function isDoneNote(note: Note) {
     return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done") ||
         note.text.startsWith("DECLINED") || note.text.startsWith("MERGED"); // funny git reference. but actually, DECLINED is somewhat useful
 }
-export function isTodoNote(note: Note) {
+
+// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
+export function migrateLegacyTodoNotes(state: State) {
+    tree.forEachNode(state.notes, (id) => {
+        const note = getNote(state, id);
+
+        if (isTodoNoteLegacy(note.data) || isSubtaskNoteLegacy(note.data)) {
+            const priority = getTodoNotePriorityLegacy(note.data);
+
+            let newText;
+            if (priority <= 0 || isSubtaskNoteLegacy(note.data)) {
+                let count = isSubtaskNoteLegacy(note.data) ? 1 : 4;
+                newText = "> " + note.data.text.substring(count);
+            } else if (priority === 1) {
+                newText = ">> " + note.data.text.substring(4);
+            } else if (priority >= 2) {
+                newText = ">>> " + note.data.text.substring(4);
+            }
+
+            if (newText) {
+                note.data.text = newText;
+            }
+        }
+    });
+}
+
+// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
+export function isTodoNoteLegacy(note: Note) {
     return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
 }
 
-export function isSubtaskNote(note: Note) {
-    return note.text.startsWith("*") || note.text.startsWith(">");
-}
-
-export function getTodoNotePriorityId(state: State, id: NoteId): number {
-    const note = getNote(state, id);
-    return getTodoNotePriority(note.data);
-}
-
-export function getTodoNotePriority(note: Note): number {
+// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
+export function getTodoNotePriorityLegacy(note: Note): number {
     let priority = 0;
     let i = "TODO".length;
 
@@ -103,6 +122,36 @@ export function getTodoNotePriority(note: Note): number {
     }
 
     return priority;
+}
+
+export function isSubtaskNoteLegacy(note: Note) {
+    return note.text.startsWith("*");
+}
+
+export function isTodoNote(note: Note) {
+    return getTodoNotePriority(note) > 0;
+}
+
+
+export function getTodoNotePriorityId(state: State, id: NoteId): number {
+    const note = getNote(state, id);
+    return getTodoNotePriority(note.data);
+}
+
+export function getTodoNotePriority(note: Note): number {
+    // Keep the priority system simple. 
+    // Tasks are are always changing priority, and having too many priorities means they will always be assigned the wrong priority.
+    // The task priorities/importances should all be in your head. This program should just help you remember which things you're working
+    // on now, and which things you want to get to in the future, and you shouldn't be spending all your time ordering the tasks.
+
+    // In progress / working set
+    if (note.text.startsWith(">>>")) return 3;
+    // Todo - candidate
+    if (note.text.startsWith(">>")) return 2;
+    // Backlog
+    if (note.text.startsWith(">")) return 1;
+
+    return 0;
 }
 
 export type NoteStatus = 1 | 2 | 3;
@@ -337,17 +386,6 @@ export function recomputeState(state: State) {
                     continue;
                 }
 
-                if (isSubtaskNote(child.data)) {
-                    if (foundDoneNote) {
-                        child.data._status = STATUS_DONE;
-                        foundDoneNote = false;
-                        continue;
-                    } 
-
-                    child.data._status = STATUS_IN_PROGRESS;
-                    continue;
-                }
-
                 if (isDoneNote(child.data) || foundDoneNote) {
                     child.data._status = STATUS_DONE;
                     foundDoneNote = true;
@@ -408,10 +446,24 @@ export function recomputeState(state: State) {
 
     // recompute the TODO notes
     {
-        filterInPlace(state.todoNoteIds, (id) => {
-            const note = getNote(state, id);
-            return isTodoNote(note.data) && note.data._status !== STATUS_DONE;
-        });
+        // Somewhat inefficient. but I don't care.
+        // Seems quite effective, actually. All notes on the
+        // todo list are in the same order as they are in the tree, and they are
+        // all packed together. It's like I'm looking at a compressed version of the tree
+
+        state.todoNoteIds.splice(0, state.todoNoteIds.length);
+        const dfs = (note: TreeNote) => {
+            for (const id of note.childIds) {
+                const note = getNote(state, id);
+                if (isTodoNote(note.data) && note.data._status !== STATUS_DONE) {
+                    state.todoNoteIds.push(id);
+                    // don't include any child todos. this clutters the todo list
+                } else {
+                    dfs(note);
+                }
+            }
+        }
+        dfs(getRootNote(state));
     }
 
     // recompute the last fixed note
@@ -922,7 +974,7 @@ export function getTimeStr(note: Note) {
 
 export function getIndentStr(note: Note) {
     const { _depth: repeats } = note;
-    return "     ".repeat(repeats);
+    return "    ".repeat(repeats);
 }
 
 /** 
@@ -1161,9 +1213,53 @@ export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
     return null;
 }
 
+// Somewhat unused, but I'm keeping it around, because it is a nice example of how to do a bi-directional iteration loop
+export function moveNotePriorityUpOrDown(
+    state: State,
+    noteId: NoteId,
+    down: boolean,  // setting this to false moves the note's priority up (obviously)
+) {
+    const idxThis = state.todoNoteIds.indexOf(noteId);
+    if (idxThis === -1) {
+        // this code should never run
+        throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
+    }
+
+    const currentNote = getCurrentNote(state);
+    const currentPriority = getTodoNotePriority(currentNote.data);
+
+    let idx = idxThis;
+    const direction = down ? 1 : -1;
+    while (
+        (direction === -1 && idx > 0) ||
+        (direction === 1 && idx < state.todoNoteIds.length - 1)
+    ) {
+        idx += direction;
+
+        const noteId = state.todoNoteIds[idx];
+        const note = getNote(state, noteId);
+        if (
+            note.id === currentNote.id ||
+            note.data._isSelected ||
+            getTodoNotePriority(note.data) !== currentPriority
+        ) {
+            idx -= direction;
+            break;
+        }
+    }
+
+    if (idxThis !== idx) {
+        state.todoNoteIds.splice(idxThis, 1);
+        state.todoNoteIds.splice(idx, 0, noteId);
+    }
+}
+
+
 export function resetState() {
     state = defaultState();
 }
 
 export let state = defaultState();
+
+
 

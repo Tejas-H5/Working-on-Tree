@@ -31,17 +31,22 @@ export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
 };
 
 export type InsertableGeneric<T extends HTMLElement | Text> = { 
-    el: T 
+    el: T;
+    _isInserted: boolean;
 };
 export type Insertable = InsertableGeneric<HTMLElement>
 
 export function replaceChildren(comp: Insertable, ...children: (Insertable | undefined)[]) {
     comp.el.replaceChildren(
-        ...children.filter(c => !!c).map((c) => c!.el)
+        ...children.filter(c => !!c).map((c) => {
+            c!._isInserted = true;
+            return c!.el;
+        })
     );
 };
 
 export function appendChild(mountPoint: Insertable, child: Insertable) {
+    child._isInserted = true;
     mountPoint.el.appendChild(child.el);
 };
 
@@ -129,6 +134,7 @@ export function buildEl<T extends Insertable>(
                 element.appendChild(document.createTextNode(c));
             } else {
                 element.appendChild(c.el);
+                c._isInserted = true;
             }
         }
     }
@@ -148,7 +154,8 @@ export function el<T extends HTMLElement>(
     const element = document.createElement(type);
 
     const insertable: InsertableGeneric<T> = {
-        el: element as T
+        el: element as T,
+        _isInserted: false,
     };
 
 
@@ -167,7 +174,7 @@ export function div(attrs?: Attrs, children?: (Insertable | string)[]) {
 
 export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
     return {
-        el: root.el,
+        ...root,
         components: [],
         lastIdx: 0,
         getIdx() {
@@ -258,9 +265,13 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
         ...root,
         // @ts-ignore this is always set before we render the component
         args: null,
-        render: function(argsIn) {
+        render(argsIn) {
             component.args = argsIn;
             renderFn();
+
+            if (!this._isInserted) {
+                console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway. You may have forgotten to delete some code");
+            }
         },
     };
 

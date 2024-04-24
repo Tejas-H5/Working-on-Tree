@@ -43,7 +43,6 @@ import {
     recomputeNoteTasks,
     getInnerNoteId,
     STATUS_ASSUMED_DONE,
-    isTodoNote,
     dfsPre,
     getRootNote,
     setIsEditingCurrentNote,
@@ -53,9 +52,9 @@ import {
     pushActivity,
     getLastActivity,
     getLastActivityWithNoteIdx,
-    defaultNote,
-    defaultState,
     setStateFromJSON,
+    isTodoNote,
+    migrateLegacyTodoNotes,
 } from "./state";
 import {
     Renderable,
@@ -84,6 +83,7 @@ import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
 import CustomWorker from './activitycheck?worker';
 import { loadFile, saveText } from "./file-download";
+import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -128,42 +128,23 @@ function NoteLink(): Renderable<NoteLinkArgs> {
     return component;
 }
 
-function TodoList(): Renderable {
+type TodoListInternalArgs = {
+    priorityLevel: number;
+    heading: string;
+    scrollRoot?: Insertable;
+    onScroll?(): void;
+};
+
+function TodoListInternal(): Renderable<TodoListInternalArgs> {
     type TodoItemArgs = {
         note: TreeNote;
-        hasDivider: boolean;
+        focusAnyway: boolean;
     }
 
     const componentList = makeComponentList(div(), () => {
-        const nestedNotesList = makeComponentList(div(), () => {
-            const status = div();
-            const link = NoteLink();
-            const thing = div({ class: "pre" })
-            const root = div({ class: "pre-wrap row align-items-center" }, [
-                status, thing, link,
-            ])
-
-            type NestedNotesArgs = {
-                linkedNoteArgs: Omit<NoteLinkArgs, "noteId"> & { noteId: NoteId; };
-            }
-
-            const component = makeComponent<NestedNotesArgs>(root, () => {
-                const { linkedNoteArgs } = component.args;
-                const { noteId } = linkedNoteArgs;
-
-                const note = getNote(state, noteId);
-                const progressText = getNoteProgressCountText(note);
-
-                link.render(linkedNoteArgs);
-                // questionable whitespace practice tbh
-                setTextContent(thing, " " + progressText + " " + (state.currentNoteId === noteId ? " > " : " - "));
-                setTextContent(status, noteStatusToString(note.data._status) ?? "??");
-            });
-
-            return component;
-        });
-
-        let progressText, noteLink, moveUpButton, moveDownButton, divider;
+        const noteLink = NoteLink();
+        const lastEditedNoteLink = NoteLink();
+        let progressText;
         const root = div({}, [
             div({
                 class: "hover-parent flex-1",
@@ -174,154 +155,164 @@ function TodoList(): Renderable {
             }, [
                 div({ class: "row align-items-center" }, [
                     progressText = div(),
-                    noteLink = NoteLink(),
-                    div({ class: "flex-1" }),
-                    div({ class: "row" }, [
-                        moveUpButton = makeButton("↑", "hover-target", "height: 20px;"),
-                        moveDownButton = makeButton("↓", "hover-target", "height: 20px;"),
+                    div({}, [
+                        noteLink,
+                        div({ style: "padding-left: 60px" }, [
+                            lastEditedNoteLink,
+                        ]),
                     ]),
                 ]),
-                nestedNotesList,
             ]),
-            divider = div({ style: "height: 20px" }),
         ]);
 
         const component = makeComponent<TodoItemArgs>(root, () => {
-            const { note, hasDivider } = component.args;
-
-            setVisible(divider, hasDivider);
-
-            moveUpButton.el.setAttribute("title", "Move this note up");
-
-            const nestedNotes: TreeNote[] = [];
-            const dfs = (note: TreeNote, nestedNotes: TreeNote[]) => {
-                for (const id of note.childIds) {
-                    const note = getNote(state, id);
-
-                    if (isTodoNote(note.data)) {
-                        continue;
-                    }
-
-                    if (note.data._status === STATUS_IN_PROGRESS) {
-                        nestedNotes.push(note);
-                    }
-
-                    dfs(note, nestedNotes);
-                }
-            }
-
-            dfs(note, nestedNotes);
-
-            let focusAnyway = note.id === state.currentNoteId;
-            nestedNotesList.render(() => {
-                for (const note of nestedNotes) {
-                    focusAnyway = focusAnyway || note.id === state.currentNoteId;
-
-                    nestedNotesList.getNext().render({
-                        linkedNoteArgs: {
-                            noteId: note.id,
-                            text: note.data.text,
-                            focusAnyway: false,
-                            preventScroll: true,
-                        },
-                    });
-                }
-            });
+            const { note, focusAnyway } = component.args;
 
             setTextContent(progressText, getNoteProgressCountText(note));
 
             noteLink.render({
                 noteId: note.id,
                 text: note.data.text,
-                focusAnyway,
                 preventScroll: true,
+                focusAnyway,
             });
-        });
 
-        function moveNotePriorityUpOrDown(
-            state: State,
-            noteId: NoteId,
-            down: boolean,  // setting this to false moves the note's priority up (obviously)
-        ) {
-            const idxThis = state.todoNoteIds.indexOf(noteId);
-            if (idxThis === -1) {
-                // this code should never run
-                throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
-            }
+            setVisible(lastEditedNoteLink, false);
+            const lastEditedChildId = note.childIds[note.data.lastSelectedChildIdx];
+            if (!!lastEditedChildId) {
+                const note = getNote(state, lastEditedChildId);
 
-            const currentNote = getCurrentNote(state);
-            const currentPriority = getTodoNotePriority(currentNote.data);
-
-            let idx = idxThis;
-            const direction = down ? 1 : -1;
-            while (
-                (direction === -1 && idx > 0) ||
-                (direction === 1 && idx < state.todoNoteIds.length - 1)
-            ) {
-                idx += direction;
-
-                const noteId = state.todoNoteIds[idx];
-                const note = getNote(state, noteId);
-                if (
-                    note.id === currentNote.id ||
-                    note.data._isSelected ||
-                    getTodoNotePriority(note.data) !== currentPriority
-                ) {
-                    idx -= direction;
-                    break;
+                // We only want to render our current progress for a particular note,
+                // not any of the tasks under it
+                if (!isTodoNote(note.data)) {
+                    setVisible(lastEditedNoteLink, true);
+                    lastEditedNoteLink.render({
+                        noteId: lastEditedChildId,
+                        text: note.data.text,
+                        preventScroll: true,
+                        focusAnyway,
+                    });
                 }
             }
-
-            if (idxThis !== idx) {
-                state.todoNoteIds.splice(idxThis, 1);
-                state.todoNoteIds.splice(idx, 0, noteId);
-            }
-        }
-
-        moveDownButton.el.addEventListener("click", () => {
-            const { note } = component.args;
-
-            setTimeout(() => {
-                moveNotePriorityUpOrDown(state, note.id, true);
-                setCurrentNote(state, note.id);
-
-                rerenderApp({ shouldScroll: false });
-            }, 1);
-        });
-
-        moveUpButton.el.addEventListener("click", () => {
-            const { note } = component.args;
-
-            setTimeout(() => {
-                moveNotePriorityUpOrDown(state, note.id, false);
-                setCurrentNote(state, note.id);
-
-                rerenderApp({ shouldScroll: false });
-            }, 1);
         });
 
         return component;
     });
 
-    const component = makeComponent(componentList, () => {
+    const headingEl = el("H3", {});
+    const root = div({}, [
+        headingEl,
+        componentList,
+    ])
+
+    const component = makeComponent<TodoListInternalArgs>(root, () => {
+        const { heading, priorityLevel, scrollRoot, onScroll} = component.args;
+        setTextContent(headingEl, heading);
+        let count = 0;
+        let alreadyScrolled = false;
+
         componentList.render(() => {
             for (let i = 0; i < state.todoNoteIds.length; i++) {
                 const id = state.todoNoteIds[i];
-                const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
+                // const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
 
                 const note = getNote(state, id);
-                const nextNote = nextId ? getNote(state, nextId) : undefined;
+                // const nextNote = nextId ? getNote(state, nextId) : undefined;
 
-                componentList.getNext().render({
-                    note: getNote(state, id),
-                    hasDivider: !!nextNote && getTodoNotePriority(note.data) !== getTodoNotePriority(nextNote.data),
+                if (getTodoNotePriority(note.data) !== priorityLevel) {
+                    continue;
+                }
+
+                count++;
+
+                let hasParentSelected = false;
+                tree.forEachParent(state.notes, note, (note) => {
+                    if (note.id === state.currentNoteId) {
+                        hasParentSelected = true;
+                        return true;
+                    }
+                    return false;
                 });
+
+                if (!hasParentSelected) {
+                    const currentNote = getCurrentNote(state);
+                    tree.forEachParent(state.notes, currentNote, (currentNoteAscendant) => {
+                        if (note.id === currentNoteAscendant.id) {
+                            hasParentSelected = true;
+                            return true;
+                        }
+                        return false;
+                    });
+                }
+
+                const c = componentList.getNext();
+                c.render({
+                    note: note,
+                    focusAnyway:  hasParentSelected
+                });
+
+                if (hasParentSelected && scrollRoot && onScroll && !alreadyScrolled) {
+                    c.el.scrollIntoView(true);
+                    alreadyScrolled = true;
+                    onScroll();
+                }
             }
         });
+
+        setVisible(root, count > 0);
     });
 
     return component;
 }
+
+type TodoListArgs = {
+    shouldScroll: boolean;
+}
+
+function TodoList(): Renderable<TodoListArgs> {
+    const inProgress = TodoListInternal();
+    const todo = TodoListInternal();
+    const backlog = TodoListInternal();
+    const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
+    const root = div({ style: "overflow-y: auto" }, [
+        empty,
+        inProgress,
+        todo,
+        backlog,
+    ]);
+
+    const comopnent = makeComponent<TodoListArgs>(root, () => {
+        const { shouldScroll } = comopnent.args;
+        
+        setVisible(empty, state.todoNoteIds.length === 0);
+
+        let alreadyScrolled = false;
+
+        inProgress.render({
+            priorityLevel: 3,
+            heading: "In Progress",
+            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            onScroll: () => alreadyScrolled = true,
+        });
+        
+        todo.render({
+            priorityLevel: 2,
+            heading: "TODO",
+            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            onScroll: () => alreadyScrolled = true,
+        });
+
+        backlog.render({
+            priorityLevel: 1,
+            heading: "Backlog",
+            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            onScroll: () => alreadyScrolled = true,
+        });
+    });
+
+    return comopnent;
+}
+
 
 function BreakInput(): Renderable {
     const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
@@ -608,84 +599,16 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     return textArea;
 }
 
-// exposing the textArea so that we can focus it, but
-// really, TODO: just expose a focus() function...
-function ScratchPad(): Renderable & { textArea: HTMLTextAreaElement } {
-    let yardStick = div({ class: "absolute", style: "width: 5px; left:-5px;top:0px" });
-    let textArea = TextArea();
+// TODO: great things...
+function ScratchPad(): Renderable {
     const root = div({ class: "relative h-100" }, [
-        yardStick,
-        textArea,
     ]);
 
     const component = makeComponent(root, () => {
-        if (textArea.el.value !== state.scratchPad) {
-            textArea.el.value = state.scratchPad;
-        }
-    });
-
-    const onEdit = () => {
-        state.scratchPad = textArea.el.value;
-        rerenderApp({ shouldScroll: false });
-
-        debouncedSave();
-    };
-
-    textArea.el.addEventListener("input", onEdit);
-    textArea.el.addEventListener("change", onEdit);
-
-    textArea.el.addEventListener("keydown", () => {
-        function updateScrollPosition() {
-            // This function scrolls the window to the current cursor position inside the text area.
-            // This code is loosely based off the solution from https://jh3y.medium.com/how-to-where-s-the-caret-getting-the-xy-position-of-the-caret-a24ba372990a
-            // My version is better, obviously
-
-            function countNewLines(str: string) {
-                let count = 0;
-                for (let i = 0; i < str.length; i++) {
-                    if (str[i] === "\n") {
-                        count++;
-                    }
-                }
-                return count;
-            }
-
-            const selectionEnd = textArea.el.selectionEnd;
-            const startToCursorText = textArea.el.value.substring(0, selectionEnd);
-
-            // debugging
-            yardStick.el.style.background = "#F00";
-            yardStick.el.style.background = "transparent";
-            yardStick.el.style.whiteSpace = "pre";
-            yardStick.el.textContent = "\n".repeat(countNewLines(startToCursorText)) + ".";
-
-            yardStick.el.style.height = 0 + "px";
-            const height = yardStick.el.scrollHeight;
-            yardStick.el.style.height = height + "px";
-            yardStick.el.textContent = "";
-
-            textArea.el.scrollTo({
-                left: 0,
-                top: height - textArea.el.getBoundingClientRect().height / 2,
-                behavior: "instant",
-            });
-
-            // Not sure if I'll need this or what
-            // window.scrollTo({
-            //     left: 0,
-            //     // NOTE: this is actually wrong. It scrolls way past our element, but our element
-            //     // just so happens to be at the bottom of the screen
-            //     top: window.scrollY + textArea.el.getBoundingClientRect().height,
-            //     behavior: "instant",
-            // });
-        }
-
-        updateScrollPosition();
     });
 
     return {
         ...component,
-        textArea: textArea.el,
     };
 }
 
@@ -844,7 +767,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     }
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note } = component.args;
+        const { note, } = component.args;
 
         const dashChar = note.data._isSelected ? "-" : "-";
         const progressText = getNoteProgressCountText(note);
@@ -861,23 +784,28 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         if (renderOptions.shouldScroll && !wasFocused && isFocused) {
             // without setTimeout here, calling focus won't work as soon as the page loads.
-            setTimeout(() => {
-                // scroll view into position.
-                // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
-                // ideally we don't want to do this when we click on a note.
-                // I haven't worked out how to do that yet though
-                {
-                    const rootRect = root.el.getBoundingClientRect();
-                    const wantedY = rootRect.top + window.scrollY;
+            function scrollComponentToView() {
+                setTimeout(() => {
+                    // scroll view into position.
+                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
+                    // ideally we don't want to do this when we click on a note.
+                    // I haven't worked out how to do that yet though
+                    {
+                        const rootRect = root.el.getBoundingClientRect();
+                        const wantedY = rootRect.top + window.scrollY;
 
-                    window.scrollTo({
-                        left: 0,
-                        // With the note tree it's much more important for me to see what I've done, as below that isn't very important. 
-                        top: wantedY - (3 * window.innerHeight / 4) + rootRect.height,
-                        behavior: "instant"
-                    });
-                }
-            }, 1);
+                        window.scrollTo({
+                            left: 0,
+                            top: wantedY - 0.5 * window.innerHeight + 0.5 * rootRect.height,
+                            behavior: "instant"
+                        });
+                    }
+                }, 1);
+            }
+
+            if (renderOptions.shouldScroll) {
+                scrollComponentToView();
+            }
         }
 
         if (setVisible(whenEditing, isEditing)) {
@@ -1600,6 +1528,23 @@ function FuzzyFinder(): Renderable {
     return component;
 }
 
+function TodoListModal(): Renderable {
+    const todoList = TodoList();
+    const modalComponent = Modal(
+        div({ class: "col", style: modalPaddingStyles(10) }, [
+            todoList
+        ])
+    );
+
+    const component = makeComponent(modalComponent, () => {
+        todoList.render({
+            shouldScroll: true
+        });
+    });
+
+    return component;
+}
+
 function FuzzyFindModal(): Renderable {
     const fuzzyFind = FuzzyFinder();
     const modalComponent = Modal(
@@ -1619,10 +1564,14 @@ function FuzzyFindModal(): Renderable {
     return component;
 }
 
+function modalPaddingStyles(paddingPx: number) {
+    return `width: calc(100% - ${paddingPx * 2}px); height: calc(100% - ${paddingPx * 2}px); padding: ${paddingPx}px;`;
+}
+
 function AnalyticsModal(): Renderable {
     const activityAnalytics = ActivityAnalytics();
     const modalComponent = Modal(
-        div({ class: "col", style: "width: calc(100% - 20px); height: calc(100% - 20px); padding: 10px;" }, [
+        div({ class: "col", style: modalPaddingStyles(10) }, [
             activityAnalytics
         ])
     );
@@ -1663,7 +1612,7 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
         }
     });
     const modal = Modal(
-        div({ class: "col", style: "width: calc(100% - 20px); height: calc(100% - 20px); padding: 10px;" }, [
+        div({ class: "col", style: modalPaddingStyles(10) }, [
             fileNameDiv,
             infoDiv,
             loadBackupButton,
@@ -1715,9 +1664,11 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
 
 function ScratchPadModal(): Renderable {
     const scratchPad = ScratchPad();
-    scratchPad.textArea.style.padding = "5px";
-
-    const modalComponent = Modal(scratchPad);
+    const modalComponent = Modal(
+        div({ style: modalPaddingStyles(10) }, [
+            scratchPad
+        ])
+    );
 
     const component = makeComponent(modalComponent, () => {
         modalComponent.render({
@@ -1727,10 +1678,6 @@ function ScratchPadModal(): Renderable {
         });
 
         scratchPad.render(undefined);
-
-        setTimeout(() => {
-            scratchPad.textArea.focus({ preventScroll: true });
-        }, 100);
     });
 
     return component;
@@ -1770,7 +1717,7 @@ function NoteRowStatistic(): Renderable<NoteRowArgs> {
         const isInProgress = lastActivity?.nId === note.id;
         if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
             if (isInProgress) {
-                setTextContent(inProgress, "[In progress]");
+                setTextContent(inProgress, "[In Progress]");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#F00";
             } else {
@@ -1919,38 +1866,34 @@ function setTheme(theme: AppTheme) {
 };
 
 
+function AsciiIcon(): Renderable<AsciiIconData> {
+    const icon = div();
+    icon.el.style.whiteSpace = "pre";
+    icon.el.style.fontSize = "6px";
+    icon.el.style.fontFamily = "Courier";
+    icon.el.style.fontWeight = "bold";
+    icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
+
+    const component = makeComponent<AsciiIconData>(icon, () => {
+        const { data } = component.args;
+        setTextContent(icon, data);
+    });
+
+    return component;
+}
+
 const makeDarkModeToggle = () => {
-    function getThemeText() {
+    function getThemeAsciiIcon() {
         const theme = getTheme();
+        console.log(theme);
+        if (theme === "Light") {
+            return ASCII_SUN;
+        }
 
-            if (theme === "Light") {
-                return (
-                    // https://www.asciiart.eu/nature/sun
-                    `      ;   :   ;
-   .   \\_,!,_/   ,
-    \`.,':::::\`.,'
-     /:::::::::\\
-~ -- ::::::::::: -- ~
-     \\:::::::::/
-    ,'\`:::::::'\`.
-   '   / \`!\` \\   \`
-      ;   :   ;     `);
-
-            }
-
-            return (
-                // https://www.asciiart.eu/space/moons
-                `
-       _..._    *
-  *  .::'   \`.    
-    :::       :    |  
-    :::       :   -+-
-    \`::.     .'    |
- *    \`':..-'  .
-               * .
-      `);
+        return ASCII_MOON_STARS;
     };
 
+    const icon = AsciiIcon();
     const button = makeButtonWithCallback("", () => {
         let themeName = getTheme();
         if (!themeName || themeName === "Light") {
@@ -1960,16 +1903,11 @@ const makeDarkModeToggle = () => {
         }
 
         setTheme(themeName);
+        icon.render(getThemeAsciiIcon());
     });
 
-    button.el.style.whiteSpace = "pre";
-    button.el.style.fontSize = "6px";
-    button.el.style.fontFamily = "Courier";
-    button.el.style.fontWeight = "bold";
-    button.el.style.textShadow = "2px 2px 0px var(--fg-color)";
-
-    setTheme(getTheme());
-    setTextContent(button, getThemeText());
+    replaceChildren(button, icon);
+    icon.render(getThemeAsciiIcon());
 
     return button;
 };
@@ -2118,13 +2056,13 @@ function CheatSheet(): Renderable {
         el("H4", {}, ["Loading and saving"]),
         makeUnorderedList([
             `Your stuff is auto-saved 1 second after you finish typing. 
-            You can download a copy of your data, and then reload it later/elsewhere with the "Download JSON backup data" and "Load JSON backup" buttons.`,
+            You can download a copy of your data, and then reload it later/elsewhere with the "Download JSON" and "Load JSON" buttons.`,
         ]),
     ]), () => { });
 }
 
-function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean): number {
-    const currentNoteId = state.activities[idx].nId;
+function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean, stepOver: boolean): number {
+    const currentNoteId = state.activities[idx]?.nId;
     const currentParentId = !currentNoteId ? undefined : getNote(state, currentNoteId).parentId;
 
     const activities = state.activities;
@@ -2141,9 +2079,11 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
 
             if (
                 note.parentId &&
-                note.parentId !== currentParentId &&
-                note.data._status === STATUS_IN_PROGRESS    // Because why would we ever want to revist something we completed? Why?
+                note.parentId !== currentParentId
             ) {
+                if (!stepOver) {
+                    idx--;
+                }
                 break;
             }
         }
@@ -2170,7 +2110,16 @@ function moveInDirectonOverHotlist(backwards: boolean) {
         }
     }
 
-    const nextIdx = getNextHotlistActivityInDirection(state, lastHotlistIndex, backwards);
+    let nextIdx = lastHotlistIndex;
+    if (backwards) {
+        nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards, true);
+    } else {
+        // going forwards.
+        nextIdx = getNextHotlistActivityInDirection(state, nextIdx + 1, backwards, false);
+    }
+
+    console.log(nextIdx);
+
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
         return;
     }
@@ -2181,21 +2130,7 @@ function moveInDirectonOverHotlist(backwards: boolean) {
         return;
     }
 
-    const note = getNote(state, nId);
-    if (!note.parentId) {
-        return;
-    }
-
-    const parentNote = getNote(state, note.parentId);
-    let jumpNoteId = parentNote.childIds[parentNote.data.lastSelectedChildIdx];
-    if (!jumpNoteId) {
-        jumpNoteId = parentNote.childIds[parentNote.childIds.length - 1];
-    }
-    if (!jumpNoteId) {
-        return;
-    }
-
-    setCurrentNote(state, jumpNoteId);
+    setCurrentNote(state, nId);
     setIsEditingCurrentNote(state, false);
     lastHotlistIndex = nextIdx;
 }
@@ -2294,21 +2229,34 @@ export const App = () => {
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
     const fuzzyFindModal = FuzzyFindModal();
+    const todoListModal = TodoListModal();
     let backupText = "";
     let backupFilename = "";
     const loadBackupModal = LoadBackupModal();
 
     const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
-        div({}, [makeDarkModeToggle()]),
+        div({ class: "row align-items-end" }, [
+            makeDarkModeToggle(),
+            makeButtonWithCallback("Scratch Pad", () => {
+                setCurrentModal(scratchPadModal);
+            }),
+        ]),
         div({ class: "flex-1" }),
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
-            makeButtonWithCallback("Search", () => {
+            makeButtonWithCallback("Migrate TODO notes!", () => {
+                handleErrors(() => {
+                    migrateLegacyTodoNotes(state);
+
+                    showStatusText("Migrated!");
+                });
+            }),
+            makeButtonWithCallback("Todo Notes", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
-            makeButtonWithCallback("Scratch Pad", () => {
-                setCurrentModal(scratchPadModal);
+            makeButtonWithCallback("Search", () => {
+                setCurrentModal(fuzzyFindModal);
             }),
             makeButtonWithCallback("Analytics", () => {
                 setCurrentModal(analyticsModal);
@@ -2323,16 +2271,19 @@ export const App = () => {
 
                 showStatusText("Cleared notes");
             }),
-            makeButtonWithCallback("Copy as text (everything)", () => {
+            makeButtonWithCallback("Download TXT", () => {
                 handleErrors(() => {
                     const flatNotes: NoteId[] = [];
                     recomputeFlatNotes(state, flatNotes, true);
+                    const text = exportAsText(state, flatNotes);
+                    handleErrors(() => {
+                        saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                    });
 
-                    navigator.clipboard.writeText(exportAsText(state, flatNotes));
-                    showStatusText("Copied all notes as text");
+                    showStatusText("Download TXT");
                 });
             }),
-            makeButtonWithCallback("Copy open notes text", () => {
+            makeButtonWithCallback("Copy open notes", () => {
                 handleErrors(() => {
                     const flatNotes: NoteId[] = [];
                     recomputeFlatNotes(state, flatNotes, false);
@@ -2341,7 +2292,7 @@ export const App = () => {
                     showStatusText("Copied current open notes as text");
                 });
             }),
-            makeButtonWithCallback("Load JSON Backup", () => {
+            makeButtonWithCallback("Load JSON", () => {
                 loadFile((file) => {
                     if (!file) {
                         return;
@@ -2354,7 +2305,7 @@ export const App = () => {
                     });
                 });
             }),
-            makeButtonWithCallback("Download JSON backup data", () => {
+            makeButtonWithCallback("Download JSON", () => {
                 handleErrors(() => {
                     saveText(getStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
                 });
@@ -2378,7 +2329,7 @@ export const App = () => {
         div({ class: "row", style: "gap: 10px" }, [
             div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
-                    el("H3", {}, ["TODO Notes"]),
+                    // el("H3", {}, ["TODO Notes"]),
                     todoNotes
                 ])
             ]),
@@ -2394,6 +2345,7 @@ export const App = () => {
         scratchPadModal,
         analyticsModal,
         fuzzyFindModal,
+        todoListModal,
         loadBackupModal,
     ]);
 
@@ -2421,6 +2373,14 @@ export const App = () => {
         ) {
             e.preventDefault();
             setCurrentModal(fuzzyFindModal);
+            return;
+        } if(
+            e.key === "T" &&
+            ctrlPressed && 
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal(todoListModal);
             return;
         } else if (
             e.key === "S" &&
@@ -2631,7 +2591,7 @@ export const App = () => {
         notesList.render(undefined);
         activityList.render(undefined);
         breakInput.render(undefined);
-        todoNotes.render(undefined);
+        todoNotes.render({ shouldScroll: false });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
             loadBackupModal.render({
@@ -2652,6 +2612,10 @@ export const App = () => {
 
         if (setVisible(scratchPadModal, currentModal === scratchPadModal)) {
             scratchPadModal.render(undefined);
+        }
+
+        if (setVisible(todoListModal, currentModal === todoListModal)) {
+            todoListModal.render(undefined);
         }
     });
 
@@ -2748,6 +2712,7 @@ function saveState(state: State) {
 
 // Entry point
 const root: Insertable = {
+    _isInserted: true,
     el: document.getElementById("app")!
 };
 

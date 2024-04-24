@@ -14,7 +14,7 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
             `background-color: var(--bg-color); z-index: 9999;`
     }, [
         div({ class: "relative absolute-fill" }, [
-            div({ class: "absolute", style: "top: 0; right: 0;" }, [closeButton]),
+            div({ class: "absolute", style: "top: 0; right: 0; z-index: 9999;" }, [closeButton]),
             content
         ])
     ]);
