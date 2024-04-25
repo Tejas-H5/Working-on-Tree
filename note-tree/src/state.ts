@@ -23,13 +23,13 @@ export type State = {
     scratchPad: string;
 
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
-    todoNoteIds: NoteId[];
+    _todoNoteIds: NoteId[];
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
 
     // The last activity that we appended which cannot be popped due to debounce logic
-    // NOTE: we're kinda using the note's index like it's ID here. this is fine,
+    // NOTE: we're using the note's index like it's ID here. this is fine,
     // because activities are guaranteed to not change order (at least that is what we would like)
     lastFixedActivityIdx: number | null;
 
@@ -55,6 +55,18 @@ export type Note = {
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
 };
 
+
+export function recomputeNoteIsUnderFlag(state: State, note: TreeNote) {
+    tree.forEachNode(state.notes, (id) => {
+        const note = getNote(state, id);
+        note.data._isUnderCurrent = false;
+    });
+
+    dfsPre(state, note, (note) => {
+        note.data._isUnderCurrent = true;
+    });
+}
+
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
 // Yeah it isn't the best practice
 export type Activity = {
@@ -76,11 +88,11 @@ export function migrateLegacyTodoNotes(state: State) {
     tree.forEachNode(state.notes, (id) => {
         const note = getNote(state, id);
 
-        if (isTodoNoteLegacy(note.data) || isSubtaskNoteLegacy(note.data)) {
+        if (isTodoNoteLegacy(note.data)) {
             const priority = getTodoNotePriorityLegacy(note.data);
 
             let newText;
-            if (priority <= 0 || isSubtaskNoteLegacy(note.data)) {
+            if (priority <= 0) {
                 let count = isSubtaskNoteLegacy(note.data) ? 1 : 4;
                 newText = "> " + note.data.text.substring(count);
             } else if (priority === 1) {
@@ -124,9 +136,12 @@ export function getTodoNotePriorityLegacy(note: Note): number {
     return priority;
 }
 
+
+// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
 export function isSubtaskNoteLegacy(note: Note) {
     return note.text.startsWith("*");
 }
+
 
 export function isTodoNote(note: Note) {
     return getTodoNotePriority(note) > 0;
@@ -203,7 +218,7 @@ export function defaultState(): State {
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
-        todoNoteIds: [],
+        _todoNoteIds: [],
         activities: [],
         lastFixedActivityIdx: 0,
 
@@ -393,7 +408,7 @@ export function recomputeState(state: State) {
                 }
 
 
-                if (i === note.childIds.length - 1) {
+                if (i >= note.data.lastSelectedChildIdx) {
                     child.data._status = STATUS_IN_PROGRESS;
                 } else {
                     child.data._status = STATUS_ASSUMED_DONE;
@@ -423,14 +438,6 @@ export function recomputeState(state: State) {
         const current = getCurrentNote(state);
         tree.forEachParent(state.notes, current, (note) => {
             note.data._isSelected = true;
-
-            // Also let's add these notes to the todoNoteIds list if applicable.
-            if (isTodoNote(note.data) && !state.todoNoteIds.includes(note.id)) {
-                // this will get auto-deleted from recomputeState, so we don't have to do that here
-                state.todoNoteIds.push(note.id);
-                moveNotePriorityIntoPriorityGroup(state, note.id);
-            }
-
             return false;
         });
     }
@@ -451,12 +458,12 @@ export function recomputeState(state: State) {
         // todo list are in the same order as they are in the tree, and they are
         // all packed together. It's like I'm looking at a compressed version of the tree
 
-        state.todoNoteIds.splice(0, state.todoNoteIds.length);
+        state._todoNoteIds.splice(0, state._todoNoteIds.length);
         const dfs = (note: TreeNote) => {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
                 if (isTodoNote(note.data) && note.data._status !== STATUS_DONE) {
-                    state.todoNoteIds.push(id);
+                    state._todoNoteIds.push(id);
                     // don't include any child todos. this clutters the todo list
                 } else {
                     dfs(note);
@@ -476,6 +483,25 @@ export function recomputeState(state: State) {
             state.lastFixedActivityIdx = state.activities.length - 1;
         }
     }
+}
+
+export function isCurrentNoteOnOrInsideNote(state: State, note: TreeNote): boolean {
+    return note.data._isSelected ||    // Current note inside this note
+        isNoteUnderParent(state, state.currentNoteId, note);    // Current note directly above this note
+}
+
+export function isNoteUnderParent(state: State, parentId: NoteId, note: TreeNote): boolean {
+    // one of the parents is the current note
+    let isParentCurrent = false;
+    tree.forEachParent(state.notes, note, (note) => {
+        if (note.id === parentId) {
+            isParentCurrent = true;
+            return true;
+        }
+        return false;
+    });
+
+    return isParentCurrent;
 }
 
 export function getActivityTextOrUndefined(state: State, activity: Activity): string | undefined {
@@ -547,6 +573,14 @@ export function pushActivity(state: State, activity: Activity) {
         ) {
             state.activities.pop();
             state._debounceNewNoteActivity = false;
+        }
+
+        if (
+            state.activities.length > 0 &&
+            state.activities[state.activities.length - 1].nId === activity.nId
+        ) {
+            // Still, don't push the same note twice in a row
+            return;
         }
     }
 
@@ -928,39 +962,6 @@ export function dfsPre(state: State, note: TreeNote, fn: (n: TreeNote) => void) 
     }
 }
 
-export function moveNotePriorityIntoPriorityGroup(
-    state: State,
-    noteId: NoteId,
-) {
-    const idxThis = state.todoNoteIds.indexOf(noteId);
-    if (idxThis === -1) {
-        // this code should never run
-        throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
-    }
-
-    let idx = idxThis;
-    const currentPriority = getTodoNotePriorityId(state, noteId);
-
-    while (
-        idx < state.todoNoteIds.length - 1 &&
-        getTodoNotePriorityId(state, state.todoNoteIds[idx + 1]) > currentPriority
-    ) {
-        idx++;
-    }
-
-    while (
-        idx > 0 &&
-        getTodoNotePriorityId(state, state.todoNoteIds[idx - 1]) < currentPriority
-    ) {
-        idx--;
-    }
-
-    if (idxThis !== idx) {
-        state.todoNoteIds.splice(idxThis, 1);
-        state.todoNoteIds.splice(idx, 0, noteId);
-    }
-}
-
 export function getRootNote(state: State) {
     return getNote(state, state.notes.rootId);
 }
@@ -981,21 +982,11 @@ export function getIndentStr(note: Note) {
  * This is the sum of all activities with this note, or any descendant 
  */
 export function getNoteDuration(state: State, note: TreeNote) {
-    // recompute _isUnderCurrentNote 
-    {
-        tree.forEachNode(state.notes, (id) => {
-            const note = getNote(state, id);
-            note.data._isUnderCurrent = false;
-        });
-
-        dfsPre(state, note, (n) => {
-            n.data._isUnderCurrent = true;
-        });
-    }
-
     if (!note.parentId) {
         return 0;
     }
+
+    recomputeNoteIsUnderFlag(state, note);
 
     const activities = state.activities;
     let duration = 0;
@@ -1213,47 +1204,26 @@ export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
     return null;
 }
 
-// Somewhat unused, but I'm keeping it around, because it is a nice example of how to do a bi-directional iteration loop
-export function moveNotePriorityUpOrDown(
-    state: State,
-    noteId: NoteId,
-    down: boolean,  // setting this to false moves the note's priority up (obviously)
-) {
-    const idxThis = state.todoNoteIds.indexOf(noteId);
-    if (idxThis === -1) {
-        // this code should never run
-        throw new Error("Can't move up a not that isn't in the TODO list. There is a bug in the program somewhere");
-    }
+// This is recursive
+export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): TreeNote {
+    recomputeNoteIsUnderFlag(state, note);
+    note.data._isUnderCurrent = false;
 
-    const currentNote = getCurrentNote(state);
-    const currentPriority = getTodoNotePriority(currentNote.data);
+    for (let i = state.activities.length - 1; i > 0; i--) {
+        const activity = state.activities[i];
+        if (!activity.nId) {
+            continue;
+        }
 
-    let idx = idxThis;
-    const direction = down ? 1 : -1;
-    while (
-        (direction === -1 && idx > 0) ||
-        (direction === 1 && idx < state.todoNoteIds.length - 1)
-    ) {
-        idx += direction;
-
-        const noteId = state.todoNoteIds[idx];
-        const note = getNote(state, noteId);
-        if (
-            note.id === currentNote.id ||
-            note.data._isSelected ||
-            getTodoNotePriority(note.data) !== currentPriority
-        ) {
-            idx -= direction;
-            break;
+        const note = getNote(state, activity.nId);
+        if (note.data._isUnderCurrent) {
+            return note;
         }
     }
 
-    if (idxThis !== idx) {
-        state.todoNoteIds.splice(idxThis, 1);
-        state.todoNoteIds.splice(idx, 0, noteId);
-    }
+    // none of the notes in this subtree were worked on, ever. just return the parent note
+    return note;
 }
-
 
 export function resetState() {
     state = defaultState();

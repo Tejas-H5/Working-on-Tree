@@ -172,6 +172,20 @@ export function div(attrs?: Attrs, children?: (Insertable | string)[]) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 
+function handleRenderingError(root: Insertable, renderFn: () => void) {
+    // While this still won't catch errors with callbacks, it is still extremely helpful.
+    // By catching the error at this component and logging it, we allow all other components to render as expected, and
+    // It becomes a lot easier to spot the cause of a bug.
+
+    try {
+        setClass(root, "catastrophic---error", false);
+        renderFn();
+    } catch (e) {
+        setClass(root, "catastrophic---error", true);
+        console.error("An error occured while rendering your component:", e);
+    }
+}
+
 export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
     return {
         ...root,
@@ -197,8 +211,7 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
         render(renderFn) {
             this.lastIdx = 0;
 
-            renderFn();
-
+            handleRenderingError(this, renderFn);
 
             while(this.components.length > this.lastIdx) {
                 // could also just hide these with setVisible(false)
@@ -267,7 +280,8 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
         args: null,
         render(argsIn) {
             component.args = argsIn;
-            renderFn();
+
+            handleRenderingError(this, renderFn);
 
             if (!this._isInserted) {
                 console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway. You may have forgotten to delete some code");

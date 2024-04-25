@@ -29,7 +29,6 @@ import {
     isCurrentlyTakingABreak,
     isEditableBreak,
     loadStateFromJSON,
-    moveNotePriorityIntoPriorityGroup,
     pushBreakActivity,
     recomputeFlatNotes,
     recomputeState,
@@ -55,6 +54,8 @@ import {
     setStateFromJSON,
     isTodoNote,
     migrateLegacyTodoNotes,
+    isCurrentNoteOnOrInsideNote,
+    getMostRecentlyWorkedOnChild,
 } from "./state";
 import {
     Renderable,
@@ -97,7 +98,7 @@ type NoteLinkArgs = {
 };
 
 function NoteLink(): Renderable<NoteLinkArgs> {
-    const root = div({ style: "padding:5px; word;", class: "handle-long-words" })
+    const root = div({ style: "padding:5px; ", class: "handle-long-words" })
 
     const component = makeComponent<NoteLinkArgs>(root, () => {
         const { text, noteId, focusAnyway } = component.args;
@@ -133,25 +134,35 @@ type TodoListInternalArgs = {
     heading: string;
     scrollRoot?: Insertable;
     onScroll?(): void;
+    cursorNoteId?: NoteId;
 };
 
 function TodoListInternal(): Renderable<TodoListInternalArgs> {
     type TodoItemArgs = {
         note: TreeNote;
         focusAnyway: boolean;
+        cursorNoteId: NoteId | undefined;
     }
 
     const componentList = makeComponentList(div(), () => {
+        // HACK: the cursor isn't actually bg-color-focus, it is transparent, and it just pushes the row to the side. 
+        // The row has bg-color, whereas the root div behind it has --bg-color-focus
+        const cursor = div({ class: "pre", }, [" --> "]);
         const noteLink = NoteLink();
         const lastEditedNoteLink = NoteLink();
         let progressText;
-        const root = div({}, [
+        const root = div({ 
+            class: "row align-items-center", 
+            style: "background-color: var(--bg-color-focus);" 
+        }, [
+            cursor,
             div({
                 class: "hover-parent flex-1",
                 style: "border-top: 1px solid var(--fg-color);" +
                     "border-left: 4px solid var(--fg-color);" +
                     "border-bottom: 1px solid var(--fg-color);" +
-                    "padding-left: 3px;"
+                    "padding-left: 3px;" + 
+                    "background-color: var(--bg-color);"
             }, [
                 div({ class: "row align-items-center" }, [
                     progressText = div(),
@@ -166,9 +177,11 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
         ]);
 
         const component = makeComponent<TodoItemArgs>(root, () => {
-            const { note, focusAnyway } = component.args;
+            const { note, focusAnyway, cursorNoteId } = component.args;
 
             setTextContent(progressText, getNoteProgressCountText(note));
+
+            setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
 
             noteLink.render({
                 noteId: note.id,
@@ -206,14 +219,14 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
     ])
 
     const component = makeComponent<TodoListInternalArgs>(root, () => {
-        const { heading, priorityLevel, scrollRoot, onScroll} = component.args;
+        const { heading, priorityLevel, scrollRoot, onScroll, cursorNoteId } = component.args;
         setTextContent(headingEl, heading);
         let count = 0;
         let alreadyScrolled = false;
 
         componentList.render(() => {
-            for (let i = 0; i < state.todoNoteIds.length; i++) {
-                const id = state.todoNoteIds[i];
+            for (let i = 0; i < state._todoNoteIds.length; i++) {
+                const id = state._todoNoteIds[i];
                 // const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
 
                 const note = getNote(state, id);
@@ -225,36 +238,24 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
 
                 count++;
 
-                let hasParentSelected = false;
-                tree.forEachParent(state.notes, note, (note) => {
-                    if (note.id === state.currentNoteId) {
-                        hasParentSelected = true;
-                        return true;
-                    }
-                    return false;
-                });
-
-                if (!hasParentSelected) {
-                    const currentNote = getCurrentNote(state);
-                    tree.forEachParent(state.notes, currentNote, (currentNoteAscendant) => {
-                        if (note.id === currentNoteAscendant.id) {
-                            hasParentSelected = true;
-                            return true;
-                        }
-                        return false;
-                    });
-                }
+                const currentlyOnOrInsideNote = isCurrentNoteOnOrInsideNote(state, note)
 
                 const c = componentList.getNext();
                 c.render({
                     note: note,
-                    focusAnyway:  hasParentSelected
+                    focusAnyway: currentlyOnOrInsideNote,
+                    cursorNoteId
                 });
 
-                if (hasParentSelected && scrollRoot && onScroll && !alreadyScrolled) {
-                    c.el.scrollIntoView(true);
-                    alreadyScrolled = true;
-                    onScroll();
+                if (scrollRoot && onScroll && !alreadyScrolled) {
+                    if (
+                        (cursorNoteId && note.id === cursorNoteId) ||
+                        (!cursorNoteId && currentlyOnOrInsideNote)
+                    ) {
+                        scrollRoot.el.scrollTop = c.el.offsetTop - 0.5 * scrollRoot.el.offsetHeight;
+                        alreadyScrolled = true;
+                        onScroll();
+                    }
                 }
             }
         });
@@ -267,6 +268,7 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
 
 type TodoListArgs = {
     shouldScroll: boolean;
+    cursorNoteId?: NoteId;
 }
 
 function TodoList(): Renderable<TodoListArgs> {
@@ -282,9 +284,9 @@ function TodoList(): Renderable<TodoListArgs> {
     ]);
 
     const comopnent = makeComponent<TodoListArgs>(root, () => {
-        const { shouldScroll } = comopnent.args;
+        const { shouldScroll, cursorNoteId } = comopnent.args;
         
-        setVisible(empty, state.todoNoteIds.length === 0);
+        setVisible(empty, state._todoNoteIds.length === 0);
 
         let alreadyScrolled = false;
 
@@ -293,6 +295,7 @@ function TodoList(): Renderable<TodoListArgs> {
             heading: "In Progress",
             scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
+            cursorNoteId,
         });
         
         todo.render({
@@ -300,6 +303,7 @@ function TodoList(): Renderable<TodoListArgs> {
             heading: "TODO",
             scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
+            cursorNoteId,
         });
 
         backlog.render({
@@ -307,6 +311,7 @@ function TodoList(): Renderable<TodoListArgs> {
             heading: "Backlog",
             scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
+            cursorNoteId,
         });
     });
 
@@ -357,185 +362,196 @@ function BreakInput(): Renderable {
     return component;
 }
 
-function EditableActivityList(): Renderable {
-    function ActivityListItem(): Renderable<ActivityListItemArgs> {
-        const timestamp = DateTimeInput();
-        const timestampWrapper = div({ style: "width: 200px;" }, [timestamp]);
-        const noteLink = NoteLink();
-        const breakEdit = el<HTMLInputElement>(
-            "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
-        );
-        const durationText = div({ style: "padding-left: 10px" });
-        const insertBreakButton = makeButton("+ Insert break here");
-        const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
-            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
-            insertBreakButton,
-            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
-        ]);
 
-        const deleteButton = makeButton("x");
-        const root = div({}, [
-            div({ class: "hover-parent", style: "min-height: 10px" }, [
-                div({ class: "hover-target" }, [
-                    breakInsertRow
-                ])
-            ]),
-            div({ class: "hover-parent" }, [
-                div({ class: "row", style: "gap: 20px" }, [
-                    timestampWrapper,
-                    div({ class: "flex-1 row" }, [
-                        noteLink,
-                        breakEdit
-                    ]),
-                    deleteButton,
-                    durationText,
-                ])
+function ActivityListItem(): Renderable<ActivityListItemArgs> {
+    const timestamp = DateTimeInput();
+    const timestampWrapper = div({ style: "width: 200px;" }, [timestamp]);
+    const noteLink = NoteLink();
+    const breakEdit = el<HTMLInputElement>(
+        "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
+    );
+    const durationText = div({ style: "padding-left: 10px" });
+    const insertBreakButton = makeButton("+ Insert break here");
+    const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
+        div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+        insertBreakButton,
+        div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+    ]);
+
+    const deleteButton = makeButton("x");
+    const root = div({}, [
+        div({ class: "hover-parent", style: "min-height: 10px" }, [
+            div({ class: "hover-target" }, [
+                breakInsertRow
             ])
-        ]);
+        ]),
+        div({ class: "hover-parent" }, [
+            div({ class: "row", style: "gap: 20px" }, [
+                timestampWrapper,
+                div({ class: "flex-1 row" }, [
+                    noteLink,
+                    breakEdit
+                ]),
+                deleteButton,
+                durationText,
+            ])
+        ])
+    ]);
 
-        const component = makeComponent<ActivityListItemArgs>(root, () => {
-            const { activity, nextActivity, showDuration, } = component.args;
+    const component = makeComponent<ActivityListItemArgs>(root, () => {
+        const { activity, nextActivity, showDuration, } = component.args;
 
-            const isEditable = isEditableBreak(activity);
-            const activityText = getActivityText(state, activity);
+        const isEditable = isEditableBreak(activity);
+        const activityText = getActivityText(state, activity);
 
-            // const canEditBreakText = isEditable;
-            // I think all break text should just be editable...
-            // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
-            const canEditBreakText = isBreak(activity);
-            if (setVisible(
-                breakEdit, 
-                canEditBreakText,
-            )) {
-                setInputValue(breakEdit, activity.breakInfo!);
-            }
+        // I think all break text should just be editable...
+        // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
+        const canEditBreakText = isBreak(activity);
+        if (setVisible(
+            breakEdit, 
+            canEditBreakText,
+        )) {
+            setInputValue(breakEdit, activity.breakInfo!);
+        }
 
-            if (setVisible(noteLink, !canEditBreakText)) {
-                noteLink.render({
-                    focusAnyway: false,
-                    noteId: activity.nId,
-                    text: activityText,
-                });
-
-                setClass(noteLink, "hover-link", !!activity.nId);
-                noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
-            }
-
-            timestamp.render({
-                value: new Date(activity.t),
-                onChange: updateActivityTime,
-                readOnly: false,
+        if (setVisible(noteLink, !canEditBreakText)) {
+            noteLink.render({
+                focusAnyway: false,
+                noteId: activity.nId,
+                text: activityText,
             });
 
-            if (setVisible(durationText, showDuration)) {
-                const durationStr = (isEditable ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
-                setTextContent(durationText, durationStr);
-            }
+            setClass(noteLink, "hover-link", !!activity.nId);
+            noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
+        }
 
-            setVisible(deleteButton, isEditable);
+        timestamp.render({
+            value: new Date(activity.t),
+            onChange: updateActivityTime,
+            readOnly: false,
         });
 
-        function updateActivityTime(date: Date | null) {
-            if (!date) {
-                return;
-            }
+        if (setVisible(durationText, showDuration)) {
+            const durationStr = (isEditable ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
+            setTextContent(durationText, durationStr);
+        }
 
-            const { previousActivity, activity, nextActivity } = component.args;
+        setVisible(deleteButton, isEditable);
+    });
 
-            if (previousActivity) {
-                // don't update our date to be before the previous time
-                const prevTime = new Date(previousActivity.t);
-                if (prevTime.getTime() > date.getTime()) {
-                    showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
-                    return;
-                }
-            }
+    function updateActivityTime(date: Date | null) {
+        if (!date) {
+            return;
+        }
 
-            let nextTime = nextActivity ? new Date(nextActivity.t) : new Date();
-            if (nextTime.getTime() < date.getTime()) {
+        const { previousActivity, activity, nextActivity } = component.args;
+
+        if (previousActivity) {
+            // don't update our date to be before the previous time
+            const prevTime = new Date(previousActivity.t);
+            if (prevTime.getTime() > date.getTime()) {
                 showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
                 return;
             }
+        }
 
-            activity.t = getTimestamp(date);
+        let nextTime = nextActivity ? new Date(nextActivity.t) : new Date();
+        if (nextTime.getTime() < date.getTime()) {
+            showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
+            return;
+        }
+
+        activity.t = getTimestamp(date);
+        rerenderApp({ shouldScroll: false });
+        debouncedSave();
+    }
+
+    insertBreakButton.el.addEventListener("click", () => {
+        const { activity, nextActivity } = component.args;
+
+        const idx = state.activities.indexOf(activity);
+        if (idx === -1) {
+            return;
+        }
+
+        const timeA = (new Date(activity.t)).getTime();
+        const duration = getActivityDurationMs(activity, nextActivity);
+        const midpoint = timeA + duration / 2;
+
+        const newBreak: Activity = {
+            t: getTimestamp(new Date(midpoint)),
+            breakInfo: "New break",
+            nId: undefined,
+            locked: undefined,
+        };
+
+        state.activities.splice(idx + 1, 0, newBreak);
+
+        debouncedSave();
+        rerenderApp({ shouldScroll: false });
+    });
+
+    deleteButton.el.addEventListener("click", () => {
+        const { activity } = component.args;
+
+        if (!isEditableBreak(activity)) {
+            // can only delete breaks
+            return;
+        }
+
+        const idx = state.activities.indexOf(activity);
+        if (idx === -1) {
+            return;
+        }
+
+        state.activities.splice(idx, 1);
+        rerenderApp({ shouldScroll: false });
+    });
+
+    noteLink.el.addEventListener("click", () => {
+        const { activity } = component.args;
+        if (!activity.nId) {
+            return;
+        }
+
+        setCurrentNote(state, activity.nId);
+        rerenderApp();
+    });
+
+    breakEdit.el.addEventListener("keypress", (e) => {
+        const { activity } = component.args;
+
+        // 'prevent' clearing it out
+        const val = breakEdit.el.value || activity.breakInfo;
+        if (e.key === "Enter") {
+            activity.breakInfo = val;
             rerenderApp({ shouldScroll: false });
             debouncedSave();
         }
+    })
 
-        insertBreakButton.el.addEventListener("click", () => {
-            const { activity, nextActivity } = component.args;
+    return component;
+}
 
-            const idx = state.activities.indexOf(activity);
-            if (idx === -1) {
-                return;
-            }
 
-            const timeA = (new Date(activity.t)).getTime();
-            const duration = getActivityDurationMs(activity, nextActivity);
-            const midpoint = timeA + duration / 2;
+type EditableActivityListArgs = {
+    activityIndexes: number[] | undefined;
+    pageSize?: number;
+    height: number | undefined;
+};
 
-            const newBreak: Activity = {
-                t: getTimestamp(new Date(midpoint)),
-                breakInfo: "New break",
-                nId: undefined,
-                locked: undefined,
-            };
-
-            state.activities.splice(idx + 1, 0, newBreak);
-
-            debouncedSave();
-            rerenderApp({ shouldScroll: false });
-        });
-
-        deleteButton.el.addEventListener("click", () => {
-            const { activity } = component.args;
-
-            if (!isEditableBreak(activity)) {
-                // can only delete breaks
-                return;
-            }
-
-            const idx = state.activities.indexOf(activity);
-            if (idx === -1) {
-                return;
-            }
-
-            state.activities.splice(idx, 1);
-            rerenderApp({ shouldScroll: false });
-        });
-
-        noteLink.el.addEventListener("click", () => {
-            const { activity } = component.args;
-            if (!activity.nId) {
-                return;
-            }
-
-            setCurrentNote(state, activity.nId);
-            rerenderApp();
-        });
-
-        breakEdit.el.addEventListener("keypress", (e) => {
-            const { activity } = component.args;
-
-            // 'prevent' clearing it out
-            const val = breakEdit.el.value || activity.breakInfo;
-            if (e.key === "Enter") {
-                activity.breakInfo = val;
-                rerenderApp({ shouldScroll: false });
-                debouncedSave();
-            }
-        })
-
-        return component;
-    }
-
+function EditableActivityList(): Renderable<EditableActivityListArgs> {
     const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid black" }), ActivityListItem);
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
-    const root = div({ class: "w-100", style: "border-top: 1px solid var(--fg-color);" }, [
-        div({ style: "height: 600px; overflow-y: auto;" }, [
-            listRoot,
-        ]),
+    const breakInput = BreakInput();
+
+    const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
+        listRoot,
+    ]);
+    const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
+        breakInput,
+        listContainer,
         paginationControl,
     ]);
 
@@ -543,10 +559,12 @@ function EditableActivityList(): Renderable {
         component.render(component.args);
     }
 
-    const component = makeComponent(root, () => {
+    const component = makeComponent<EditableActivityListArgs>(root, () => {
+        const { pageSize, height, activityIndexes } = component.args;
+        pagination.pageSize = pageSize || 10;
         paginationControl.render({
             pagination,
-            totalCount: state.activities.length,
+            totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
             rerender,
         });
 
@@ -554,6 +572,11 @@ function EditableActivityList(): Renderable {
         const start = pagination.start;
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
+
+        breakInput.render(undefined);
+
+        listContainer.el.style.height = height ? height + "px" : "";
+        setClass(listContainer, "flex-1", !height);
 
         listRoot.render(() => {
             // make the elements, so we can render them backwards
@@ -563,7 +586,9 @@ function EditableActivityList(): Renderable {
             };
 
             for (let i = 0; i < activitiesToRender; i++) {
-                const idx = activities.length - end + i;
+                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + i;
+                const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
+
                 const previousActivity = activities[idx - 1]; // JavaScript moment - you can index past an array without crashing
                 const activity = activities[idx];
                 const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
@@ -657,7 +682,7 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
     const leftLeftButton = makeButton("<<");
     const rightButton = makeButton(">");
     const rightRightButton = makeButton(">>");
-    const pageReadout = div({ style: "width: 100px" });
+    const pageReadout = div({ style: "" });
 
     const root = div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
         pageReadout,
@@ -676,8 +701,9 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
 
         setTotalCount(pagination, totalCount);
         const page = getPage(pagination);
-
-        setTextContent(pageReadout, "Page " + (page + 1));
+        const start = pagination.start + 1;
+        const end = getCurrentEnd(pagination);
+        setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount +  ")" );
 
         setVisible(leftButton, page !== 0);
         setVisible(leftLeftButton, page !== 0);
@@ -830,10 +856,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         // Perform a partial update on the state, to just the thing we're editing
 
-        if (state.todoNoteIds.includes(note.id)) {
-            moveNotePriorityIntoPriorityGroup(state, note.id);
-        }
-
         onRerenderWhenEditing();
 
         debouncedSave();
@@ -919,7 +941,7 @@ function activityMatchesFilters(
 
         const ranges = fuzzyFind(noteText, filter.text.query);
         const score = scoreFuzzyFind(ranges);
-        if (score < getMinFuzzyFindScore(filter.text.query, true)) {
+        if (score < getMinFuzzyFindScore(filter.text.query)) {
             return false;
         }
     }
@@ -975,6 +997,19 @@ type ActivityFiltersEditorArgs = {
     onChange(): void;
 }
 
+function setFilterToday(filter: ActivityFilters) {
+    filter.is.dateFromEnabled = true;
+    filter.is.dateToEnabled = true;
+
+    const dateFrom = new Date();
+    const dateTo = new Date();
+    floorDateLocalTime(dateFrom);
+    floorDateLocalTime(dateTo);
+    addDays(dateTo, 1);
+    filter.date.from = dateFrom;
+    filter.date.to = dateTo;
+}
+
 function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     const dates = {
         from: DateTimeInputEx(),
@@ -995,16 +1030,7 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     todayButton.el.addEventListener("click", () => {
         const { filter, onChange } = component.args;
 
-        filter.is.dateFromEnabled = true;
-        filter.is.dateToEnabled = true;
-
-        const dateFrom = new Date();
-        const dateTo = new Date();
-        floorDateLocalTime(dateFrom);
-        floorDateLocalTime(dateTo);
-        addDays(dateTo, 1);
-        filter.date.from = dateFrom;
-        filter.date.to = dateTo;
+        setFilterToday(filter);
 
         onChange();
     });
@@ -1097,85 +1123,20 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     return component;
 }
 
-type ReadonlyActivityListArgs = {
-    activityIndexes: number[];
-}
-
-function ReadonlyActivityList(): Renderable<ReadonlyActivityListArgs> {
-    type ActivityRowArgs = {
-        activity: Activity;
-        nextActivity: Activity | undefined;
-    }
-
-    function ActivityRow(): Renderable<ActivityRowArgs> {
-        const timestamp = NoteLink();
-        const text = NoteLink();
-        const duration = div();
-        const root = div({ class: "row" }, [
-            timestamp,
-            text,
-            div({ class: "flex-1" }),
-            duration
-        ]);
-
-        const component = makeComponent<ActivityRowArgs>(root, () => {
-            const { activity, nextActivity } = component.args;
-
-            setTextContent(timestamp, formatDate(new Date(activity.t)));
-
-            text.render({
-                text: getActivityText(state, activity),
-                noteId: activity.nId,
-                preventScroll: false,
-                focusAnyway: false,
-            });
-
-            const durationMs = getActivityDurationMs(activity, nextActivity);
-            setTextContent(duration, formatDuration(durationMs));
-        });
-
-        return component;
-    }
-
-    const pagination: Pagination = { pageSize: 50, start: 0, totalCount: 0 };
-    const paginationControl = PaginationControl();
-    const activityListContainer = div({ class: "flex-1", style: "overflow-y: auto" });
-    const activityList = makeComponentList(activityListContainer, ActivityRow);
-    const root = div({ class: "col h-100", style: "min-height: 0" }, [
-        paginationControl,
-        activityList,
-    ])
-    const component = makeComponent<ReadonlyActivityListArgs>(root, () => {
-        const { activityIndexes } = component.args;
-
-        paginationControl.render({
-            pagination,
-            totalCount: activityIndexes.length,
-            rerender: () => component.render(component.args)
-        });
-
-        const start = pagination.start;
-        const end = getCurrentEnd(pagination);
-        const count = end - start;
-        activityList.render(() => {
-            for (let i = 0; i < count; i++) {
-                const idx = activityIndexes[
-                    activityIndexes.length - 1 - i - start
-                ];
-                const activity = state.activities[idx];
-                const nextActivity = state.activities[idx + 1];
-
-                activityList.getNext().render({
-                    activity,
-                    nextActivity,
-                });
-            }
-        });
-    });
-
-    return component;
-}
-
+const analyticsActivityFilter: ActivityFilters = {
+    text: {
+        query: "",
+    },
+    date: {
+        from: new Date(),
+        to: new Date(),
+    },
+    is: {
+        dateFromEnabled: false,
+        dateToEnabled: false,
+        noMultiDayBreaks: true
+    },
+};
 function ActivityAnalytics(): Renderable {
     const filteredActivityIndices: number[] = [];
     const analytics: Analytics = {
@@ -1183,21 +1144,6 @@ function ActivityAnalytics(): Renderable {
         multiDayBreaks: newAnalyticsSeries(),
         taskTimes: new Map(),
         totalTime: 0,
-    };
-
-    const analyticsActivityFilter: ActivityFilters = {
-        text: {
-            query: "",
-        },
-        date: {
-            from: new Date(),
-            to: new Date(),
-        },
-        is: {
-            dateFromEnabled: false,
-            dateToEnabled: false,
-            noMultiDayBreaks: true
-        },
     };
 
     function renderLocal() {
@@ -1236,7 +1182,7 @@ function ActivityAnalytics(): Renderable {
         activityIndices?: number[];
     }
 
-    const roActivityList = ReadonlyActivityList();
+    const activityList = EditableActivityList();
     const durationsList = makeComponentList(durationsListRoot, () => {
         const taskNameComponent = div({ style: `padding:5px;padding-bottom:0;` })
         const durationBar = FractionBar();
@@ -1277,16 +1223,17 @@ function ActivityAnalytics(): Renderable {
     const activityListTitle = el("H3", {}, []);
     const root = div({ class: "w-100 h-100 row" }, [
         div({ class: "flex-1 col" }, [
+            activityListTitle,
+            activityList,
+        ]),
+        div({style: "width: 20px"}),
+        div({ class: "flex-1 col" }, [
             el("H3", {}, ["Filters"]),
             analyticsFiltersEditor,
             el("H3", {}, ["Timings"]),
             div({ class: "relative flex-1", style: "overflow-y: scroll" }, [
                 durationsListRoot,
             ]),
-        ]),
-        div({ class: "flex-1 col" }, [
-            activityListTitle,
-            roActivityList,
         ]),
     ]);
 
@@ -1303,8 +1250,12 @@ function ActivityAnalytics(): Renderable {
         recomputeAnalytics(state, filteredActivityIndices, analytics);
 
         setTextContent(activityListTitle, "Activities - " + (activityIndicesName || "All"));
-        roActivityList.render({
-            activityIndexes: activityIndiciesGetter ? activityIndiciesGetter() : filteredActivityIndices,
+        const indices = activityIndiciesGetter?.() || filteredActivityIndices;
+
+        activityList.render({ 
+            pageSize: 500, 
+            height: undefined,
+            activityIndexes: indices,
         });
 
         const total = analytics.totalTime;
@@ -1454,8 +1405,6 @@ function FuzzyFinder(): Renderable {
             const minScore = getMinFuzzyFindScore(query);
             filterInPlace(matches, (m) => m.score > minScore);
 
-            // console.log(matches.map(m => [scoreFuzzyFind(m.ranges), m.note.data.text]))
-
             const MAX_MATCHES = 20;
             if (matches.length > MAX_MATCHES) {
                 matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
@@ -1536,10 +1485,92 @@ function TodoListModal(): Renderable {
         ])
     );
 
-    const component = makeComponent(modalComponent, () => {
+    let idx = 0;
+    const todoNotesSorted: TreeNote[] = [];
+
+    function rerenderTodoList() {
         todoList.render({
-            shouldScroll: true
+            shouldScroll: true,
+            cursorNoteId: idx === -1 ? undefined : todoNotesSorted[idx].id,
         });
+    }
+
+    const component = makeComponent(modalComponent, () => {
+        todoNotesSorted.splice(0, todoNotesSorted.length);
+        function pushNotes(p: number) {
+            for (const id of state._todoNoteIds) {
+                const note = getNote(state, id);
+                if (getTodoNotePriority(note.data) === p) {
+                    todoNotesSorted.push(note);
+                }
+            }
+        }
+        pushNotes(3);
+        pushNotes(2);
+        pushNotes(1);
+
+        idx = -1;
+        for (let i = 0; i < todoNotesSorted.length; i++) {
+            const note = todoNotesSorted[i];
+
+            if (isCurrentNoteOnOrInsideNote(state, note)) {
+                idx = i;
+                break;
+            }
+        }
+
+        rerenderTodoList();
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (currentModal !== component) {
+            // I could try to add a moun/unmount system. Or I could do this....
+            return;
+        }
+
+        if (
+            e.key === "PageUp" ||
+            e.key === "PageDown" ||
+            e.key === "ArrowUp" ||
+            e.key === "ArrowDown" ||
+            e.key === "Enter"
+        ) {
+            e.preventDefault();
+
+            let needsRerender = true;
+            let needsGlobalRerender = false;
+            if (idx === -1) {
+                idx = 0;
+            } else if (e.key === "ArrowUp") {
+                idx = Math.max(idx - 1, 0);
+            } else if (e.key === "ArrowDown") {
+                idx = Math.min(idx + 1, todoNotesSorted.length - 1);
+            } else if (e.key === "PageUp") {
+                idx = Math.max(idx - 10, 0);
+            } else if (e.key === "PageDown") {
+                idx = Math.min(idx + 10, todoNotesSorted.length - 1);
+            } else if (e.key === "Enter") {
+                // Move to the most recent note in this subtree.
+                const note = todoNotesSorted[idx];
+                const mostRecent = getMostRecentlyWorkedOnChild(state, note);
+                setCurrentModal(null);
+                setCurrentNote(state, mostRecent.id);
+                setIsEditingCurrentNote(state, false);
+                needsGlobalRerender = true;
+            } else {
+                needsRerender = false;
+            }
+
+            if (needsRerender) {
+                e.stopImmediatePropagation();
+
+                if (needsGlobalRerender) {
+                    rerenderApp();
+                } else {
+                    rerenderTodoList();
+                }
+            }
+        }
     });
 
     return component;
@@ -1885,7 +1916,6 @@ function AsciiIcon(): Renderable<AsciiIconData> {
 const makeDarkModeToggle = () => {
     function getThemeAsciiIcon() {
         const theme = getTheme();
-        console.log(theme);
         if (theme === "Light") {
             return ASCII_SUN;
         }
@@ -2118,8 +2148,6 @@ function moveInDirectonOverHotlist(backwards: boolean) {
         nextIdx = getNextHotlistActivityInDirection(state, nextIdx + 1, backwards, false);
     }
 
-    console.log(nextIdx);
-
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
         return;
     }
@@ -2223,16 +2251,15 @@ export const App = () => {
     const cheatSheet = CheatSheet();
     const notesList = NotesList();
     const activityList = EditableActivityList();
-    const breakInput = BreakInput();
     const todoNotes = TodoList();
 
     const scratchPadModal = ScratchPadModal();
     const analyticsModal = AnalyticsModal();
     const fuzzyFindModal = FuzzyFindModal();
     const todoListModal = TodoListModal();
+    const loadBackupModal = LoadBackupModal();
     let backupText = "";
     let backupFilename = "";
-    const loadBackupModal = LoadBackupModal();
 
     const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
         div({ class: "row align-items-end" }, [
@@ -2259,6 +2286,7 @@ export const App = () => {
                 setCurrentModal(fuzzyFindModal);
             }),
             makeButtonWithCallback("Analytics", () => {
+                setFilterToday(analyticsActivityFilter);
                 setCurrentModal(analyticsModal);
             }),
             makeButtonWithCallback("Clear all", () => {
@@ -2329,17 +2357,16 @@ export const App = () => {
         div({ class: "row", style: "gap: 10px" }, [
             div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
-                    // el("H3", {}, ["TODO Notes"]),
+                    el("H3", {}, ["TODO Notes [Ctrl + Shift + T]"]),
                     todoNotes
                 ])
             ]),
             div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
                     el("H3", {}, ["Activity List"]),
-                    breakInput,
                     activityList
                 ])
-            ])
+            ]),
         ]),
         fixedButtons,
         scratchPadModal,
@@ -2396,6 +2423,7 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
+            setFilterToday(analyticsActivityFilter);
             setCurrentModal(analyticsModal);
             return;
         } else if (
@@ -2413,7 +2441,8 @@ export const App = () => {
         let needsRerender = true;
         if (
             !state._isEditingFocusedNote &&
-            !isEditingSomeText
+            !isEditingSomeText &&
+            currentModal === null
         ) {
             // handle movements here
 
@@ -2589,8 +2618,11 @@ export const App = () => {
 
         // rerender the things
         notesList.render(undefined);
-        activityList.render(undefined);
-        breakInput.render(undefined);
+        activityList.render({ 
+            pageSize: 10, 
+            height: 600,
+            activityIndexes: undefined,
+        });
         todoNotes.render({ shouldScroll: false });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {

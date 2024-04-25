@@ -79,6 +79,14 @@
     border: 1px solid red;
 }
 
+.catastrophic---error > * {
+    display: none;
+}
+
+.catastrophic---error::before {
+    content: "An error occured when updating this content. You've found a bug!";
+}
+
 .absolute-fill {
     position: absolute;
     top: 0;
