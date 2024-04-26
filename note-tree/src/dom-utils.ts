@@ -36,7 +36,7 @@ export type InsertableGeneric<T extends HTMLElement | Text> = {
 };
 export type Insertable = InsertableGeneric<HTMLElement>
 
-export function replaceChildren(comp: Insertable, ...children: (Insertable | undefined)[]) {
+export function replaceChildren(comp: Insertable, children: (Insertable | undefined)[]) {
     comp.el.replaceChildren(
         ...children.filter(c => !!c).map((c) => {
             c!._isInserted = true;
@@ -274,6 +274,8 @@ export function setInputValue(component: Insertable, text: string) {
  * component re-renders.
  */
 export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
+    root._isInserted = true;
+
     const component : Renderable<T> = {
         ...root,
         // @ts-ignore this is always set before we render the component
@@ -284,7 +286,7 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
             handleRenderingError(this, renderFn);
 
             if (!this._isInserted) {
-                console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway. You may have forgotten to delete some code");
+                console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway");
             }
         },
     };

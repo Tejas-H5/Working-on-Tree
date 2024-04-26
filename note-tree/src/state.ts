@@ -387,6 +387,12 @@ export function recomputeState(state: State) {
                 return;
             }
 
+            // We haven't calculated the note._status yet, so we can't rely on it here. 
+            const hasDoneNote = note.childIds.findIndex((id) => {
+                const note = getNote(state, id);
+                return isDoneNote(note.data);
+            }) !== -1;
+
             let foundDoneNote = false;
             for (let i = note.childIds.length - 1; i >= 0; i--) {
                 const childId = note.childIds[i];
@@ -408,10 +414,21 @@ export function recomputeState(state: State) {
                 }
 
 
-                if (i >= note.data.lastSelectedChildIdx) {
-                    child.data._status = STATUS_IN_PROGRESS;
+                if (!hasDoneNote) {
+                    // Just assume that every note before the last edited note is 'done'.
+                    
+                    if (i >= note.data.lastSelectedChildIdx) {
+                        child.data._status = STATUS_IN_PROGRESS;
+                    } else {
+                        child.data._status = STATUS_ASSUMED_DONE;
+                    }
                 } else {
-                    child.data._status = STATUS_ASSUMED_DONE;
+                    // Assume that all notes after the STATUS_DONE note are in progress.
+                    // This is because if there is even a single 'DONE' note, I'm probably using a slightly different workflow for one
+                    // particular task, where I'm creating a whole bunch of work for the future ater the DONE note, and then
+                    // slowly dragging the DONE note down, or dragging finished notes back to behind the DONE note.
+                    
+                    child.data._status = STATUS_IN_PROGRESS;
                 }
             }
 
@@ -464,7 +481,6 @@ export function recomputeState(state: State) {
                 const note = getNote(state, id);
                 if (isTodoNote(note.data) && note.data._status !== STATUS_DONE) {
                     state._todoNoteIds.push(id);
-                    // don't include any child todos. this clutters the todo list
                 } else {
                     dfs(note);
                 }
@@ -1191,19 +1207,6 @@ export function recomputeAnalytics(state: State, activityIndices: number[], anal
     }
 }
 
-export function getInnerNoteId(currentNote: TreeNote): NoteId | null {
-    const id = currentNote.childIds[currentNote.data.lastSelectedChildIdx];
-    if (id) {
-        return id;
-    }
-
-    if (currentNote.childIds.length !== 0) {
-        return currentNote.childIds[currentNote.childIds.length - 1];
-    }
-
-    return null;
-}
-
 // This is recursive
 export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): TreeNote {
     recomputeNoteIsUnderFlag(state, note);
@@ -1223,6 +1226,23 @@ export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): Tree
 
     // none of the notes in this subtree were worked on, ever. just return the parent note
     return note;
+}
+
+// NOTE: this method will attempt to 'fix' indices that are out of bounds.
+export function getLastSelectedNote(state: State, note: TreeNote): TreeNote | null {
+    if (note.childIds.length === 0) {
+        return null;
+    }
+
+    let idx = note.data.lastSelectedChildIdx;
+    if (idx >= note.childIds.length) {
+        idx = note.childIds.length - 1;
+        note.data.lastSelectedChildIdx = idx;
+    }
+
+    const selNoteId = note.childIds[idx]
+
+    return getNote(state, selNoteId);
 }
 
 export function resetState() {

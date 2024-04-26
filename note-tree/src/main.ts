@@ -40,7 +40,6 @@ import {
     newAnalyticsSeries,
     recomputeAnalytics,
     recomputeNoteTasks,
-    getInnerNoteId,
     STATUS_ASSUMED_DONE,
     dfsPre,
     getRootNote,
@@ -56,6 +55,7 @@ import {
     migrateLegacyTodoNotes,
     isCurrentNoteOnOrInsideNote,
     getMostRecentlyWorkedOnChild,
+    getLastSelectedNote,
 } from "./state";
 import {
     Renderable,
@@ -84,7 +84,7 @@ import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
 import CustomWorker from './activitycheck?worker';
 import { loadFile, saveText } from "./file-download";
-import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
+import { ASCII_MINUS_ICON, ASCII_MOON_STARS, ASCII_PLUS_ICON, ASCII_SUN, AsciiIconData } from "./icons";
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -624,17 +624,275 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     return textArea;
 }
 
-// TODO: great things...
-function ScratchPad(): Renderable {
-    const root = div({ class: "relative h-100" }, [
-    ]);
+type CanvasArgs = {
+    width: number;
+    height: number;
+};
 
-    const component = makeComponent(root, () => {
+function Canvas() {
+    const root = div({ class: "", style: "overflow: auto; padding-top: 10px; padding-bottom: 10px;"});
+
+    type RowArgs = {
+        charList: CharArgs[];
+    };
+
+    type MouseInputState = {
+        lbDown: boolean;
+        _lbWasDown: boolean;
+        x: number;
+        y: number;
+        onChange(): void;
+    }
+
+    type CharArgs = {
+        // just a 1-length string
+        char: string;
+        bl: boolean;
+        br: boolean;
+        bt: boolean;
+        bb: boolean;
+
+        x: number;
+        y: number;
+
+        canvasState: CanvasState;
+
+        isSelected: boolean;
+    };
+
+    const rowList = makeComponentList(root, () => {
+        const root = div({ style: "text-align: center" });
+        const charList = makeComponentList(root, () => {
+            const root = el("SPAN", { class: "pre hover", style: "font-size: 24px; width: 1ch; height: 1ch;user-select: none; cursor: crosshair;" });
+
+            const component = makeComponent<CharArgs>(root, () => {
+                const { char, bl, br, bt, bb, isSelected  } = component.args;
+
+                root.el.style.borderTop = !bt ? "": "1px solid var(--fg-color)";
+                root.el.style.borderBottom = !bb ? "": "1px solid var(--fg-color)";
+                root.el.style.borderLeft = !bl ? "": "1px solid var(--fg-color)";
+                root.el.style.borderRight = !br ? "": "1px solid var(--fg-color)";
+
+                setClass(root, "inverted", isSelected);
+
+                setTextContent(root, char);
+            });
+
+
+            root.el.addEventListener("mousedown", () => {
+                const mouseInputState = component.args.canvasState.mouseInputState;
+                mouseInputState.lbDown = true;
+                mouseInputState.onChange();
+            });
+            root.el.addEventListener("mouseup", () => {
+                const mouseInputState = component.args.canvasState.mouseInputState;
+                mouseInputState.lbDown = false;
+                mouseInputState.onChange();
+            });
+            root.el.addEventListener("mouseenter", () => {
+                const mouseInputState = component.args.canvasState.mouseInputState;
+                mouseInputState.x = component.args.x;
+                mouseInputState.y = component.args.y;
+                mouseInputState.onChange();
+            });
+
+            return component;
+        });
+
+        const component = makeComponent<RowArgs>(root, () => {
+            const { charList: rowList } = component.args;
+
+            charList.render(() => {
+                for (let i = 0; i < rowList.length; i++) {
+                    const c = charList.getNext();
+                    c.render(rowList[i]);
+                }
+            });
+        });
+
+        return component;
     });
 
-    return {
-        ...component,
+    const rows: RowArgs[] = [];
+    const mouseInputState: MouseInputState = {
+        x: 0, y: 0,
+        lbDown: false,
+        _lbWasDown: false,
+        onChange() {
+            const { x, y, lbDown } = this;
+
+            let needsRerender = true;
+            if (lbDown) {
+                rows[y].charList[x].isSelected = !rows[y].charList[x].isSelected;
+            } else {
+                needsRerender = false;
+            }
+
+            if (needsRerender) {
+                component.render(component.args);
+            }
+        }
     };
+
+    type CanvasState = {
+        mouseInputState: MouseInputState;
+    };
+
+    const canvasState: CanvasState = {
+        mouseInputState,
+    };
+
+    const component = makeComponent<CanvasArgs>(root, () => {
+        const { height, width } = component.args;
+
+        // Maintain row/col pool
+        while(rows.length < height) {
+            rows.push({ charList: [] });
+        }
+        while(rows.length > height) {
+            rows.pop();
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            const chars = rows[i].charList;
+
+            while(chars.length < width) {
+                chars.push({ 
+                    char: " ", 
+                    br: false, bl: false, bb: false, bt: false,
+                    x: chars.length,
+                    y: i,
+
+                    isSelected: false,
+
+                    canvasState,
+                });
+            }
+            while(chars.length > width) {
+                chars.pop();
+            }
+        }
+
+        for (let i = 0; i < width; i++) {
+            for (let j = 0; j < height; j++) {
+                rows[j].charList[i].bt = j === 0;
+                rows[j].charList[i].bb = j === height-1;
+                rows[j].charList[i].bl = i === 0;
+                rows[j].charList[i].br = i === width-1;
+            }
+        }
+
+        rowList.render(() => {
+            for (let i = 0; i < rows.length; i++) {
+                rowList.getNext().render(rows[i]);
+            }
+        });
+    });
+
+    return component;
+}
+
+
+function ScratchPad(): Renderable {
+    type ToolbarButtonArgs = {
+        name: string;
+        onClick(e: MouseEvent): void;
+    };
+    type ToolbarArgs = {
+        buttons: ToolbarButtonArgs[];
+    }
+
+    // 1 vertical column of buttons
+    function Toolbar(): Renderable<ToolbarArgs> {
+        const root = div({ class: "col", style: "justify-content: center; gap: 5px;" }, []);
+
+        const items = makeComponentList(root, () => {
+            const textEl = div();
+            const button = makeButton("");
+            replaceChildren(button, [
+                textEl, 
+            ]);
+
+            const component = makeComponent<ToolbarButtonArgs>(button, () => {
+                setTextContent(button, component.args.name);
+            });
+
+            button.el.addEventListener("click", (e) => component.args.onClick(e));
+
+            return component;
+        });
+
+        const component = makeComponent<ToolbarArgs>(root, () => {
+            const { buttons } = component.args;
+
+            items.render(() => {
+                for (const b of buttons) {
+                    items.getNext().render(b);
+                }
+            });
+        });
+
+        return component;
+    }
+
+    const canvas = Canvas();
+    const toolbar = Toolbar();
+
+    const root = div({ class: "relative h-100 row" }, [
+        div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
+            canvas,
+        ]),
+        div({ style: "width: 20px" }),
+        toolbar,
+    ]);
+
+    function rerenderLocal() {
+        component.render(component.args);
+    }
+
+    const canvasArgs : CanvasArgs = {
+        width: 50,
+        height: 20,
+    };
+
+    const component = makeComponent(root, () => {
+        canvas.render(canvasArgs);
+
+        toolbar.render({
+            buttons: [
+                {
+                    name: "More rows",
+                    onClick: (e) => {
+                        canvasArgs.height += e.shiftKey ? 5 : 1;
+                        rerenderLocal();
+                    },
+                },
+                {
+                    name: "Less rows",
+                    onClick: (e) => {
+                        canvasArgs.height -= e.shiftKey ? 5 : 1;
+                        rerenderLocal();
+                    },
+                },
+                {
+                    name: "More columns",
+                    onClick: (e) => {
+                        canvasArgs.width += e.shiftKey ? 10 : 1;
+                        rerenderLocal();
+                    },
+                },
+                {
+                    name: "Less columns",
+                    onClick: (e) => {
+                        canvasArgs.width -= e.shiftKey ? 10 : 1;
+                        rerenderLocal();
+                    },
+                },
+            ]
+        });
+    });
+
+    return component;
 }
 
 type Pagination = {
@@ -1343,7 +1601,7 @@ function FuzzyFinder(): Renderable {
                 }
                 spans.push(el("SPAN", {}, [text.substring(lastRangeEnd)]));
 
-                replaceChildren(textDiv, ...spans);
+                replaceChildren(textDiv, spans);
             }
 
             setVisible(cursor, hasFocus);
@@ -1671,22 +1929,20 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
             }
             const theme = lsKeys[LOCAL_STORAGE_KEYS.CURRENT_THEME];
 
-            replaceChildren(
-                infoDiv, 
+            replaceChildren(infoDiv, [
                 div({}, ["Make sure this looks reasonable before you load the backup:"]),
                 div({}, ["Notes: ", tree.getSize(backupState.notes).toString()]),
                 div({}, ["Activities: ", backupState.activities.length.toString()]),
                 div({}, ["Last Online: ", !lastOnline ? "No idea" : formatDate(lastOnline)]),
                 div({}, ["Last Theme: ", theme]),
-            );
+            ]);
 
             setVisible(loadBackupButton, true);
             canLoad = true;
         } catch {
-            replaceChildren(
-                infoDiv, 
-                div({}, [ "This JSON cannot be loaded" ]),
-            );
+            replaceChildren(infoDiv, [
+                div({}, [ "This JSON cannot be loaded" ])
+            ]);
         }
     });
 
@@ -1899,6 +2155,8 @@ function setTheme(theme: AppTheme) {
 
 function AsciiIcon(): Renderable<AsciiIconData> {
     const icon = div();
+
+    icon.el.style.userSelect = "none";
     icon.el.style.whiteSpace = "pre";
     icon.el.style.fontSize = "6px";
     icon.el.style.fontFamily = "Courier";
@@ -1936,7 +2194,7 @@ const makeDarkModeToggle = () => {
         icon.render(getThemeAsciiIcon());
     });
 
-    replaceChildren(button, icon);
+    replaceChildren(button, [ icon ]);
     icon.render(getThemeAsciiIcon());
 
     return button;
@@ -2092,29 +2350,45 @@ function CheatSheet(): Renderable {
 }
 
 function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean, stepOver: boolean): number {
-    const currentNoteId = state.activities[idx]?.nId;
-    const currentParentId = !currentNoteId ? undefined : getNote(state, currentNoteId).parentId;
+    // This method is for navigating backwards through the activity list to what you were working on before (or forwards, if you've navigated too far backwards).
+    // But if I've made 20 notes one after the other in sequence, I don't want to go back up those notes typically. 
+    // Rather, I want to skip those notes, and go to the discontinuity in activities.
+    // That being said, if I make a note, then I step down 10 notes and write something, I want to go back up, even though it's under the same parent note
+    //      (so I can't just skip over all notes with the same parent as the previous, like I was doing before).
+    // That's the problem that this somewhat complex looking code is trying to solve
 
     const activities = state.activities;
     const direction = backwards ? -1 : 1;
+    let lastNoteId = activities[idx].nId;
+    if (!lastNoteId) {
+        // Only works if we're currently on an activity. sorry
+        return idx;
+    }
+
     while (
         (direction === -1 && idx > 0) ||
         (direction === 1 && idx < activities.length - 1)
     ) {
         idx += direction;
 
-        const noteId = activities[idx].nId
-        if (noteId) {
-            const note = getNote(state, noteId);
+        const activity = activities[idx];
+        if (activity.nId) {
+            const lastNote = getNote(state, lastNoteId);
+            if (lastNote.parentId) {
+                const parent = getNote(state, lastNote.parentId);
+                const siblings = parent.childIds;
+                const noteSiblingIdx = siblings.indexOf(lastNote.id);
+                const prevSiblingId = siblings[noteSiblingIdx + direction];
 
-            if (
-                note.parentId &&
-                note.parentId !== currentParentId
-            ) {
-                if (!stepOver) {
-                    idx--;
+                if (activity.nId !== prevSiblingId) {
+                    // we have finally reached the discontinuitiy
+                    if (!stepOver) {
+                        idx--;
+                    }
+                    break;
                 }
-                break;
+
+                lastNoteId = prevSiblingId;
             }
         }
     }
@@ -2141,12 +2415,7 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     }
 
     let nextIdx = lastHotlistIndex;
-    if (backwards) {
-        nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards, true);
-    } else {
-        // going forwards.
-        nextIdx = getNextHotlistActivityInDirection(state, nextIdx + 1, backwards, false);
-    }
+    nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards, true);
 
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
         return;
@@ -2488,7 +2757,8 @@ export const App = () => {
             function handleMovingIn() {
                 if (!e.altKey) {
                     // move into the current note
-                    setCurrentNote(state, getInnerNoteId(currentNote));
+                    const lastSelected = getLastSelectedNote(state, currentNote);
+                    setCurrentNote(state, lastSelected ? lastSelected.id : null);
                     debouncedSave();
                     return;
                 }
@@ -2511,9 +2781,8 @@ export const App = () => {
                     return;
                 }
 
-                const noteInsideUpperNoteId = getInnerNoteId(upperNote);
-                if (noteInsideUpperNoteId) {
-                    const noteInsideUpperNote = getNote(state, noteInsideUpperNoteId);
+                const noteInsideUpperNote = getLastSelectedNote(state, upperNote);
+                if (noteInsideUpperNote) {
                     tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
                     debouncedSave();
                     return;
@@ -2568,6 +2837,8 @@ export const App = () => {
                 }
             } else if (e.key === "Enter") {
                 setIsEditingCurrentNote(state, true);
+
+                debouncedSave();
             } else {
                 needsRerender = false;
             }

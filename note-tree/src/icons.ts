@@ -20,6 +20,7 @@ export const ASCII_SUN: AsciiIconData = {
 
 
 // https://www.asciiart.eu/space/moons
+// And then I added the stars, so those are kinda scuffed
 export const ASCII_MOON_STARS: AsciiIconData = {
     data: (
                 `
@@ -34,3 +35,32 @@ export const ASCII_MOON_STARS: AsciiIconData = {
     )
 }
 
+// I did this one all myself, actually
+export const ASCII_PLUS_ICON: AsciiIconData = {
+    data: (
+                `
+                 
+         ##        
+         ##           
+     ##########      
+         ##          
+         ##      
+                  
+      `
+    )
+};
+
+// This one too. Pretty epic, I know
+export const ASCII_MINUS_ICON: AsciiIconData = {
+    data: (
+                `
+                 
+                   
+                      
+     ##########      
+                     
+                 
+                  
+      `
+    )
+};
