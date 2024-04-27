@@ -21,8 +21,6 @@ function CN<CNArgs>() {
    
 */
 
-
-
 export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     if (!trueVal) { 
         console.error(...msg); 
@@ -67,11 +65,36 @@ export function clearChildren(mountPoint: Insertable) {
     mountPoint.el.replaceChildren();
 };
 
+/** 
+ * A little more performant than setting the style directly.
+ * If you need more even more performance in niche circumstances (i.e a hundred thousand plus components), you may need 
+ * to memoize your calls to this on your end...
+ */
+export function setStyle<K extends keyof HTMLElement["style"]>(root: Insertable, val: K, style: HTMLElement["style"][K]) {
+    if (root.el.style[val] !== style) {
+        root.el.style[val] = style;
+    }
+}
+
+/** 
+ * A little more performant than adding/removing from the classList directly, but still quite slow actually.
+ * If you need more even more performance in niche circumstances (i.e a hundred thousand plus components), try memoising 'state' on your end
+ */
 export function setClass(
     component: Insertable,
     cssClass: string,
     state: boolean,
 ): boolean {
+    const contains = component.el.classList.contains(cssClass);
+    if (state === contains) {
+        // Yep. this is another massive performance boost. you would imagine that the browser devs would do this on 
+        // their end, but they don't...
+        // Maybe because if they did an additional check like this on their end, and then I decided I wanted to 
+        // memoize on my end (which would be much faster anyway), their thing would be a little slower.
+        // At least, that is what I'm guessing the reason is
+        return state;
+    }
+
     if (state) {
         component.el.classList.add(cssClass);
     } else {
@@ -90,12 +113,18 @@ export function setVisible(component: Insertable, state: boolean): boolean {
     return state;
 }
 
+// This is a certified jQuery moment: https://stackoverflow.com/questions/19669786/check-if-element-is-visible-in-dom
+export function isVisible(component: Insertable): boolean {
+    const e = component.el;
+    return !!( e.offsetWidth || e.offsetHeight || e.getClientRects().length );
+}
+
 type ComponentPool<T extends Insertable> = {
     components: T[];
     lastIdx: number;
     getNext(): T;
     getIdx(): number;
-    render(renderFn: () => void): void;
+    render(renderFn: () => void, noErrorBoundary?: boolean): void;
 }
 
 type ValidAttributeName = string;
@@ -208,10 +237,14 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
 
             return this.components[this.lastIdx++];
         },
-        render(renderFn) {
+        render(renderFn, noErrorBoundary = false) {
             this.lastIdx = 0;
 
-            handleRenderingError(this, renderFn);
+            if (noErrorBoundary) {
+                renderFn();
+            } else {
+                handleRenderingError(this, renderFn);
+            }
 
             while(this.components.length > this.lastIdx) {
                 // could also just hide these with setVisible(false)
@@ -223,7 +256,9 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
     }
 }
 
-export function setInputValueAndResize(inputComponent: Insertable, text: string) {
+type InsertableInput = InsertableGeneric<HTMLTextAreaElement> | InsertableGeneric<HTMLInputElement>;
+
+export function setInputValueAndResize(inputComponent: InsertableInput, text: string) {
     setInputValue(inputComponent, text);
     resizeInputToValue(inputComponent);
 }
@@ -233,11 +268,18 @@ export function resizeInputToValue(inputComponent: Insertable) {
     inputComponent.el.setAttribute("size", "" + (inputComponent.el as HTMLInputElement).value.length);
 }
 
+/** 
+ * A LOT faster than just setting the text content manually.
+ *
+ * However, there are some niche use cases (100,000+ components) where you might need even more performance. 
+ * In those cases, you will want to avoid calling this function if you know the text hasn't changed.
+ */
 export function setTextContent(component: Insertable, text: string) {
     // @ts-ignore
     if (component.rerender) {
         console.warn("You might be overwriting a component's internal contents by setting it's text");
     };
+
     if (component.el.textContent === text) {
         // Actually a huge performance speedup!
         return;
@@ -247,8 +289,8 @@ export function setTextContent(component: Insertable, text: string) {
 };
 
 /** NOTE: assumes that component.el is an HTMLInputElement */
-export function setInputValue(component: Insertable, text: string) {
-    const inputElement = component.el as HTMLInputElement;
+export function setInputValue(component: InsertableInput, text: string) {
+    const inputElement = component.el;
 
     // Yeah, its up to you to call it on the right component. 
     // I don't want to add proper types here, because I can't infer the type `htmlf` will return
@@ -272,6 +314,7 @@ export function setInputValue(component: Insertable, text: string) {
  * 
  * It stores args in the `args` object, so that any event listeners can update their behaviours when the main
  * component re-renders.
+ *
  */
 export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
     root._isInserted = true;
@@ -280,10 +323,13 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
         ...root,
         // @ts-ignore this is always set before we render the component
         args: null,
-        render(argsIn) {
+        render(argsIn, noErrorBoundary = false) {
             component.args = argsIn;
-
-            handleRenderingError(this, renderFn);
+            if (noErrorBoundary) {
+                renderFn();
+            } else {
+                handleRenderingError(this, renderFn);
+            }
 
             if (!this._isInserted) {
                 console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway");
@@ -296,7 +342,7 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
 
 export type Renderable<T = undefined> = Insertable & {
     args: T;
-    render(args: T):void;
+    render(args: T, noErrorBoundary?: boolean):void;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
@@ -315,3 +361,4 @@ export function isEditingTextSomewhereInDocument(): boolean {
 
     return false;
 }
+

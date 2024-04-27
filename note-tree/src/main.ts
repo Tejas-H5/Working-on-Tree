@@ -84,7 +84,9 @@ import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
 import CustomWorker from './activitycheck?worker';
 import { loadFile, saveText } from "./file-download";
-import { ASCII_MINUS_ICON, ASCII_MOON_STARS, ASCII_PLUS_ICON, ASCII_SUN, AsciiIconData } from "./icons";
+import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
+import { AsciiCanvas } from "./canvas";
+import { copyToClipboard } from "./clipboard";
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -622,277 +624,6 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     })
 
     return textArea;
-}
-
-type CanvasArgs = {
-    width: number;
-    height: number;
-};
-
-function Canvas() {
-    const root = div({ class: "", style: "overflow: auto; padding-top: 10px; padding-bottom: 10px;"});
-
-    type RowArgs = {
-        charList: CharArgs[];
-    };
-
-    type MouseInputState = {
-        lbDown: boolean;
-        _lbWasDown: boolean;
-        x: number;
-        y: number;
-        onChange(): void;
-    }
-
-    type CharArgs = {
-        // just a 1-length string
-        char: string;
-        bl: boolean;
-        br: boolean;
-        bt: boolean;
-        bb: boolean;
-
-        x: number;
-        y: number;
-
-        canvasState: CanvasState;
-
-        isSelected: boolean;
-    };
-
-    const rowList = makeComponentList(root, () => {
-        const root = div({ style: "text-align: center" });
-        const charList = makeComponentList(root, () => {
-            const root = el("SPAN", { class: "pre hover", style: "font-size: 24px; width: 1ch; height: 1ch;user-select: none; cursor: crosshair;" });
-
-            const component = makeComponent<CharArgs>(root, () => {
-                const { char, bl, br, bt, bb, isSelected  } = component.args;
-
-                root.el.style.borderTop = !bt ? "": "1px solid var(--fg-color)";
-                root.el.style.borderBottom = !bb ? "": "1px solid var(--fg-color)";
-                root.el.style.borderLeft = !bl ? "": "1px solid var(--fg-color)";
-                root.el.style.borderRight = !br ? "": "1px solid var(--fg-color)";
-
-                setClass(root, "inverted", isSelected);
-
-                setTextContent(root, char);
-            });
-
-
-            root.el.addEventListener("mousedown", () => {
-                const mouseInputState = component.args.canvasState.mouseInputState;
-                mouseInputState.lbDown = true;
-                mouseInputState.onChange();
-            });
-            root.el.addEventListener("mouseup", () => {
-                const mouseInputState = component.args.canvasState.mouseInputState;
-                mouseInputState.lbDown = false;
-                mouseInputState.onChange();
-            });
-            root.el.addEventListener("mouseenter", () => {
-                const mouseInputState = component.args.canvasState.mouseInputState;
-                mouseInputState.x = component.args.x;
-                mouseInputState.y = component.args.y;
-                mouseInputState.onChange();
-            });
-
-            return component;
-        });
-
-        const component = makeComponent<RowArgs>(root, () => {
-            const { charList: rowList } = component.args;
-
-            charList.render(() => {
-                for (let i = 0; i < rowList.length; i++) {
-                    const c = charList.getNext();
-                    c.render(rowList[i]);
-                }
-            });
-        });
-
-        return component;
-    });
-
-    const rows: RowArgs[] = [];
-    const mouseInputState: MouseInputState = {
-        x: 0, y: 0,
-        lbDown: false,
-        _lbWasDown: false,
-        onChange() {
-            const { x, y, lbDown } = this;
-
-            let needsRerender = true;
-            if (lbDown) {
-                rows[y].charList[x].isSelected = !rows[y].charList[x].isSelected;
-            } else {
-                needsRerender = false;
-            }
-
-            if (needsRerender) {
-                component.render(component.args);
-            }
-        }
-    };
-
-    type CanvasState = {
-        mouseInputState: MouseInputState;
-    };
-
-    const canvasState: CanvasState = {
-        mouseInputState,
-    };
-
-    const component = makeComponent<CanvasArgs>(root, () => {
-        const { height, width } = component.args;
-
-        // Maintain row/col pool
-        while(rows.length < height) {
-            rows.push({ charList: [] });
-        }
-        while(rows.length > height) {
-            rows.pop();
-        }
-
-        for (let i = 0; i < rows.length; i++) {
-            const chars = rows[i].charList;
-
-            while(chars.length < width) {
-                chars.push({ 
-                    char: " ", 
-                    br: false, bl: false, bb: false, bt: false,
-                    x: chars.length,
-                    y: i,
-
-                    isSelected: false,
-
-                    canvasState,
-                });
-            }
-            while(chars.length > width) {
-                chars.pop();
-            }
-        }
-
-        for (let i = 0; i < width; i++) {
-            for (let j = 0; j < height; j++) {
-                rows[j].charList[i].bt = j === 0;
-                rows[j].charList[i].bb = j === height-1;
-                rows[j].charList[i].bl = i === 0;
-                rows[j].charList[i].br = i === width-1;
-            }
-        }
-
-        rowList.render(() => {
-            for (let i = 0; i < rows.length; i++) {
-                rowList.getNext().render(rows[i]);
-            }
-        });
-    });
-
-    return component;
-}
-
-
-function ScratchPad(): Renderable {
-    type ToolbarButtonArgs = {
-        name: string;
-        onClick(e: MouseEvent): void;
-    };
-    type ToolbarArgs = {
-        buttons: ToolbarButtonArgs[];
-    }
-
-    // 1 vertical column of buttons
-    function Toolbar(): Renderable<ToolbarArgs> {
-        const root = div({ class: "col", style: "justify-content: center; gap: 5px;" }, []);
-
-        const items = makeComponentList(root, () => {
-            const textEl = div();
-            const button = makeButton("");
-            replaceChildren(button, [
-                textEl, 
-            ]);
-
-            const component = makeComponent<ToolbarButtonArgs>(button, () => {
-                setTextContent(button, component.args.name);
-            });
-
-            button.el.addEventListener("click", (e) => component.args.onClick(e));
-
-            return component;
-        });
-
-        const component = makeComponent<ToolbarArgs>(root, () => {
-            const { buttons } = component.args;
-
-            items.render(() => {
-                for (const b of buttons) {
-                    items.getNext().render(b);
-                }
-            });
-        });
-
-        return component;
-    }
-
-    const canvas = Canvas();
-    const toolbar = Toolbar();
-
-    const root = div({ class: "relative h-100 row" }, [
-        div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
-            canvas,
-        ]),
-        div({ style: "width: 20px" }),
-        toolbar,
-    ]);
-
-    function rerenderLocal() {
-        component.render(component.args);
-    }
-
-    const canvasArgs : CanvasArgs = {
-        width: 50,
-        height: 20,
-    };
-
-    const component = makeComponent(root, () => {
-        canvas.render(canvasArgs);
-
-        toolbar.render({
-            buttons: [
-                {
-                    name: "More rows",
-                    onClick: (e) => {
-                        canvasArgs.height += e.shiftKey ? 5 : 1;
-                        rerenderLocal();
-                    },
-                },
-                {
-                    name: "Less rows",
-                    onClick: (e) => {
-                        canvasArgs.height -= e.shiftKey ? 5 : 1;
-                        rerenderLocal();
-                    },
-                },
-                {
-                    name: "More columns",
-                    onClick: (e) => {
-                        canvasArgs.width += e.shiftKey ? 10 : 1;
-                        rerenderLocal();
-                    },
-                },
-                {
-                    name: "Less columns",
-                    onClick: (e) => {
-                        canvasArgs.width -= e.shiftKey ? 10 : 1;
-                        rerenderLocal();
-                    },
-                },
-            ]
-        });
-    });
-
-    return component;
 }
 
 type Pagination = {
@@ -1949,11 +1680,11 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
     return component;
 }
 
-function ScratchPadModal(): Renderable {
-    const scratchPad = ScratchPad();
+function AsciiCanvasModal(): Renderable {
+    const asciiCanvas = AsciiCanvas();
     const modalComponent = Modal(
         div({ style: modalPaddingStyles(10) }, [
-            scratchPad
+            asciiCanvas
         ])
     );
 
@@ -1964,7 +1695,7 @@ function ScratchPadModal(): Renderable {
             }
         });
 
-        scratchPad.render(undefined);
+        asciiCanvas.render(undefined);
     });
 
     return component;
@@ -2522,7 +2253,7 @@ export const App = () => {
     const activityList = EditableActivityList();
     const todoNotes = TodoList();
 
-    const scratchPadModal = ScratchPadModal();
+    const asciiCanvasModal = AsciiCanvasModal();
     const analyticsModal = AnalyticsModal();
     const fuzzyFindModal = FuzzyFindModal();
     const todoListModal = TodoListModal();
@@ -2534,7 +2265,7 @@ export const App = () => {
         div({ class: "row align-items-end" }, [
             makeDarkModeToggle(),
             makeButtonWithCallback("Scratch Pad", () => {
-                setCurrentModal(scratchPadModal);
+                setCurrentModal(asciiCanvasModal);
             }),
         ]),
         div({ class: "flex-1" }),
@@ -2585,7 +2316,7 @@ export const App = () => {
                     const flatNotes: NoteId[] = [];
                     recomputeFlatNotes(state, flatNotes, false);
 
-                    navigator.clipboard.writeText(exportAsText(state, flatNotes));
+                    copyToClipboard(exportAsText(state, flatNotes));
                     showStatusText("Copied current open notes as text");
                 });
             }),
@@ -2638,7 +2369,7 @@ export const App = () => {
             ]),
         ]),
         fixedButtons,
-        scratchPadModal,
+        asciiCanvasModal,
         analyticsModal,
         fuzzyFindModal,
         todoListModal,
@@ -2684,7 +2415,7 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(scratchPadModal);
+            setCurrentModal(asciiCanvasModal);
             return;
         } else if (
             e.key === "A" &&
@@ -2913,8 +2644,8 @@ export const App = () => {
             analyticsModal.render(undefined);
         }
 
-        if (setVisible(scratchPadModal, currentModal === scratchPadModal)) {
-            scratchPadModal.render(undefined);
+        if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {
+            asciiCanvasModal.render(undefined);
         }
 
         if (setVisible(todoListModal, currentModal === todoListModal)) {
