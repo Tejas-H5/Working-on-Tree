@@ -30,3 +30,7 @@ export function countOccurances<T>(arr: T[], predicate: (v: T) => boolean): numb
     return count;
 }
 
+// This is a certified JavaScript moment
+export function boundsCheck(arr: unknown[], i: number): boolean {
+    return i >= 0 && i < arr.length;
+}

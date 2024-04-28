@@ -1,3 +1,4 @@
+import { boundsCheck } from "./array-utils";
 import { copyToClipboard, readFromClipboard } from "./clipboard";
 import { Renderable, div, el, isVisible, makeComponent, makeComponentList, replaceChildren, setClass, setStyle, setTextContent, setVisible } from "./dom-utils";
 import { makeButton } from "./generic-components";
@@ -29,6 +30,9 @@ type CanvasState = {
     keyboardInputState: KeyboardInputState;
     rows: RowArgs[];
     currentTool: ToolType;
+
+    layers: Layer[];
+    currentLayer: number;
 };
 
 type ToolType = "freeform-select" | 
@@ -38,6 +42,148 @@ type ToolType = "freeform-select" |
     "fill-select" |
     "fill-select-outline" |
     "move-selection";
+
+type RowArgs = {
+    charList: CanvasCellArgs[];
+};
+
+type CanvasCellArgs = {
+    // CSS borders - bl = border left, etc. It was a pain to type...
+    bl: boolean;
+    br: boolean;
+    bt: boolean;
+    bb: boolean;
+
+    j: number;
+    i: number;
+
+    canvasState: CanvasState;
+    isSelected: boolean;
+    isSelectedPreview: boolean;
+    // like isSelectedPreview, but not shown on the ui. so we can use it like a scratch buffer almost
+    isSelectedTemp: boolean;
+
+    // Used for recursive propagations where we want to avoid re-visiting a coordinate
+    isVisited: boolean;
+};
+
+type Layer = {
+    data: string[][];
+    iOffset: number;
+    jOffset: number;
+}
+
+function newLayer(): Layer {
+    return {
+        data: [],
+        iOffset: 0,
+        jOffset: 0,
+    }
+}
+
+function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
+    for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
+        const data = canvas.layers[layerIdx].data;
+
+        while(data.length < rows) {
+            data.push(Array(cols).fill(" "));
+        }
+        while(data.length > rows) {
+            data.pop();
+        }
+
+        for (let i = 0; i < data.length; i++) {
+            const rows = data[i];
+
+            while(rows.length < cols) {
+                rows.push(" ");
+            }
+            while(rows.length > cols) {
+                rows.pop();
+            }
+        }
+    }
+}
+
+// This gets the cell for the corresponding coordinate on a layer, taking the layer offset into account
+function getCellForLayer(canvas: CanvasState, i: number, j: number, layer: number): CanvasCellArgs | undefined {
+    const iFinal =  i - canvas.layers[layer].iOffset;
+    const jFinal =  j - canvas.layers[layer].jOffset;
+    return getCell(canvas, iFinal, jFinal);
+}
+
+function getCharOnLayer(canvas: CanvasState, i: number, j: number, layer: number): string {
+    const iFinal =  i - canvas.layers[layer].iOffset;
+    const jFinal =  j - canvas.layers[layer].jOffset;
+    if (
+        boundsCheck(canvas.layers[layer].data, iFinal) && 
+        boundsCheck(canvas.layers[layer].data[iFinal], jFinal)
+    ) {
+        return canvas.layers[layer].data[iFinal][jFinal] || " ";
+    }
+
+    return ' ';
+}
+
+function setCharOnLayer(canvas: CanvasState, i: number, j: number, char: string, layer: number, useOffsets = true) {
+    const iFinal =  !useOffsets ? i : i - canvas.layers[layer].iOffset;
+    const jFinal =  !useOffsets ? j : j - canvas.layers[layer].jOffset;
+    if (
+        boundsCheck(canvas.layers[layer].data, iFinal) && 
+        boundsCheck(canvas.layers[layer].data[iFinal], jFinal)
+    ) {
+        canvas.layers[layer].data[iFinal][jFinal] = char;
+        return;
+    } 
+}
+
+
+// this currently deletes everything from the dst layer
+function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: number, layerDst: number) {
+    forEachCell(canvas, (c) => {
+        // Use the correct offset
+        const cellSrc = getCellForLayer(canvas, c.i, c.j, layerSrc);
+        if (!cellSrc?.isSelected) {
+            return;
+        }
+
+        const char = getCharOnLayer(canvas, c.i, c.j, layerSrc);
+        setCharOnLayer(canvas, c.i, c.j, ' ', layerSrc);
+        setCharOnLayer(canvas, c.i, c.j, char, layerDst);
+    });
+}
+
+function getCharOnCurrentLayer(canvas: CanvasState, i: number, j: number): string {
+    return getCharOnLayer(canvas, i, j, canvas.currentLayer);
+}
+
+function setCharOnCurrentLayer(canvas: CanvasState, i: number, j: number, char: string) {
+    setCharOnLayer(canvas, i, j, char, canvas.currentLayer);
+}
+
+function getTempLayer(canvas: CanvasState): Layer {
+    return canvas.layers[getTempLayerIdx(canvas)];
+}
+
+function getCurrentLayer(canvas: CanvasState): Layer {
+    return canvas.layers[canvas.currentLayer];
+}
+
+function getTempLayerIdx(canvas: CanvasState): number {
+    return canvas.layers.length - 1;
+}
+
+// Returns the char, and the layer we pulled it from...
+function getChar(canvas: CanvasState, i: number, j: number): [string, number] {
+    for (let layerIdx = canvas.layers.length - 1; layerIdx >= 0; layerIdx--) {
+        const char = getCharOnLayer(canvas, i, j, layerIdx);
+        if (char.trim()) {
+            return [char, layerIdx];
+        }
+    }
+
+    return [' ', 0];
+}
 
 function forEachCell(canvas: CanvasState, fn: (char: CanvasCellArgs) => void) {
     for (let i = 0; i < canvas.rows.length; i++) {
@@ -59,33 +205,6 @@ function getNumRows(canvas: CanvasState) {
     return canvas.rows.length;
 }
 
-type RowArgs = {
-    charList: CanvasCellArgs[];
-};
-
-type CanvasCellArgs = {
-    // just a 1-length string
-    char: string;
-
-    // CSS borders - bl = border left, etc. It was a pain to type...
-    bl: boolean;
-    br: boolean;
-    bt: boolean;
-    bb: boolean;
-
-    // WHY TF did I use x, y here. Should have been row/col or i/j so that all my code could have been consistent
-    // but for some reason I didn't do that. And I wrote all of this on the same day too...
-    x: number;
-    y: number;
-
-    canvasState: CanvasState;
-    isSelected: boolean;
-    isSelectedPreview: boolean;
-
-    // Used for recursive propagations where we want to avoid re-visiting a coordinate
-    isVisited: boolean;
-};
-
 function lerp(a: number, b: number, t: number) : number {
     return a + (b - a) * t;
 }
@@ -98,10 +217,10 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
 
     forEachCell(canvas, (c) => {
         if (c.isSelected) {
-            minX = Math.min(c.x, minX);
-            maxX = Math.max(c.x, maxX);
-            minY = Math.min(c.y, minY);
-            maxY = Math.max(c.y, maxY);
+            minX = Math.min(c.j, minX);
+            maxX = Math.max(c.j, maxX);
+            minY = Math.min(c.i, minY);
+            maxY = Math.max(c.i, maxY);
         }
     });
 
@@ -117,7 +236,8 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
         for(let j = minX; j < maxX; j++) {
             const cell = getCell(canvas, i, j);
             if (cell.isSelected) {
-                stringBuilder.push(cell.char);
+                const [char] = getChar(canvas, i, j);
+                stringBuilder.push(char);
             } else {
                 stringBuilder.push(' ');
             }
@@ -174,7 +294,12 @@ function Canvas() {
             let lastChar = "";
 
             const component = makeComponent<CanvasCellArgs>(root, () => {
-                const { canvasState, x, y, char, bl, br, bt, bb, isSelected, isSelectedPreview: isSelectedTemp, } = component.args;
+                const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = component.args;
+
+
+                const [char, layerIdx] = getChar(canvasState, i, j);
+                const cell = getCellForLayer(canvasState, i, j, layerIdx);
+                let isSelected = cell?.isSelected || component.args.isSelected;
 
                 if (lastChar !== char) {
                     lastChar = char;
@@ -204,8 +329,8 @@ function Canvas() {
                 } else if (isSelected) {
                     state = 2;
                 } else if (
-                    x === canvasState.mouseInputState.x && 
-                    y === canvasState.mouseInputState.y
+                    j === canvasState.mouseInputState.x && 
+                    i === canvasState.mouseInputState.y
                 ) {
                     state = 3;
                 }
@@ -225,8 +350,8 @@ function Canvas() {
 
             function handleMouseMovement() {
                 const mouseInputState = component.args.canvasState.mouseInputState;
-                mouseInputState.x = component.args.x;
-                mouseInputState.y = component.args.y;
+                mouseInputState.x = component.args.j;
+                mouseInputState.y = component.args.i;
 
                 onMouseInputStateChange();
             }
@@ -242,9 +367,9 @@ function Canvas() {
             charList.render(() => {
                 for (let i = 0; i < rowList.length; i++) {
                     const c = charList.getNext();
-                    c.render(rowList[i]);
+                    c.render(rowList[i], true);
                 }
-            });
+            }, true);
         });
 
         component.el.addEventListener("mouseleave", () => {
@@ -258,18 +383,20 @@ function Canvas() {
 
     const rows: RowArgs[] = [];
 
-    const toolState = {
+    const toolState: {
+        typingStartX: number;
+        selectionStartX: number;
+        selectionStartY: number;
+        startedAction: ToolType | undefined;
+    } = {
         typingStartX: 0,
         selectionStartX: 0,
         selectionStartY: 0,
+        startedAction: undefined,
     };
 
     function clearSelectionPreview() {
         forEachCell(canvasState, (c) => c.isSelectedPreview = false);
-    }
-
-    function clearSelection() {
-        forEachCell(canvasState, (c) => c.isSelected = false);
     }
 
     function selectLine(x1: number, y1: number, x2: number, y2: number) {
@@ -307,9 +434,10 @@ function Canvas() {
             }
             cell.isVisited = true;
 
+            const cellChar = getCharOnCurrentLayer(canvasState, i, j);;
             if (!fillChar) {
-                fillChar = cell.char;
-            } else if (cell.char !== fillChar) {
+                fillChar = cellChar;
+            } else if (cellChar !== fillChar) {
                 continue;
             }
 
@@ -331,54 +459,108 @@ function Canvas() {
         }
     }
 
+    function applyCurrentAction(cancel: boolean = false) {
+        const startedAction = toolState.startedAction;
+        toolState.startedAction = undefined;
+        if (!startedAction) {
+            return;
+        }
+
+        if (startedAction === "move-selection") {
+            // apply the move we started
+
+            const tempLayer = getTempLayer(canvasState);
+            if (cancel) {
+                tempLayer.iOffset = 0;
+                tempLayer.jOffset = 0;
+            }
+
+            moveSelectedCellDataToLayer(canvasState, getTempLayerIdx(canvasState), canvasState.currentLayer);
+
+            // move the selection after.
+            {
+                forEachCell(canvasState, (c) => c.isSelectedTemp = false);
+                forEachCell(canvasState, (c) => {
+                    const cell = getCellForLayer(canvasState, c.i, c.j, getTempLayerIdx(canvasState));
+                    if (!cell) {
+                        return;
+                    }
+
+                    c.isSelectedTemp = cell.isSelected;
+                });
+                forEachCell(canvasState, (c) => c.isSelected = c.isSelectedTemp);
+            }
+
+
+            // clear the temp buffer
+            const useOffsets = false;
+            forEachCell(canvasState, (c) => setCharOnLayer(canvasState, c.i, c.j, ' ', getTempLayerIdx(canvasState), useOffsets));
+
+            return;
+        } 
+
+        if (
+            startedAction === "freeform-select" ||
+            startedAction === "line-select" ||
+            startedAction === "rect-outline-select" ||
+            startedAction === "rect-select" ||
+            startedAction === "fill-select" ||
+            startedAction === "fill-select-outline"
+        ) {
+            if (!cancel) {
+                // Apply our selection preview.
+                
+                if (canvasState.keyboardInputState.isShiftPressed) {
+                    forEachCell(canvasState, (c) => {
+                        // subtractive selection
+                        if (c.isSelectedPreview) {
+                            c.isSelected = false;
+                        }
+                    });
+                } else if (canvasState.keyboardInputState.isCtrlPressed) {
+                    forEachCell(canvasState, (c) => {
+                        // additive selection
+                        c.isSelected = c.isSelected || c.isSelectedPreview;
+                    });
+                } else {
+                    forEachCell(canvasState, (c) => {
+                        // replace selection
+                        c.isSelected = c.isSelectedPreview;
+                    });
+                }
+            }
+
+            forEachCell(canvasState, (c) => c.isSelectedPreview = false);
+
+            return;
+        }
+    }
+
+
     function onMouseInputStateChange() {
         if (mouseInputState.x === -1 || mouseInputState.y === -1) {
             return;
         }
 
+        const tool = canvasState.currentTool;
         let released = mouseInputState._lbWasDown && !mouseInputState.lbDown;
         let clicked = !mouseInputState._lbWasDown && mouseInputState.lbDown;
 
         if (released) {
-            // Apply our selection preview.
-            
-            if (canvasState.keyboardInputState.isShiftPressed) {
-                forEachCell(canvasState, (c) => {
-                    // subtractive selection
-                    if (c.isSelectedPreview) {
-                        c.isSelected = false;
-                    }
-                });
-            } else if (canvasState.keyboardInputState.isCtrlPressed) {
-                forEachCell(canvasState, (c) => {
-                    // additive selection
-                    c.isSelected = c.isSelected || c.isSelectedPreview;
-                });
-            } else {
-                forEachCell(canvasState, (c) => {
-                    // replace selection
-                    c.isSelected = c.isSelectedPreview;
-                });
-            }
-
-            forEachCell(canvasState, (c) => c.isSelectedPreview = false);
+            const cancel = false;
+            applyCurrentAction(cancel);
         } else if (clicked) { 
             clicked = true;
             mouseInputState._prevX = mouseInputState.x;
             mouseInputState._prevY = mouseInputState.y;
         };
 
-        const tool = canvasState.currentTool;
 
         if (mouseInputState.lbDown) {
             if (clicked) {
-                if (
-                    // Some tools need the selection to function
-                    tool !== "move-selection"
-                ) {
-                    toolState.selectionStartX = mouseInputState.x;
-                    toolState.selectionStartY = mouseInputState.y;
-                }
+                toolState.selectionStartX = mouseInputState.x;
+                toolState.selectionStartY = mouseInputState.y;
+                toolState.startedAction = tool;
             }
 
             if (tool === "freeform-select") {
@@ -416,7 +598,18 @@ function Canvas() {
                     const corners = true;
                     propagateSelection(mouseInputState.x, mouseInputState.y, corners, keepOutlineOnly);
                 }
-            } 
+            } else if (tool === "move-selection") {
+                const tempLayer = getTempLayer(canvasState);
+                if (clicked) {
+                    tempLayer.iOffset = 0;
+                    tempLayer.jOffset = 0;
+                    moveSelectedCellDataToLayer(canvasState, canvasState.currentLayer, getTempLayerIdx(canvasState));
+                }
+
+
+                tempLayer.iOffset = mouseInputState.y - toolState.selectionStartY;
+                tempLayer.jOffset = mouseInputState.x - toolState.selectionStartX;
+            }
 
             if (clicked && getTextInputCursorCell(canvasState)) {
                 toolState.typingStartX = toolState.selectionStartX;
@@ -447,11 +640,21 @@ function Canvas() {
         mouseInputState,
         keyboardInputState,
         rows,
-        currentTool: "freeform-select"
+        currentTool: "freeform-select",
+
+        layers: [
+            // main layer. right now it's the only layer
+            newLayer(),
+            // temp layer. used for moving things around, etc
+            newLayer(),
+        ],
+        currentLayer: 0,
     };
 
     const component = makeComponent<CanvasArgs>(root, () => {
         const { height, width } = component.args;
+
+        resizeLayers(canvasState, height, width);
 
         // Maintain row/col pool
         // NOTE: The rowList and charList are already doing a similar pooling mechanism.
@@ -468,13 +671,13 @@ function Canvas() {
 
             while(chars.length < width) {
                 chars.push({ 
-                    char: " ", 
                     br: false, bl: false, bb: false, bt: false,
 
-                    x: chars.length,
-                    y: i,
+                    j: chars.length,
+                    i: i,
 
                     isSelected: false,
+                    isSelectedTemp: false,
                     isSelectedPreview: false,
                     isVisited: false,
 
@@ -498,9 +701,9 @@ function Canvas() {
 
         rowList.render(() => {
             for (let i = 0; i < rows.length; i++) {
-                rowList.getNext().render(rows[i]);
+                rowList.getNext().render(rows[i], true);
             }
-        });
+        }, true);
     });
 
     document.addEventListener("mousedown", () => {
@@ -540,12 +743,41 @@ function Canvas() {
     });
 
     function handleKeyDown(e: KeyboardEvent) {
+        // used to be x,y hence the strange order
+        // retuns the next cell
+        function moveCursor(cursor: CanvasCellArgs, j: number, i: number, resetX = false): CanvasCellArgs {
+            const nextCursor = getCell(canvasState, i, j);
+            if (!nextCursor) {
+                console.log("Failed to move??", i, j);
+                return cursor;
+            }
+
+            cursor.isSelected = false;
+            nextCursor.isSelected = true;
+
+            if (resetX || j < toolState.typingStartX) {
+                toolState.typingStartX = j;
+            }
+
+            return nextCursor;
+        }
+
         if (e.key === "Shift") {
             keyboardInputState.isShiftPressed = true;
             return;
         } else if (e.key === "Control") {
             keyboardInputState.isCtrlPressed = true;
             return;
+        }
+
+        if (e.key === "Escape") {
+            const cancel = true;
+
+            if (toolState.startedAction) {
+                e.stopImmediatePropagation();
+                applyCurrentAction(cancel);
+                return;
+            }
         }
 
         keyboardInputState.key = e.key;
@@ -564,66 +796,53 @@ function Canvas() {
                 break;
             }
         }
-
-        function moveCursor(x: number, y: number, resetX = false) {
-            const cursorCell = getTextInputCursorCell(canvasState);
-            if (!cursorCell) {
-                return;
-            }
-
-            if (x < 0 || x >= getNumCols(canvasState)) {
-                return;
-            }
-
-            if (y < 0 || y >= getNumRows(canvasState)) {
-                return;
-            }
-
-            clearSelection();
-            getCell(canvasState, y, x).isSelected = true;
-            if (resetX || x < toolState.typingStartX) {
-                toolState.typingStartX = x;
-            }
-        }
-        
+ 
         const cursorCell = getTextInputCursorCell(canvasState);
         if (cursorCell) {
+            // Start typing, with the singular selected cursorCell being the cursor
+
             function newLine(cursorCell: CanvasCellArgs) {
-                moveCursor(toolState.typingStartX, cursorCell.y + 1);
+                moveCursor(cursorCell, toolState.typingStartX, cursorCell.i + 1);
             }
 
             function atLineStart(cursorCell: CanvasCellArgs) {
-                return cursorCell.x <= toolState.typingStartX;
+                return cursorCell.j <= toolState.typingStartX;
             }
 
-            function backspace(cursorCell: CanvasCellArgs) {
+            function backspace(cursorCell: CanvasCellArgs): boolean {
                 // NOTE: Might introduce a 'layer' system that really backspaces text rather than overwriting the cell wtih ' '
+                
                 if (atLineStart(cursorCell)) {
-                    return
+                    return false;
                 }
 
-                moveCursor(cursorCell.x - 1, cursorCell.y);
-                const cursorCellNext = getTextInputCursorCell(canvasState);
-                if (cursorCellNext) {
-                    cursorCellNext.char = ' ';
+                const nextCursor = moveCursor(cursorCell, cursorCell.j - 1, cursorCell.i);
+                if (nextCursor === cursorCell) {
+                    return false;
                 }
+
+                const char = getCharOnCurrentLayer(canvasState, nextCursor.i, nextCursor.j);
+                if (char === ' ') {
+                    return false;
+                }
+
+                setCharOnCurrentLayer(canvasState, nextCursor.i, nextCursor.j, ' ');
+                return true;
             }
 
-            if (e.key === "ArrowUp" && cursorCell.y > 0) {
-                moveCursor(cursorCell.x, cursorCell.y - 1);
+            if (e.key === "ArrowUp" && cursorCell.i > 0) {
+                moveCursor(cursorCell, cursorCell.j, cursorCell.i - 1);
             } else if (e.key === "ArrowDown") {
-                moveCursor(cursorCell.x, cursorCell.y + 1);
+                moveCursor(cursorCell, cursorCell.j, cursorCell.i + 1);
             } else if (e.key === "ArrowLeft") {
-                moveCursor(cursorCell.x - 1, cursorCell.y);
+                moveCursor(cursorCell, cursorCell.j - 1, cursorCell.i);
             } else if (e.key === "ArrowRight") {
-                moveCursor(cursorCell.x + 1, cursorCell.y);
+                moveCursor(cursorCell, cursorCell.j + 1, cursorCell.i);
             } else if (e.key === "Enter") {
                 newLine(cursorCell);
             } else if (e.key === "Backspace") {
                 if (e.ctrlKey || e.metaKey) {
-                    while(!atLineStart(cursorCell) && cursorCell.char !== ' ') {
-                        backspace(cursorCell);
-                    }
+                    while(backspace(cursorCell)) {}
                 } else {
                     backspace(cursorCell);
                 }
@@ -632,22 +851,24 @@ function Canvas() {
                     return;
                 }
 
-                cursorCell.char = key;
+                setCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j, key);
 
-                if (cursorCell.x === getNumCols(canvasState) - 1) {
+                if (cursorCell.j === getNumCols(canvasState) - 1) {
                     newLine(cursorCell);
                 } else {
-                    moveCursor(cursorCell.x + 1, cursorCell.y);
+                    moveCursor(cursorCell, cursorCell.j + 1, cursorCell.i);
                 }
             }
         } else {
+            // Just overwrite every cell with what was typed
+
             if (len !== 1) {
                 return;
             }
 
             forEachCell(canvasState, (char) => {
                 if (char.isSelected) {
-                    char.char = key;
+                    setCharOnCurrentLayer(canvasState, char.i, char.j, key);
                 }
             });
         }
@@ -866,7 +1087,7 @@ export function AsciiCanvas(): Renderable {
                     continue;
                 }
 
-                getCell(canvas.canvasState, canvasRow, canvasCol).char = lines[i][j];
+                setCharOnCurrentLayer(canvas.canvasState, canvasRow, canvasCol, lines[i][j]);
             }
         }
     }
@@ -1039,7 +1260,7 @@ export function AsciiCanvas(): Renderable {
                 const pasteCell = getTextInputCursorCell(canvas.canvasState);
                 if (pasteCell) {
                     const whitespaceIsTransparent = canvas.canvasState.keyboardInputState.isShiftPressed;
-                    pasteClipboardToCanvas(pasteCell.y, pasteCell.x, whitespaceIsTransparent);
+                    pasteClipboardToCanvas(pasteCell.i, pasteCell.j, whitespaceIsTransparent);
                 }
             }
         }
