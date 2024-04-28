@@ -72,7 +72,7 @@ import {
     appendChild,
     Insertable,
     replaceChildren,
-    buildEl,
+    initEl,
     setStyle,
 } from "./dom-utils";
 
@@ -1057,7 +1057,7 @@ function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
     } as const;
 
     const textFields = {
-        query: buildEl(TextField("Search"), { class: " w-100" })
+        query: initEl(TextField("Search"), { class: " w-100" })
     } as const;
 
     const todayButton = makeButton("Today");

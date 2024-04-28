@@ -1,6 +1,6 @@
 import { boundsCheck } from "./array-utils";
 import { copyToClipboard, readFromClipboard } from "./clipboard";
-import { Renderable, div, el, isVisible, makeComponent, makeComponentList, replaceChildren, setClass, setStyle, setTextContent, setVisible } from "./dom-utils";
+import { Renderable, div, el, initEl, isVisible, makeComponent, makeComponentList, replaceChildren, setClass, setStyle, setTextContent, setVisible } from "./dom-utils";
 import { makeButton } from "./generic-components";
 
 type CanvasArgs = {
@@ -80,6 +80,117 @@ function newLayer(): Layer {
         jOffset: 0,
     }
 }
+
+// "[up][right][down][left]" - a string representing 0s and 1s corresponding to the sides of a cell with another cell.
+// the pipe map needs to cover every combination of 1s and zeroes... (and not permutations. hence we only have 11 and not 16)
+// I suppose I should have called them boxes or walls instead of pipes, but I'm too lazy to change it rn
+
+// Taken some from here:
+// https://stackoverflow.com/questions/28413489/using-box-drawing-unicode-characters-in-batch-files
+
+const PIPE_MAP_IV = generatePipeMap(`
+╒═╤═╕
+│ │ │
+╞═╪═╡
+│ │ │
+╘═╧═╛
+`);
+
+const PIPE_MAP_III = generatePipeMap(`
+╓─╥─╖
+║ ║ ║
+╟─╫─╢
+║ ║ ║
+╙─╨─╜
+`);
+
+const PIPE_MAP_II = generatePipeMap(`
+╔═╦═╗
+║ ║ ║
+╠═╬═╣
+║ ║ ║
+╚═╩═╝
+`);
+
+const PIPE_MAP_I = generatePipeMap(`
+┌─┬─┐
+│ │ │
+├─┼─┤
+│ │ │
+└─┴─┘
+`);
+
+function generatePipeMap(str: string) : Record<string, string> {
+    str = str.trim();
+    
+    return {
+        "1100" : str[24],// "╚",
+        "0110" : str[0], //"╔",
+        "0011" : str[4], // "╗",
+        "1001" : str[28],// "╝",
+
+        "1110" : str[12],// "╠",
+        "0111" : str[2], // "╦",
+        "1011" : str[16], //"╣",
+        "1101" : str[26], //"╩",
+
+        // these two orientations repeat twice (in the 0001 string, not the input str)
+        "1010" : str[6], // "║",
+        "0101" : str[1], // "═",
+
+        // this orientation repeats 4 times
+        "1111" : str[14], // "╬",
+
+        // edge case
+        "0000" : " ",
+    };
+}
+
+// Yeah I know I've been calling it an "ascii editor" and these are actually unicode code points. Whatever. Dont care. 
+// I thought they weren't at first, cause I remember seeing them in BIOSes and dwarf fortress, but looks like they are actually unicode and not ascii...
+function generatePipes(canvas: CanvasState, pipeMap: Record<string, string>) {
+
+    forEachCell(canvas, (c) => {
+        if (!c.isSelected) {
+            return;
+        }
+
+        // const char = getCharOnCurrentLayer(canvas, c.i, c.j);
+        // if (char !== ' ') {
+        //     return;
+        // }
+
+        let hasUp = isSelected(canvas, c.i - 1, c.j);
+        let hasRight = isSelected(canvas, c.i, c.j + 1);
+        let hasDown = isSelected(canvas, c.i + 1, c.j);
+        let hasLeft = isSelected(canvas, c.i, c.j - 1);
+
+        // wonder if JS has a way of just using integers here?
+        let hash = (
+            (hasUp ? "1" : "0") + 
+            (hasRight ? "1" : "0") + 
+            (hasDown ? "1" : "0") + 
+            (hasLeft? "1" : "0")
+        );
+
+        const pipeChar = pipeMap[hash];
+        if (!pipeChar) {
+            return;
+        }
+
+        setCharOnCurrentLayer(canvas, c.i, c.j, pipeChar);
+    });
+}
+
+function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
+    const cell = getCellForLayer(canvas, i, j, canvas.currentLayer);
+    if (!cell) {
+        return false;
+    }
+
+    return cell.isSelected;
+}
+
 
 function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
     for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
@@ -165,10 +276,6 @@ function getTempLayer(canvas: CanvasState): Layer {
     return canvas.layers[getTempLayerIdx(canvas)];
 }
 
-function getCurrentLayer(canvas: CanvasState): Layer {
-    return canvas.layers[canvas.currentLayer];
-}
-
 function getTempLayerIdx(canvas: CanvasState): number {
     return canvas.layers.length - 1;
 }
@@ -233,7 +340,7 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
 
     let stringBuilder = [];
     for(let i = minY; i <= maxY; i++) {
-        for(let j = minX; j < maxX; j++) {
+        for(let j = minX; j <= maxX; j++) {
             const cell = getCell(canvas, i, j);
             if (cell.isSelected) {
                 const [char] = getChar(canvas, i, j);
@@ -922,7 +1029,7 @@ export function AsciiCanvas(): Renderable {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
     function ToolbarButton(): Renderable<ToolbarButtonArgs> {
         const textEl = div();
-        const button = makeButton("");
+        const button = initEl(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" });
         replaceChildren(button, [
             textEl, 
         ]);
@@ -965,6 +1072,11 @@ export function AsciiCanvas(): Renderable {
         invertSelection: ToolbarButton(),
         copyToClipboard: ToolbarButton(),
         pasteFromClipboard: ToolbarButton(),
+        pasteFromClipboardTransparent: ToolbarButton(),
+        pipes1FromSelection: ToolbarButton(),
+        pipes2FromSelection: ToolbarButton(),
+        pipes3FromSelection: ToolbarButton(),
+        pipes4FromSelection: ToolbarButton(),
     };
 
     const mouseScrollList = [
@@ -978,27 +1090,42 @@ export function AsciiCanvas(): Renderable {
     ];
 
     const statusText = div({ style: "text-align: center" });
-    let sidebar;
+    let toolbar;
+    function spacer() {
+        return div({ class: "inline-block", style: "width: 30px" } );
+    }
     const root = div({ class: "relative h-100 row" }, [
         div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
             canvas,
             statusText,
+            toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+                buttons.moreRows,
+                buttons.lessRows,
+                buttons.moreCols,
+                buttons.lessCols,
+                spacer(),
+                buttons.freeformSelect,
+                buttons.lineSelect,
+                buttons.rectOutlineSelect,
+                buttons.rectSelect,
+                buttons.bucketFillSelect,
+                buttons.bucketFillSelectOutline,
+                buttons.moveSelection,
+                spacer(),
+                buttons.clearSelection,
+                buttons.invertSelection,
+                spacer(),
+                buttons.copyToClipboard,
+                buttons.pasteFromClipboard,
+                buttons.pasteFromClipboardTransparent,
+                spacer(),
+                buttons.pipes1FromSelection,
+                buttons.pipes2FromSelection,
+                buttons.pipes3FromSelection,
+                buttons.pipes4FromSelection,
+            ]),
         ]),
         div({ style: "width: 20px" }),
-        sidebar = div({ class: "col", style: "justify-content: center; gap: 5px;" }, [
-            buttons.moreRows,
-            buttons.lessRows,
-            buttons.moreCols,
-            buttons.lessCols,
-            div({ style: "height: 20px" }),
-            ...mouseScrollList,
-            div({ style: "height: 20px" }),
-            buttons.clearSelection,
-            buttons.invertSelection,
-            div({ style: "height: 20px" }),
-            buttons.copyToClipboard,
-            buttons.pasteFromClipboard,
-        ]),
     ]);
 
     function rerenderLocal() {
@@ -1047,7 +1174,7 @@ export function AsciiCanvas(): Renderable {
     const NUM_ROWS_INCR_AMOUNT = 30;
     const NUM_COLUMNS_INCR_AMOUNT = 5;
     const canvasArgs : CanvasArgs = {
-        width: 100,
+        width: 130,
         height: NUM_ROWS_INCR_AMOUNT,
         onChange: rerenderLocal,
     };
@@ -1095,7 +1222,7 @@ export function AsciiCanvas(): Renderable {
         canvas.render(canvasArgs);
 
         buttons.moreRows.render({
-            name: "More rows",
+            name: "+ Rows",
             onClick: () => {
                 canvasArgs.height += NUM_ROWS_INCR_AMOUNT;
                 rerenderLocal();
@@ -1103,7 +1230,7 @@ export function AsciiCanvas(): Renderable {
         });
 
         buttons.lessRows.render({
-            name: "Less rows",
+            name: "- Rows",
             onClick: () => {
                 canvasArgs.height -= NUM_ROWS_INCR_AMOUNT;
                 rerenderLocal();
@@ -1111,7 +1238,7 @@ export function AsciiCanvas(): Renderable {
         });
 
         buttons.moreCols.render({
-            name: "More columns",
+            name: "+ Columns",
             onClick: () => {
                 canvasArgs.width += NUM_COLUMNS_INCR_AMOUNT;
                 rerenderLocal();
@@ -1119,7 +1246,7 @@ export function AsciiCanvas(): Renderable {
         });
 
         buttons.lessCols.render({
-            name: "Less columns",
+            name: "- Columns",
             onClick: () => {
                 canvasArgs.width -= NUM_COLUMNS_INCR_AMOUNT;
                 rerenderLocal();
@@ -1194,17 +1321,70 @@ export function AsciiCanvas(): Renderable {
             )
         });
 
-        const canPaste = !!getTextInputCursorCell(canvas.canvasState);
+        const cursorCell = getTextInputCursorCell(canvas.canvasState);
+        const canPaste = !!cursorCell;
+
         if (setVisible(buttons.pasteFromClipboard, canPaste)) {
             buttons.pasteFromClipboard.render({
                 name: "Paste",
-                onClick: copyCanvasToClipboard,
-                selected: canvas.canvasState.keyboardInputState.isCtrlPressed && (
+                onClick: () => {
+                    const whitespaceIsTransparent = false;
+                    if (cursorCell) {
+                        pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
+                    }
+                },
+                selected: canvas.canvasState.keyboardInputState.isCtrlPressed && 
+                    !canvas.canvasState.keyboardInputState.isShiftPressed && (
                     canvas.canvasState.keyboardInputState.key === "v" || 
                     canvas.canvasState.keyboardInputState.key === "V"
                 )
             });
         }
+
+        if (setVisible(buttons.pasteFromClipboardTransparent, canPaste)) {
+            buttons.pasteFromClipboardTransparent.render({
+                name: "Paste (with transparency)",
+                onClick: () => {
+                    const whitespaceIsTransparent = true;
+                    if (cursorCell) {
+                        pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
+                    }
+                },
+                selected: canvas.canvasState.keyboardInputState.isCtrlPressed && 
+                    canvas.canvasState.keyboardInputState.isShiftPressed && (
+                    canvas.canvasState.keyboardInputState.key === "v" || 
+                    canvas.canvasState.keyboardInputState.key === "V"
+                )
+            });
+        }
+        
+        buttons.pipes1FromSelection.render({
+            name: "Pipes I",
+            onClick: () => {
+                generatePipes(canvas.canvasState, PIPE_MAP_I);
+            },
+        });
+
+        buttons.pipes2FromSelection.render({
+            name: "Pipes II",
+            onClick: () => {
+                generatePipes(canvas.canvasState, PIPE_MAP_II);
+            },
+        });
+
+        buttons.pipes3FromSelection.render({
+            name: "Pipes III",
+            onClick: () => {
+                generatePipes(canvas.canvasState, PIPE_MAP_III);
+            },
+        });
+
+        buttons.pipes4FromSelection.render({
+            name: "Pipes IV",
+            onClick: () => {
+                generatePipes(canvas.canvasState, PIPE_MAP_IV);
+            },
+        });
 
         updateCanvasStausText(canvas.canvasState);
     });

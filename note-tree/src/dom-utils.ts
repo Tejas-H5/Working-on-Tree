@@ -144,7 +144,7 @@ type Attrs = { [qualifiedName: ValidAttributeName]: string } & {
  * Useful for when you need to append to attributes/children 
  * on an Insertable returned by a function
  */
-export function buildEl<T extends Insertable>(
+export function initEl<T extends Insertable>(
     ins: T,
     attrs?: Attrs,
     children?: (Insertable | string)[],
@@ -188,7 +188,7 @@ export function el<T extends HTMLElement>(
     };
 
 
-    buildEl(insertable, attrs, children);
+    initEl(insertable, attrs, children);
 
     return insertable;
 }
