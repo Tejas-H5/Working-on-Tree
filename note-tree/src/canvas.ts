@@ -748,7 +748,6 @@ function Canvas() {
         function moveCursor(cursor: CanvasCellArgs, j: number, i: number, resetX = false): CanvasCellArgs {
             const nextCursor = getCell(canvasState, i, j);
             if (!nextCursor) {
-                console.log("Failed to move??", i, j);
                 return cursor;
             }
 

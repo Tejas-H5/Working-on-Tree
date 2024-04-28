@@ -78,70 +78,40 @@ export type Activity = {
     locked?: true;
 }
 
+const donePrefixes = [
+    "DONE",
+    "Done",
+    "done",
+    "DECLINED",
+    "Declined",
+    "declined",
+    "MERGED",
+    "Merged",
+    "merged",
+];
+
+function getDoneNotePrefix(note: Note): string | undefined {
+    for (const prefix of donePrefixes) {
+        if (note.text.startsWith(prefix)) {
+            return prefix;
+        }
+    }
+
+    return undefined;
+}
+
 export function isDoneNote(note: Note) {
-    return note.text.startsWith("DONE") || note.text.startsWith("Done") || note.text.startsWith("done") ||
-        note.text.startsWith("DECLINED") || note.text.startsWith("MERGED"); // funny git reference. but actually, DECLINED is somewhat useful
+    return !!getDoneNotePrefix(note);
 }
 
-// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
-export function migrateLegacyTodoNotes(state: State) {
-    tree.forEachNode(state.notes, (id) => {
-        const note = getNote(state, id);
-
-        if (isTodoNoteLegacy(note.data)) {
-            const priority = getTodoNotePriorityLegacy(note.data);
-
-            let newText;
-            if (priority <= 0) {
-                let count = isSubtaskNoteLegacy(note.data) ? 1 : 4;
-                newText = "> " + note.data.text.substring(count);
-            } else if (priority === 1) {
-                newText = ">> " + note.data.text.substring(4);
-            } else if (priority >= 2) {
-                newText = ">>> " + note.data.text.substring(4);
-            }
-
-            if (newText) {
-                note.data.text = newText;
-            }
-        }
-    });
-}
-
-// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
-export function isTodoNoteLegacy(note: Note) {
-    return note.text.startsWith("TODO") || note.text.startsWith("Todo") || note.text.startsWith("todo");
-}
-
-// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
-export function getTodoNotePriorityLegacy(note: Note): number {
-    let priority = 0;
-    let i = "TODO".length;
-
-    let character = note.text[i];
-    if (character === "?") {
-        while (i < note.text.length && note.text[i] === "?") {
-            priority--;
-            i++;
-        }
+export function isDoneNoteWithExtraInfo(note: Note): boolean {
+    const prefix = getDoneNotePrefix(note);
+    if (!prefix) {
+        return false;
     }
 
-    if (character === "!") {
-        while (i < note.text.length && note.text[i] === "!") {
-            priority++;
-            i++;
-        }
-    }
-
-    return priority;
+    return prefix.length !== note.text.length;
 }
-
-
-// TODO: remove Legacy functions once all our prod users (just me, actually) have ran this migration
-export function isSubtaskNoteLegacy(note: Note) {
-    return note.text.startsWith("*");
-}
-
 
 export function isTodoNote(note: Note) {
     return getTodoNotePriority(note) > 0;
@@ -567,12 +537,17 @@ export function isLastActivityTenuous(state: State) {
     return false;
 }
 
-export function pushActivity(state: State, activity: Activity) {
-    if (
+export function activityNoteIdMatchesLastActivity(state: State, activity: Activity) : boolean {
+    return (
+        !isBreak(activity) &&
         state.activities.length > 0 &&
         state.activities[state.activities.length - 1].nId === activity.nId
-    ) {
-        // Don't push the same note twice in a row
+    );
+}
+
+export function pushActivity(state: State, activity: Activity) {
+    if (activityNoteIdMatchesLastActivity(state, activity)) {
+        // Don't push the same note twice in a row, unless it's a break
         return;
     }
 
@@ -591,11 +566,8 @@ export function pushActivity(state: State, activity: Activity) {
             state._debounceNewNoteActivity = false;
         }
 
-        if (
-            state.activities.length > 0 &&
-            state.activities[state.activities.length - 1].nId === activity.nId
-        ) {
-            // Still, don't push the same note twice in a row
+        if (activityNoteIdMatchesLastActivity(state, activity)) {
+            // Still, don't push the same note twice in a row, unless it's a break
             return;
         }
     }

@@ -124,7 +124,7 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
     });
 
     edit.el.addEventListener("blur", () => {
-        component.render(component.args);
+        handleChange();
     });
 
     return component;

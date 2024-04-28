@@ -52,10 +52,10 @@ import {
     getLastActivityWithNoteIdx,
     setStateFromJSON,
     isTodoNote,
-    migrateLegacyTodoNotes,
     isCurrentNoteOnOrInsideNote,
     getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
+    isDoneNoteWithExtraInfo,
 } from "./state";
 import {
     Renderable,
@@ -73,6 +73,7 @@ import {
     Insertable,
     replaceChildren,
     buildEl,
+    setStyle,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -381,13 +382,14 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     ]);
 
     const deleteButton = makeButton("x");
+    let visibleRow;
     const root = div({}, [
         div({ class: "hover-parent", style: "min-height: 10px" }, [
             div({ class: "hover-target" }, [
                 breakInsertRow
             ])
         ]),
-        div({ class: "hover-parent" }, [
+        visibleRow = div({ class: "hover-parent" }, [
             div({ class: "row", style: "gap: 20px" }, [
                 timestampWrapper,
                 div({ class: "flex-1 row" }, [
@@ -401,14 +403,17 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     ]);
 
     const component = makeComponent<ActivityListItemArgs>(root, () => {
-        const { activity, nextActivity, showDuration, } = component.args;
+        const { activity, nextActivity, showDuration, greyedOut } = component.args;
+
+        setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
 
         const isEditable = isEditableBreak(activity);
-        const activityText = getActivityText(state, activity);
-
         // I think all break text should just be editable...
         // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
         const canEditBreakText = isBreak(activity);
+
+        const activityText = getActivityText(state, activity);
+
         if (setVisible(
             breakEdit, 
             canEditBreakText,
@@ -520,17 +525,26 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
         rerenderApp();
     });
 
-    breakEdit.el.addEventListener("keypress", (e) => {
+    function handleBreakTextEdit() {
         const { activity } = component.args;
 
         // 'prevent' clearing it out
         const val = breakEdit.el.value || activity.breakInfo;
+
+        activity.breakInfo = val;
+        rerenderApp({ shouldScroll: false });
+        debouncedSave();
+    }
+
+    breakEdit.el.addEventListener("keypress", (e) => {
         if (e.key === "Enter") {
-            activity.breakInfo = val;
-            rerenderApp({ shouldScroll: false });
-            debouncedSave();
+            handleBreakTextEdit();
         }
     })
+
+    breakEdit.el.addEventListener("blur", () => {
+        handleBreakTextEdit();
+    });
 
     return component;
 }
@@ -581,21 +595,38 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         setClass(listContainer, "flex-1", !height);
 
         listRoot.render(() => {
-            // make the elements, so we can render them backwards
-            // TODO: reverse this. eventually we want to start always rendering the n+1 activity, maybe with some grey
-            for (let i = 0; i < activitiesToRender; i++) {
-                listRoot.getNext();
-            };
+            let lastRenderedIdx = -1;
 
+            // make the elements, so we can render them backwards
             for (let i = 0; i < activitiesToRender; i++) {
-                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + i;
+                const iFromTheEnd = activitiesToRender - 1 - i;
+                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
                 const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
 
-                const previousActivity = activities[idx - 1]; // JavaScript moment - you can index past an array without crashing
+                const previousActivity = activities[idx - 1]; 
                 const activity = activities[idx];
-                const nextActivity = activities[idx + 1]; // JavaScript moment - you can index past an array without crashing
+                const nextActivity = activities[idx + 1];
 
-                listRoot.components[activitiesToRender - 1 - i].render({
+                if (
+                    idx + 1 < activities.length - 1 &&
+                    lastRenderedIdx !== idx + 1 
+                ) {
+                    // If there was a discontinuity in the activities/indicies, we want to render the next activity.
+                    // This gives us more peace of mind in terms of where the duration came from
+
+                    const nextNextActivity = activities[idx + 2]; 
+                    listRoot.getNext().render({
+                        previousActivity: activity,
+                        activity: nextActivity,
+                        nextActivity: nextNextActivity,
+                        showDuration: true,
+                        greyedOut: true,
+                    });
+                }
+
+                lastRenderedIdx = idx;
+
+                listRoot.getNext().render({
                     previousActivity,
                     activity,
                     nextActivity,
@@ -745,8 +776,19 @@ function getNoteProgressCountText(note: TreeNote): string {
 
     let progressText = "";
     if (totalCount !== 0) {
-        if (!(doneCount === 1 && totalCount === 1)) {
-            progressText = totalCount !== 0 ? ` (${doneCount}/${totalCount})` : "";
+        // We want to ignore notes 1 just 1 note, and that note is just something like DONE.
+        // Otherwise there will just be too much noise.
+
+        let shouldIgnore = false;
+        if (doneCount === 1 && totalCount === 1) {
+            const child = getNote(state, note.childIds[0]);
+            if (!isDoneNoteWithExtraInfo(child.data)) {
+                shouldIgnore = true;
+            }
+        }
+
+        if (!shouldIgnore) {
+            progressText = ` (${doneCount}/${totalCount})`;
         }
     }
 
@@ -806,6 +848,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
                     // ideally we don't want to do this when we click on a note.
                     // I haven't worked out how to do that yet though
                     {
+                        // NOTE: This actually doesn't work if our list of tasks is so big that the note isn't even on the screen at first, it seems...
+                        
                         const rootRect = root.el.getBoundingClientRect();
                         const wantedY = rootRect.top + window.scrollY;
 
@@ -887,6 +931,7 @@ type ActivityListItemArgs = {
     activity: Activity;
     nextActivity: Activity | undefined;
     showDuration: boolean;
+    greyedOut?: boolean;
 };
 
 
@@ -2112,7 +2157,7 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
                 const prevSiblingId = siblings[noteSiblingIdx + direction];
 
                 if (activity.nId !== prevSiblingId) {
-                    // we have finally reached the discontinuitiy
+                    // we have finally reached the discontinuity
                     if (!stepOver) {
                         idx--;
                     }
@@ -2272,13 +2317,6 @@ export const App = () => {
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
-            makeButtonWithCallback("Migrate TODO notes!", () => {
-                handleErrors(() => {
-                    migrateLegacyTodoNotes(state);
-
-                    showStatusText("Migrated!");
-                });
-            }),
             makeButtonWithCallback("Todo Notes", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
