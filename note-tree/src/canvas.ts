@@ -134,11 +134,14 @@ function generatePipeMap(str: string) : Record<string, string> {
         "1011" : str[16], //"╣",
         "1101" : str[26], //"╩",
 
-        // these two orientations repeat twice (in the 0001 string, not the input str)
         "1010" : str[6], // "║",
-        "0101" : str[1], // "═",
+        "0010" : str[6], // "║",
+        "1000" : str[6], // "║",
 
-        // this orientation repeats 4 times
+        "0101" : str[1], // "═",
+        "0100" : str[1], // "═",
+        "0001" : str[1], // "═",
+
         "1111" : str[14], // "╬",
 
         // edge case
@@ -1362,6 +1365,7 @@ export function AsciiCanvas(): Renderable {
             name: "Pipes I",
             onClick: () => {
                 generatePipes(canvas.canvasState, PIPE_MAP_I);
+                rerenderLocal();
             },
         });
 
@@ -1369,6 +1373,7 @@ export function AsciiCanvas(): Renderable {
             name: "Pipes II",
             onClick: () => {
                 generatePipes(canvas.canvasState, PIPE_MAP_II);
+                rerenderLocal();
             },
         });
 
@@ -1376,6 +1381,7 @@ export function AsciiCanvas(): Renderable {
             name: "Pipes III",
             onClick: () => {
                 generatePipes(canvas.canvasState, PIPE_MAP_III);
+                rerenderLocal();
             },
         });
 
@@ -1383,6 +1389,7 @@ export function AsciiCanvas(): Renderable {
             name: "Pipes IV",
             onClick: () => {
                 generatePipes(canvas.canvasState, PIPE_MAP_IV);
+                rerenderLocal();
             },
         });
 
