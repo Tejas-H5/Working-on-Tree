@@ -215,12 +215,15 @@ function handleRenderingError(root: Insertable, renderFn: () => void) {
     }
 }
 
-export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): Insertable & ComponentPool<T> {
+export type ComponentList<T extends Insertable> = Insertable & ComponentPool<T>;
+
+export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): ComponentList<T> {
     return {
         ...root,
         components: [],
         lastIdx: 0,
         getIdx() {
+            // (We want to get the index of the current iteration, not the literal value of lastIdx)
             return this.lastIdx - 1;
         },
         getNext() {

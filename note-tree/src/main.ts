@@ -74,6 +74,7 @@ import {
     replaceChildren,
     initEl,
     setStyle,
+    ComponentList,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -88,6 +89,7 @@ import { loadFile, saveText } from "./file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
 import { AsciiCanvas } from "./canvas";
 import { copyToClipboard } from "./clipboard";
+import { getUrls, openUrlInNewTab } from "./url";
 
 const SAVE_DEBOUNCE = 1000;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -544,6 +546,115 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
 
     breakEdit.el.addEventListener("blur", () => {
         handleBreakTextEdit();
+    });
+
+    return component;
+}
+
+function LinkNavModal(): Renderable {
+    type LinkItemArgs = {
+        noteId: NoteId;
+        text: string;
+        url: string;
+        isFocused: boolean;
+    };
+
+    let content;
+    let linkList: ComponentList<Renderable<LinkItemArgs>> | undefined;
+    let empty;
+    const root = Modal(
+        div({}, [
+            content = div({ style: "padding: 20px" }, [
+                el("H2", {}, [ "URLs on or under the current note" ]),
+                linkList = makeComponentList(div(), () => {
+                    let cursor, textEl;
+                    const root = div({ class: "row", style: "" }, [
+                        cursor = div({ class: "pre" }, [" --> "]),
+                        textEl = div(),
+                    ]);
+
+                    const component = makeComponent<LinkItemArgs>(root, () => {
+                        const { text, isFocused, noteId } = component.args;
+
+                        setTextContent(textEl, text);
+                        setVisible(cursor, isFocused);
+                        setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
+                    });
+
+                    return component;
+                }),
+            ]),
+            empty = div({ style: "padding: 40px" }, [ "Couldn't find any URLs on or below the current note." ]),
+        ])
+    );
+
+    let idx = 0;
+
+    const component = makeComponent(root, () => {
+        const currentNote = getCurrentNote(state);
+
+        idx = 0;
+        linkList.render(() => {
+            // Dont even need to collect these into an array before rendering them. lmao. 
+            dfsPre(state, currentNote, (note) => {
+                const urls = getUrls(note.data.text);
+                for (const url of urls) {
+                    linkList.getNext().render({
+                        url,
+                        text: url,
+                        isFocused: false,
+                        noteId: note.id,
+                    });
+                }
+            });
+        });
+
+        rerenderItems();
+
+        setVisible(content, linkList.components.length > 0);
+        setVisible(empty, linkList.components.length === 0);
+    });
+
+    function rerenderItems() {
+        if (!linkList) return;
+
+        for (let i = 0; i < linkList.components.length; i++) {
+            linkList.components[i].args.isFocused = i === idx;
+            linkList.components[i].render(linkList.components[i].args);
+        }
+    }
+
+    document.addEventListener("keydown", (e) => {
+        if (currentModal !== component) {
+            // Don't let this code execute  when this modal is closed...
+            return;
+        }
+
+
+        if (e.key === "ArrowUp") {
+            e.preventDefault();
+
+            idx = Math.max(0, idx - 1);
+            rerenderItems();
+        } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+
+            idx = Math.min(linkList.components.length - 1, idx + 1);
+            rerenderItems();
+        } else if (e.key === "Enter") {
+            e.preventDefault();
+
+            const { url, noteId } = linkList.components[idx].args;
+
+            const currentNote = getCurrentNote(state);
+            if (noteId !== currentNote.id) {
+                setCurrentNote(state, noteId);
+                rerenderItems();
+            } else {
+                openUrlInNewTab(url);
+                setCurrentModal(null);
+            }
+        }
     });
 
     return component;
@@ -2066,31 +2177,52 @@ function makeUnorderedList(text: (string | Insertable)[]) {
 }
 
 function CheatSheet(): Renderable {
+    function keymapDivs(keymap: string, desc: string) {
+        return div({ class: "row" },  [
+            div({ style: "width: 500px" }, [ keymap ]),
+            div({ class: "flex-1" }, [ desc ]),
+        ])
+    }
     return makeComponent(div({}, [
         el("H3", {}, ["Cheatsheet"]),
-        el("H4", {}, ["Movement"]),
+        el("H4", {}, ["Basic functionality, and shortcut keys"]),
+        div({}),
         makeUnorderedList([
-            `[Enter]: start editing the current note (when not editing), or create a new note under the current note (when editing)`,
-            `[Shift] + [Enter]: create a new note 1 level below the current note (when not editing), or insert new lines (when editing)`,
-            `[Up]/[PageUp]/[Home]/[Ctrl+Up] and [Down]/[PageDown]/[Home]/[Ctrl+Down]: Move upwards or downards on the same level (when not editing)`,
-            `[Left]: Move up 1 level 'out of' the note (when not editing)`,
-            `[Right]: Move down 1 level 'into' the note (when not editing)`,
-            `[Alt] + [Previous movement keys]: Grab and move the current note around the tree to where you would have otherwise moved`,
-            `[Ctrl] + [Shift] + [Left/Right]: to move backwards/forwards to the previous task-list you were working on. Doesn't work with [Alt]`,
+            keymapDivs(`[Enter], while not editing`, `start editing the current note`),
+            keymapDivs(`[Enter], while editing`, `create a new note under the current note`),
+            keymapDivs(`[Shift] + [Enter], while not editing`, `create a new note 1 level below the current note`),
+            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines`),
+            keymapDivs(`[Esc], when editing`, `Stop editing`),
+            keymapDivs(`[Up]/[PageUp]/[Home]/[Ctrl+Up], not editing`, `Move upwards various amounts`),
+            keymapDivs(`[Down]/[PageDown]/[Home]/[Ctrl+Down], not editing`, `Move downwards various amounts`),
+            keymapDivs(`[Left], not editing`, `Move up 1 level 'out of' the note`),
+            keymapDivs(`[Right], not editing`, `Move down 1 level 'into' the note`),
+            keymapDivs(`[Alt] + [Previous movement keys], not editing`, `Grab and move the current note around the tree to where you would have otherwise moved normally`),
         ]),
-        el("H4", {}, ["Note/Task statuses"]),
-        el("P", {}, ["NOTE: I will refer to a 'note' and a 'task' somewhat interchangeably"]),
+        div({}),
         makeUnorderedList([
-            noteStatusToString(STATUS_IN_PROGRESS) + `: This note is currently in progress`,
-            noteStatusToString(STATUS_ASSUMED_DONE) + `: This note is assumed to be done`,
-            noteStatusToString(STATUS_DONE) + `: This note is done according to the user`,
+            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in a note`),
+        ]),
+        div({}),
+        makeUnorderedList([
+            keymapDivs(`[Ctrl] + [Shift] + [A]`, `Open the analytics modal`),
+            keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the finder modal`),
+            keymapDivs(`[Ctrl] + [Shift] + [T]`, `Open the TODO notes list`),
+            keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
+        ]),
+        el("H4", {}, ["Note statuses"]),
+        makeUnorderedList([
+            noteStatusToString(STATUS_IN_PROGRESS) + ` - This note is currently in progress`,
+            noteStatusToString(STATUS_ASSUMED_DONE) + ` - This note is assumed to be done`,
+            noteStatusToString(STATUS_DONE) + ` - This note has been manually marked as done by you`,
         ]),
         el("H4", {}, ["Completing tasks, and keeping tasks in progress"]),
-        el("P", {}, ["Notes can be started with a specific text in order to affect their status:"]),
+        el("P", {}, ["Using specific text at the very start of a note can affect it's status:"]),
         makeUnorderedList([
-            `TODO, Todo, todo: Keeps this note's status in progress, and places it into the Todo list, which you can use to see all your open tasks at a glance. You can use !! or ?? to increase or decrease the priority group of a TODO note. For example, TODO! has a priority of 1, TODO!! has a priority of 2, TODO? has a priority of -1, etc.`,
-            `DONE, Done, done, DECLINED, MERGED: Marks a single note (and all notes assumed to be done before it) as DONE. If all notes under a note are DONE or assumed done, the note itself becomes DONE.`,
-            `>: Keeps this note's status in progress, without placing it into the TODO list. I'm still not sure if this is very useful to be honest`,
+            `Starting a note with >, >> or >>> will place it into the Backlog, Todo and In-Progress list respectively. 
+             Additionally, this will also hide all of the notes under that notes from all lists - this is mainly a way to declutter the lists which can otherwise have hundreds of tasks.`,
+            `Starting a note with DONE, Done, done, DECLINED, MERGED will mark a particular note and every note above it under the same note as DONE. 
+             A note can also be marked as DONE if every note under it has been marked as DONE.`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
@@ -2106,16 +2238,15 @@ function CheatSheet(): Renderable {
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
             `The analytics view can be opened by clicking the "Analytics" button, or with [Ctrl] + [Shift] + [A]`,
-            `The analytics modal is where you see how long you've spent on particular high level tasks. It's supposed to be useful when you need to fill out time-sheets, (and to see where all your time went).`,
+            `This is where you see how long you've spent on particular high level tasks. It's supposed to be useful for filling out time-sheets, and to see where all the time actually went.`,
             `By default all notes will appear under "<Uncategorized>"`,
-            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here', and the aggregated time will be displayed. 
-            Notes can only have 1 task at a time, so if a parent note specifies a different task, you will be overriding it.
-            This is useful for when the organisation of your tasks doesn't match the organisation of the higher level tasks, like a Jira board or something`
+            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here'.`,
+            `Notes can only have 1 task at a time.`,
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
             `The scratchpad can be opened by clicking the "Scratchpad" button, or with [Ctrl] + [Shift] + [S]`,
-            `Right now it is just a normal text-area...`,   // NOTE: more to come. maybe or maybe not ....
+            `You would use this to make diagrams or ascii art that you can then paste into your notes`,
         ]),
         el("H4", {}, ["Loading and saving"]),
         makeUnorderedList([
@@ -2303,6 +2434,7 @@ export const App = () => {
     const fuzzyFindModal = FuzzyFindModal();
     const todoListModal = TodoListModal();
     const loadBackupModal = LoadBackupModal();
+    const linkNavModal = LinkNavModal();
     let backupText = "";
     let backupFilename = "";
 
@@ -2412,6 +2544,7 @@ export const App = () => {
         fuzzyFindModal,
         todoListModal,
         loadBackupModal,
+        linkNavModal,
     ]);
 
 
@@ -2463,6 +2596,13 @@ export const App = () => {
             e.preventDefault();
             setFilterToday(analyticsActivityFilter);
             setCurrentModal(analyticsModal);
+            return;
+        } else if (
+            e.key === "Enter" &&
+            ctrlPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal(linkNavModal);
             return;
         } else if (
             currentModal !== null &&
@@ -2672,6 +2812,10 @@ export const App = () => {
             });
         } else {
             backupText = "";
+        }
+
+        if (setVisible(linkNavModal, currentModal === linkNavModal)) {
+            linkNavModal.render(undefined);
         }
 
         if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
