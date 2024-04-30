@@ -938,7 +938,7 @@ function Canvas() {
 
         if (e.key === "Shift") {
             keyboardInputState.isShiftPressed = false;
-        } else if (e.key === "Control") {
+        } else if (e.key === "Control" || e.key === "Meta") {
             keyboardInputState.isCtrlPressed = false;
         } else if (e.key === "Alt") {
             keyboardInputState.isAltPressed = false;
@@ -969,7 +969,7 @@ function Canvas() {
         if (e.key === "Shift") {
             keyboardInputState.isShiftPressed = true;
             return;
-        } else if (e.key === "Control") {
+        } else if (e.key === "Control" || e.key === "Meta") {
             keyboardInputState.isCtrlPressed = true;
             return;
         } else if (e.key === "Alt") {
