@@ -22,6 +22,7 @@ type MouseInputState = {
 type KeyboardInputState = {
     isShiftPressed: boolean;
     isCtrlPressed: boolean;
+    isAltPressed: boolean;
     key: string;
 }
 
@@ -147,6 +148,93 @@ function generatePipeMap(str: string) : Record<string, string> {
         // edge case
         "0000" : " ",
     };
+}
+
+function generateLines(canvas: CanvasState) {
+    type DirectionMatrix = [boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean];
+    function matchDirections(directions: DirectionMatrix, coords: [0 | 1 | 2, 0 | 1 | 2][]) {
+        return coords.every(([i, j]) => directions[j + 3 * i]);
+    }
+
+    forEachCell(canvas, (c) => {
+        if (!c.isSelected) {
+            return;
+        }
+
+        const directions: DirectionMatrix = [
+                isSelected(canvas, c.i - 1, c.j - 1),   isSelected(canvas, c.i, c.j - 1),   isSelected(canvas, c.i + 1, c.j - 1),
+                isSelected(canvas, c.i - 1, c.j),                                   true,   isSelected(canvas, c.i + 1, c.j),
+                isSelected(canvas, c.i - 1, c.j + 1),   isSelected(canvas, c.i, c.j + 1),   isSelected(canvas, c.i + 1, c.j + 1),
+        ];
+
+        let char = '';
+
+        if (matchDirections(directions, [
+            [0, 0],
+            [0, 1],
+            [0, 2],
+            [1, 0],
+            [1, 2],
+            [2, 0],
+            [2, 1],
+            [2, 2],
+        ])) {
+            char = '#';
+        } else if (matchDirections(directions, [
+            [0, 0],
+            [0, 2],
+            [2, 0],
+            [2, 2],
+        ])) {
+            char = 'x';
+        } else if (matchDirections(directions, [
+            [0, 1],
+            [1, 0],
+            [1, 2],
+            [2, 1],
+        ])) {
+            char = '+';
+        } else if (
+            matchDirections(directions, [
+                [0, 2],
+            ]) ||
+            matchDirections(directions, [
+                [2, 0],
+            ])
+        ) {
+            char = '/';
+        } else if (
+            matchDirections(directions, [
+                [0, 0],
+            ]) ||
+            matchDirections(directions, [
+                [2, 2],
+            ])
+        ) {
+            char = '\\';
+        } else if (
+            matchDirections(directions, [
+                [0, 1],
+            ]) ||
+            matchDirections(directions, [
+                [2, 1],
+            ]) 
+        ) {
+            char = '-';
+        } else if (
+            matchDirections(directions, [
+                [1, 0],
+            ]) ||
+            matchDirections(directions, [
+                [1, 2],
+            ]) 
+        ) {
+            char = '|';
+        } 
+
+        setCharOnCurrentLayer(canvas, c.i, c.j, char);
+
+    });
 }
 
 // Yeah I know I've been calling it an "ascii editor" and these are actually unicode code points. Whatever. Dont care. 
@@ -387,13 +475,18 @@ function getTextInputCursorCell(canvas: CanvasState) {
     return cell;
 }
 
+
+function getTool(canvas: CanvasState): ToolType {
+    return canvas.keyboardInputState.isAltPressed ? "move-selection" : canvas.currentTool;
+}
+
 function Canvas() {
     const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap;"});
 
     const rowList = makeComponentList(root, () => {
-        const root = div({ style: "text-align: center" });
+        const root = div({});
         const charList = makeComponentList(root, () => {
-            const root = el("SPAN", { class: "pre", style: "font-size: 24px; width: 1ch; height: 1ch;user-select: none; cursor: crosshair;" });
+            const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
 
             // Memoizing for peformance. 
             let lastState = -1;
@@ -646,13 +739,12 @@ function Canvas() {
         }
     }
 
-
     function onMouseInputStateChange() {
         if (mouseInputState.x === -1 || mouseInputState.y === -1) {
             return;
         }
 
-        const tool = canvasState.currentTool;
+        const tool = getTool(canvasState);
         let released = mouseInputState._lbWasDown && !mouseInputState.lbDown;
         let clicked = !mouseInputState._lbWasDown && mouseInputState.lbDown;
 
@@ -743,6 +835,7 @@ function Canvas() {
     const keyboardInputState: KeyboardInputState = {
         isCtrlPressed: false,
         isShiftPressed: false,
+        isAltPressed: false,
         key: "",
     }
 
@@ -847,6 +940,8 @@ function Canvas() {
             keyboardInputState.isShiftPressed = false;
         } else if (e.key === "Control") {
             keyboardInputState.isCtrlPressed = false;
+        } else if (e.key === "Alt") {
+            keyboardInputState.isAltPressed = false;
         }
 
         component.args.onChange();
@@ -876,6 +971,9 @@ function Canvas() {
             return;
         } else if (e.key === "Control") {
             keyboardInputState.isCtrlPressed = true;
+            return;
+        } else if (e.key === "Alt") {
+            keyboardInputState.isAltPressed = true;
             return;
         }
 
@@ -1041,7 +1139,8 @@ export function AsciiCanvas(): Renderable {
             setTextContent(button, c.args.name);
 
             if (c.args.tool || c.args.selected !== undefined) {
-                setClass(button, "inverted", c.args.selected || canvas.canvasState.currentTool === c.args.tool);
+                const tool = getTool(canvas.canvasState);
+                setClass(button, "inverted", c.args.selected || tool === c.args.tool);
             }
         });
 
@@ -1080,6 +1179,7 @@ export function AsciiCanvas(): Renderable {
         pipes2FromSelection: ToolbarButton(),
         pipes3FromSelection: ToolbarButton(),
         pipes4FromSelection: ToolbarButton(),
+        linesFromSelection: ToolbarButton(),
     };
 
     const mouseScrollList = [
@@ -1126,6 +1226,7 @@ export function AsciiCanvas(): Renderable {
                 buttons.pipes2FromSelection,
                 buttons.pipes3FromSelection,
                 buttons.pipes4FromSelection,
+                buttons.linesFromSelection,
             ]),
         ]),
         div({ style: "width: 20px" }),
@@ -1391,6 +1492,14 @@ export function AsciiCanvas(): Renderable {
                 generatePipes(canvas.canvasState, PIPE_MAP_IV);
                 rerenderLocal();
             },
+        });
+
+        buttons.linesFromSelection.render({
+            name: "Lines",
+            onClick: () => {
+                generateLines(canvas.canvasState);
+                rerenderLocal();
+            }
         });
 
         updateCanvasStausText(canvas.canvasState);
