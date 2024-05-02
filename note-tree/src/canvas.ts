@@ -6,7 +6,8 @@ import { makeButton } from "./generic-components";
 type CanvasArgs = {
     width: number;
     height: number;
-    onChange(): void;
+    onInput(): void;
+    outputLayers: AsciiCanvasLayer[] | undefined;
 };
 
 type MouseInputState = {
@@ -31,10 +32,10 @@ type CanvasState = {
     keyboardInputState: KeyboardInputState;
     rows: RowArgs[];
     currentTool: ToolType;
-
-    layers: Layer[];
+    layers: AsciiCanvasLayer[];
     currentLayer: number;
-};
+    tempLayer: AsciiCanvasLayer;
+}
 
 type ToolType = "freeform-select" | 
     "line-select" |
@@ -68,13 +69,13 @@ type CanvasCellArgs = {
     isVisited: boolean;
 };
 
-type Layer = {
+export type AsciiCanvasLayer = {
     data: string[][];
     iOffset: number;
     jOffset: number;
 }
 
-function newLayer(): Layer {
+function newLayer(): AsciiCanvasLayer {
     return {
         data: [],
         iOffset: 0,
@@ -274,7 +275,7 @@ function generatePipes(canvas: CanvasState, pipeMap: Record<string, string>) {
 }
 
 function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
-    const cell = getCellForLayer(canvas, i, j, canvas.currentLayer);
+    const cell = getCellForLayer(canvas, i, j, getCurrentLayer(canvas));
     if (!cell) {
         return false;
     }
@@ -283,65 +284,71 @@ function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
 }
 
 
-function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
-    for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
-        const data = canvas.layers[layerIdx].data;
+function resizeLayer(layer: AsciiCanvasLayer, rows: number, cols: number) {
+    const data = layer.data;
 
-        while(data.length < rows) {
-            data.push(Array(cols).fill(" "));
+    while(data.length < rows) {
+        data.push(Array(cols).fill(" "));
+    }
+    while(data.length > rows) {
+        data.pop();
+    }
+
+    for (let i = 0; i < data.length; i++) {
+        const rows = data[i];
+
+        while(rows.length < cols) {
+            rows.push(" ");
         }
-        while(data.length > rows) {
-            data.pop();
-        }
-
-        for (let i = 0; i < data.length; i++) {
-            const rows = data[i];
-
-            while(rows.length < cols) {
-                rows.push(" ");
-            }
-            while(rows.length > cols) {
-                rows.pop();
-            }
+        while(rows.length > cols) {
+            rows.pop();
         }
     }
 }
 
+function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
+    for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
+        resizeLayer(canvas.layers[layerIdx], rows, cols);
+    }
+
+    resizeLayer(canvas.tempLayer, rows, cols);
+}
+
 // This gets the cell for the corresponding coordinate on a layer, taking the layer offset into account
-function getCellForLayer(canvas: CanvasState, i: number, j: number, layer: number): CanvasCellArgs | undefined {
-    const iFinal =  i - canvas.layers[layer].iOffset;
-    const jFinal =  j - canvas.layers[layer].jOffset;
+function getCellForLayer(canvas: CanvasState, i: number, j: number, layer: AsciiCanvasLayer): CanvasCellArgs | undefined {
+    const iFinal =  i - layer.iOffset;
+    const jFinal =  j - layer.jOffset;
     return getCell(canvas, iFinal, jFinal);
 }
 
-function getCharOnLayer(canvas: CanvasState, i: number, j: number, layer: number): string {
-    const iFinal =  i - canvas.layers[layer].iOffset;
-    const jFinal =  j - canvas.layers[layer].jOffset;
+function getCharOnLayer(i: number, j: number, layer: AsciiCanvasLayer): string {
+    const iFinal =  i - layer.iOffset;
+    const jFinal =  j - layer.jOffset;
     if (
-        boundsCheck(canvas.layers[layer].data, iFinal) && 
-        boundsCheck(canvas.layers[layer].data[iFinal], jFinal)
+        boundsCheck(layer.data, iFinal) && 
+        boundsCheck(layer.data[iFinal], jFinal)
     ) {
-        return canvas.layers[layer].data[iFinal][jFinal] || " ";
+        return layer.data[iFinal][jFinal] || " ";
     }
 
     return ' ';
 }
 
-function setCharOnLayer(canvas: CanvasState, i: number, j: number, char: string, layer: number, useOffsets = true) {
-    const iFinal =  !useOffsets ? i : i - canvas.layers[layer].iOffset;
-    const jFinal =  !useOffsets ? j : j - canvas.layers[layer].jOffset;
+function setCharOnLayer(i: number, j: number, char: string, layer: AsciiCanvasLayer, useOffsets = true) {
+    const iFinal =  !useOffsets ? i : i - layer.iOffset;
+    const jFinal =  !useOffsets ? j : j - layer.jOffset;
     if (
-        boundsCheck(canvas.layers[layer].data, iFinal) && 
-        boundsCheck(canvas.layers[layer].data[iFinal], jFinal)
+        boundsCheck(layer.data, iFinal) && 
+        boundsCheck(layer.data[iFinal], jFinal)
     ) {
-        canvas.layers[layer].data[iFinal][jFinal] = char;
+        layer.data[iFinal][jFinal] = char;
         return;
     } 
 }
 
 
 // this currently deletes everything from the dst layer
-function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: number, layerDst: number) {
+function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: AsciiCanvasLayer, layerDst: AsciiCanvasLayer) {
     forEachCell(canvas, (c) => {
         // Use the correct offset
         const cellSrc = getCellForLayer(canvas, c.i, c.j, layerSrc);
@@ -349,38 +356,40 @@ function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: number, laye
             return;
         }
 
-        const char = getCharOnLayer(canvas, c.i, c.j, layerSrc);
-        setCharOnLayer(canvas, c.i, c.j, ' ', layerSrc);
-        setCharOnLayer(canvas, c.i, c.j, char, layerDst);
+        const char = getCharOnLayer(c.i, c.j, layerSrc);
+        setCharOnLayer(c.i, c.j, ' ', layerSrc);
+        setCharOnLayer(c.i, c.j, char, layerDst);
     });
 }
 
 function getCharOnCurrentLayer(canvas: CanvasState, i: number, j: number): string {
-    return getCharOnLayer(canvas, i, j, canvas.currentLayer);
+    return getCharOnLayer(i, j, getCurrentLayer(canvas));
 }
 
 function setCharOnCurrentLayer(canvas: CanvasState, i: number, j: number, char: string) {
-    setCharOnLayer(canvas, i, j, char, canvas.currentLayer);
+    setCharOnLayer(i, j, char, getCurrentLayer(canvas));
 }
 
-function getTempLayer(canvas: CanvasState): Layer {
-    return canvas.layers[getTempLayerIdx(canvas)];
-}
-
-function getTempLayerIdx(canvas: CanvasState): number {
-    return canvas.layers.length - 1;
+function getCurrentLayer(canvas: CanvasState): AsciiCanvasLayer {
+    return canvas.layers[canvas.currentLayer];
 }
 
 // Returns the char, and the layer we pulled it from...
-function getChar(canvas: CanvasState, i: number, j: number): [string, number] {
+function getChar(canvas: CanvasState, i: number, j: number): [string, AsciiCanvasLayer | undefined] {
+    const char = getCharOnLayer(i, j, canvas.tempLayer);
+    if (char.trim()) {
+        return [char, canvas.tempLayer];
+    }
+
     for (let layerIdx = canvas.layers.length - 1; layerIdx >= 0; layerIdx--) {
-        const char = getCharOnLayer(canvas, i, j, layerIdx);
+        const layer = canvas.layers[layerIdx]
+        const char = getCharOnLayer(i, j, layer);
         if (char.trim()) {
-            return [char, layerIdx];
+            return [char, layer];
         }
     }
 
-    return [' ', 0];
+    return [' ', undefined];
 }
 
 function forEachCell(canvas: CanvasState, fn: (char: CanvasCellArgs) => void) {
@@ -500,9 +509,12 @@ function Canvas() {
                 const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = component.args;
 
 
-                const [char, layerIdx] = getChar(canvasState, i, j);
-                const cell = getCellForLayer(canvasState, i, j, layerIdx);
-                let isSelected = cell?.isSelected || component.args.isSelected;
+                let [char, layer] = getChar(canvasState, i, j);
+                if (!layer) {
+                    layer = getCurrentLayer(canvasState);
+                }
+                const cell = getCellForLayer(canvasState, i, j, layer);
+                const isSelected = cell ? cell.isSelected : false;
 
                 if (lastChar !== char) {
                     lastChar = char;
@@ -672,19 +684,19 @@ function Canvas() {
         if (startedAction === "move-selection") {
             // apply the move we started
 
-            const tempLayer = getTempLayer(canvasState);
+            const tempLayer = canvasState.tempLayer;
             if (cancel) {
                 tempLayer.iOffset = 0;
                 tempLayer.jOffset = 0;
             }
 
-            moveSelectedCellDataToLayer(canvasState, getTempLayerIdx(canvasState), canvasState.currentLayer);
+            moveSelectedCellDataToLayer(canvasState, canvasState.tempLayer, getCurrentLayer(canvasState));
 
             // move the selection after.
             {
                 forEachCell(canvasState, (c) => c.isSelectedTemp = false);
                 forEachCell(canvasState, (c) => {
-                    const cell = getCellForLayer(canvasState, c.i, c.j, getTempLayerIdx(canvasState));
+                    const cell = getCellForLayer(canvasState, c.i, c.j, canvasState.tempLayer);
                     if (!cell) {
                         return;
                     }
@@ -697,7 +709,7 @@ function Canvas() {
 
             // clear the temp buffer
             const useOffsets = false;
-            forEachCell(canvasState, (c) => setCharOnLayer(canvasState, c.i, c.j, ' ', getTempLayerIdx(canvasState), useOffsets));
+            forEachCell(canvasState, (c) => setCharOnLayer(c.i, c.j, ' ', canvasState.tempLayer, useOffsets));
 
             return;
         } 
@@ -801,11 +813,12 @@ function Canvas() {
                     propagateSelection(mouseInputState.x, mouseInputState.y, corners, keepOutlineOnly);
                 }
             } else if (tool === "move-selection") {
-                const tempLayer = getTempLayer(canvasState);
+                const tempLayer = canvasState.tempLayer;
+
                 if (clicked) {
                     tempLayer.iOffset = 0;
                     tempLayer.jOffset = 0;
-                    moveSelectedCellDataToLayer(canvasState, canvasState.currentLayer, getTempLayerIdx(canvasState));
+                    moveSelectedCellDataToLayer(canvasState, getCurrentLayer(canvasState), tempLayer);
                 }
 
 
@@ -822,7 +835,7 @@ function Canvas() {
         mouseInputState._prevY = mouseInputState.y;
         mouseInputState._lbWasDown = mouseInputState.lbDown;
 
-        component.args.onChange();
+        component.args.onInput();
     }
 
     const mouseInputState: MouseInputState = {
@@ -848,14 +861,24 @@ function Canvas() {
         layers: [
             // main layer. right now it's the only layer
             newLayer(),
-            // temp layer. used for moving things around, etc
-            newLayer(),
         ],
         currentLayer: 0,
+
+        // used for moving things around
+        tempLayer: newLayer(),
     };
 
+
     const component = makeComponent<CanvasArgs>(root, () => {
-        const { height, width } = component.args;
+        const { height, width, outputLayers } = component.args;
+
+        if (outputLayers) {
+            // Allows writing to an array that lives outside of this component
+            canvasState.layers = outputLayers;
+            if (outputLayers.length < 1) {
+                outputLayers.push(newLayer());
+            }
+        }
 
         resizeLayers(canvasState, height, width);
 
@@ -944,7 +967,7 @@ function Canvas() {
             keyboardInputState.isAltPressed = false;
         }
 
-        component.args.onChange();
+        component.args.onInput();
     });
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -1034,6 +1057,7 @@ function Canvas() {
                 }
 
                 setCharOnCurrentLayer(canvasState, nextCursor.i, nextCursor.j, ' ');
+
                 return true;
             }
 
@@ -1090,7 +1114,7 @@ function Canvas() {
 
         handleKeyDown(e);
 
-        component.args.onChange();
+        component.args.onInput();
     });
 
 
@@ -1110,7 +1134,15 @@ function isAsciiCanvasKeybind(e: KeyboardEvent) {
     );
 }
 
-export function AsciiCanvas(): Renderable {
+export type AsciiCanvasArgs = {
+    outputLayers: AsciiCanvasLayer[];
+    /** 
+     * NOTE: this event will fire very very often. Don't do any even remotely non-performant things in here - debounce them instead 
+     */
+    onInput(): void;
+}
+
+export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     type ToolbarButtonArgs = {
         name: string;
         onClick(e: MouseEvent): void;
@@ -1234,6 +1266,7 @@ export function AsciiCanvas(): Renderable {
 
     function rerenderLocal() {
         component.render(component.args);
+        component.args.onInput();
     }
 
     function updateCanvasStausText(canvas: CanvasState) {
@@ -1270,17 +1303,16 @@ export function AsciiCanvas(): Renderable {
         setTextContent(statusText, stringBuilder.join(" | "));
     }
 
-    // INFO: Some discussion about the initial canvas size
     // I want the canvas to be like a diagram board, where I append a slab of vertical rows to the page 
     // Whenever I need a new page. 1 page with is approximately the width of the screen, and same for page height and 1 scren height.
-    // However, I don't expect the width I need to change very much at all. 
-
     const NUM_ROWS_INCR_AMOUNT = 30;
+    // However, I don't expect the width I need to change very much at all. 
     const NUM_COLUMNS_INCR_AMOUNT = 5;
     const canvasArgs : CanvasArgs = {
         width: 130,
         height: NUM_ROWS_INCR_AMOUNT,
-        onChange: rerenderLocal,
+        onInput: rerenderLocal,
+        outputLayers: [],
     };
 
     function copyCanvasToClipboard() {
@@ -1322,7 +1354,10 @@ export function AsciiCanvas(): Renderable {
         }
     }
 
-    const component = makeComponent(root, () => {
+    const component = makeComponent<AsciiCanvasArgs>(root, () => {
+        // This single line of code allows us to write to an array that lives outside of this component
+        canvasArgs.outputLayers = component.args.outputLayers;
+
         canvas.render(canvasArgs);
 
         buttons.moreRows.render({
@@ -1336,7 +1371,7 @@ export function AsciiCanvas(): Renderable {
         buttons.lessRows.render({
             name: "- Rows",
             onClick: () => {
-                canvasArgs.height -= NUM_ROWS_INCR_AMOUNT;
+                canvasArgs.height = Math.max(NUM_ROWS_INCR_AMOUNT, canvasArgs.height - NUM_ROWS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });
@@ -1352,7 +1387,7 @@ export function AsciiCanvas(): Renderable {
         buttons.lessCols.render({
             name: "- Columns",
             onClick: () => {
-                canvasArgs.width -= NUM_COLUMNS_INCR_AMOUNT;
+                canvasArgs.width = Math.max(NUM_COLUMNS_INCR_AMOUNT, canvasArgs.width - NUM_COLUMNS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });

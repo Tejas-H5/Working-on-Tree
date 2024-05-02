@@ -87,11 +87,11 @@ import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 import CustomWorker from './activitycheck?worker';
 import { loadFile, saveText } from "./file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
-import { AsciiCanvas } from "./canvas";
+import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
 import { copyToClipboard } from "./clipboard";
 import { getUrls, openUrlInNewTab } from "./url";
 
-const SAVE_DEBOUNCE = 1000;
+const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 
 
@@ -1836,7 +1836,7 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
     return component;
 }
 
-function AsciiCanvasModal(): Renderable {
+function AsciiCanvasModal(): Renderable<AsciiCanvasArgs> {
     const asciiCanvas = AsciiCanvas();
     const modalComponent = Modal(
         div({ style: modalPaddingStyles(10) }, [
@@ -1844,14 +1844,14 @@ function AsciiCanvasModal(): Renderable {
         ])
     );
 
-    const component = makeComponent(modalComponent, () => {
+    const component = makeComponent<AsciiCanvasArgs>(modalComponent, () => {
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
             }
         });
 
-        asciiCanvas.render(undefined);
+        asciiCanvas.render(component.args);
     });
 
     return component;
@@ -2146,7 +2146,12 @@ function exportAsText(state: State, flatNotes: NoteId[]) {
         return lines.join("\n");
     }
 
-    return [header(" Notes "), formatTable(table, 10), header(" Scratchpad "), state.scratchPad].join("\n\n");
+    // TODO: Scratch pad
+    return [
+        header(" Notes "), 
+        formatTable(table, 10), 
+        header(" Scratchpad "),
+    ].join("\n\n");
 }
 
 type RenderOptions = {
@@ -2456,7 +2461,6 @@ export const App = () => {
                 setCurrentModal(fuzzyFindModal);
             }),
             makeButtonWithCallback("Analytics", () => {
-                setFilterToday(analyticsActivityFilter);
                 setCurrentModal(analyticsModal);
             }),
             makeButtonWithCallback("Clear all", () => {
@@ -2594,7 +2598,6 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setFilterToday(analyticsActivityFilter);
             setCurrentModal(analyticsModal);
             return;
         } else if (
@@ -2823,11 +2826,17 @@ export const App = () => {
         }
 
         if (setVisible(analyticsModal, currentModal === analyticsModal)) {
+            setFilterToday(analyticsActivityFilter);
             analyticsModal.render(undefined);
         }
 
         if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {
-            asciiCanvasModal.render(undefined);
+            asciiCanvasModal.render({
+                outputLayers: state.scratchPadCanvasLayers,
+                onInput: () => {
+                    debouncedSave();
+                }
+            });
         }
 
         if (setVisible(todoListModal, currentModal === todoListModal)) {

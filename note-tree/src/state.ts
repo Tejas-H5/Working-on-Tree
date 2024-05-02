@@ -1,4 +1,5 @@
 import { filterInPlace } from "./array-utils";
+import { AsciiCanvasLayer } from "./canvas";
 import { formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
 import * as tree from "./tree";
@@ -20,13 +21,13 @@ export type State = {
 
     currentNoteFilterIdx: number;
 
-    scratchPad: string;
-
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     _todoNoteIds: NoteId[];
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+
+    scratchPadCanvasLayers: AsciiCanvasLayer[];
 
     // The last activity that we appended which cannot be popped due to debounce logic
     // NOTE: we're using the note's index like it's ID here. this is fine,
@@ -83,11 +84,7 @@ const donePrefixes = [
     "Done",
     "done",
     "DECLINED",
-    "Declined",
-    "declined",
     "MERGED",
-    "Merged",
-    "merged",
 ];
 
 function getDoneNotePrefix(note: Note): string | undefined {
@@ -194,7 +191,8 @@ export function defaultState(): State {
 
         currentNoteFilterIdx: 0,
 
-        scratchPad: "",
+        scratchPadCanvasLayers: [],
+
     };
 
     return state;
