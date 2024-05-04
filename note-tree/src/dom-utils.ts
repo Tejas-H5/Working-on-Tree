@@ -325,8 +325,11 @@ export function setInputValue(component: InsertableInput, text: string) {
  *
  */
 export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
+    // We may be wrapping another component, i.e reusing it's root. So we should just do this
+    root._isInserted = true;
     const component : Renderable<T> = {
         ...root,
+        _isInserted: false,
         // @ts-ignore this is always set before we render the component
         args: null,
         render(argsIn, noErrorBoundary = false) {
@@ -338,7 +341,7 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
             }
 
             if (!this._isInserted) {
-                console.warn("This component hasn't been inserted into the DOM, but it's being rendered anway");
+                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anway");
             }
         },
     };

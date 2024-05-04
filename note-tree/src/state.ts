@@ -1,4 +1,3 @@
-import { filterInPlace } from "./array-utils";
 import { AsciiCanvasLayer } from "./canvas";
 import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
@@ -80,6 +79,7 @@ export type Activity = {
     // only apply to breaks:
     breakInfo?: string;
     locked?: true;
+    deleted?: true;
 }
 
 const donePrefixes = [
@@ -355,7 +355,7 @@ export function recomputeState(state: State) {
     {
         tree.forEachNode(state.notes, (id) => {
             getNote(state, id).data._status = STATUS_IN_PROGRESS;
-        })
+        });
 
         const dfs = (note: TreeNote) => {
             if (note.childIds.length === 0) {
@@ -497,6 +497,10 @@ export function isNoteUnderParent(state: State, parentId: NoteId, note: TreeNote
 }
 
 export function getActivityTextOrUndefined(state: State, activity: Activity): string | undefined {
+    if (activity.deleted) {
+        return "< deleted note! >";
+    }
+
     if (activity.nId) {
         return getNote(state, activity.nId).data.text;
     }
@@ -592,13 +596,13 @@ export function recursiveShallowCopy(obj: any): any {
 }
 
 
-export function deleteNoteIfEmpty(state: State, id: NoteId) {
+export function deleteNote(state: State, id: NoteId, dontDeleteIfNotEmpty = true) {
     const note = getNote(state, id);
-    if (note.data.text) {
+    if (dontDeleteIfNotEmpty && !!note.data.text) {
         return false;
     }
 
-    if (note.childIds.length > 0) {
+    if (!note.data.text && note.childIds.length > 0) {
         note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
         return true;
     }
@@ -623,8 +627,14 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
     // delete from the ids list, as well as the note database
     tree.remove(state.notes, note);
 
-    // delete relevant activities from the activity list and last viewed list
-    filterInPlace(state.activities, (activity) => activity.nId !== note.id);
+    // NOTE: activities should not be deleted from the activities list. they are required, if we want to keep duration info accurate. 
+    for (let i = 0; i < state.activities.length; i++) {
+        const activity = state.activities[i];
+        if (activity.nId === note.id) {
+            activity.nId = undefined;
+            activity.deleted = true;
+        }
+    }
 
     return true;
 }
@@ -767,7 +777,7 @@ export function setCurrentNote(state: State, noteId: NoteId | null) {
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
 
-    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+    deleteNote(state, currentNoteBeforeMove.id);
 
     return true;
 }
@@ -1034,10 +1044,23 @@ export function isMultiDay(activity: Activity, nextActivity: Activity | undefine
     );
 }
 
-// This is recursive
 export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): TreeNote {
+    const idx = getMostRecentlyWorkedOnChildActivityIdx(state, note);
+    if (idx === -1) {
+        return note;
+    }
+
+    const activity = state.activities[idx];
+    if (!activity.nId) {
+        return note;
+    }
+
+    return getNote(state, activity.nId);
+}
+
+// This is recursive
+export function getMostRecentlyWorkedOnChildActivityIdx(state: State, note: TreeNote): number {
     recomputeNoteIsUnderFlag(state, note);
-    note.data._isUnderCurrent = false;
 
     for (let i = state.activities.length - 1; i > 0; i--) {
         const activity = state.activities[i];
@@ -1047,12 +1070,11 @@ export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): Tree
 
         const note = getNote(state, activity.nId);
         if (note.data._isUnderCurrent) {
-            return note;
+            return i;
         }
     }
 
-    // none of the notes in this subtree were worked on, ever. just return the parent note
-    return note;
+    throw new Error("This code should never be reached, if `note` is really in the tree");
 }
 
 // NOTE: this method will attempt to 'fix' indices that are out of bounds.
@@ -1097,6 +1119,95 @@ export function isActivityInRange(state: State, activity: Activity) {
     return true;
 }
 
+export function deleteDoneNote(state: State, note: TreeNote): string | undefined {
+    // WARNING: this is a A destructive action that permenantly deletes user data. Take every precaution, and do every check
+    
+    if (!hasNote(state, note.id)) {
+        return "Note doesn't exist to delete. It may have already been deleted.";
+    }
+
+    recomputeState(state);
+
+    if (note.data._status !== STATUS_DONE) {
+        return "Notes that aren't DONE (i.e all notes under them are DONE) can't be deleted";
+    }
+
+    const parentId = note.parentId;
+    if (!parentId) {
+        return "Note needs a parent to be deleted";
+    }
+
+    // figure out where to move to if possible
+    const parent = getNote(state, parentId);
+    let idx = parent.childIds.indexOf(note.id);
+    if (idx === parent.childIds.length - 1) {
+        idx--;
+    }
+    let idToMoveTo: NoteId | undefined = parent.childIds[idx - 1] || parent.childIds[idx + 1];
+
+    // Do the deletion
+    tree.removeSubtree(state.notes, note);
+
+    tree.forEachNode(state.notes, (id) => {
+        const note = tree.getNode(state.notes, id);
+        if (note.parentId && !tree.hasNode(state.notes, note.parentId)) {
+            tree.remove(state.notes, note);
+        }
+    });
+
+    for (const activity of state.activities) {
+        if (!activity.nId) {
+            continue;
+        }
+
+        if (
+            !hasNote(state, activity.nId) || 
+            activity.deleted 
+        ) {
+            activity.nId = undefined;
+            activity.deleted = true;
+        }
+    }
+
+
+    // Remove activities that have: same activity behind them, or have an activity that is also deleted behind them
+    for (let i = 1; i < state.activities.length; i++) {
+        const activity = state.activities[i];
+        const lastActivity = state.activities[i - 1];
+        if (
+            (activity.deleted && lastActivity.deleted) ||   
+            (activity.nId && lastActivity.nId === activity.nId) 
+        ) {
+            state.activities.splice(i, 1);
+            i--;
+        }
+    }
+
+    // move to another note nearby if possible
+    if (idToMoveTo) {
+        setCurrentNote(state, idToMoveTo);
+        return;
+    }
+
+    // if not, just move move to the last note...
+    const lastActivityIdx = getLastActivityWithNoteIdx(state);
+    if (lastActivityIdx !== -1) {
+        const activity = state.activities[lastActivityIdx];
+        assert(activity.nId);
+        setCurrentNote(state, activity.nId);    
+        return;
+    }
+
+    // If not, move to literally any note..
+    const root = getRootNote(state);
+    const lastId = root.childIds[root.childIds.length - 1];
+    if (lastId) {
+        setCurrentNote(state, lastId);
+        return;
+    }
+
+    // If we implemented deleting right, we simply have no more notes to move to now...
+}
 
 export function resetState() {
     state = defaultState();

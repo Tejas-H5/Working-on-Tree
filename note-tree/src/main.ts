@@ -8,7 +8,7 @@ import {
     STATUS_IN_PROGRESS,
     State,
     TreeNote,
-    deleteNoteIfEmpty,
+    deleteNote,
     getActivityDurationMs,
     getActivityText,
     getCurrentNote,
@@ -52,6 +52,8 @@ import {
     isDoneNoteWithExtraInfo,
     setActivityRangeToady,
     isActivityInRange,
+    getMostRecentlyWorkedOnChildActivityIdx,
+    deleteDoneNote,
 } from "./state";
 import {
     Renderable,
@@ -548,6 +550,70 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     return component;
 }
 
+function DeleteModal(): Renderable {
+    let heading, textEl, countEl, timeEl, recentEl, deleteButton, cantDelete;
+    const root = Modal(div({ style: "padding: 10px" }, [
+        heading = el("H2", { style: "text-align: center" }, [ "Delete current note" ]),
+        textEl = div(),
+        div({ style: "height: 20px" }),
+        countEl = div(),
+        timeEl = div(),
+        recentEl = div(),
+        div({ style: "height: 20px" }),
+        div({ class: "row justify-content-center" }, [
+            deleteButton = makeButton("Delete Note"),
+            cantDelete = div({}, [ "Can't delete notes that are still in progress..." ])
+        ]),
+        div({ style: "height: 20px" }),
+        div({ style: "text-align: center" }, [ 
+            "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required." 
+        ])
+    ]));
+
+    deleteButton.el.addEventListener("click", (e) => {
+        e.preventDefault();
+
+        const currentNote = getCurrentNote(state);
+        if (currentNote.data._status !== STATUS_DONE) {
+            return;
+        }
+
+        deleteDoneNote(state, currentNote);
+        setCurrentModal(null);
+        showStatusText(
+            "Deleted!" + 
+            (Math.random() < 0.05 ? " - Good riddance..." : "")
+        );
+    });
+
+    const component = makeComponent(root, () => {
+        const currentNote = getCurrentNote(state);
+
+        root.render({
+            onClose: () => setCurrentModal(null),
+        });
+
+        setTextContent(textEl, currentNote.data.text);
+
+        let count = 0;
+        dfsPre(state, currentNote, () => count++);
+        setTextContent(countEl, count + " notes in total");
+
+        let totalTimeMs = getNoteDuration(state, currentNote);
+        setTextContent(timeEl, formatDuration(totalTimeMs) + " in total");
+
+        const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
+        const activity = state.activities[idx];
+        setTextContent(recentEl, "The last activity under this note was on " + formatDate(new Date(activity.t), undefined, true));
+
+        const canDelete = currentNote.data._status === STATUS_DONE;
+        setVisible(deleteButton, canDelete);
+        setVisible(cantDelete, !canDelete);
+    });
+
+    return component;
+}
+
 function LinkNavModal(): Renderable {
     type LinkItemArgs = {
         noteId: NoteId;
@@ -990,7 +1056,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (e.key === "Enter" && !shiftPressed) {
             insertNoteAfterCurrent(state);
         } else if (e.key === "Backspace") {
-            deleteNoteIfEmpty(state, currentNote.id);
+            deleteNote(state, currentNote.id);
             shouldPreventDefault = false;
         } else {
             needsRerender = false;
@@ -1075,9 +1141,6 @@ function ActivityFiltersEditor(): Renderable {
     ]);
 
     const component = makeComponent(root, () => {
-        // I have the chance to be the 1000th person to re-invent forms from the ground up rn
-        // But I failed...
-
         dateFrom.render({
             value: state._activitiesFrom,
             readOnly: false,
@@ -2121,10 +2184,10 @@ function getStateAsJSON() {
 
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
-// setInterval won't run when a computer goes to sleep, or a tab is closed, and
+// setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
-export const App = () => {
+export function App() {
     // const infoButton = el("BUTTON", { class: "info-button", title: "click for help, with developer commentary" }, [
     //     "help?"
     // ]);
@@ -2150,6 +2213,7 @@ export const App = () => {
     const asciiCanvasModal = AsciiCanvasModal();
     const fuzzyFindModal = FuzzyFindModal();
     const todoListModal = TodoListModal();
+    const deleteModal = DeleteModal();
     const loadBackupModal = LoadBackupModal();
     const linkNavModal = LinkNavModal();
     let backupText = "";
@@ -2177,6 +2241,9 @@ export const App = () => {
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
+            makeButtonWithCallback("Delete current", () => {
+                setCurrentModal(deleteModal);
+            }),
             makeButtonWithCallback("Todo Notes", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
@@ -2267,6 +2334,7 @@ export const App = () => {
         asciiCanvasModal,
         fuzzyFindModal,
         todoListModal,
+        deleteModal,
         loadBackupModal,
         linkNavModal,
     ]);
@@ -2288,7 +2356,11 @@ export const App = () => {
         }
 
         // handle modals
-        if (
+        if (e.key === "Delete") {
+            e.preventDefault();
+            setCurrentModal(deleteModal);
+            return;
+        } else if (
             e.key === "F" &&
             ctrlPressed &&
             shiftPressed
@@ -2546,6 +2618,9 @@ export const App = () => {
             fuzzyFindModal.render(undefined);
         }
 
+        if (setVisible(deleteModal, currentModal === deleteModal)) {
+            deleteModal.render(undefined);
+        }
 
         if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {
             asciiCanvasModal.render({

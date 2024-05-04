@@ -94,10 +94,12 @@ export function remove(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     }
 
     // remove node from it's parent
-    const parent = getNode(tree, node.parentId);
-    const idx = parent.childIds.indexOf(node.id);
-    assert(idx !== -1, "Possible data corruption");
-    parent.childIds.splice(idx, 1);
+    if (hasNode(tree, node.parentId)) {
+        const parent = getNode(tree, node.parentId);
+        const idx = parent.childIds.indexOf(node.id);
+        assert(idx !== -1, "Possible data corruption");
+        parent.childIds.splice(idx, 1);
+    }
 
     // clear out the parent
     node.parentId = null;
@@ -151,4 +153,30 @@ export function insertAt(tree: TreeStore<unknown>, parent: TreeNode<unknown>, no
     parent.childIds.splice(idx, 0, nodeToAdd.id);
 
     nodeToAdd.parentId = parent.id;
+}
+
+// Removes an entire subtree from the tree. 
+export function removeSubtree(tree: TreeStore<unknown>, nodeToDelete: TreeNode<unknown>) {
+    if (!hasNode(tree, nodeToDelete.id)) {
+        return;
+    }
+
+    remove(tree, nodeToDelete);
+
+    const stack = [ nodeToDelete ];
+    while (stack.length > 0) {
+        const node = stack.pop()!; // stack.length > 0
+
+        if (node.childIds.length > 0) {
+            for (const id of node.childIds) {
+                const childNode = getNode(tree, id);
+                stack.push(childNode);
+            }
+        }
+
+        // We can't call remove() here, since we've already removed the parent, and it will fail.
+        // That's ok, because we can just delete the nodes from the tree and not worry about the other stuff
+        // we usually had to do, since those nodes are all deleted as well...
+        delete tree.nodes[node.id];
+    }
 }
