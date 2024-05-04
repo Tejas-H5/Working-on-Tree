@@ -1,6 +1,6 @@
 // TODO: import the missing CSS styles
 
-import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setTextContent, setVisible } from "./dom-utils";
+import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setTextContent, setVisible } from "./dom-utils";
 import { addDays, floorDateLocalTime, formatDate, parseYMDTDateTime } from "./datetime";
 
 type ModalArgs = { onClose(): void };
@@ -32,13 +32,13 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
 type FractionBarArgs = {
     fraction: number;
     text: string;
+    focused: boolean;
 }
 export function FractionBar(): Renderable<FractionBarArgs> {
-    const baseStyles = `padding:5px;padding-bottom:0;`;
+    const baseStyles = `padding-bottom:0;padding-left: 10px;`;
 
     const invertedText = div({ style: baseStyles + "background-color: var(--fg-color); color: var(--bg-color)" });
-    const bar = div({ class: "flex-1", style: "overflow: hidden; white-space: nowrap;" }, [invertedText])
-
+    const bar = div({ class: "flex-1 pre", style: "overflow: hidden;text-wrap: none;" }, [invertedText])
     const normalText = div({ style: baseStyles });
 
     const root = div({ class: "relative" }, [
@@ -49,11 +49,12 @@ export function FractionBar(): Renderable<FractionBarArgs> {
     ]);
 
     const component = makeComponent<FractionBarArgs>(root, () => {
-        const { fraction, text } = component.args;
+        const { fraction, text, focused } = component.args;
 
         setTextContent(invertedText, text);
         setTextContent(normalText, text);
         bar.el.style.width = (100 * fraction) + "%";
+        setStyle(root, "backgroundColor", focused ? "var(--bg-color-focus)" : "");
     });
 
     return component;
@@ -71,36 +72,79 @@ export function makeButton(text: string, classes: string = "", styles: string = 
     );
 }
 
-type DateTimeInputArgs = GenericInputArguments<Date | null> & {
+type DateTimeInputArgs = {
     readOnly: boolean;
+    nullable: boolean;
+    value: Date | null;
+    label?: string;
+    onChange(val: Date | null):void;
 };
 
-export function DateTimeInput(): Renderable<DateTimeInputArgs> {
+export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputArgs> {
     const show = div();
     const edit = el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
-    const root = div(
-        { class: "row align-items-center", style: "width: 100%; height: 100%; padding-left: 5px" },
-        [show, edit]
-    );
+    const checkbox = Checkbox();
+    const root = div({ class: "row", style: "" }, [
+        checkbox,
+        div(
+            { class: "row align-items-center", style: "width: 100%; height: 100%; padding-left: 5px; padding-right: 5px" },
+            [
+                show, 
+                edit,
+            ]
+        )
+    ]);
+
+    if (initialLabel) {
+        checkbox.render({
+            label: initialLabel,
+            value: false,
+            onChange: onCheckOrUncheck,
+        });
+    }
 
     let lastDate: Date | null = null;
 
     const component = makeComponent<DateTimeInputArgs>(root, () => {
-        const { value, readOnly } = component.args;
+        const { value, label, readOnly, nullable } = component.args;
+        const canEdit = readOnly && !!value;
 
-        lastDate = value;
-        const dateText = value ? formatDate(value) : "<no date>";
+        if (setVisible(checkbox, !readOnly && nullable)) {
+            checkbox.render({
+                label,
+                value: !!value,
+                onChange: onCheckOrUncheck,
+            });
+        }
 
-        if (setVisible(show, readOnly)) {
+        if (value) {
+            lastDate = value;
+        }
+
+        const dateText = formatDate(value, undefined, true);
+
+        if (setVisible(show, canEdit)) {
             setTextContent(show, dateText);
         }
 
-        if (setVisible(edit, !readOnly)) {
-            setInputValue(edit, dateText);
+        if (setVisible(edit, !canEdit)) {
+            setInputValueAndResize(edit, dateText);
         }
-    });
 
-    function handleChange() {
+        setStyle(root, "color", !!value ? "var(--fg-color)" : "var(--unfocus-text-color)");
+    });
+    
+    function onCheckOrUncheck(b: boolean) {
+        const { onChange } = component.args;
+
+        if (b) {
+            onChange(lastDate || new Date());
+        } else {
+            onChange(null);
+        }
+    }
+
+    function handleTextfieldEdit() {
         const { onChange } = component.args;
         const value = edit.el.value;
 
@@ -114,17 +158,17 @@ export function DateTimeInput(): Renderable<DateTimeInputArgs> {
 
         onChange(date);
         edit.el.blur();
-        // no render call here, onChange is responsible for rendering stuff
+        // no render call here, onChange is responsible for rendering this component
     }
 
     edit.el.addEventListener("keypress", (e) => {
         if (e.key === "Enter") {
-            handleChange();
+            handleTextfieldEdit();
         }
     });
 
     edit.el.addEventListener("blur", () => {
-        handleChange();
+        handleTextfieldEdit();
     });
 
     return component;
@@ -199,13 +243,13 @@ type GenericInputArguments<T> = {
 }
 
 export function Checkbox(initialLabel?: string): Renderable<GenericInputArguments<boolean>> {
-    const label = div({}, initialLabel !== undefined ? [initialLabel] : undefined);
+    const label = div({ style: "user-select: none" }, initialLabel !== undefined ? [initialLabel] : undefined);
     const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
     const checkbox = div({ class: "row align-items-center" }, [
         div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;" }, [
             button,
         ]),
-        div({ style: "width: 20px" }),
+        div({ style: "width: 10px" }),
         label
     ]);
 
@@ -218,7 +262,7 @@ export function Checkbox(initialLabel?: string): Renderable<GenericInputArgument
         setClass(button, "checked", value);
     });
 
-    button.el.addEventListener("click", () => {
+    checkbox.el.addEventListener("click", () => {
         component.args.onChange(!component.args.value);
     });
 

@@ -133,7 +133,7 @@ type ValidAttributeName = string;
  * Any name and string is fine, but I've hardcoded a few for autocomplete. 
  * A common bug is to type 'styles' instead of 'style' and wonder why the layout isn't working
  */
-type Attrs = { [qualifiedName: ValidAttributeName]: string } & {
+type Attrs = { [qualifiedName: ValidAttributeName]: string | undefined } & {
     style?: string;
     class?: string;
     href?: string;
@@ -153,7 +153,12 @@ export function initEl<T extends Insertable>(
 
     if (attrs) {
         for (const attr in attrs) { 
-            element.setAttribute(attr, (element.getAttribute(attr) || "") + attrs[attr]);
+            const val = attrs[attr];
+            if (val === undefined) {
+                element.removeAttribute(attr);
+            } else {
+                element.setAttribute(attr, (element.getAttribute(attr) || "") + val);
+            }
         }
     }
 
@@ -320,8 +325,6 @@ export function setInputValue(component: InsertableInput, text: string) {
  *
  */
 export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
-    root._isInserted = true;
-
     const component : Renderable<T> = {
         ...root,
         // @ts-ignore this is always set before we render the component

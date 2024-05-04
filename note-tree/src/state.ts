@@ -1,16 +1,15 @@
 import { filterInPlace } from "./array-utils";
 import { AsciiCanvasLayer } from "./canvas";
-import { formatDate, formatDuration, getTimestamp } from "./datetime";
+import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
 import * as tree from "./tree";
 import { uuid } from "./uuid";
-
-
 
 export type NoteId = string;
 export type TaskId = string;
 
 export type TreeNote = tree.TreeNode<Note>;
+
 
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
@@ -18,8 +17,6 @@ export type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-
-    currentNoteFilterIdx: number;
 
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     _todoNoteIds: NoteId[];
@@ -29,16 +26,16 @@ export type State = {
 
     scratchPadCanvasLayers: AsciiCanvasLayer[];
 
-    // The last activity that we appended which cannot be popped due to debounce logic
-    // NOTE: we're using the note's index like it's ID here. this is fine,
-    // because activities are guaranteed to not change order (at least that is what we would like)
-    lastFixedActivityIdx: number | null;
-
-
-    // non-serializable fields
+    // non-serializable fields start with _
+    
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
     _debounceNewNoteActivity: boolean;
+    _isInAnalyticsMode: boolean;
+    _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
+    _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
+    _useActivityIndices: boolean;
+    _activityIndices: number[];
 };
 
 
@@ -47,6 +44,12 @@ export type Note = {
     text: string;
     openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
     lastSelectedChildIdx: number; // this is now an index into 
+
+    /** 
+     * The ID of this note's parent before it was archived. 
+     * Only notes with a parent (ever note that isn't the root note) can be archived.
+     */
+    preArchivalParentId: NoteId | undefined;
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
@@ -182,18 +185,21 @@ export function defaultState(): State {
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
         _debounceNewNoteActivity: false,
+        _todoNoteIds: [],
+
+        _isInAnalyticsMode: false,
+        _activitiesFrom: null,
+        _activitiesTo: null,
+        _activityIndices: [],
+        _useActivityIndices: false,
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
-        _todoNoteIds: [],
         activities: [],
-        lastFixedActivityIdx: 0,
-
-        currentNoteFilterIdx: 0,
-
         scratchPadCanvasLayers: [],
-
     };
+
+    setActivityRangeToady(state);
 
     return state;
 }
@@ -260,6 +266,7 @@ export function defaultNote(state: State | null): Note {
         text: "",
         openedAt: getTimestamp(new Date()),
         lastSelectedChildIdx: 0,
+        preArchivalParentId: undefined,
 
         // the following is just visual flags which are frequently recomputed
 
@@ -355,12 +362,6 @@ export function recomputeState(state: State) {
                 return;
             }
 
-            // We haven't calculated the note._status yet, so we can't rely on it here. 
-            const hasDoneNote = note.childIds.findIndex((id) => {
-                const note = getNote(state, id);
-                return isDoneNote(note.data);
-            }) !== -1;
-
             let foundDoneNote = false;
             for (let i = note.childIds.length - 1; i >= 0; i--) {
                 const childId = note.childIds[i];
@@ -381,22 +382,10 @@ export function recomputeState(state: State) {
                     continue;
                 }
 
-
-                if (!hasDoneNote) {
-                    // Just assume that every note before the last edited note is 'done'.
-                    
-                    if (i >= note.data.lastSelectedChildIdx) {
-                        child.data._status = STATUS_IN_PROGRESS;
-                    } else {
-                        child.data._status = STATUS_ASSUMED_DONE;
-                    }
-                } else {
-                    // Assume that all notes after the STATUS_DONE note are in progress.
-                    // This is because if there is even a single 'DONE' note, I'm probably using a slightly different workflow for one
-                    // particular task, where I'm creating a whole bunch of work for the future ater the DONE note, and then
-                    // slowly dragging the DONE note down, or dragging finished notes back to behind the DONE note.
-                    
+                if (i === note.childIds.length - 1) {
                     child.data._status = STATUS_IN_PROGRESS;
+                } else {
+                    child.data._status = STATUS_ASSUMED_DONE;
                 }
             }
 
@@ -457,14 +446,33 @@ export function recomputeState(state: State) {
         dfs(getRootNote(state));
     }
 
-    // recompute the last fixed note
+    // recompute the range 
     {
         if (
-            state.lastFixedActivityIdx &&
-            state.lastFixedActivityIdx >= state.activities.length
+            !state._isInAnalyticsMode &&
+            !!state._activitiesTo &&
+            state._activitiesTo < new Date()
         ) {
-            // sometimes we backspace notes we create. So this needs to be recomputed
-            state.lastFixedActivityIdx = state.activities.length - 1;
+            setActivityRangeToady(state);
+        }
+    }
+
+    // recompute the current filtered activities
+    {
+        let hasRange = state._activitiesFrom === null ||
+            state._activitiesTo === null ||
+            state._activitiesFrom < state._activitiesTo;
+        state._useActivityIndices = hasRange;
+        state._activityIndices.splice(0, state._activityIndices.length);
+        if (hasRange) {
+            for (let i = 0; i < state.activities.length; i++) {
+                const activity = state.activities[i];
+                if (!isActivityInRange(state, activity)) {
+                    continue;
+                }
+
+                state._activityIndices.push(i);
+            }
         }
     }
 }
@@ -518,22 +526,6 @@ export function createNewNote(state: State, text: string): TreeNote {
     return tree.newTreeNode(note, note.id);
 }
 
-
-export function isLastActivityTenuous(state: State) {
-    const last = getLastActivity(state);
-    const lastIdx = state.activities.length - 1;
-
-    if (last && lastIdx !== state.lastFixedActivityIdx) {
-        const duration = getActivityDurationMs(last, undefined);
-        const ONE_MINUTE = 1000 * 60;
-
-        if (duration < ONE_MINUTE) {
-            return true;
-        } 
-    }
-
-    return false;
-}
 
 export function activityNoteIdMatchesLastActivity(state: State, activity: Activity) : boolean {
     return (
@@ -682,45 +674,6 @@ export function getNoteOrUndefined(state: State, id: NoteId): TreeNote | undefin
     }
 
     return undefined;
-}
-
-export function getNoteTag(note: TreeNote, tagName: string): string | null {
-    const text = note.data.text;
-    let idxStart = 0;
-
-    while (idxStart !== -1 && idxStart < note.data.text.length) {
-        idxStart = text.indexOf("[", idxStart);
-        if (idxStart === -1) {
-            return null;
-        }
-        idxStart++;
-
-        const idxEnd = text.indexOf("]", idxStart);
-        if (idxEnd === -1) {
-            return null;
-        }
-
-        const tagText = text.substring(idxStart, idxEnd).trim();
-        if (tagText.length === 0) {
-            return null;
-        }
-
-        idxStart = idxEnd + 1;
-
-        const midPoint = tagText.indexOf("=");
-        if (midPoint === -1) {
-            continue;
-        }
-
-        if (tagText.substring(0, midPoint).trim() !== tagName) {
-            continue;
-        }
-
-        const tagValue = tagText.substring(midPoint + 1).trim();
-        return tagValue;
-    }
-
-    return null;
 }
 
 export function getCurrentNote(state: State) {
@@ -967,11 +920,7 @@ export function getIndentStr(note: Note) {
 /** 
  * This is the sum of all activities with this note, or any descendant 
  */
-export function getNoteDuration(state: State, note: TreeNote) {
-    if (!note.parentId) {
-        return 0;
-    }
-
+export function getNoteDuration(state: State, note: TreeNote, activityFilterFn?: (activityIdx: number) => boolean) {
     recomputeNoteIsUnderFlag(state, note);
 
     const activities = state.activities;
@@ -980,6 +929,10 @@ export function getNoteDuration(state: State, note: TreeNote) {
     for (let i = 0; i < activities.length; i++) {
         const activity = activities[i];
         if (!activity.nId) {
+            continue;
+        }
+
+        if (activityFilterFn && !activityFilterFn(i)) {
             continue;
         }
 
@@ -1066,46 +1019,6 @@ export function resetAnalyticsSeries(series: AnalyticsSeries) {
     series.duration = 0;
 }
 
-// All times are in milliseconds
-export type Analytics = {
-    multiDayBreaks: AnalyticsSeries;
-    breaks: AnalyticsSeries;
-    taskTimes: Map<TaskId, AnalyticsSeries>;
-    totalTime: number;
-}
-
-export function recomputeAnalyticsSeries(state: State, series: AnalyticsSeries) {
-    // recompute duration
-
-    series.duration = 0;
-    for (const idx of series.activityIndices) {
-        const activity = state.activities[idx];
-        const nextActivity = state.activities[idx + 1] as Activity | undefined;
-
-        series.duration += getActivityDurationMs(activity, nextActivity);
-    }
-}
-
-export function recomputeNoteTasks(state: State) {
-    const dfs = (id: NoteId) => {
-        const note = getNote(state, id);
-
-        let task = getNoteTag(note, "Task");
-        if (!task && note.parentId) {
-            task = getNote(state, note.parentId).data._task;
-        }
-
-        note.data._task = task;
-
-        for (const id of note.childIds) {
-            dfs(id);
-        }
-    }
-
-    dfs(state.notes.rootId);
-}
-
-
 export function isBreak(activity: Activity): boolean {
     return !!activity.breakInfo;
 }
@@ -1119,62 +1032,6 @@ export function isMultiDay(activity: Activity, nextActivity: Activity | undefine
         t.getMonth() === t1.getMonth() &&
         t.getFullYear() === t1.getFullYear()
     );
-}
-
-// Assumes you've already recomputed a note's tasks
-export function recomputeAnalytics(state: State, activityIndices: number[], analytics: Analytics) {
-    resetAnalyticsSeries(analytics.breaks);
-    resetAnalyticsSeries(analytics.multiDayBreaks);
-    analytics.taskTimes.clear();
-    analytics.totalTime = 0;
-
-    // compute which activities belong to which group
-    const activities = state.activities;
-    for (const i of activityIndices) {
-        const activity = activities[i];
-        const nextActivity = activities[i + 1] as Activity | undefined;
-
-        if (isBreak(activity)) {
-            // Some breaks span from end of day to start of next day. 
-            // They aren't very useful for most analytics questions, like 
-            //      "How long did I spent working on stuff today vs Lunch?".
-
-            if (!isMultiDay(activity, nextActivity)) {
-                analytics.breaks.activityIndices.push(i);
-                continue;
-            }
-
-
-            analytics.multiDayBreaks.activityIndices.push(i);
-            continue;
-        }
-
-        if (activity.nId) {
-            const note = getNote(state, activity.nId);
-            // has the side-effect that a user can just do [Task=<Uncategorized>], that is fine I think
-            const task = note.data._task || "<Uncategorized>";
-
-            if (!analytics.taskTimes.has(task)) {
-                analytics.taskTimes.set(task, newAnalyticsSeries());
-            }
-
-            const series = analytics.taskTimes.get(task)!;
-            series.activityIndices.push(i);
-            continue;
-        }
-    }
-
-    // recompute the numbers and aggregates
-    recomputeAnalyticsSeries(state, analytics.breaks);
-    analytics.totalTime += analytics.breaks.duration;
-
-    recomputeAnalyticsSeries(state, analytics.multiDayBreaks);
-    analytics.totalTime += analytics.multiDayBreaks.duration;
-
-    for (const s of analytics.taskTimes.values()) {
-        recomputeAnalyticsSeries(state, s);
-        analytics.totalTime += s.duration;
-    }
 }
 
 // This is recursive
@@ -1214,6 +1071,32 @@ export function getLastSelectedNote(state: State, note: TreeNote): TreeNote | nu
 
     return getNote(state, selNoteId);
 }
+
+
+export function setActivityRangeToady(state: State) {
+    const dateFrom = new Date();
+    const dateTo = new Date();
+    floorDateLocalTime(dateFrom);
+    floorDateLocalTime(dateTo);
+    addDays(dateTo, 1);
+    state._activitiesFrom = dateFrom;
+    state._activitiesTo = dateTo;
+}
+
+export function isActivityInRange(state: State, activity: Activity) {
+    const t = new Date(activity.t);
+
+    if (!!state._activitiesFrom && t < state._activitiesFrom) {
+        return false;
+    }
+
+    if (!!state._activitiesTo && t > state._activitiesTo) {
+        return false;
+    }
+
+    return true;
+}
+
 
 export function resetState() {
     state = defaultState();

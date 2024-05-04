@@ -1,11 +1,32 @@
-export function formatDate(date: Date, seperator = "/") {
+
+const DAYS_OF_THE_WEEK_ABBREVIATED = [
+    "Sun",
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+]
+
+export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek = false) {
+    if (!seperator) {
+        seperator = "/";
+    }
+
+    if (!date) {
+        const dayOfTheWeekStr = !dayOfTheWeek ? "" : ("---" + " ");
+        return `${dayOfTheWeekStr}--${seperator}--${seperator}---- --:-- --`;
+    }
+
     const dd = date.getDate();
     const mm = date.getMonth() + 1;
     const yyyy = date.getFullYear();
     const hours = date.getHours();
     const minutes = date.getMinutes();
 
-    return `${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
+    const dayOfTheWeekStr = !dayOfTheWeek ? "" : (DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()] + " ");
+    return `${dayOfTheWeekStr}${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
         hours < 12 ? "am" : "pm"
     }`;
 }
@@ -33,13 +54,14 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
     // Possibly over-lenient date time regex
     // "06/04/2024 05:41 pm".match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?/)
 
-    const regex = /(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?/;
+    const regex = /(\w+ )?(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?/;
     const matches = value.match(regex);
     if (!matches) {
         return [null, "Couldn't find a date"];
     }
 
     const [
+        _dayStr,
         _matchStr,
         dateStr,
         monthStr,

@@ -36,17 +36,11 @@ import {
     resetState,
     setCurrentNote,
     state,
-    Analytics,
-    newAnalyticsSeries,
-    recomputeAnalytics,
-    recomputeNoteTasks,
     STATUS_ASSUMED_DONE,
     dfsPre,
     getRootNote,
     setIsEditingCurrentNote,
-    getActivityTextOrUndefined,
     isBreak,
-    isMultiDay,
     pushActivity,
     getLastActivity,
     getLastActivityWithNoteIdx,
@@ -56,6 +50,8 @@ import {
     getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
     isDoneNoteWithExtraInfo,
+    setActivityRangeToady,
+    isActivityInRange,
 } from "./state";
 import {
     Renderable,
@@ -72,14 +68,14 @@ import {
     appendChild,
     Insertable,
     replaceChildren,
-    initEl,
     setStyle,
     ComponentList,
+    assert,
 } from "./dom-utils";
 
 import * as tree from "./tree";
-import { Checkbox, DateTimeInput, DateTimeInputEx, FractionBar, Modal, TextField, makeButton } from "./generic-components";
-import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
+import { DateTimeInput,  Modal,  makeButton } from "./generic-components";
+import { addDays, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
@@ -156,9 +152,9 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
         const noteLink = NoteLink();
         const lastEditedNoteLink = NoteLink();
         let progressText;
-        const root = div({ 
-            class: "row align-items-center", 
-            style: "background-color: var(--bg-color-focus);" 
+        const root = div({
+            class: "row align-items-center",
+            style: "background-color: var(--bg-color-focus);"
         }, [
             cursor,
             div({
@@ -166,7 +162,7 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
                 style: "border-top: 1px solid var(--fg-color);" +
                     "border-left: 4px solid var(--fg-color);" +
                     "border-bottom: 1px solid var(--fg-color);" +
-                    "padding-left: 3px;" + 
+                    "padding-left: 3px;" +
                     "background-color: var(--bg-color);"
             }, [
                 div({ class: "row align-items-center" }, [
@@ -290,7 +286,7 @@ function TodoList(): Renderable<TodoListArgs> {
 
     const comopnent = makeComponent<TodoListArgs>(root, () => {
         const { shouldScroll, cursorNoteId } = comopnent.args;
-        
+
         setVisible(empty, state._todoNoteIds.length === 0);
 
         let alreadyScrolled = false;
@@ -302,7 +298,7 @@ function TodoList(): Renderable<TodoListArgs> {
             onScroll: () => alreadyScrolled = true,
             cursorNoteId,
         });
-        
+
         todo.render({
             priorityLevel: 2,
             heading: "TODO",
@@ -370,7 +366,7 @@ function BreakInput(): Renderable {
 
 function ActivityListItem(): Renderable<ActivityListItemArgs> {
     const timestamp = DateTimeInput();
-    const timestampWrapper = div({ style: "width: 200px;" }, [timestamp]);
+    const timestampWrapper = div({ style: "width: 230px;" }, [timestamp]);
     const noteLink = NoteLink();
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
@@ -417,7 +413,7 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
         const activityText = getActivityText(state, activity);
 
         if (setVisible(
-            breakEdit, 
+            breakEdit,
             canEditBreakText,
         )) {
             setInputValue(breakEdit, activity.breakInfo!);
@@ -438,6 +434,7 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
             value: new Date(activity.t),
             onChange: updateActivityTime,
             readOnly: false,
+            nullable: false,
         });
 
         if (setVisible(durationText, showDuration)) {
@@ -565,7 +562,7 @@ function LinkNavModal(): Renderable {
     const root = Modal(
         div({}, [
             content = div({ style: "padding: 20px" }, [
-                el("H2", {}, [ "URLs on or under the current note" ]),
+                el("H2", {}, ["URLs on or under the current note"]),
                 linkList = makeComponentList(div(), () => {
                     let cursor, textEl;
                     const root = div({ class: "row", style: "" }, [
@@ -584,7 +581,7 @@ function LinkNavModal(): Renderable {
                     return component;
                 }),
             ]),
-            empty = div({ style: "padding: 40px" }, [ "Couldn't find any URLs on or below the current note." ]),
+            empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs on or below the current note."]),
         ])
     );
 
@@ -714,18 +711,18 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                 const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
                 const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
 
-                const previousActivity = activities[idx - 1]; 
+                const previousActivity = activities[idx - 1];
                 const activity = activities[idx];
                 const nextActivity = activities[idx + 1];
 
                 if (
                     idx + 1 < activities.length - 1 &&
-                    lastRenderedIdx !== idx + 1 
+                    lastRenderedIdx !== idx + 1
                 ) {
                     // If there was a discontinuity in the activities/indicies, we want to render the next activity.
                     // This gives us more peace of mind in terms of where the duration came from
 
-                    const nextNextActivity = activities[idx + 2]; 
+                    const nextNextActivity = activities[idx + 2];
                     listRoot.getNext().render({
                         previousActivity: activity,
                         activity: nextActivity,
@@ -834,7 +831,7 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
         const page = getPage(pagination);
         const start = pagination.start + 1;
         const end = getCurrentEnd(pagination);
-        setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount +  ")" );
+        setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount + ")");
 
         setVisible(leftButton, page !== 0);
         setVisible(leftLeftButton, page !== 0);
@@ -874,6 +871,10 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
 type NoteRowArgs = {
     note: TreeNote;
     stickyOffset?: number;
+    analyticsMode: boolean;
+    duration: number;
+    totalDuration: number;
+    focusedDepth: number;
 };
 
 
@@ -906,21 +907,25 @@ function getNoteProgressCountText(note: TreeNote): string {
     return progressText;
 }
 
+function getIndentText(note: TreeNote) {
+    const dashChar = note.data._isSelected ? "-" : "-";
+    const progressText = getNoteProgressCountText(note);
+    return `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${progressText} ${dashChar} `;
+}
+
 function NoteRowText(): Renderable<NoteRowArgs> {
     const indent = div({ class: "pre" });
-    const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
 
+    const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
     const whenEditing = TextArea();
     whenEditing.el.setAttribute("rows", "1");
     whenEditing.el.setAttribute("class", "flex-1");
     whenEditing.el.setAttribute("style", "overflow-y: hidden; padding: 0;");
 
-    let isFocused = false;
-
     const root = div(
         {
             class: "pre-wrap flex-1",
-            style: "overflow-y: hidden; margin-left: 10px; padding-left: 10px;border-left: 1px solid var(--fg-color);"
+            style: "overflow-y: hidden; padding-left: 10px;"
         },
         [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
     );
@@ -935,48 +940,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     }
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note, } = component.args;
+        const { note } = component.args;
 
-        const dashChar = note.data._isSelected ? "-" : "-";
-        const progressText = getNoteProgressCountText(note);
+        const indentText = getIndentText(note);
+        setTextContent(indent, indentText);
 
-        setTextContent(
-            indent,
-            `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${progressText} ${dashChar} `
-        );
-
-        const wasFocused = isFocused;
-        isFocused = state.currentNoteId === note.id;
-
+        const isFocused = state.currentNoteId === note.id;
         const isEditing = state._isEditingFocusedNote && isFocused;
-
-        if (renderOptions.shouldScroll && !wasFocused && isFocused) {
-            // without setTimeout here, calling focus won't work as soon as the page loads.
-            function scrollComponentToView() {
-                setTimeout(() => {
-                    // scroll view into position.
-                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
-                    // ideally we don't want to do this when we click on a note.
-                    // I haven't worked out how to do that yet though
-                    {
-                        // NOTE: This actually doesn't work if our list of tasks is so big that the note isn't even on the screen at first, it seems...
-                        
-                        const rootRect = root.el.getBoundingClientRect();
-                        const wantedY = rootRect.top + window.scrollY;
-
-                        window.scrollTo({
-                            left: 0,
-                            top: wantedY - 0.5 * window.innerHeight + 0.5 * rootRect.height,
-                            behavior: "instant"
-                        });
-                    }
-                }, 1);
-            }
-
-            if (renderOptions.shouldScroll) {
-                scrollComponentToView();
-            }
-        }
 
         if (setVisible(whenEditing, isEditing)) {
             whenEditing.el.focus({ preventScroll: true });
@@ -988,6 +958,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         root.el.style.backgroundColor = isFocused ? "var(--bg-color-focus)" : "var(--bg-color)";
 
+        // Actually quite important that this runs even when we aren't editing, because when we eventually
+        // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
         onRerenderWhenEditing();
     });
 
@@ -1045,400 +1017,86 @@ type ActivityListItemArgs = {
     greyedOut?: boolean;
 };
 
-
-
-function activityMatchesFilters(
-    state: State,
-    activity: Activity,
-    nextActivity: Activity | undefined,
-    filter: ActivityFilters,
-): boolean {
-    const t = new Date(activity.t);
-    // const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
-    if (
-        filter.is.dateFromEnabled &&
-        t < filter.date.from
-    ) {
-        return false;
+function ActivityFiltersEditor(): Renderable {
+    function onChange() {
+        rerenderApp({ shouldScroll: false });
     }
-
-    if (
-        filter.is.dateToEnabled &&
-        t > filter.date.to
-    ) {
-        return false;
-    }
-
-    if (
-        filter.is.noMultiDayBreaks &&
-        (isBreak(activity) && isMultiDay(activity, nextActivity))
-    ) {
-        return false;
-    }
-
-    // Fuzzy finding is actually very expensive, try to keep this as the last filter we do,
-    // so it runs on the least number of notes.
-    if (filter.text.query) {
-        const noteText = getActivityTextOrUndefined(state, activity);
-        if (!noteText) {
-            return false;
-        }
-
-        const ranges = fuzzyFind(noteText, filter.text.query);
-        const score = scoreFuzzyFind(ranges);
-        if (score < getMinFuzzyFindScore(filter.text.query)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-function filterActivities(state: State, filter: ActivityFilters, indices: number[]) {
-    const activities = state.activities;
-    indices.splice(0, indices.length);
-
-    for (let i = 0; i < activities.length; i++) {
-        const a = activities[i];
-        const aNext: Activity | undefined = activities[i + 1];
-
-        if (activityMatchesFilters(state, a, aNext, filter)) {
-            indices.push(i);
-        }
-    }
-}
-
-
-// I am grouping all variables of a particular type into their own sub-object.
-// This is a certified Typescript keyof moment (see usage to understand this meme, I cant be bothered explaining it here)
-type ActivityFilters = {
-    date: {
-        from: Date;
-        to: Date;
-    },
-    is: {
-        dateToEnabled: boolean;
-        dateFromEnabled: boolean;
-        noMultiDayBreaks: boolean;
-    },
-    text: {
-        query: string;
-    },
-}
-
-function resetActivityFilters(filters: ActivityFilters) {
-    filters.date.from = new Date();
-    filters.date.to = new Date();
-    filters.is.dateFromEnabled = false;
-    filters.is.dateToEnabled = false;
-    filters.is.noMultiDayBreaks = true;
-
-    // nah don't reset the query
-    // filters.text.query = "";
-}
-
-type ActivityFiltersEditorArgs = {
-    filter: ActivityFilters;
-    onChange(): void;
-}
-
-function setFilterToday(filter: ActivityFilters) {
-    filter.is.dateFromEnabled = true;
-    filter.is.dateToEnabled = true;
-
-    const dateFrom = new Date();
-    const dateTo = new Date();
-    floorDateLocalTime(dateFrom);
-    floorDateLocalTime(dateTo);
-    addDays(dateTo, 1);
-    filter.date.from = dateFrom;
-    filter.date.to = dateTo;
-}
-
-function ActivityFiltersEditor(): Renderable<ActivityFiltersEditorArgs> {
-    const dates = {
-        from: DateTimeInputEx(),
-        to: DateTimeInputEx(),
-    } as const;
-
-    const checkboxes = {
-        dateFromEnabled: Checkbox("Date from"),
-        dateToEnabled: Checkbox("Date to"),
-        noMultiDayBreaks: Checkbox("No multi-day breaks"),
-    } as const;
-
-    const textFields = {
-        query: initEl(TextField("Search"), { class: " w-100" })
-    } as const;
 
     const todayButton = makeButton("Today");
     todayButton.el.addEventListener("click", () => {
-        const { filter, onChange } = component.args;
-
-        setFilterToday(filter);
-
+        setActivityRangeToady(state);
         onChange();
     });
 
-    const noFiltersButton = makeButton("No filters");
-    noFiltersButton.el.addEventListener("click", () => {
-        const { filter, onChange } = component.args;
+    function updateDate(updateFn: (d: Date) => void) {
+        let updated = false;
 
-        resetActivityFilters(filter);
+        if (state._activitiesFrom) {
+            updateFn(state._activitiesFrom);
+            updated=true;
+        }
 
-        onChange();
-    });
+        if (state._activitiesTo) {
+            updateFn(state._activitiesTo);
+            updated=true;
+        }
 
+        if (updated) {
+            onChange();
+        }
+    }
 
-    const root = div({ class: "col", style: "gap: 10px" }, [
-        textFields.query,
-        div({
-            class: "row align-items-center",
-            style: "gap: 10px; padding-bottom: 10px; padding-top: 10px;"
-        }, [
-            div({}, ["Presets"]),
+    let incrDay = makeButtonWithCallback("+1d", () => updateDate((d) => addDays(d, 1))),
+        decrDay = makeButtonWithCallback("-1d", () => updateDate((d) => addDays(d, -1))),
+        incrWeek = makeButtonWithCallback("+7d", () => updateDate((d) => addDays(d, 7))),
+        decrWeek = makeButtonWithCallback("-7d", () => updateDate((d) => addDays(d, -7))),
+        incrMonth = makeButtonWithCallback("+30d",() => updateDate((d) => addDays(d, 30))),
+        decrMonth = makeButtonWithCallback("-30d", () => updateDate((d) => addDays(d, -30)));
+
+    const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
+    let fromDateBlock, toDateBlock, dateFrom, dateTo;
+    const root = div({ class: "row", style: "white-space: nowrap" }, [
+        div(blockStyle, [
             todayButton,
-            noFiltersButton
+            div({ style: "width: 10px" }),
+            incrDay,
+            decrDay,
+            incrWeek,
+            decrWeek,
+            incrMonth,
+            decrMonth,
         ]),
-        checkboxes.noMultiDayBreaks,
-        div({ class: "row" }, [
-            checkboxes.dateFromEnabled,
-            div({ class: "flex-1" }),
-            dates.from,
+        fromDateBlock = div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [
+            dateFrom = DateTimeInput("from"),
         ]),
-        div({ class: "row" }, [
-            checkboxes.dateToEnabled,
-            div({ class: "flex-1" }),
-            dates.to,
-        ]),
-    ]);
-
-
-    const component = makeComponent<ActivityFiltersEditorArgs>(root, () => {
-        const { filter, onChange } = component.args;
-
-        // I have the chance to be the 1000th person to re-invent forms from the ground up rn
-        // But I failed...
-
-        for (const nameUntyped in dates) {
-            const name = nameUntyped as keyof ActivityFilters["date"];
-            const date = dates[name];
-
-            date.render({
-                onChange: (val) => {
-                    if (val) {
-                        filter.date[name] = val;
-                        onChange();
-                    }
-                },
-                value: filter.date[name],
-                readOnly: false,
-            })
-        }
-
-        for (const nameUntyped in checkboxes) {
-            const name = nameUntyped as keyof ActivityFilters["is"];
-            const checkbox = checkboxes[name];
-
-            checkbox.render({
-                onChange: (val) => {
-                    filter.is[name] = val;
-                    onChange();
-                },
-                value: filter.is[name],
-            });
-        }
-
-        for (const nameUntyped in textFields) {
-            const name = nameUntyped as keyof ActivityFilters["text"];
-            const textField = textFields[name];
-            textField.render({
-                value: filter.text[name],
-                onChange: (val) => {
-                    filter.text[name] = val;
-                    onChange();
-                }
-            });
-        }
-
-        setVisible(dates.from, filter.is.dateFromEnabled);
-        setVisible(dates.to, filter.is.dateToEnabled);
-    });
-
-    return component;
-}
-
-const analyticsActivityFilter: ActivityFilters = {
-    text: {
-        query: "",
-    },
-    date: {
-        from: new Date(),
-        to: new Date(),
-    },
-    is: {
-        dateFromEnabled: false,
-        dateToEnabled: false,
-        noMultiDayBreaks: true
-    },
-};
-function ActivityAnalytics(): Renderable {
-    const filteredActivityIndices: number[] = [];
-    const analytics: Analytics = {
-        breaks: newAnalyticsSeries(),
-        multiDayBreaks: newAnalyticsSeries(),
-        taskTimes: new Map(),
-        totalTime: 0,
-    };
-
-    function renderLocal() {
-        component.render(component.args);
-    }
-
-
-    let activityIndiciesGetter: (() => number[]) | undefined = undefined;
-    let activityIndicesName: string | undefined = undefined;
-    function setActivityIndices(name: string | undefined, indicesGetter: (() => number[]) | undefined) {
-        activityIndiciesGetter = indicesGetter;
-        activityIndicesName = name;
-        renderLocal();
-    }
-
-    function setExpandedActivity(taskName: string) {
-        setActivityIndices(`[Task=${taskName}]`, () => {
-            const series = analytics.taskTimes.get(taskName);
-            if (!series) {
-                return [];
-            }
-
-            return series.activityIndices;
-        });
-    }
-
-    const taskColWidth = "250px";
-    const durationsListRoot = div({ class: "w-100" })
-    const analyticsFiltersEditor = ActivityFiltersEditor();
-
-    type DurationListItemArgs = {
-        taskName: string;
-        setExpandedTask(activity: string): void;
-        timeMs: number;
-        totalTimeMs: number;
-        activityIndices?: number[];
-    }
-
-    const activityList = EditableActivityList();
-    const durationsList = makeComponentList(durationsListRoot, () => {
-        const taskNameComponent = div({ style: `padding:5px;padding-bottom:0;` })
-        const durationBar = FractionBar();
-
-        const root = div({ class: "w-100 hover" }, [
-            div({ class: "w-100 row align-items-center" }, [
-                div({ class: "row", style: `width: ${taskColWidth}` }, [
-                    taskNameComponent,
-                ]),
-                div({ class: "flex-1" }, [durationBar])
-            ])
-        ]);
-
-        const component = makeComponent<DurationListItemArgs>(root, () => {
-            const {
-                taskName,
-                timeMs,
-                totalTimeMs,
-            } = component.args;
-
-            if (setVisible(root, timeMs > 0)) {
-                setTextContent(taskNameComponent, taskName);
-                durationBar.render({
-                    fraction: timeMs / totalTimeMs,
-                    text: formatDuration(timeMs),
-                });
-            }
-        });
-
-        root.el.addEventListener("click", () => {
-            const { taskName, setExpandedTask } = component.args;
-            setExpandedTask(taskName);
-        });
-
-        return component;
-    });
-
-    const activityListTitle = el("H3", {}, []);
-    const root = div({ class: "w-100 h-100 row" }, [
-        div({ class: "flex-1 col" }, [
-            activityListTitle,
-            activityList,
-        ]),
-        div({style: "width: 20px"}),
-        div({ class: "flex-1 col" }, [
-            el("H3", {}, ["Filters"]),
-            analyticsFiltersEditor,
-            el("H3", {}, ["Timings"]),
-            div({ class: "relative flex-1", style: "overflow-y: scroll" }, [
-                durationsListRoot,
-            ]),
+        toDateBlock = div(blockStyle, [
+            dateTo = DateTimeInput("to"),
         ]),
     ]);
 
     const component = makeComponent(root, () => {
-        analyticsFiltersEditor.render({
-            filter: analyticsActivityFilter,
-            onChange: () => {
-                component.render(component.args);
+        // I have the chance to be the 1000th person to re-invent forms from the ground up rn
+        // But I failed...
+
+        dateFrom.render({
+            value: state._activitiesFrom,
+            readOnly: false,
+            nullable: true,
+            onChange: (val) => {
+                state._activitiesFrom = val;
+                onChange();
             }
         });
 
-        recomputeNoteTasks(state);
-        filterActivities(state, analyticsActivityFilter, filteredActivityIndices);
-        recomputeAnalytics(state, filteredActivityIndices, analytics);
-
-        setTextContent(activityListTitle, "Activities - " + (activityIndicesName || "All"));
-        const indices = activityIndiciesGetter?.() || filteredActivityIndices;
-
-        activityList.render({ 
-            pageSize: 500, 
-            height: undefined,
-            activityIndexes: indices,
-        });
-
-        const total = analytics.totalTime;
-
-        durationsList.render(() => {
-            durationsList.getNext().render({
-                taskName: "Total Time",
-                setExpandedTask: () => setActivityIndices(undefined, undefined),
-                timeMs: total,
-                totalTimeMs: total,
-            });
-
-            durationsList.getNext().render({
-                taskName: "Multi-Day Break Time",
-                setExpandedTask: () => setActivityIndices("Multi-Day Break Time", () => analytics.multiDayBreaks.activityIndices),
-                timeMs: analytics.multiDayBreaks.duration,
-                totalTimeMs: total,
-            });
-
-            durationsList.getNext().render({
-                taskName: "Break Time",
-                setExpandedTask: () => setActivityIndices("Break Time", () => analytics.breaks.activityIndices),
-                timeMs: analytics.breaks.duration,
-                totalTimeMs: total,
-            });
-
-            const tasks = [...analytics.taskTimes];
-            tasks.sort((a, b) => b[1].duration - a[1].duration);
-            for (const [name, series] of tasks) {
-                durationsList.getNext().render({
-                    taskName: name,
-                    setExpandedTask: setExpandedActivity,
-                    timeMs: series.duration,
-                    totalTimeMs: total,
-                });
+        dateTo.render({
+            value: state._activitiesTo,
+            readOnly: false,
+            nullable: true,
+            onChange: (val) => {
+                state._activitiesTo = val;
+                onChange();
             }
         });
-
     });
 
     return component;
@@ -1744,25 +1402,6 @@ function modalPaddingStyles(paddingPx: number) {
     return `width: calc(100% - ${paddingPx * 2}px); height: calc(100% - ${paddingPx * 2}px); padding: ${paddingPx}px;`;
 }
 
-function AnalyticsModal(): Renderable {
-    const activityAnalytics = ActivityAnalytics();
-    const modalComponent = Modal(
-        div({ class: "col", style: modalPaddingStyles(10) }, [
-            activityAnalytics
-        ])
-    );
-
-    const component = makeComponent(modalComponent, () => {
-        modalComponent.render({
-            onClose: () => setCurrentModal(null)
-        });
-
-        activityAnalytics.render(undefined);
-    });
-
-    return component;
-}
-
 type LoadBackupModalArgs = {
     fileName: string;
     text: string;
@@ -1828,7 +1467,7 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
             canLoad = true;
         } catch {
             replaceChildren(infoDiv, [
-                div({}, [ "This JSON cannot be loaded" ])
+                div({}, ["This JSON cannot be loaded"])
             ]);
         }
     });
@@ -1858,7 +1497,7 @@ function AsciiCanvasModal(): Renderable<AsciiCanvasArgs> {
 }
 
 function NoteRowTimestamp(): Renderable<NoteRowArgs> {
-    const root = div({ class: "pre-wrap" });
+    const root = div({ class: "pre-wrap", style: "white-space: nowrap; border-right: 1px solid var(--fg-color); padding-right: 10px;" });
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
@@ -1868,58 +1507,54 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
     return component;
 }
 
-function NoteRowStatistic(): Renderable<NoteRowArgs> {
-    // const workdayDuration = div();
-    const duration = div();
-    const inProgress = div({   }, [ "" ]);
-    const root = div({ class: "row", style: "padding-left: 10px; gap: 10px;" }, [
-        inProgress,
-        duration,
-        // div({ style: "background-color: var(--fg-color); width: 4px;"}),
-        // workdayDuration,
+
+function NoteRowInput(): Renderable<NoteRowArgs> {
+    const timestamp = NoteRowTimestamp();
+
+    const text = NoteRowText();
+    const inProgress = div({ class: "row align-items-center" }, [""]);
+
+    const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; text-align: right;" });
+    // const progressBar = initEl(FractionBar(), { style: "; flex: 1;" });
+    const progressBar = div({ class: "inverted", style: "height: 4px;" });
+
+    const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
+        timestamp, 
+        div({ class: "flex-1" }, [
+            div({ class: "row" }, [
+                text, 
+                inProgress, 
+                durationEl
+            ]),
+            progressBar,
+        ]),
     ]);
 
+
+    let isFocused = false;
+    let isInAnalyticsMode = false;
+
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note } = component.args;
+        const { note, stickyOffset, analyticsMode, duration, totalDuration, focusedDepth } = component.args;
 
-        // only doing it for 1 note for now for performance reasons.
-        // In future we can use memoisation to make it faster. i.e
-        // duration = sum of child durations + duration of this note, if we even care to.
-        const durationMs = getNoteDuration(state, note);
+        const wasInAnalyticsMode = isInAnalyticsMode;
+        isInAnalyticsMode = !!analyticsMode && !!duration && !!totalDuration;
         const lastActivity = getLastActivity(state);
-
         const isInProgress = lastActivity?.nId === note.id;
         if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
             if (isInProgress) {
-                setTextContent(inProgress, "[In Progress]");
+                setTextContent(inProgress, " [In Progress] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#F00";
             } else {
-                setTextContent(inProgress, "[Not in progress]");
+                setTextContent(inProgress, " [Not in progress] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#00F";
             }
         }
-        setTextContent(duration, formatDuration(durationMs, 2));
-    });
 
-    return component;
-}
-
-function NoteRowInput(): Renderable<NoteRowArgs> {
-    const timestamp = NoteRowTimestamp();
-    const text = NoteRowText();
-    const statistic = NoteRowStatistic();
-    const root = div({ class: "row", style: "background-color: var(--bg-color)" }, [timestamp, text, statistic]);
-
-    const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note, stickyOffset} = component.args;
-
-        const textColor = note.data._isSelected
-            ? "var(--fg-color)"
-            : note.data._status === STATUS_IN_PROGRESS
-                ? "var(--fg-color)"
-                : "var(--unfocus-text-color)";
+        let textColor = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) ? "var(--fg-color)" : "var(--unfocus-text-color)";
+        const isOnCurrentLevel = note.data._depth === focusedDepth;
 
         root.el.style.color = textColor;
         if (stickyOffset !== undefined) {
@@ -1930,9 +1565,46 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
             root.el.style.top = stickyOffset + "";
         }
 
+
         timestamp.render(component.args);
+
+        setTextContent(durationEl, formatDuration(duration!, 2));
+        if (setVisible(progressBar, isInAnalyticsMode)) {
+            setStyle(progressBar, "width", (100 * duration! / totalDuration!) + "%")
+            setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
+        }
+        
         text.render(component.args);
-        statistic.render(component.args);
+
+        const wasFocused = isFocused;
+        isFocused = state.currentNoteId === note.id;
+        if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasInAnalyticsMode !== isInAnalyticsMode))) {
+            // without setTimeout here, calling focus won't work as soon as the page loads.
+            function scrollComponentToView() {
+                setTimeout(() => {
+                    // scroll view into position.
+                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
+                    // ideally we don't want to do this when we click on a note.
+                    // I haven't worked out how to do that yet though
+                    {
+                        // NOTE: This actually doesn't work if our list of tasks is so big that the note isn't even on the screen at first, it seems...
+
+                        const rootRect = root.el.getBoundingClientRect();
+                        const wantedY = rootRect.top + window.scrollY;
+
+                        window.scrollTo({
+                            left: 0,
+                            top: wantedY - 0.5 * window.innerHeight + 0.5 * rootRect.height,
+                            behavior: "instant"
+                        });
+                    }
+                }, 1);
+            }
+
+            if (renderOptions.shouldScroll) {
+                scrollComponentToView();
+            }
+        }
     });
 
     root.el.addEventListener("click", () => {
@@ -1957,20 +1629,54 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 
     const noteList = makeComponentList(root, NoteRowInput);
 
+    const durations = new Map<NoteId, number>();
+
+
+    function activityFilterFn(idx: number) : boolean {
+        const activity = state.activities[idx];
+        if (!activity.nId) {
+            return false;
+        }
+
+        return isActivityInRange(state, activity);
+    }
+
     const component = makeComponent<NoteListInternalArgs>(root, () => {
         const { flatNotes } = component.args;
 
+        let focusedDepth = -1;
+        for (let i = 0; i < state._flatNoteIds.length; i++) {
+            const note = getNote(state, state._flatNoteIds[i]);
+            focusedDepth = Math.max(focusedDepth, note.data._depth);
+        }
+
         noteList.render(() => {
             let stickyOffset = 0;
-            for (const id of flatNotes) {
+
+            durations.clear();
+
+            for (let i = 0; i < flatNotes.length; i++) {
+                const id = flatNotes[i];
                 const note = getNote(state, id);
                 const component = noteList.getNext();
 
                 let isSticky = note.data._isSelected;
 
+                const durationMs = getNoteDuration(state, note, activityFilterFn);
+                durations.set(note.id, durationMs);
+                
+                assert(note.parentId);
+                const parentNote = getNote(state, note.parentId);
+                const parentDurationMs = durations.get(parentNote.id) || getNoteDuration(state, parentNote, activityFilterFn);
+                durations.set(parentNote.id, parentDurationMs);
+
                 component.render({
                     note,
-                    stickyOffset: isSticky ? stickyOffset: undefined,
+                    stickyOffset: isSticky ? stickyOffset : undefined,
+                    analyticsMode: state._isInAnalyticsMode,
+                    duration: durationMs,
+                    totalDuration: parentDurationMs,
+                    focusedDepth: focusedDepth,
                 });
 
                 // I have no idea how I would do this in React, tbh.
@@ -1986,11 +1692,21 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 }
 
 function NotesList(): Renderable {
-    const list1 = NoteListInternal();
-    const root = div({}, [list1]);
+    let list1, filterEditor, filterEditorRow;
+    const root = div({}, [
+        filterEditorRow = div({ class: "row", style: "padding-top: 10px; padding-bottom: 10px" }, [
+            div({ class: "flex-1" }),
+            filterEditor = ActivityFiltersEditor(),
+        ]),
+        list1 = NoteListInternal(),
+    ]);
 
     const component = makeComponent(root, () => {
         list1.render({ flatNotes: state._flatNoteIds, });
+
+        if (setVisible(filterEditorRow, state._isInAnalyticsMode)) {
+            filterEditor.render(undefined);
+        }
     });
 
     return component;
@@ -2081,7 +1797,7 @@ const makeDarkModeToggle = () => {
         icon.render(getThemeAsciiIcon());
     });
 
-    replaceChildren(button, [ icon ]);
+    replaceChildren(button, [icon]);
     icon.render(getThemeAsciiIcon());
 
     return button;
@@ -2148,8 +1864,8 @@ function exportAsText(state: State, flatNotes: NoteId[]) {
 
     // TODO: Scratch pad
     return [
-        header(" Notes "), 
-        formatTable(table, 10), 
+        header(" Notes "),
+        formatTable(table, 10),
         header(" Scratchpad "),
     ].join("\n\n");
 }
@@ -2183,9 +1899,9 @@ function makeUnorderedList(text: (string | Insertable)[]) {
 
 function CheatSheet(): Renderable {
     function keymapDivs(keymap: string, desc: string) {
-        return div({ class: "row" },  [
-            div({ style: "width: 500px" }, [ keymap ]),
-            div({ class: "flex-1" }, [ desc ]),
+        return div({ class: "row" }, [
+            div({ style: "width: 500px" }, [keymap]),
+            div({ class: "flex-1" }, [desc]),
         ])
     }
     return makeComponent(div({}, [
@@ -2235,18 +1951,15 @@ function CheatSheet(): Renderable {
             `The time between this activity and the next activity will contribute towards the overal 'duration' of a note, and all of it's parent notes.`,
             `You can add or insert breaks to prevent some time from contributing towards the duration of a particular note`,
             `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
-            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS/ 1000).toFixed(2)} seconds.
+            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
             I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break. 
             It works by running some code in a timer every 10 seconds, and if it detects that actually, a lot more than 10 seconds has elapsed, it's probably because the tab got closed, or the computer got put to sleep. 
             It is a bit of a hack, and I'm not sure that it works in all cases. Just know that this program can automatically insert breaks sometimes`,
         ]),
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
-            `The analytics view can be opened by clicking the "Analytics" button, or with [Ctrl] + [Shift] + [A]`,
-            `This is where you see how long you've spent on particular high level tasks. It's supposed to be useful for filling out time-sheets, and to see where all the time actually went.`,
-            `By default all notes will appear under "<Uncategorized>"`,
-            `If you add the text "[Task=Task name here]" to any of your notes, then that note, as well as all notes under it, will get grouped into a task called 'Task name here'.`,
-            `Notes can only have 1 task at a time.`,
+            `Press [Ctrl + Shift + A] to toggle 'analytics mode'. You can now see a bunch of percentage bars below each activity that lets you see which tasks you worked on today.`,
+            `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
@@ -2372,17 +2085,17 @@ function autoInsertBreakIfRequired() {
     const lastCheckTime = parseDateSafe(localStorage.getItem(LOCAL_STORAGE_KEYS.TIME_LAST_POLLED) || "");
 
     if (
-        !!lastCheckTime&&
+        !!lastCheckTime &&
         (time.getTime() - lastCheckTime.getTime()) > CHECK_INTERVAL_MS * 2
     ) {
         // If this javascript was running, i.e the computer was open constantly, this code should never run.
         // So, we can insert a break now, if we aren't already taking one. 
         // This should solve the problem of me constantly forgetting to add breaks...
         const lastActivity = getLastActivity(state);
-        const time = !lastActivity ? lastCheckTime.getTime() : 
+        const time = !lastActivity ? lastCheckTime.getTime() :
             Math.max(lastCheckTime.getTime(), new Date(lastActivity.t).getTime());
-        
-        if (!isCurrentlyTakingABreak(state)) { 
+
+        if (!isCurrentlyTakingABreak(state)) {
             pushActivity(state, {
                 t: getTimestamp(new Date(time)),
                 breakInfo: "Auto-inserted break",
@@ -2435,13 +2148,23 @@ export const App = () => {
     const todoNotes = TodoList();
 
     const asciiCanvasModal = AsciiCanvasModal();
-    const analyticsModal = AnalyticsModal();
     const fuzzyFindModal = FuzzyFindModal();
     const todoListModal = TodoListModal();
     const loadBackupModal = LoadBackupModal();
     const linkNavModal = LinkNavModal();
     let backupText = "";
     let backupFilename = "";
+
+    function setAnalyticsEnabled(enabled: boolean) {
+        state._isInAnalyticsMode = enabled;
+
+        setClass(analyticsButton, "inverted", enabled);
+    }
+
+    const analyticsButton = makeButtonWithCallback("Analytics", () => {
+        setAnalyticsEnabled(!state._isInAnalyticsMode);
+        rerenderApp();
+    });
 
     const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
         div({ class: "row align-items-end" }, [
@@ -2460,9 +2183,7 @@ export const App = () => {
             makeButtonWithCallback("Search", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
-            makeButtonWithCallback("Analytics", () => {
-                setCurrentModal(analyticsModal);
-            }),
+            analyticsButton,
             makeButtonWithCallback("Clear all", () => {
                 if (!confirm("Are you sure you want to clear your note tree?")) {
                     return;
@@ -2544,7 +2265,6 @@ export const App = () => {
         ]),
         fixedButtons,
         asciiCanvasModal,
-        analyticsModal,
         fuzzyFindModal,
         todoListModal,
         loadBackupModal,
@@ -2576,9 +2296,9 @@ export const App = () => {
             e.preventDefault();
             setCurrentModal(fuzzyFindModal);
             return;
-        } if(
+        } if (
             e.key === "T" &&
-            ctrlPressed && 
+            ctrlPressed &&
             shiftPressed
         ) {
             e.preventDefault();
@@ -2598,7 +2318,8 @@ export const App = () => {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(analyticsModal);
+            setAnalyticsEnabled(!state._isInAnalyticsMode);
+            rerenderApp();
             return;
         } else if (
             e.key === "Enter" &&
@@ -2801,10 +2522,10 @@ export const App = () => {
 
         // rerender the things
         notesList.render(undefined);
-        activityList.render({ 
-            pageSize: 10, 
+        activityList.render({
+            pageSize: 10,
             height: 600,
-            activityIndexes: undefined,
+            activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
         });
         todoNotes.render({ shouldScroll: false });
 
@@ -2825,10 +2546,6 @@ export const App = () => {
             fuzzyFindModal.render(undefined);
         }
 
-        if (setVisible(analyticsModal, currentModal === analyticsModal)) {
-            setFilterToday(analyticsActivityFilter);
-            analyticsModal.render(undefined);
-        }
 
         if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {
             asciiCanvasModal.render({
