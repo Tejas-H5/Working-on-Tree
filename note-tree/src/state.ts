@@ -539,13 +539,14 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     );
 }
 
-export function pushActivity(state: State, activity: Activity) {
+export function pushActivity(state: State, activity: Activity, isNewNote = false) {
     if (activityNoteIdMatchesLastActivity(state, activity)) {
         // Don't push the same note twice in a row, unless it's a break
         return;
     }
 
     if (
+        !isNewNote &&
         state._debounceNewNoteActivity &&
         !isBreak(activity)
     ) {
@@ -650,7 +651,7 @@ export function insertNoteAfterCurrent(state: State) {
     const newNote = createNewNote(state, "");
     tree.addAfter(state.notes, currentNote, newNote)
     setCurrentNote(state, newNote.id);
-    setIsEditingCurrentNote(state, true);
+    setIsEditingCurrentNote(state, true, true);
     return true;
 }
 
@@ -666,7 +667,7 @@ export function insertChildNode(state: State): TreeNote | null {
 
     tree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id);
-
+    setIsEditingCurrentNote(state, true, true);
     return newNote;
 }
 
@@ -704,17 +705,17 @@ export function getCurrentNote(state: State) {
     return getNote(state, state.currentNoteId);
 }
 
-function pushNoteActivity(state: State, noteId: NoteId) {
+function pushNoteActivity(state: State, noteId: NoteId, isNewNote: boolean) {
     pushActivity(state, {
         nId: noteId,
         t: getTimestamp(new Date()),
-    });
+    }, isNewNote);
 }
 
-export function pushBreakActivity(state: State, breakInfoText: string, locked: undefined | true) {
+export function pushBreakActivity(state: State, breakInfoText: string, locked: undefined | true, timestamp?: string) {
     pushActivity(state, {
         nId: undefined,
-        t: getTimestamp(new Date()),
+        t: timestamp || getTimestamp(new Date()),
         breakInfo: breakInfoText,
         locked: locked,
     });
@@ -783,12 +784,12 @@ export function setCurrentNote(state: State, noteId: NoteId | null) {
 }
 
 
-export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
+export function setIsEditingCurrentNote(state: State, isEditing: boolean, isNewNote = false) {
     state._isEditingFocusedNote = isEditing;
 
     if (isEditing) {
         const currentNote = getCurrentNote(state);
-        pushNoteActivity(state, currentNote.id);
+        pushNoteActivity(state, currentNote.id, isNewNote);
 
         // Prevents multiple notes being added when we sometimes press "Enter" on a note
         // only to then create a new note under it.

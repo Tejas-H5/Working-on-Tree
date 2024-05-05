@@ -41,7 +41,6 @@ import {
     getRootNote,
     setIsEditingCurrentNote,
     isBreak,
-    pushActivity,
     getLastActivity,
     getLastActivityWithNoteIdx,
     setStateFromJSON,
@@ -80,18 +79,19 @@ import { DateTimeInput,  Modal,  makeButton } from "./generic-components";
 import { addDays, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
-import { CHECK_INTERVAL_MS } from "./activitycheckconstants";
 
-import CustomWorker from './activitycheck?worker';
 import { loadFile, saveText } from "./file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
 import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
 import { copyToClipboard } from "./clipboard";
 import { getUrls, openUrlInNewTab } from "./url";
+import { newWebWorker } from "./web-workers";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 
+// Used by webworker and normal code
+export const CHECK_INTERVAL_MS = 1000 * 10;
 
 type NoteLinkArgs = {
     text: string;
@@ -828,7 +828,7 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
         }
     })
 
-    return textArea;
+    return textArea
 }
 
 type Pagination = {
@@ -1600,17 +1600,22 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note, stickyOffset, analyticsMode, duration, totalDuration, focusedDepth } = component.args;
 
+        const wasFocused = isFocused;
+        isFocused = state.currentNoteId === note.id;
+
         const wasInAnalyticsMode = isInAnalyticsMode;
         isInAnalyticsMode = !!analyticsMode && !!duration && !!totalDuration;
+
         const lastActivity = getLastActivity(state);
         const isInProgress = lastActivity?.nId === note.id;
+
         if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
             if (isInProgress) {
-                setTextContent(inProgress, " [In Progress] ");
+                setTextContent(inProgress, (isFocused && !state._isEditingFocusedNote) ? " [Enter to continue] " : " [In Progress] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#F00";
             } else {
-                setTextContent(inProgress, " [Not in progress] ");
+                setTextContent(inProgress, " [Enter to start] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#00F";
             }
@@ -1639,8 +1644,6 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         
         text.render(component.args);
 
-        const wasFocused = isFocused;
-        isFocused = state.currentNoteId === note.id;
         if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasInAnalyticsMode !== isInAnalyticsMode))) {
             // without setTimeout here, calling focus won't work as soon as the page loads.
             function scrollComponentToView() {
@@ -1969,13 +1972,20 @@ function CheatSheet(): Renderable {
     }
     return makeComponent(div({}, [
         el("H3", {}, ["Cheatsheet"]),
+        div({}, [
+            "Hello! You are one of exactly 2 people on the planet that have read this text :) See the full source code here: https://github.com/Tejas-H5/Working-on-Tree",
+        ]),
+        el("H4", {}, ["Offline use"]),
+        div({}, [
+            `This web page can be saved to your computer and ran offline. This is because any changes to this page's URL will result in permanent data loss, and saving an offline copy of the site and running it from there is a good way to mitigate against this. Your data will still be lost if you rename the file or move it to another folder, but assuming that you are the one moving the file, you can save a backup beforehand and load it later.`
+        ]),
         el("H4", {}, ["Basic functionality, and shortcut keys"]),
         div({}),
         makeUnorderedList([
             keymapDivs(`[Enter], while not editing`, `start editing the current note`),
             keymapDivs(`[Enter], while editing`, `create a new note under the current note`),
             keymapDivs(`[Shift] + [Enter], while not editing`, `create a new note 1 level below the current note`),
-            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines`),
+            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines in the note text`),
             keymapDivs(`[Esc], when editing`, `Stop editing`),
             keymapDivs(`[Up]/[PageUp]/[Home]/[Ctrl+Up], not editing`, `Move upwards various amounts`),
             keymapDivs(`[Down]/[PageDown]/[Home]/[Ctrl+Down], not editing`, `Move downwards various amounts`),
@@ -1985,12 +1995,12 @@ function CheatSheet(): Renderable {
         ]),
         div({}),
         makeUnorderedList([
-            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in a note`),
+            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in or under a note`),
         ]),
         div({}),
         makeUnorderedList([
-            keymapDivs(`[Ctrl] + [Shift] + [A]`, `Open the analytics modal`),
-            keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the finder modal`),
+            keymapDivs(`[Ctrl] + [Shift] + [A]`, `Enter analytics mode. More info on this later`),
+            keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the search modal`),
             keymapDivs(`[Ctrl] + [Shift] + [T]`, `Open the TODO notes list`),
             keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
         ]),
@@ -2000,34 +2010,37 @@ function CheatSheet(): Renderable {
             noteStatusToString(STATUS_ASSUMED_DONE) + ` - This note is assumed to be done`,
             noteStatusToString(STATUS_DONE) + ` - This note has been manually marked as done by you`,
         ]),
-        el("H4", {}, ["Completing tasks, and keeping tasks in progress"]),
+        el("H4", {}, ["TODO notes"]),
         el("P", {}, ["Using specific text at the very start of a note can affect it's status:"]),
         makeUnorderedList([
-            `Starting a note with >, >> or >>> will place it into the Backlog, Todo and In-Progress list respectively. 
-             Additionally, this will also hide all of the notes under that notes from all lists - this is mainly a way to declutter the lists which can otherwise have hundreds of tasks.`,
-            `Starting a note with DONE, Done, done, DECLINED, MERGED will mark a particular note and every note above it under the same note as DONE. 
+            `Starting a note with >, >> or >>> will place it into the Backlog, Todo and In-Progress list respectively`,
+            `Adding a note to a ist will also hide the notes under it from all lists. 
+                This allows you to temporarly move all notes under another note into the 'TODO' section if priorities change, and then bring them all back by removing the '>' again.`,
+            `Starting a note with DONE, Done, done, will mark a particular note and every note above it under the same note as DONE. 
              A note can also be marked as DONE if every note under it has been marked as DONE.`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
-            `Each time you start editing a note, the current time and the note ID gets recorded in this list`,
+            `Each time you start editing a note, the current note and time are recorded in the activity list.`,
             `The time between this activity and the next activity will contribute towards the overal 'duration' of a note, and all of it's parent notes.`,
             `You can add or insert breaks to prevent some time from contributing towards the duration of a particular note`,
             `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
-            `Breaks will also insert themselves automatically, if you've closed the tab or closed your laptop or something similar for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
-            I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break. 
-            It works by running some code in a timer every 10 seconds, and if it detects that actually, a lot more than 10 seconds has elapsed, it's probably because the tab got closed, or the computer got put to sleep. 
-            It is a bit of a hack, and I'm not sure that it works in all cases. Just know that this program can automatically insert breaks sometimes`,
+            `Breaks will also insert themselves automatically, if you've closed the tab or put your computer to sleep for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
+            I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break.`,
         ]),
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
-            `Press [Ctrl + Shift + A] to toggle 'analytics mode'. You can now see a bunch of percentage bars below each activity that lets you see which tasks you worked on today.`,
+            `Press [Ctrl + Shift + A] to toggle 'analytics mode'. You can now see a bunch of solid bars below each activity that lets you see which tasks you worked on today.`,
             `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
             `The scratchpad can be opened by clicking the "Scratchpad" button, or with [Ctrl] + [Shift] + [S]`,
             `You would use this to make diagrams or ascii art that you can then paste into your notes`,
+            `There are also a few key shortcuts to be aware of:`,
+            `Holding down [Alt] lets you move the selection`,
+            `[Ctrl] + [Q] or [E] can move between the different selection tools`,
+            `[Ctrl] + [Shift] + [V] and [Ctrl] + [V] can paste things with/without treating whitespace as transparency`,
         ]),
         el("H4", {}, ["Loading and saving"]),
         makeUnorderedList([
@@ -2159,13 +2172,7 @@ function autoInsertBreakIfRequired() {
             Math.max(lastCheckTime.getTime(), new Date(lastActivity.t).getTime());
 
         if (!isCurrentlyTakingABreak(state)) {
-            pushActivity(state, {
-                t: getTimestamp(new Date(time)),
-                breakInfo: "Auto-inserted break",
-                nId: undefined,
-                locked: undefined,
-            });
-
+            pushBreakActivity(state, "Auto-inserted break", undefined, getTimestamp(new Date(time)));
             rerenderApp();
         }
     }
@@ -2579,10 +2586,26 @@ export function App() {
         }
     });
 
-    const worker = new CustomWorker();
+    // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
+    // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
+    // closes the tab, which is what we want here
+    const worker = newWebWorker([ CHECK_INTERVAL_MS ], (checkIntervalMs: number) => {
+        let started = false;
+        setInterval(() => { 
+            postMessage("is-open-check");
+            
+            if (!started) {
+                started = true;
+                console.log("Web worker successfuly started! This page can now auto-insert breaks if you've closed this tab for extended periods of time");
+            }
+        }, checkIntervalMs);
+    });
     worker.onmessage = () => {
         autoInsertBreakIfRequired();
     };
+    worker.onerror = (e) => {
+        console.error("Webworker error: " , e);
+    }
 
     const appComponent = makeComponent(appRoot, () => {
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
