@@ -1972,13 +1972,23 @@ function CheatSheet(): Renderable {
     }
     return makeComponent(div({}, [
         el("H3", {}, ["Cheatsheet"]),
-        div({}, [
-            "Hello! You are one of exactly 2 people on the planet that have read this text :) See the full source code here: https://github.com/Tejas-H5/Working-on-Tree",
-        ]),
         el("H4", {}, ["Offline use"]),
-        div({}, [
-            `This web page can be saved to your computer and ran offline. This is because any changes to this page's URL will result in permanent data loss, and saving an offline copy of the site and running it from there is a good way to mitigate against this. Your data will still be lost if you rename the file or move it to another folder, but assuming that you are the one moving the file, you can save a backup beforehand and load it later.`
-        ]),
+        isRunningFromFile() ? (
+            div({}, [ 
+                "The 'Download this page!' button is gone, now that you've downloaded the page." ,
+                ` Moving or renaming this file will result in all your data being lost, so make sure you download a copy of your JSON before you do that.`,
+                ` The same is true if I or my hosting provider decided to change the URL of this page - but you have far less control over that.`,
+            ])
+        ) : (
+            div({}, [
+                div({ class: "row align-items-center", style: "gap: 30px" }, [
+                    ` This web page can be saved to your computer and ran offline!`,
+                    makeDownloadThisPageButton(),
+                ]),
+                `You will need to download the json here and load the json there if you've already been using it online for a while.`,
+                ` I would recommend this, because if I, or my hosting provider, decided to change the URL of this page (lets say I don't like Tejas-H5 as a github username, and I change it to Tejas-H6 for example) - all your data will be lost.`,
+            ])
+        ),
         el("H4", {}, ["Basic functionality, and shortcut keys"]),
         div({}),
         makeUnorderedList([
@@ -2189,6 +2199,17 @@ function getStateAsJSON() {
     return JSON.stringify(lsKeys);
 }
 
+function isRunningFromFile(): boolean {
+    return window.location.protocol.startsWith("file");
+}
+
+function makeDownloadThisPageButton() {
+    return makeButtonWithCallback("Download this page!", () => {
+        const linkEl = el<HTMLAnchorElement>("A", { download: "note-tree.html", "href": window.location.href });
+        linkEl.el.click();
+    })
+}
+
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
@@ -2248,6 +2269,11 @@ export function App() {
         div({}, [statusTextIndicator]),
         div({ class: "flex-1" }),
         div({ class: "row" }, [
+            isRunningFromFile() ? (
+                div() 
+            ) : (
+                makeDownloadThisPageButton()
+            ),
             makeButtonWithCallback("Delete current", () => {
                 setCurrentModal(deleteModal);
             }),
