@@ -2406,7 +2406,7 @@ export function App() {
 
     document.addEventListener("keyup", (e) => {
         // returns true if we need a rerender
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && lastHotlistIndex !== -1) {
             lastHotlistIndex = -1;
             rerenderApp();
         }
