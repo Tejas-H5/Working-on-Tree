@@ -1078,6 +1078,15 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: State, note: Tree
     throw new Error("This code should never be reached, if `note` is really in the tree");
 }
 
+export function getMostRecentActivityIdx(state: State, note: TreeNote): number {
+    for (let i = state.activities.length - 1; i > 0; i--) {
+        if (state.activities[i].nId === note.id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 // NOTE: this method will attempt to 'fix' indices that are out of bounds.
 export function getLastSelectedNote(state: State, note: TreeNote): TreeNote | null {
     if (note.childIds.length === 0) {
@@ -1098,12 +1107,9 @@ export function getLastSelectedNote(state: State, note: TreeNote): TreeNote | nu
 
 export function setActivityRangeToady(state: State) {
     const dateFrom = new Date();
-    const dateTo = new Date();
     floorDateLocalTime(dateFrom);
-    floorDateLocalTime(dateTo);
-    addDays(dateTo, 1);
     state._activitiesFrom = dateFrom;
-    state._activitiesTo = dateTo;
+    state._activitiesTo = null;
 }
 
 export function isActivityInRange(state: State, activity: Activity) {

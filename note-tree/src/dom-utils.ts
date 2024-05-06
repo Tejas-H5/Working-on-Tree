@@ -104,6 +104,18 @@ export function setClass(
     return state;
 };
 
+export function setVisibleGroup(state: boolean, groupIf: Insertable[], groupElse?: Insertable[]) {
+    for (const i of groupIf) {
+        setVisible(i, state);
+    }
+
+    if (groupElse) {
+        for (const i of groupElse) {
+            setVisible(i, !state);
+        }
+    }
+}
+
 export function setVisible(component: Insertable, state: boolean): boolean {
     if (state) {
         component.el.style.setProperty("display", "", "")
@@ -147,7 +159,7 @@ type Attrs = { [qualifiedName: ValidAttributeName]: string | undefined } & {
 export function initEl<T extends Insertable>(
     ins: T,
     attrs?: Attrs,
-    children?: (Insertable | string)[],
+    children?: ChildList,
 ): T {
     const element = ins.el;
 
@@ -164,7 +176,12 @@ export function initEl<T extends Insertable>(
 
     if (children) {
         for(const c of children) {
-            if (typeof c === "string") {
+            if (Array.isArray(c)) {
+                for (const insertable of c) {
+                    element.appendChild(insertable.el);
+                    insertable._isInserted = true;
+                }
+            } else if (typeof c === "string") {
                 element.appendChild(document.createTextNode(c));
             } else {
                 element.appendChild(c.el);
@@ -183,7 +200,7 @@ export function initEl<T extends Insertable>(
 export function el<T extends HTMLElement>(
     type: string, 
     attrs?: Attrs,
-    children?: (Insertable | string)[],
+    children?: ChildList,
 ): InsertableGeneric<T> {
     const element = document.createElement(type);
 
@@ -198,11 +215,13 @@ export function el<T extends HTMLElement>(
     return insertable;
 }
 
+type ChildList = (Insertable | string | Insertable[])[];
+
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
  * I use this instead of {@link el} 90% of the time
  */
-export function div(attrs?: Attrs, children?: (Insertable | string)[]) {
+export function div(attrs?: Attrs, children?: ChildList) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 

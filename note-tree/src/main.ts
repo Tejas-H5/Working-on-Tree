@@ -53,6 +53,7 @@ import {
     isActivityInRange,
     getMostRecentlyWorkedOnChildActivityIdx,
     deleteDoneNote,
+    getMostRecentActivityIdx,
 } from "./state";
 import {
     Renderable,
@@ -72,6 +73,7 @@ import {
     setStyle,
     ComponentList,
     assert,
+    setVisibleGroup,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -728,6 +730,7 @@ type EditableActivityListArgs = {
     activityIndexes: number[] | undefined;
     pageSize?: number;
     height: number | undefined;
+    currentActivityIndex: number | undefined;
 };
 
 function EditableActivityList(): Renderable<EditableActivityListArgs> {
@@ -750,8 +753,20 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     }
 
     const component = makeComponent<EditableActivityListArgs>(root, () => {
-        const { pageSize, height, activityIndexes } = component.args;
+        const { pageSize, height, activityIndexes: activityIndexesArgs, currentActivityIndex: currentActivityIndexArgs } = component.args;
+
+        const currentNote = getCurrentNote(state);
+        const currentNoteIdx = getMostRecentActivityIdx(state, currentNote);
+        const currentActivityIndex = currentActivityIndexArgs ? 
+            state.activities.length - 1 - currentActivityIndexArgs : 
+            currentNoteIdx !== -1 ? state.activities.length - 1 - currentNoteIdx :
+            undefined;
+
+        // NOTE: seems like this will always be undefined, but we can ressurect this filtering mechanism later if we need to 
+        const activityIndexes = currentActivityIndex ? undefined : activityIndexesArgs;
+
         pagination.pageSize = pageSize || 10;
+        pagination.overrideStart = currentActivityIndex;
         paginationControl.render({
             pagination,
             totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
@@ -759,7 +774,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         });
 
         const activities = state.activities;
-        const start = pagination.start;
+        const start = getStart(pagination);
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
@@ -833,6 +848,7 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
 
 type Pagination = {
     start: number;
+    overrideStart?: number;
     pageSize: number;
     totalCount: number;
 }
@@ -845,7 +861,19 @@ function setTotalCount(pagination: Pagination, total: number) {
 }
 
 function getPage(pagination: Pagination) {
-    return idxToPage(pagination, pagination.start);
+    return idxToPage(pagination, getStart(pagination));
+}
+
+function getStart(pagination: Pagination) {
+    if (pagination.overrideStart) {
+        return idxToPage(pagination, pagination.overrideStart) * pagination.pageSize;
+    }
+
+    return pagination.overrideStart || pagination.start;
+}
+
+function getCurrentEnd(pagination: Pagination) {
+    return Math.min(pagination.totalCount, getStart(pagination) + pagination.pageSize);
 }
 
 function setPage(pagination: Pagination, page: number) {
@@ -854,10 +882,6 @@ function setPage(pagination: Pagination, page: number) {
 
 function idxToPage(pagination: Pagination, idx: number) {
     return Math.floor(idx / pagination.pageSize);
-}
-
-function getCurrentEnd(pagination: Pagination) {
-    return Math.min(pagination.totalCount, pagination.start + pagination.pageSize);
 }
 
 function getMaxPages(pagination: Pagination) {
@@ -895,7 +919,7 @@ function PaginationControl(): Renderable<PaginationControlArgs> {
 
         setTotalCount(pagination, totalCount);
         const page = getPage(pagination);
-        const start = pagination.start + 1;
+        const start = getStart(pagination) + 1;
         const end = getCurrentEnd(pagination);
         setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount + ")");
 
@@ -1120,7 +1144,7 @@ function ActivityFiltersEditor(): Renderable {
         decrMonth = makeButtonWithCallback("-30d", () => updateDate((d) => addDays(d, -30)));
 
     const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
-    let fromDateBlock, toDateBlock, dateFrom, dateTo;
+    let dateFrom, dateTo;
     const root = div({ class: "row", style: "white-space: nowrap" }, [
         div(blockStyle, [
             todayButton,
@@ -1132,10 +1156,10 @@ function ActivityFiltersEditor(): Renderable {
             incrMonth,
             decrMonth,
         ]),
-        fromDateBlock = div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [
+        div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [
             dateFrom = DateTimeInput("from"),
         ]),
-        toDateBlock = div(blockStyle, [
+        div(blockStyle, [
             dateTo = DateTimeInput("to"),
         ]),
     ]);
@@ -1362,6 +1386,10 @@ function TodoListModal(): Renderable {
     }
 
     const component = makeComponent(modalComponent, () => {
+        modalComponent.render({
+            onClose: () => setCurrentModal(null),
+        });
+
         todoNotesSorted.splice(0, todoNotesSorted.length);
         function pushNotes(p: number) {
             for (const id of state._todoNoteIds) {
@@ -1578,7 +1606,6 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const inProgress = div({ class: "row align-items-center" }, [""]);
 
     const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; text-align: right;" });
-    // const progressBar = initEl(FractionBar(), { style: "; flex: 1;" });
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
 
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
@@ -1637,6 +1664,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         timestamp.render(component.args);
 
         setTextContent(durationEl, formatDuration(duration!, 2));
+        setVisible(durationEl, isInAnalyticsMode && duration > 1000);
         if (setVisible(progressBar, isInAnalyticsMode)) {
             setStyle(progressBar, "width", (100 * duration! / totalDuration!) + "%")
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
@@ -1758,21 +1786,16 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 }
 
 function NotesList(): Renderable {
-    let list1, filterEditor, filterEditorRow;
+    let list1, filterEditorRow;
     const root = div({}, [
         filterEditorRow = div({ class: "row", style: "padding-top: 10px; padding-bottom: 10px" }, [
             div({ class: "flex-1" }),
-            filterEditor = ActivityFiltersEditor(),
         ]),
         list1 = NoteListInternal(),
     ]);
 
     const component = makeComponent(root, () => {
         list1.render({ flatNotes: state._flatNoteIds, });
-
-        if (setVisible(filterEditorRow, state._isInAnalyticsMode)) {
-            filterEditor.render(undefined);
-        }
     });
 
     return component;
@@ -1949,6 +1972,10 @@ const rerenderApp = (opts?: RenderOptions) => {
 let currentModal: Insertable | null = null;
 const setCurrentModal = (modal: Insertable | null) => {
     if (currentModal === modal) {
+        return;
+    }
+
+    if (currentModal !== null && modal !== null) {
         return;
     }
 
@@ -2336,17 +2363,18 @@ export function App() {
         ])
     ]);
 
+    let filterEditor;
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
-        div({ class: "row" }, [
+        div({ class: "row align-items-end" }, [
             div({ class: "flex-1" }, [
-                // help,
                 cheatSheet,
                 el("H2", {}, ["Currently working on"]),
+                div({ class: "flex-1" }),
             ]),
             div({}, [
-                // infoButton, 
-                infoButton2
+                infoButton2,
             ]),
+            filterEditor = ActivityFiltersEditor(),
         ]),
         notesList,
         div({ class: "row", style: "gap: 10px" }, [
@@ -2358,7 +2386,10 @@ export function App() {
             ]),
             div({ style: "flex:1; padding-top: 20px" }, [
                 div({}, [
-                    el("H3", {}, ["Activity List"]),
+                    div({ class: "row align-items-center" }, [
+                        el("H3", { style: "user-select: none" }, ["Activity List"]),
+                        div({ class: "flex-1" }),
+                    ]),
                     activityList
                 ])
             ]),
@@ -2373,6 +2404,14 @@ export function App() {
     ]);
 
 
+    document.addEventListener("keyup", (e) => {
+        // returns true if we need a rerender
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
+            lastHotlistIndex = -1;
+            rerenderApp();
+        }
+    });
+    
     document.addEventListener("keydown", (e) => {
         // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
@@ -2647,8 +2686,14 @@ export function App() {
             pageSize: 10,
             height: 600,
             activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
+            currentActivityIndex: lastHotlistIndex === -1 ? undefined : lastHotlistIndex,
         });
         todoNotes.render({ shouldScroll: false });
+
+        setVisibleGroup(state._isInAnalyticsMode, [ filterEditor ], [ infoButton2 ]);
+        if (state._isInAnalyticsMode) {
+            filterEditor.render(undefined);
+        }
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
             loadBackupModal.render({
