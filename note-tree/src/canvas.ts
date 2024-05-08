@@ -494,7 +494,7 @@ function Canvas() {
     const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap;"});
 
     const rowList = makeComponentList(root, () => {
-        const root = div({});
+        const root = div({ class: "row justify-content-center" });
         const charList = makeComponentList(root, () => {
             const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
 

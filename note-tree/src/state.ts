@@ -17,7 +17,8 @@ export type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-    currentDockedMenu: DockableMenu | null;
+    dockedMenu: DockableMenu;
+    showDockedMenu: boolean;
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -35,6 +36,7 @@ export type State = {
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
+    _durationsOnlyUnderSelected: boolean;         // NOTE: Date isn't JSON serializable
     _useActivityIndices: boolean;
     _activityIndices: number[];
 };
@@ -193,12 +195,14 @@ export function defaultState(): State {
         _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesTo: null,
+        _durationsOnlyUnderSelected: true,
         _activityIndices: [],
         _useActivityIndices: false,
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
-        currentDockedMenu: null,
+        dockedMenu: "activities",
+        showDockedMenu: false,
         activities: [],
         scratchPadCanvasLayers: [],
     };
@@ -465,14 +469,30 @@ export function recomputeState(state: State) {
 
     // recompute the current filtered activities
     {
-        let hasRange = (state._activitiesFrom === null) !== (state._activitiesTo === null) ||
-            (!!state._activitiesFrom && !!state._activitiesTo && state._activitiesFrom < state._activitiesTo);
-        state._useActivityIndices = state._isShowingDurations && hasRange;
-        if (hasRange) {
+        state._useActivityIndices = false; ;
+
+        // NOTE: it's fine for both to be null
+        let hasValidRange = state._activitiesFrom === null ||
+            state._activitiesTo === null ||
+            state._activitiesFrom < state._activitiesTo;
+        if (state._isShowingDurations && hasValidRange) {
+            state._useActivityIndices = true;
+
+            const currentNote = getCurrentNote(state);
+            recomputeNoteIsUnderFlag(state, currentNote);
+
             state._activityIndices.splice(0, state._activityIndices.length);
             for (let i = 0; i < state.activities.length; i++) {
                 const activity = state.activities[i];
                 if (!isActivityInRange(state, activity)) {
+                    continue;
+                }
+
+                if (state._durationsOnlyUnderSelected && (
+                    activity.deleted ||
+                    !activity.nId ||
+                    !getNote(state, activity.nId).data._isUnderCurrent
+                )) {
                     continue;
                 }
 

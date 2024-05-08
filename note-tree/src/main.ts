@@ -22,7 +22,6 @@ import {
     getNoteNDown,
     getNoteNUp,
     getSecondPartOfRow,
-    getTimeStr,
     getTodoNotePriority,
     insertChildNode,
     insertNoteAfterCurrent,
@@ -77,7 +76,7 @@ import {
 } from "./dom-utils";
 
 import * as tree from "./tree";
-import { DateTimeInput,  Modal,  makeButton } from "./generic-components";
+import { Checkbox, DateTimeInput,  Modal,  makeButton } from "./generic-components";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
@@ -745,7 +744,9 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
         listRoot,
     ]);
+    const mostRecent = div({ class: "text-align-center" }, [ "<Reached most recent activity>" ]);
     const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
+        mostRecent,
         listContainer,
         paginationControl,
     ]);
@@ -757,7 +758,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     let lastIdx = -1;
 
     const component = makeComponent<EditableActivityListArgs>(root, () => {
-        const { pageSize, activityIndexes, height, topToBottom } = component.args;
+        const { pageSize, activityIndexes, height, } = component.args;
 
         pagination.pageSize = pageSize || 10;
         if (lastIdx !== state._currentlyViewingActivityIdx) {
@@ -785,7 +786,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
             // make the elements, so we can render them backwards
             for (let i = 0; i < activitiesToRender; i++) {
                 const iFromTheEnd = activitiesToRender - 1 - i;
-                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + (topToBottom ? i : iFromTheEnd);
+                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
                 const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
 
                 const previousActivity = activities[idx - 1];
@@ -796,10 +797,10 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                 // This gives us more peace of mind in terms of where the duration came from
                 const hasDiscontinuity = idx !== -1 && 
                     idx + 1 < activities.length - 1 && 
-                    lastRenderedIdx !== idx + 1;
+                    lastRenderedIdx !== idx - 1;
                 lastRenderedIdx = idx;
 
-                if (!topToBottom && hasDiscontinuity) {
+                if (hasDiscontinuity) {
                     const nextNextActivity = activities[idx + 2];
                     listRoot.getNext().render({
                         previousActivity: activity,
@@ -821,19 +822,6 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                     focus: isFocused,
                 });
 
-                // Should be copy-pasted from above, but !topToBottom -> topToBottom
-                if (topToBottom && hasDiscontinuity) {
-                    const nextNextActivity = activities[idx + 2];
-                    listRoot.getNext().render({
-                        previousActivity: activity,
-                        activity: nextActivity,
-                        nextActivity: nextNextActivity,
-                        showDuration: true,
-                        focus: false,
-                        greyedOut: true,
-                    });
-                }
-
                 if (isFocused && !scrollEl) {
                     scrollEl = c.el;
                 }
@@ -844,6 +832,8 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                 scrollParent.scrollTop = scrollEl.offsetTop - 0.2 * scrollParent.offsetHeight;
             }
         });
+
+        setVisible(mostRecent, lastIdx === activities.length - 1 && !!activityIndexes);
     });
 
     return component;
@@ -1055,8 +1045,11 @@ function ActivityFiltersEditor(): Renderable {
         decrMonth = makeButtonWithCallback("-30d", () => updateDate((d) => addDays(d, -30)));
 
     const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
-    let dateFrom, dateTo;
+    const dateFrom = DateTimeInput("from");
+    const dateTo = DateTimeInput("to");
+    const onlyUnderCurrentNote = Checkbox("Under selected?");
     const root = div({ class: "row", style: "white-space: nowrap" }, [
+        div({ style: "width: 20px" }),
         div(blockStyle, [
             todayButton,
             div({ style: "width: 10px" }),
@@ -1067,12 +1060,9 @@ function ActivityFiltersEditor(): Renderable {
             incrMonth,
             decrMonth,
         ]),
-        div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [
-            dateFrom = DateTimeInput("from"),
-        ]),
-        div(blockStyle, [
-            dateTo = DateTimeInput("to"),
-        ]),
+        div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [dateFrom]),
+        div(blockStyle, [dateTo]),
+        onlyUnderCurrentNote,
     ]);
 
     const component = makeComponent(root, () => {
@@ -1092,6 +1082,14 @@ function ActivityFiltersEditor(): Renderable {
             nullable: true,
             onChange: (val) => {
                 state._activitiesTo = val;
+                onChange();
+            }
+        });
+
+        onlyUnderCurrentNote.render({
+            value: state._durationsOnlyUnderSelected,
+            onChange: (val) => {
+                state._durationsOnlyUnderSelected = val;
                 onChange();
             }
         });
@@ -1278,94 +1276,6 @@ function FuzzyFinder(): Renderable {
     return component;
 }
 
-function TodoListModal(): Renderable {
-    const todoList = TodoList();
-    const modalComponent = Modal(
-        div({ class: "col", style: modalPaddingStyles(10) }, [
-            todoList
-        ])
-    );
-
-    let idx = 0;
-    function rerenderTodoList() {
-        todoList.render({
-            shouldScroll: true,
-            cursorNoteId: idx === -1 ? undefined : state._todoNoteIds[idx],
-        });
-    }
-
-    const component = makeComponent(modalComponent, () => {
-        modalComponent.render({
-            onClose: () => setCurrentModal(null),
-        });
-
-        idx = -1;
-        for (let i = 0; i < state._todoNoteIds.length; i++) {
-            const note = getNote(state, state._todoNoteIds[i]);
-
-            if (isCurrentNoteOnOrInsideNote(state, note)) {
-                idx = i;
-                break;
-            }
-        }
-
-        rerenderTodoList();
-    });
-
-    document.addEventListener("keydown", (e) => {
-        if (currentModal !== component) {
-            // I could try to add a moun/unmount system. Or I could do this....
-            return;
-        }
-
-        if (
-            e.key === "PageUp" ||
-            e.key === "PageDown" ||
-            e.key === "ArrowUp" ||
-            e.key === "ArrowDown" ||
-            e.key === "Enter"
-        ) {
-            e.preventDefault();
-
-            let needsRerender = true;
-            let needsGlobalRerender = false;
-            if (idx === -1) {
-                idx = 0;
-            } else if (e.key === "ArrowUp") {
-                idx = Math.max(idx - 1, 0);
-            } else if (e.key === "ArrowDown") {
-                idx = Math.min(idx + 1, state._todoNoteIds.length - 1);
-            } else if (e.key === "PageUp") {
-                idx = Math.max(idx - 10, 0);
-            } else if (e.key === "PageDown") {
-                idx = Math.min(idx + 10, state._todoNoteIds.length - 1);
-            } else if (e.key === "Enter") {
-                // Move to the most recent note in this subtree.
-                const note = getNote(state, state._todoNoteIds[idx]);
-                const mostRecent = getMostRecentlyWorkedOnChild(state, note);
-                setCurrentModal(null);
-                setCurrentNote(state, mostRecent.id);
-                setIsEditingCurrentNote(state, false);
-                needsGlobalRerender = true;
-            } else {
-                needsRerender = false;
-            }
-
-            if (needsRerender) {
-                e.stopImmediatePropagation();
-
-                if (needsGlobalRerender) {
-                    rerenderApp();
-                } else {
-                    rerenderTodoList();
-                }
-            }
-        }
-    });
-
-    return component;
-}
-
 function FuzzyFindModal(): Renderable {
     const fuzzyFind = FuzzyFinder();
     const modalComponent = Modal(
@@ -1483,18 +1393,6 @@ function AsciiCanvasModal(): Renderable<AsciiCanvasArgs> {
     return component;
 }
 
-function NoteRowTimestamp(): Renderable<NoteRowArgs> {
-    const root = div({ class: "pre-wrap", style: "white-space: nowrap; border-right: 1px solid var(--fg-color); padding-right: 10px;" });
-
-    const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note } = component.args;
-        setTextContent(root, getTimeStr(note.data));
-    });
-
-    return component;
-}
-
-
 function NoteRowInput(): Renderable<NoteRowArgs> {
     const text = NoteRowText();
     const inProgress = div({ class: "row align-items-center" }, [""]);
@@ -1515,7 +1413,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
 
 
     let isFocused = false;
-    let isInAnalyticsMode = false;
+    let isShowingDurations = false;
 
     const component = makeComponent<NoteRowArgs>(root, () => {
         const { note, stickyOffset, duration, totalDuration, focusedDepth, scrollParent } = component.args;
@@ -1523,8 +1421,8 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
 
-        const wasInAnalyticsMode = isInAnalyticsMode;
-        isInAnalyticsMode = state._isShowingDurations;
+        const wasShowingDurations = isShowingDurations;
+        isShowingDurations = state._isShowingDurations;
 
         const lastActivity = getLastActivity(state);
         const isInProgress = lastActivity?.nId === note.id;
@@ -1558,11 +1456,11 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         }
 
 
-        if (setVisible(durationEl, isInAnalyticsMode || duration > 1)) {
+        if (setVisible(durationEl, isShowingDurations || duration > 1)) {
             setTextContent(durationEl, formatDurationAsHours(duration));
             durationEl.el.setAttribute("title", formatDuration(duration) + " aka " + formatDurationAsHours(duration));
         }
-        if (setVisible(progressBar, isInAnalyticsMode)) {
+        if (setVisible(progressBar, isShowingDurations)) {
             let percent = totalDuration < 0.000001 ? 0 : 100 * duration! / totalDuration!;
             setStyle(progressBar, "width", percent + "%")
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
@@ -1570,24 +1468,20 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         
         text.render(component.args);
 
-        if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasInAnalyticsMode !== isInAnalyticsMode))) {
-            // without setTimeout here, calling focus won't work as soon as the page loads.
-            function scrollComponentToView() {
-                if (!scrollParent) {
-                    return;
-                }
-
-                scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
-            }
+        if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
 
             if (renderOptions.shouldScroll) {
-                setTimeout(() => {
-                    // scroll view into position.
-                    // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
-                    // ideally we don't want to do this when we click on a note.
-                    // I haven't worked out how to do that yet though
-                    // scrollComponentToView();
-                }, 1);
+                function scrollComponentToView() {
+                    if (!scrollParent) {
+                        return;
+                    }
+
+                    // without setTimeout here, calling focus won't work as soon as the page loads.
+                    setTimeout(() => {
+                        scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
+                    }, 1);
+                }
+
                 scrollComponentToView();
             }
         }
@@ -1679,15 +1573,8 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 }
 
 function NotesList(): Renderable {
-    const filterEditor = ActivityFiltersEditor();
-    const filterEditorRow = div({ class: "row", style: "" }, [
-        div({ class: "flex-1" }),
-        filterEditor,
-    ]);
-
     const list1 = NoteListInternal(); 
     const root = div({}, [
-        filterEditorRow,
         list1,
     ]);
 
@@ -1696,10 +1583,6 @@ function NotesList(): Renderable {
             flatNotes: state._flatNoteIds, 
             scrollParent: root.el.parentElement,
         });
-
-        if (setVisible(filterEditorRow, state._isShowingDurations)) {
-            filterEditor.render(undefined);
-        }
     });
 
     return component;
@@ -1886,12 +1769,25 @@ const setCurrentModal = (modal: Insertable | null) => {
     rerenderApp();
 }
 
-function setCurrentDockedMenu(menu: DockableMenu | null) {
-    if (state.currentDockedMenu === menu) {
-        state.currentDockedMenu = null;
+function toggleCurrentDockedMenu(menu: DockableMenu) {
+    if (state.dockedMenu !== menu) {
+        state.showDockedMenu = true;
+        state.dockedMenu = menu;
     } else {
-        state.currentDockedMenu = menu;
+        state.showDockedMenu = !state.showDockedMenu;
     }
+
+    rerenderApp();
+}
+
+function setCurrentDockedMenu(menu: DockableMenu | null) {
+    if (menu === null) {
+        state.showDockedMenu = false;
+    } else {
+        state.showDockedMenu = true;
+        state.dockedMenu = menu;
+    }
+
     rerenderApp();
 }
 
@@ -1945,10 +1841,12 @@ function CheatSheet(): Renderable {
         ]),
         div({}),
         makeUnorderedList([
-            keymapDivs(`[Ctrl] + [Shift] + [A]`, `Enter analytics mode. More info on this later`),
+            keymapDivs(`[Ctrl] + [Shift] + [A]`, `Toggle between docking the Activity list and the TODO list on the right`),
+            keymapDivs(`[Ctrl] + [Shift] + [Space]`, `Toggle between docking the activity list and the TODO list on the right`),
             keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the search modal`),
-            keymapDivs(`[Ctrl] + [Shift] + [T]`, `Open the TODO notes list`),
             keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
+            keymapDivs(`[Ctrl] + [Shift] + [Left/Right]`, `Move back and forth between sequences of notes in the activity list (If you wrote several notes one after the other, the previous notes in the sequence get skipped and you're taken straight to the end of the previous sequence)`),
+            keymapDivs(`[Ctrl] + [Shift] + [Up/Down]`, `Move up and down the TODO list`),
         ]),
         el("H4", {}, ["Note statuses"]),
         makeUnorderedList([
@@ -2182,17 +2080,10 @@ function makeDownloadThisPageButton() {
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
 export function App() {
-    // const infoButton = el("BUTTON", { class: "info-button", title: "click for help, with developer commentary" }, [
-    //     "help?"
-    // ]);
     const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
     let currentHelpInfo = 1;
-    // infoButton.el.addEventListener("click", () => {
-    //     currentHelpInfo = currentHelpInfo !== 1 ? 1 : 0;
-    //     rerenderApp();
-    // });
     cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
@@ -2201,6 +2092,10 @@ export function App() {
     // const help = Help();
     const cheatSheet = CheatSheet();
 
+    const filterEditor = ActivityFiltersEditor();
+    const filterEditorRow = div({ class: "row", style: "" }, [
+        filterEditor,
+    ]);
     const notesList = NotesList();
     const todoList = TodoList();
     const breakInput = BreakInput();
@@ -2210,6 +2105,8 @@ export function App() {
     const activityList = EditableActivityList();
     const activityListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none" }, ["Activity List"]),
+        breakInput,
+        activityList,
     ]);
     const todoListContainer = div({ class: "flex-1 col" }, [
         el("H3", {}, ["TODO Lists"]),
@@ -2218,7 +2115,6 @@ export function App() {
 
     const asciiCanvasModal = AsciiCanvasModal();
     const fuzzyFindModal = FuzzyFindModal();
-    const todoListModal = TodoListModal();
     const deleteModal = DeleteModal();
     const loadBackupModal = LoadBackupModal();
     const linkNavModal = LinkNavModal();
@@ -2227,16 +2123,20 @@ export function App() {
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
-
-        setClass(durationsButton, "inverted", enabled);
     }
 
     const durationsButton = makeButtonWithCallback("Durations", () => {
         setShowingDurations(!state._isShowingDurations);
         rerenderApp();
     });
+    const todoNotesButton = makeButtonWithCallback("Todo Notes", () => {
+        toggleCurrentDockedMenu("todoLists");
+    });
+    const activitiesButton = makeButtonWithCallback("Activities", () => {
+        toggleCurrentDockedMenu("activities");
+    });
 
-    const fixedButtons = div({ class: "row align-items-end" }, [
+    const bottomButtons = div({ class: "row align-items-end" }, [
         div({ class: "row align-items-end" }, [
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal(asciiCanvasModal);
@@ -2254,16 +2154,12 @@ export function App() {
             makeButtonWithCallback("Delete current", () => {
                 setCurrentModal(deleteModal);
             }),
-            makeButtonWithCallback("Todo Notes", () => {
-                setCurrentDockedMenu("todoLists");
-            }),
-            makeButtonWithCallback("Activities", () => {
-                setCurrentDockedMenu("activities");
-            }),
+            todoNotesButton,
+            activitiesButton,
+            durationsButton,
             makeButtonWithCallback("Search", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
-            durationsButton,
             makeButtonWithCallback("Clear all", () => {
                 if (!confirm("Are you sure you want to clear your note tree?")) {
                     return;
@@ -2320,7 +2216,7 @@ export function App() {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
                 div({ class: "flex-1 overflow-y-auto" }, [
-                    div({ class: "row", style: "" }, [
+                    div({ class: "row", style: "padding: 10px;" }, [
                         el("H2", {}, ["Currently working on"]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
@@ -2334,11 +2230,11 @@ export function App() {
                 ]),
                 rightPanelArea,
             ]),
-            fixedButtons
+            bottomButtons,
+            filterEditorRow,
         ]),
         asciiCanvasModal,
         fuzzyFindModal,
-        todoListModal,
         deleteModal,
         loadBackupModal,
         linkNavModal,
@@ -2389,14 +2285,6 @@ export function App() {
             e.preventDefault();
             setCurrentModal(fuzzyFindModal);
             return;
-        } if (
-            e.key === "L" &&
-            ctrlPressed &&
-            shiftPressed
-        ) {
-            e.preventDefault();
-            setCurrentDockedMenu("todoLists");
-            return;
         } else if (
             e.key === "S" &&
             ctrlPressed &&
@@ -2411,7 +2299,37 @@ export function App() {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentDockedMenu("activities")
+            if (state.dockedMenu !== "activities") {
+                setCurrentDockedMenu("activities")
+            } else  {
+                setCurrentDockedMenu("todoLists")
+            }
+            return;
+        } else if (
+            e.key === " " &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            state.showDockedMenu = !state.showDockedMenu;
+            rerenderApp();
+            return;
+        } else if (
+            // Not sure if I like A and space, or K and L....
+            e.key === "K" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            toggleCurrentDockedMenu("activities")
+            return;
+        } else if (
+            e.key === "L" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            toggleCurrentDockedMenu("todoLists")
             return;
         } else if (
             e.key === "D" &&
@@ -2527,6 +2445,7 @@ export function App() {
                 // Do nothing. Ignore the default behaviour of the browser as well.
             } if (e.key === "ArrowDown") {
                 if (ctrlPressed && shiftPressed) {
+                    shouldPreventDefault = true;
                     moveInDirectionOverTodoList(1);
                 } else if (ctrlPressed) {
                     handleUpDownMovement(getNoteOneDownLocally(state, currentNote));
@@ -2535,6 +2454,7 @@ export function App() {
                 }
             } else if (e.key === "ArrowUp") {
                 if (ctrlPressed && shiftPressed) {
+                    shouldPreventDefault = true;
                     moveInDirectionOverTodoList(-1);
                 } else if (ctrlPressed) {
                     handleUpDownMovement(getNoteOneUpLocally(state, currentNote));
@@ -2554,15 +2474,17 @@ export function App() {
                 const siblings = parent.childIds;
                 handleUpDownMovement(siblings[0] || null);
             } else if (e.key === "ArrowLeft") {
-                // The browser can't detect ctrl when it's pressed on its own :((((
+                // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
+                    shouldPreventDefault = true;
                     moveInDirectonOverHotlist(true);
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
+                    shouldPreventDefault = true;
                     moveInDirectonOverHotlist(false);
                 } else {
                     // move into note
@@ -2641,14 +2563,26 @@ export function App() {
         recomputeState(state);
         autoInsertBreakIfRequired();
 
-        // rerender the things
+        // Rerender interactive components _after_ recomputing the state above
+
+        setClass(durationsButton, "inverted", state._isShowingDurations);
+        setClass(todoNotesButton, "inverted", state.dockedMenu === "todoLists" && state.showDockedMenu);
+        setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
+
         notesList.render(undefined);
 
-        let currentDockedMenu = state.currentDockedMenu;
+        if (setVisible(filterEditorRow, state._isShowingDurations)) {
+            filterEditor.render(undefined);
+        }
+
+        let currentDockedMenu: DockableMenu | null = state.dockedMenu;
+         
         if (isInHotlist) {
             currentDockedMenu = "activities";
         } else if (isInTodoList) {
             currentDockedMenu = "todoLists";
+        } else if (!state.showDockedMenu) {
+            currentDockedMenu = null;
         }
 
         setVisible(rightPanelArea, currentDockedMenu !== null);
@@ -2656,22 +2590,18 @@ export function App() {
         if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
             // Render activities in their normal spot
             appendChild(bottomRightArea, activityListContainer);
-            appendChild(activityListContainer, breakInput);
-            appendChild(activityListContainer, activityList);
             activityList.render({
                 pageSize: 10,
-                activityIndexes: undefined,
+                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
                 height: 600,
                 topToBottom: false,
             });
         } else {
             // Render activities in the side panel
             appendChild(rightPanelArea, activityListContainer);
-            appendChild(activityListContainer, activityList);
-            appendChild(activityListContainer, breakInput);
             activityList.render({
                 pageSize: 20,
-                activityIndexes: undefined,
+                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
                 height: undefined,
                 topToBottom: true,
             });
@@ -2716,10 +2646,6 @@ export function App() {
                     debouncedSave();
                 }
             });
-        }
-
-        if (setVisible(todoListModal, currentModal === todoListModal)) {
-            todoListModal.render(undefined);
         }
     });
 
