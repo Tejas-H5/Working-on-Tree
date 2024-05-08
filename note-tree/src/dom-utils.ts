@@ -352,15 +352,16 @@ export function makeComponent<T = undefined>(root: Insertable, renderFn: () => v
         // @ts-ignore this is always set before we render the component
         args: null,
         render(argsIn, noErrorBoundary = false) {
+            if (!this._isInserted) {
+                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anway");
+                return
+            }
+
             component.args = argsIn;
             if (noErrorBoundary) {
                 renderFn();
             } else {
                 handleRenderingError(this, renderFn);
-            }
-
-            if (!this._isInserted) {
-                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anway");
             }
         },
     };

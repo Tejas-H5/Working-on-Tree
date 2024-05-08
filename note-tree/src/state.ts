@@ -9,6 +9,7 @@ export type TaskId = string;
 
 export type TreeNote = tree.TreeNode<Note>;
 
+export type DockableMenu = "activities" | "todoLists";
 
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
@@ -16,9 +17,7 @@ export type State = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
     currentNoteId: NoteId;
-
-    /** These notes are in order of their priority, i.e how important the user thinks a note is. */
-    _todoNoteIds: NoteId[];
+    currentDockedMenu: DockableMenu | null;
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -27,10 +26,13 @@ export type State = {
 
     // non-serializable fields start with _
     
+    /** These notes are in order of their priority, i.e how important the user thinks a note is. */
+    _todoNoteIds: NoteId[];
+    _currentlyViewingActivityIdx: number;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
     _debounceNewNoteActivity: boolean;
-    _isInAnalyticsMode: boolean;
+    _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
     _useActivityIndices: boolean;
@@ -187,7 +189,8 @@ export function defaultState(): State {
         _debounceNewNoteActivity: false,
         _todoNoteIds: [],
 
-        _isInAnalyticsMode: false,
+        _currentlyViewingActivityIdx: 0,
+        _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesTo: null,
         _activityIndices: [],
@@ -195,11 +198,12 @@ export function defaultState(): State {
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
+        currentDockedMenu: null,
         activities: [],
         scratchPadCanvasLayers: [],
     };
 
-    setActivityRangeToady(state);
+    setActivityRangeToday(state);
 
     return state;
 }
@@ -427,44 +431,45 @@ export function recomputeState(state: State) {
 
     // recompute the TODO notes
     {
-        // Somewhat inefficient. but I don't care.
+        // Should be somewhat inefficient. but I don't care.
         // Seems quite effective, actually. All notes on the
         // todo list are in the same order as they are in the tree, and they are
         // all packed together. It's like I'm looking at a compressed version of the tree
 
         state._todoNoteIds.splice(0, state._todoNoteIds.length);
-        const dfs = (note: TreeNote) => {
+        const dfs = (note: TreeNote, priority: number) => {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
-                if (isTodoNote(note.data) && note.data._status !== STATUS_DONE) {
+                if (getTodoNotePriority(note.data) === priority && note.data._status !== STATUS_DONE) {
                     state._todoNoteIds.push(id);
                 } else {
-                    dfs(note);
+                    dfs(note, priority);
                 }
             }
         }
-        dfs(getRootNote(state));
+        dfs(getRootNote(state), 3);
+        dfs(getRootNote(state), 2);
+        dfs(getRootNote(state), 1);
     }
 
     // recompute the range 
     {
         if (
-            !state._isInAnalyticsMode &&
+            !state._isShowingDurations &&
             !!state._activitiesTo &&
             state._activitiesTo < new Date()
         ) {
-            setActivityRangeToady(state);
+            setActivityRangeToday(state);
         }
     }
 
     // recompute the current filtered activities
     {
-        let hasRange = state._activitiesFrom === null ||
-            state._activitiesTo === null ||
-            state._activitiesFrom < state._activitiesTo;
-        state._useActivityIndices = hasRange;
-        state._activityIndices.splice(0, state._activityIndices.length);
+        let hasRange = (state._activitiesFrom === null) !== (state._activitiesTo === null) ||
+            (!!state._activitiesFrom && !!state._activitiesTo && state._activitiesFrom < state._activitiesTo);
+        state._useActivityIndices = state._isShowingDurations && hasRange;
         if (hasRange) {
+            state._activityIndices.splice(0, state._activityIndices.length);
             for (let i = 0; i < state.activities.length; i++) {
                 const activity = state.activities[i];
                 if (!isActivityInRange(state, activity)) {
@@ -597,9 +602,9 @@ export function recursiveShallowCopy(obj: any): any {
 }
 
 
-export function deleteNote(state: State, id: NoteId, dontDeleteIfNotEmpty = true) {
+export function deleteNoteIfEmpty(state: State, id: NoteId) {
     const note = getNote(state, id);
-    if (dontDeleteIfNotEmpty && !!note.data.text) {
+    if (!!note.data.text) {
         return false;
     }
 
@@ -777,10 +782,18 @@ export function setCurrentNote(state: State, noteId: NoteId | null) {
 
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
-
-    deleteNote(state, currentNoteBeforeMove.id);
+    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+    setCurrentActivityIdxToCurrentNote(state);
 
     return true;
+}
+
+export function setCurrentActivityIdxToCurrentNote(state: State) {
+    const note = getCurrentNote(state);
+    const idx = getMostRecentActivityIdx(state, note);
+    if (idx !== -1) {
+        state._currentlyViewingActivityIdx = idx;
+    }
 }
 
 
@@ -790,6 +803,7 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean, isNewN
     if (isEditing) {
         const currentNote = getCurrentNote(state);
         pushNoteActivity(state, currentNote.id, isNewNote);
+        setCurrentActivityIdxToCurrentNote(state);
 
         // Prevents multiple notes being added when we sometimes press "Enter" on a note
         // only to then create a new note under it.
@@ -1105,11 +1119,14 @@ export function getLastSelectedNote(state: State, note: TreeNote): TreeNote | nu
 }
 
 
-export function setActivityRangeToady(state: State) {
+export function setActivityRangeToday(state: State) {
     const dateFrom = new Date();
+    const dateTo = new Date();
+    addDays(dateTo, 1);
     floorDateLocalTime(dateFrom);
+    floorDateLocalTime(dateTo);
     state._activitiesFrom = dateFrom;
-    state._activitiesTo = null;
+    state._activitiesTo = dateTo;
 }
 
 export function isActivityInRange(state: State, activity: Activity) {

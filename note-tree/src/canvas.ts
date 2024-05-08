@@ -4,8 +4,6 @@ import { Renderable, div, el, initEl, isVisible, makeComponent, makeComponentLis
 import { makeButton } from "./generic-components";
 
 type CanvasArgs = {
-    width: number;
-    height: number;
     onInput(): void;
     outputLayers: AsciiCanvasLayer[] | undefined;
 };
@@ -307,6 +305,9 @@ function resizeLayer(layer: AsciiCanvasLayer, rows: number, cols: number) {
 }
 
 function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
+    rows = Math.max(rows, NUM_ROWS_INCR_AMOUNT);
+    cols = Math.max(cols, 16);
+
     for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
         resizeLayer(canvas.layers[layerIdx], rows, cols);
     }
@@ -405,11 +406,11 @@ function getCell(canvas: CanvasState, i: number, j: number): CanvasCellArgs {
 }
 
 function getNumCols(canvas: CanvasState) {
-    return canvas.rows[0].charList.length;
+    return canvas.layers[0].data[0].length;
 }
 
 function getNumRows(canvas: CanvasState) {
-    return canvas.rows.length;
+    return canvas.layers[0].data.length;
 }
 
 function lerp(a: number, b: number, t: number) : number {
@@ -870,7 +871,7 @@ function Canvas() {
 
 
     const component = makeComponent<CanvasArgs>(root, () => {
-        const { height, width, outputLayers } = component.args;
+        const { outputLayers } = component.args;
 
         if (outputLayers) {
             // Allows writing to an array that lives outside of this component
@@ -880,7 +881,12 @@ function Canvas() {
             }
         }
 
-        resizeLayers(canvasState, height, width);
+        if (getNumRows(canvasState) === 0) {
+            resizeLayers(canvasState, NUM_ROWS_INCR_AMOUNT, 130);
+        }
+
+        const height = getNumRows(canvasState);
+        const width = getNumCols(canvasState);
 
         // Maintain row/col pool
         // NOTE: The rowList and charList are already doing a similar pooling mechanism.
@@ -1017,7 +1023,11 @@ function Canvas() {
             return;
         }
 
-        const key = e.key;
+        let key = e.key;
+        if (key === "Backspace" || key === "Delete") {
+            key = ' ';
+        }
+
         let len = 0;
         // iterating 1 code point at a time
         for (const _c of key) {
@@ -1078,10 +1088,11 @@ function Canvas() {
                     backspace(cursorCell);
                 }
             } else {
-                if (len !== 1) {
+                if (key.length === 1) {
                     return;
                 }
 
+                // Type this letter using the cursor cell
                 setCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j, key);
 
                 if (cursorCell.j === getNumCols(canvasState) - 1) {
@@ -1090,12 +1101,9 @@ function Canvas() {
                     moveCursor(cursorCell, cursorCell.j + 1, cursorCell.i);
                 }
             }
-        } else {
+        } else if (key.length === 1) {
             // Just overwrite every cell with what was typed
-
-            if (len !== 1) {
-                return;
-            }
+            e.stopImmediatePropagation();
 
             forEachCell(canvasState, (char) => {
                 if (char.isSelected) {
@@ -1133,6 +1141,12 @@ function isAsciiCanvasKeybind(e: KeyboardEvent) {
         (ctrlPressed && (e.key === "V" || e.key === "v")) 
     );
 }
+
+// I want the canvas to be like a diagram board, where I append a slab of vertical rows to the page 
+// Whenever I need a new page. 1 page with is approximately the width of the screen, and same for page height and 1 scren height.
+const NUM_ROWS_INCR_AMOUNT = 32;
+// However, I don't expect the width I need to change very much at all. 
+const NUM_COLUMNS_INCR_AMOUNT = 8;
 
 export type AsciiCanvasArgs = {
     outputLayers: AsciiCanvasLayer[];
@@ -1303,14 +1317,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         setTextContent(statusText, stringBuilder.join(" | "));
     }
 
-    // I want the canvas to be like a diagram board, where I append a slab of vertical rows to the page 
-    // Whenever I need a new page. 1 page with is approximately the width of the screen, and same for page height and 1 scren height.
-    const NUM_ROWS_INCR_AMOUNT = 30;
-    // However, I don't expect the width I need to change very much at all. 
-    const NUM_COLUMNS_INCR_AMOUNT = 5;
     const canvasArgs : CanvasArgs = {
-        width: 130,
-        height: NUM_ROWS_INCR_AMOUNT,
         onInput: rerenderLocal,
         outputLayers: [],
     };
@@ -1363,7 +1370,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.moreRows.render({
             name: "+ Rows",
             onClick: () => {
-                canvasArgs.height += NUM_ROWS_INCR_AMOUNT;
+                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvas.canvasState));
                 rerenderLocal();
             },
         });
@@ -1371,7 +1378,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.lessRows.render({
             name: "- Rows",
             onClick: () => {
-                canvasArgs.height = Math.max(NUM_ROWS_INCR_AMOUNT, canvasArgs.height - NUM_ROWS_INCR_AMOUNT);
+                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvas.canvasState));
                 rerenderLocal();
             },
         });
@@ -1379,7 +1386,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.moreCols.render({
             name: "+ Columns",
             onClick: () => {
-                canvasArgs.width += NUM_COLUMNS_INCR_AMOUNT;
+                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState), getNumCols(canvas.canvasState) + NUM_COLUMNS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });
@@ -1387,7 +1394,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.lessCols.render({
             name: "- Columns",
             onClick: () => {
-                canvasArgs.width = Math.max(NUM_COLUMNS_INCR_AMOUNT, canvasArgs.width - NUM_COLUMNS_INCR_AMOUNT);
+                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState), getNumCols(canvas.canvasState) - NUM_COLUMNS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });

@@ -8,7 +8,7 @@ import {
     STATUS_IN_PROGRESS,
     State,
     TreeNote,
-    deleteNote,
+    deleteNoteIfEmpty,
     getActivityDurationMs,
     getActivityText,
     getCurrentNote,
@@ -49,11 +49,12 @@ import {
     getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
     isDoneNoteWithExtraInfo,
-    setActivityRangeToady,
+    setActivityRangeToday,
     isActivityInRange,
     getMostRecentlyWorkedOnChildActivityIdx,
     deleteDoneNote,
-    getMostRecentActivityIdx,
+    setCurrentActivityIdxToCurrentNote,
+    DockableMenu,
 } from "./state";
 import {
     Renderable,
@@ -73,12 +74,11 @@ import {
     setStyle,
     ComponentList,
     assert,
-    setVisibleGroup,
 } from "./dom-utils";
 
 import * as tree from "./tree";
 import { DateTimeInput,  Modal,  makeButton } from "./generic-components";
-import { addDays, formatDate, formatDuration, getTimestamp, parseDateSafe, truncate } from "./datetime";
+import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
 
@@ -88,6 +88,7 @@ import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
 import { copyToClipboard } from "./clipboard";
 import { getUrls, openUrlInNewTab } from "./url";
 import { newWebWorker } from "./web-workers";
+import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setPage } from "./pagniation";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -370,12 +371,12 @@ function BreakInput(): Renderable {
 
 function ActivityListItem(): Renderable<ActivityListItemArgs> {
     const timestamp = DateTimeInput();
-    const timestampWrapper = div({ style: "width: 230px;" }, [timestamp]);
+    const timestampWrapper = div({ style: "" }, [timestamp]);
     const noteLink = NoteLink();
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
     );
-    const durationText = div({ style: "padding-left: 10px" });
+    const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
     const insertBreakButton = makeButton("+ Insert break here");
     const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
         div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
@@ -393,21 +394,24 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
         ]),
         visibleRow = div({ class: "hover-parent" }, [
             div({ class: "row", style: "gap: 20px" }, [
-                timestampWrapper,
-                div({ class: "flex-1 row" }, [
-                    noteLink,
-                    breakEdit
+                div({ class: "flex-1" }, [
+                    timestampWrapper,
+                    div({ class: "row align-items-center", style: "padding-left: 20px" }, [
+                        noteLink,
+                        breakEdit,
+                        deleteButton,
+                    ]),
                 ]),
-                deleteButton,
-                durationText,
+                durationEl,
             ])
         ])
     ]);
 
     const component = makeComponent<ActivityListItemArgs>(root, () => {
-        const { activity, nextActivity, showDuration, greyedOut } = component.args;
+        const { activity, nextActivity, showDuration, greyedOut, focus } = component.args;
 
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
+        setStyle(root, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
 
         const isEditable = isEditableBreak(activity);
         // I think all break text should just be editable...
@@ -441,9 +445,9 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
             nullable: false,
         });
 
-        if (setVisible(durationText, showDuration)) {
-            const durationStr = (isEditable ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
-            setTextContent(durationText, durationStr);
+        if (setVisible(durationEl, showDuration)) {
+            const durationStr = (isEditable ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
+            setTextContent(durationEl, durationStr);
         }
 
         setVisible(deleteButton, isEditable);
@@ -730,20 +734,18 @@ type EditableActivityListArgs = {
     activityIndexes: number[] | undefined;
     pageSize?: number;
     height: number | undefined;
-    currentActivityIndex: number | undefined;
+    topToBottom: boolean;
 };
 
 function EditableActivityList(): Renderable<EditableActivityListArgs> {
-    const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid black" }), ActivityListItem);
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
-    const breakInput = BreakInput();
 
+    const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
     const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
         listRoot,
     ]);
     const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
-        breakInput,
         listContainer,
         paginationControl,
     ]);
@@ -752,21 +754,16 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         component.render(component.args);
     }
 
+    let lastIdx = -1;
+
     const component = makeComponent<EditableActivityListArgs>(root, () => {
-        const { pageSize, height, activityIndexes: activityIndexesArgs, currentActivityIndex: currentActivityIndexArgs } = component.args;
-
-        const currentNote = getCurrentNote(state);
-        const currentNoteIdx = getMostRecentActivityIdx(state, currentNote);
-        const currentActivityIndex = currentActivityIndexArgs ? 
-            state.activities.length - 1 - currentActivityIndexArgs : 
-            currentNoteIdx !== -1 ? state.activities.length - 1 - currentNoteIdx :
-            undefined;
-
-        // NOTE: seems like this will always be undefined, but we can ressurect this filtering mechanism later if we need to 
-        const activityIndexes = currentActivityIndex ? undefined : activityIndexesArgs;
+        const { pageSize, activityIndexes, height, topToBottom } = component.args;
 
         pagination.pageSize = pageSize || 10;
-        pagination.overrideStart = currentActivityIndex;
+        if (lastIdx !== state._currentlyViewingActivityIdx) {
+            lastIdx = state._currentlyViewingActivityIdx;
+            setPage(pagination, idxToPage(pagination, state.activities.length - 1 - lastIdx));
+        }
         paginationControl.render({
             pagination,
             totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
@@ -778,10 +775,9 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
-        breakInput.render(undefined);
-
         listContainer.el.style.height = height ? height + "px" : "";
         setClass(listContainer, "flex-1", !height);
+        let scrollEl: HTMLElement | null = null;
 
         listRoot.render(() => {
             let lastRenderedIdx = -1;
@@ -789,38 +785,63 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
             // make the elements, so we can render them backwards
             for (let i = 0; i < activitiesToRender; i++) {
                 const iFromTheEnd = activitiesToRender - 1 - i;
-                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
+                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + (topToBottom ? i : iFromTheEnd);
                 const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
 
                 const previousActivity = activities[idx - 1];
                 const activity = activities[idx];
                 const nextActivity = activities[idx + 1];
 
-                if (
-                    idx + 1 < activities.length - 1 &&
-                    lastRenderedIdx !== idx + 1
-                ) {
-                    // If there was a discontinuity in the activities/indicies, we want to render the next activity.
-                    // This gives us more peace of mind in terms of where the duration came from
+                // If there was a discontinuity in the activities/indicies, we want to render the next activity.
+                // This gives us more peace of mind in terms of where the duration came from
+                const hasDiscontinuity = idx !== -1 && 
+                    idx + 1 < activities.length - 1 && 
+                    lastRenderedIdx !== idx + 1;
+                lastRenderedIdx = idx;
 
+                if (!topToBottom && hasDiscontinuity) {
                     const nextNextActivity = activities[idx + 2];
                     listRoot.getNext().render({
                         previousActivity: activity,
                         activity: nextActivity,
                         nextActivity: nextNextActivity,
                         showDuration: true,
+                        focus: false,
                         greyedOut: true,
                     });
                 }
 
-                lastRenderedIdx = idx;
-
-                listRoot.getNext().render({
+                const isFocused = activity.nId === state.currentNoteId;
+                const c = listRoot.getNext();
+                c.render({
                     previousActivity,
                     activity,
                     nextActivity,
                     showDuration: true,
+                    focus: isFocused,
                 });
+
+                // Should be copy-pasted from above, but !topToBottom -> topToBottom
+                if (topToBottom && hasDiscontinuity) {
+                    const nextNextActivity = activities[idx + 2];
+                    listRoot.getNext().render({
+                        previousActivity: activity,
+                        activity: nextActivity,
+                        nextActivity: nextNextActivity,
+                        showDuration: true,
+                        focus: false,
+                        greyedOut: true,
+                    });
+                }
+
+                if (isFocused && !scrollEl) {
+                    scrollEl = c.el;
+                }
+            }
+
+            if (scrollEl) {
+                const scrollParent = listContainer.el;
+                scrollParent.scrollTop = scrollEl.offsetTop - 0.2 * scrollParent.offsetHeight;
             }
         });
     });
@@ -846,125 +867,14 @@ function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
     return textArea
 }
 
-type Pagination = {
-    start: number;
-    overrideStart?: number;
-    pageSize: number;
-    totalCount: number;
-}
-
-function setTotalCount(pagination: Pagination, total: number) {
-    pagination.totalCount = total;
-    if (pagination.start >= total) {
-        pagination.start = getMaxPages(pagination) * pagination.pageSize;
-    }
-}
-
-function getPage(pagination: Pagination) {
-    return idxToPage(pagination, getStart(pagination));
-}
-
-function getStart(pagination: Pagination) {
-    if (pagination.overrideStart) {
-        return idxToPage(pagination, pagination.overrideStart) * pagination.pageSize;
-    }
-
-    return pagination.overrideStart || pagination.start;
-}
-
-function getCurrentEnd(pagination: Pagination) {
-    return Math.min(pagination.totalCount, getStart(pagination) + pagination.pageSize);
-}
-
-function setPage(pagination: Pagination, page: number) {
-    pagination.start = Math.max(0, Math.min(pagination.totalCount, page * pagination.pageSize));
-}
-
-function idxToPage(pagination: Pagination, idx: number) {
-    return Math.floor(idx / pagination.pageSize);
-}
-
-function getMaxPages(pagination: Pagination) {
-    return Math.max(0, idxToPage(pagination, pagination.totalCount - 1));
-}
-
-type PaginationControlArgs = {
-    totalCount: number;
-    pagination: Pagination;
-    rerender(): void;
-};
-
-
-function PaginationControl(): Renderable<PaginationControlArgs> {
-    const leftButton = makeButton("<");
-    const leftLeftButton = makeButton("<<");
-    const rightButton = makeButton(">");
-    const rightRightButton = makeButton(">>");
-    const pageReadout = div({ style: "" });
-
-    const root = div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
-        pageReadout,
-        div({ style: "width: 100px", class: "row" }, [
-            leftLeftButton,
-            leftButton,
-        ]),
-        div({ style: "width: 100px", class: "row" }, [
-            rightButton,
-            rightRightButton,
-        ]),
-    ])
-
-    const component = makeComponent<PaginationControlArgs>(root, () => {
-        const { pagination, totalCount } = component.args;
-
-        setTotalCount(pagination, totalCount);
-        const page = getPage(pagination);
-        const start = getStart(pagination) + 1;
-        const end = getCurrentEnd(pagination);
-        setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount + ")");
-
-        setVisible(leftButton, page !== 0);
-        setVisible(leftLeftButton, page !== 0);
-        setVisible(rightButton, page !== getMaxPages(pagination));
-        setVisible(rightRightButton, page !== getMaxPages(pagination));
-    });
-
-
-    leftButton.el.addEventListener("click", () => {
-        const { pagination, rerender } = component.args;
-        setPage(pagination, getPage(pagination) - 1);
-        rerender();
-    });
-
-    leftLeftButton.el.addEventListener("click", () => {
-        const { pagination, rerender } = component.args;
-        pagination.start = 0;
-        rerender();
-    });
-
-    rightRightButton.el.addEventListener("click", () => {
-        const { pagination, rerender } = component.args;
-        pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
-        rerender();
-    });
-
-
-    rightButton.el.addEventListener("click", () => {
-        const { pagination, rerender } = component.args;
-        setPage(pagination, getPage(pagination) + 1);
-        rerender();
-    });
-
-    return component;
-}
 
 type NoteRowArgs = {
     note: TreeNote;
     stickyOffset?: number;
-    analyticsMode: boolean;
     duration: number;
     totalDuration: number;
     focusedDepth: number;
+    scrollParent: HTMLElement | null;
 };
 
 
@@ -1080,7 +990,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (e.key === "Enter" && !shiftPressed) {
             insertNoteAfterCurrent(state);
         } else if (e.key === "Backspace") {
-            deleteNote(state, currentNote.id);
+            deleteNoteIfEmpty(state, currentNote.id);
             shouldPreventDefault = false;
         } else {
             needsRerender = false;
@@ -1104,6 +1014,7 @@ type ActivityListItemArgs = {
     activity: Activity;
     nextActivity: Activity | undefined;
     showDuration: boolean;
+    focus: boolean;
     greyedOut?: boolean;
 };
 
@@ -1114,7 +1025,7 @@ function ActivityFiltersEditor(): Renderable {
 
     const todayButton = makeButton("Today");
     todayButton.el.addEventListener("click", () => {
-        setActivityRangeToady(state);
+        setActivityRangeToday(state);
         onChange();
     });
 
@@ -1376,12 +1287,10 @@ function TodoListModal(): Renderable {
     );
 
     let idx = 0;
-    const todoNotesSorted: TreeNote[] = [];
-
     function rerenderTodoList() {
         todoList.render({
             shouldScroll: true,
-            cursorNoteId: idx === -1 ? undefined : todoNotesSorted[idx].id,
+            cursorNoteId: idx === -1 ? undefined : state._todoNoteIds[idx],
         });
     }
 
@@ -1390,22 +1299,9 @@ function TodoListModal(): Renderable {
             onClose: () => setCurrentModal(null),
         });
 
-        todoNotesSorted.splice(0, todoNotesSorted.length);
-        function pushNotes(p: number) {
-            for (const id of state._todoNoteIds) {
-                const note = getNote(state, id);
-                if (getTodoNotePriority(note.data) === p) {
-                    todoNotesSorted.push(note);
-                }
-            }
-        }
-        pushNotes(3);
-        pushNotes(2);
-        pushNotes(1);
-
         idx = -1;
-        for (let i = 0; i < todoNotesSorted.length; i++) {
-            const note = todoNotesSorted[i];
+        for (let i = 0; i < state._todoNoteIds.length; i++) {
+            const note = getNote(state, state._todoNoteIds[i]);
 
             if (isCurrentNoteOnOrInsideNote(state, note)) {
                 idx = i;
@@ -1438,14 +1334,14 @@ function TodoListModal(): Renderable {
             } else if (e.key === "ArrowUp") {
                 idx = Math.max(idx - 1, 0);
             } else if (e.key === "ArrowDown") {
-                idx = Math.min(idx + 1, todoNotesSorted.length - 1);
+                idx = Math.min(idx + 1, state._todoNoteIds.length - 1);
             } else if (e.key === "PageUp") {
                 idx = Math.max(idx - 10, 0);
             } else if (e.key === "PageDown") {
-                idx = Math.min(idx + 10, todoNotesSorted.length - 1);
+                idx = Math.min(idx + 10, state._todoNoteIds.length - 1);
             } else if (e.key === "Enter") {
                 // Move to the most recent note in this subtree.
-                const note = todoNotesSorted[idx];
+                const note = getNote(state, state._todoNoteIds[idx]);
                 const mostRecent = getMostRecentlyWorkedOnChild(state, note);
                 setCurrentModal(null);
                 setCurrentNote(state, mostRecent.id);
@@ -1600,16 +1496,13 @@ function NoteRowTimestamp(): Renderable<NoteRowArgs> {
 
 
 function NoteRowInput(): Renderable<NoteRowArgs> {
-    const timestamp = NoteRowTimestamp();
-
     const text = NoteRowText();
     const inProgress = div({ class: "row align-items-center" }, [""]);
 
-    const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; text-align: right;" });
+    const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; padding-right: 10px; text-align: right;" });
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
 
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
-        timestamp, 
         div({ class: "flex-1" }, [
             div({ class: "row" }, [
                 text, 
@@ -1625,13 +1518,13 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     let isInAnalyticsMode = false;
 
     const component = makeComponent<NoteRowArgs>(root, () => {
-        const { note, stickyOffset, analyticsMode, duration, totalDuration, focusedDepth } = component.args;
+        const { note, stickyOffset, duration, totalDuration, focusedDepth, scrollParent } = component.args;
 
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
 
         const wasInAnalyticsMode = isInAnalyticsMode;
-        isInAnalyticsMode = !!analyticsMode && !!duration && !!totalDuration;
+        isInAnalyticsMode = state._isShowingDurations;
 
         const lastActivity = getLastActivity(state);
         const isInProgress = lastActivity?.nId === note.id;
@@ -1652,7 +1545,11 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         const isOnCurrentLevel = note.data._depth === focusedDepth;
 
         root.el.style.color = textColor;
-        if (stickyOffset !== undefined) {
+        if (
+            stickyOffset !== undefined && 
+            // Never stick notes on the same level - we can run into a bug where moving up too fast sticks the note, and breaks auto-scrolling
+            !isOnCurrentLevel
+        ) {
             root.el.style.position = "sticky";
             root.el.style.top = stickyOffset + "px";
         } else {
@@ -1661,12 +1558,13 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         }
 
 
-        timestamp.render(component.args);
-
-        setTextContent(durationEl, formatDuration(duration!, 2));
-        setVisible(durationEl, isInAnalyticsMode && duration > 1000);
+        if (setVisible(durationEl, isInAnalyticsMode || duration > 1)) {
+            setTextContent(durationEl, formatDurationAsHours(duration));
+            durationEl.el.setAttribute("title", formatDuration(duration) + " aka " + formatDurationAsHours(duration));
+        }
         if (setVisible(progressBar, isInAnalyticsMode)) {
-            setStyle(progressBar, "width", (100 * duration! / totalDuration!) + "%")
+            let percent = totalDuration < 0.000001 ? 0 : 100 * duration! / totalDuration!;
+            setStyle(progressBar, "width", percent + "%")
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
         }
         
@@ -1675,27 +1573,21 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasInAnalyticsMode !== isInAnalyticsMode))) {
             // without setTimeout here, calling focus won't work as soon as the page loads.
             function scrollComponentToView() {
+                if (!scrollParent) {
+                    return;
+                }
+
+                scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
+            }
+
+            if (renderOptions.shouldScroll) {
                 setTimeout(() => {
                     // scroll view into position.
                     // Right now this also runs when we click on a node instead of navigating with a keyboard, but 
                     // ideally we don't want to do this when we click on a note.
                     // I haven't worked out how to do that yet though
-                    {
-                        // NOTE: This actually doesn't work if our list of tasks is so big that the note isn't even on the screen at first, it seems...
-
-                        const rootRect = root.el.getBoundingClientRect();
-                        const wantedY = rootRect.top + window.scrollY;
-
-                        window.scrollTo({
-                            left: 0,
-                            top: wantedY - 0.5 * window.innerHeight + 0.5 * rootRect.height,
-                            behavior: "instant"
-                        });
-                    }
+                    // scrollComponentToView();
                 }, 1);
-            }
-
-            if (renderOptions.shouldScroll) {
                 scrollComponentToView();
             }
         }
@@ -1713,6 +1605,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
 
 type NoteListInternalArgs = {
     flatNotes: NoteId[];
+    scrollParent: HTMLElement | null;
 }
 
 function NoteListInternal(): Renderable<NoteListInternalArgs> {
@@ -1736,7 +1629,7 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
     }
 
     const component = makeComponent<NoteListInternalArgs>(root, () => {
-        const { flatNotes } = component.args;
+        const { flatNotes, scrollParent } = component.args;
 
         let focusedDepth = -1;
         for (let i = 0; i < state._flatNoteIds.length; i++) {
@@ -1767,10 +1660,10 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
                 component.render({
                     note,
                     stickyOffset: isSticky ? stickyOffset : undefined,
-                    analyticsMode: state._isInAnalyticsMode,
                     duration: durationMs,
                     totalDuration: parentDurationMs,
                     focusedDepth: focusedDepth,
+                    scrollParent,
                 });
 
                 // I have no idea how I would do this in React, tbh.
@@ -1786,16 +1679,27 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 }
 
 function NotesList(): Renderable {
-    let list1, filterEditorRow;
+    const filterEditor = ActivityFiltersEditor();
+    const filterEditorRow = div({ class: "row", style: "" }, [
+        div({ class: "flex-1" }),
+        filterEditor,
+    ]);
+
+    const list1 = NoteListInternal(); 
     const root = div({}, [
-        filterEditorRow = div({ class: "row", style: "padding-top: 10px; padding-bottom: 10px" }, [
-            div({ class: "flex-1" }),
-        ]),
-        list1 = NoteListInternal(),
+        filterEditorRow,
+        list1,
     ]);
 
     const component = makeComponent(root, () => {
-        list1.render({ flatNotes: state._flatNoteIds, });
+        list1.render({ 
+            flatNotes: state._flatNoteIds, 
+            scrollParent: root.el.parentElement,
+        });
+
+        if (setVisible(filterEditorRow, state._isShowingDurations)) {
+            filterEditor.render(undefined);
+        }
     });
 
     return component;
@@ -1975,15 +1879,20 @@ const setCurrentModal = (modal: Insertable | null) => {
         return;
     }
 
-    if (currentModal !== null && modal !== null) {
-        return;
-    }
-
     setIsEditingCurrentNote(state, false);
 
     currentModal = modal;
 
-    rerenderApp({ shouldScroll: true });
+    rerenderApp();
+}
+
+function setCurrentDockedMenu(menu: DockableMenu | null) {
+    if (state.currentDockedMenu === menu) {
+        state.currentDockedMenu = null;
+    } else {
+        state.currentDockedMenu = menu;
+    }
+    rerenderApp();
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
@@ -2136,15 +2045,17 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
 }
 
 
-let lastHotlistIndex = 0;
+let isInHotlist = false;
 function moveInDirectonOverHotlist(backwards: boolean) {
-    if (lastHotlistIndex === -1) {
-        lastHotlistIndex = getLastActivityWithNoteIdx(state);
-        if (lastHotlistIndex === -1) {
+    if (!isInHotlist) {
+        isInHotlist = true;
+
+        state._currentlyViewingActivityIdx = getLastActivityWithNoteIdx(state);
+        if (state._currentlyViewingActivityIdx === -1) {
             return;
         }
 
-        const nId = state.activities[lastHotlistIndex].nId;
+        const nId = state.activities[state._currentlyViewingActivityIdx].nId;
         if (state.currentNoteId !== nId) {
             setCurrentNote(state, nId!);
             setIsEditingCurrentNote(state, false);
@@ -2152,7 +2063,7 @@ function moveInDirectonOverHotlist(backwards: boolean) {
         }
     }
 
-    let nextIdx = lastHotlistIndex;
+    let nextIdx = state._currentlyViewingActivityIdx;
     nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards, true);
 
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
@@ -2167,7 +2078,35 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 
     setCurrentNote(state, nId);
     setIsEditingCurrentNote(state, false);
-    lastHotlistIndex = nextIdx;
+    state._currentlyViewingActivityIdx = nextIdx; // not necesssarily the most recent note
+}
+
+let isInTodoList = false;
+function moveInDirectionOverTodoList(amount: number) {
+    const todoNoteIds = state._todoNoteIds;
+    isInTodoList = true;
+
+    let idx = -1;
+    for (let i = 0; i < todoNoteIds.length; i++) {
+        const note = getNote(state, todoNoteIds[i]);
+
+        if (isCurrentNoteOnOrInsideNote(state, note)) {
+            idx = i;
+            break;
+        }
+    }
+
+    if (idx === -1) {
+        idx = 0;
+    } else {
+        idx = Math.max(0, Math.min(todoNoteIds.length - 1, idx + amount));
+    }
+
+    // Move to the most recent note in this subtree.
+    const note = getNote(state, state._todoNoteIds[idx]);
+    const mostRecent = getMostRecentlyWorkedOnChild(state, note);
+    setCurrentNote(state, mostRecent.id);
+    setIsEditingCurrentNote(state, false);
 }
 
 
@@ -2246,7 +2185,7 @@ export function App() {
     // const infoButton = el("BUTTON", { class: "info-button", title: "click for help, with developer commentary" }, [
     //     "help?"
     // ]);
-    const infoButton2 = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
+    const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
     let currentHelpInfo = 1;
@@ -2254,16 +2193,28 @@ export function App() {
     //     currentHelpInfo = currentHelpInfo !== 1 ? 1 : 0;
     //     rerenderApp();
     // });
-    infoButton2.el.addEventListener("click", () => {
+    cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
     });
 
     // const help = Help();
     const cheatSheet = CheatSheet();
+
     const notesList = NotesList();
+    const todoList = TodoList();
+    const breakInput = BreakInput();
+    const rightPanelArea = div({ style: "width: 30%", class: "col" });
+    const bottomLeftArea = div({ class: "flex-1 col" });
+    const bottomRightArea = div({ class: "flex-1 col" })
     const activityList = EditableActivityList();
-    const todoNotes = TodoList();
+    const activityListContainer = div({ class: "flex-1 col" }, [
+        el("H3", { style: "user-select: none" }, ["Activity List"]),
+    ]);
+    const todoListContainer = div({ class: "flex-1 col" }, [
+        el("H3", {}, ["TODO Lists"]),
+        todoList
+    ]);
 
     const asciiCanvasModal = AsciiCanvasModal();
     const fuzzyFindModal = FuzzyFindModal();
@@ -2274,20 +2225,19 @@ export function App() {
     let backupText = "";
     let backupFilename = "";
 
-    function setAnalyticsEnabled(enabled: boolean) {
-        state._isInAnalyticsMode = enabled;
+    function setShowingDurations(enabled: boolean) {
+        state._isShowingDurations = enabled;
 
-        setClass(analyticsButton, "inverted", enabled);
+        setClass(durationsButton, "inverted", enabled);
     }
 
-    const analyticsButton = makeButtonWithCallback("Analytics", () => {
-        setAnalyticsEnabled(!state._isInAnalyticsMode);
+    const durationsButton = makeButtonWithCallback("Durations", () => {
+        setShowingDurations(!state._isShowingDurations);
         rerenderApp();
     });
 
-    const fixedButtons = div({ class: "fixed row align-items-end", style: "bottom: 5px; right: 5px; left: 5px; gap: 5px;" }, [
+    const fixedButtons = div({ class: "row align-items-end" }, [
         div({ class: "row align-items-end" }, [
-            makeDarkModeToggle(),
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal(asciiCanvasModal);
             }),
@@ -2305,12 +2255,15 @@ export function App() {
                 setCurrentModal(deleteModal);
             }),
             makeButtonWithCallback("Todo Notes", () => {
-                setCurrentModal(fuzzyFindModal);
+                setCurrentDockedMenu("todoLists");
+            }),
+            makeButtonWithCallback("Activities", () => {
+                setCurrentDockedMenu("activities");
             }),
             makeButtonWithCallback("Search", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
-            analyticsButton,
+            durationsButton,
             makeButtonWithCallback("Clear all", () => {
                 if (!confirm("Are you sure you want to clear your note tree?")) {
                     return;
@@ -2363,38 +2316,26 @@ export function App() {
         ])
     ]);
 
-    let filterEditor;
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
-        div({ class: "row align-items-end" }, [
-            div({ class: "flex-1" }, [
-                cheatSheet,
-                el("H2", {}, ["Currently working on"]),
-                div({ class: "flex-1" }),
-            ]),
-            div({}, [
-                infoButton2,
-            ]),
-            filterEditor = ActivityFiltersEditor(),
-        ]),
-        notesList,
-        div({ class: "row", style: "gap: 10px" }, [
-            div({ style: "flex:1; padding-top: 20px" }, [
-                div({}, [
-                    el("H3", {}, ["TODO Notes [Ctrl + Shift + T]"]),
-                    todoNotes
-                ])
-            ]),
-            div({ style: "flex:1; padding-top: 20px" }, [
-                div({}, [
-                    div({ class: "row align-items-center" }, [
-                        el("H3", { style: "user-select: none" }, ["Activity List"]),
+        div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
+            div({ class: "row flex-1" } , [
+                div({ class: "flex-1 overflow-y-auto" }, [
+                    div({ class: "row", style: "" }, [
+                        el("H2", {}, ["Currently working on"]),
                         div({ class: "flex-1" }),
+                        cheatSheetButton,
+                        makeDarkModeToggle(),
                     ]),
-                    activityList
-                ])
+                    notesList,
+                    div({ class: "row", style: "" }, [
+                        bottomLeftArea, 
+                        bottomRightArea,
+                    ]),
+                ]),
+                rightPanelArea,
             ]),
+            fixedButtons
         ]),
-        fixedButtons,
         asciiCanvasModal,
         fuzzyFindModal,
         todoListModal,
@@ -2406,8 +2347,15 @@ export function App() {
 
     document.addEventListener("keyup", (e) => {
         // returns true if we need a rerender
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && lastHotlistIndex !== -1) {
-            lastHotlistIndex = -1;
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && isInHotlist) {
+            isInHotlist = false;
+            setCurrentActivityIdxToCurrentNote(state);
+            rerenderApp();
+        }
+
+        // returns true if we need a rerender
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && isInTodoList) {
+            isInTodoList = false;
             rerenderApp();
         }
     });
@@ -2424,7 +2372,8 @@ export function App() {
             (e.key === "Shift" || e.key === "Control") &&
             !e.repeat
         ) {
-            lastHotlistIndex = -1;
+            isInHotlist = false;
+            isInTodoList = false;
         }
 
         // handle modals
@@ -2441,12 +2390,12 @@ export function App() {
             setCurrentModal(fuzzyFindModal);
             return;
         } if (
-            e.key === "T" &&
+            e.key === "L" &&
             ctrlPressed &&
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(todoListModal);
+            setCurrentDockedMenu("todoLists");
             return;
         } else if (
             e.key === "S" &&
@@ -2462,7 +2411,15 @@ export function App() {
             shiftPressed
         ) {
             e.preventDefault();
-            setAnalyticsEnabled(!state._isInAnalyticsMode);
+            setCurrentDockedMenu("activities")
+            return;
+        } else if (
+            e.key === "D" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setShowingDurations(!state._isShowingDurations);
             rerenderApp();
             return;
         } else if (
@@ -2569,13 +2526,17 @@ export function App() {
             if (e.key === "End" || e.key === "Home") {
                 // Do nothing. Ignore the default behaviour of the browser as well.
             } if (e.key === "ArrowDown") {
-                if (ctrlPressed) {
+                if (ctrlPressed && shiftPressed) {
+                    moveInDirectionOverTodoList(1);
+                } else if (ctrlPressed) {
                     handleUpDownMovement(getNoteOneDownLocally(state, currentNote));
                 } else {
                     handleUpDownMovement(getNoteNDown(state, currentNote, true));
                 }
             } else if (e.key === "ArrowUp") {
-                if (ctrlPressed) {
+                if (ctrlPressed && shiftPressed) {
+                    moveInDirectionOverTodoList(-1);
+                } else if (ctrlPressed) {
                     handleUpDownMovement(getNoteOneUpLocally(state, currentNote));
                 } else {
                     handleUpDownMovement(getNoteNUp(state, currentNote, true));
@@ -2682,18 +2643,50 @@ export function App() {
 
         // rerender the things
         notesList.render(undefined);
-        activityList.render({
-            pageSize: 10,
-            height: 600,
-            activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
-            currentActivityIndex: lastHotlistIndex === -1 ? undefined : lastHotlistIndex,
-        });
-        todoNotes.render({ shouldScroll: false });
 
-        setVisibleGroup(state._isInAnalyticsMode, [ filterEditor ], [ infoButton2 ]);
-        if (state._isInAnalyticsMode) {
-            filterEditor.render(undefined);
+        let currentDockedMenu = state.currentDockedMenu;
+        if (isInHotlist) {
+            currentDockedMenu = "activities";
+        } else if (isInTodoList) {
+            currentDockedMenu = "todoLists";
         }
+
+        setVisible(rightPanelArea, currentDockedMenu !== null);
+
+        if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
+            // Render activities in their normal spot
+            appendChild(bottomRightArea, activityListContainer);
+            appendChild(activityListContainer, breakInput);
+            appendChild(activityListContainer, activityList);
+            activityList.render({
+                pageSize: 10,
+                activityIndexes: undefined,
+                height: 600,
+                topToBottom: false,
+            });
+        } else {
+            // Render activities in the side panel
+            appendChild(rightPanelArea, activityListContainer);
+            appendChild(activityListContainer, activityList);
+            appendChild(activityListContainer, breakInput);
+            activityList.render({
+                pageSize: 20,
+                activityIndexes: undefined,
+                height: undefined,
+                topToBottom: true,
+            });
+        }
+
+        breakInput.render(undefined);
+
+        if (setVisible(bottomLeftArea, currentDockedMenu !== "todoLists")) {
+            // Render todo list in their normal spot
+            appendChild(bottomLeftArea, todoListContainer);
+        } else {
+            // Render todo list in the right panel
+            appendChild(rightPanelArea, todoListContainer);
+        }
+        todoList.render({ shouldScroll: true });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
             loadBackupModal.render({

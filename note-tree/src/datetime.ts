@@ -128,6 +128,11 @@ export function formatDurationInWorkdays(ms: number): string {
     return `${hours.toFixed(2)} wd`;
 }
 
+export function formatDurationAsHours(ms: number): string {
+    const hours = ms / 1000 / 60 / 60;
+    return hours.toFixed(2) + "h";
+}
+
 export function formatDuration(ms: number, unitLimit = -1) {
     const seconds = Math.floor(ms / 1000) % 60;
     const minutes = Math.floor(ms / 1000 / 60) % 60;
