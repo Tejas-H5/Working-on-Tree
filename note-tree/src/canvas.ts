@@ -887,6 +887,7 @@ function Canvas() {
 
         const height = getNumRows(canvasState);
         const width = getNumCols(canvasState);
+        resizeLayers(canvasState, height, width);
 
         // Maintain row/col pool
         // NOTE: The rowList and charList are already doing a similar pooling mechanism.

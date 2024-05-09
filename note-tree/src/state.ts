@@ -530,7 +530,7 @@ export function getActivityTextOrUndefined(state: State, activity: Activity): st
     if (activity.nId) {
         const text = getNote(state, activity.nId).data.text;
         if (activity.deleted) {
-            return "< deleted > " + text;
+            return "< used to be under > " + text;
         }
 
         return text;
