@@ -444,9 +444,10 @@ export function recomputeState(state: State) {
         const dfs = (note: TreeNote, priority: number) => {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
-                if (getTodoNotePriority(note.data) === priority && note.data._status !== STATUS_DONE) {
+                const notePriority = getTodoNotePriority(note.data);
+                if (notePriority === priority && note.data._status !== STATUS_DONE) {
                     state._todoNoteIds.push(id);
-                } else {
+                } else if (notePriority === 0) {
                     dfs(note, priority);
                 }
             }
@@ -522,12 +523,17 @@ export function isNoteUnderParent(state: State, parentId: NoteId, note: TreeNote
 }
 
 export function getActivityTextOrUndefined(state: State, activity: Activity): string | undefined {
-    if (activity.deleted) {
-        return "< deleted note! >";
+    if (activity.nId === state.notes.rootId) {
+        return "< deleted root note >";
     }
 
     if (activity.nId) {
-        return getNote(state, activity.nId).data.text;
+        const text = getNote(state, activity.nId).data.text;
+        if (activity.deleted) {
+            return "< deleted > " + text;
+        }
+
+        return text;
     }
 
     if (activity.breakInfo) {
@@ -657,9 +663,13 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
     for (let i = 0; i < state.activities.length; i++) {
         const activity = state.activities[i];
         if (activity.nId === note.id) {
-            activity.nId = undefined;
+            activity.nId = note.parentId;
             activity.deleted = true;
         }
+    }
+
+    while(state.activities.length > 0 && state.activities[state.activities.length - 1].deleted) {
+        state.activities.pop();
     }
 
     return true;
@@ -1208,7 +1218,7 @@ export function deleteDoneNote(state: State, note: TreeNote): string | undefined
             !hasNote(state, activity.nId) || 
             activity.deleted 
         ) {
-            activity.nId = undefined;
+            activity.nId = parentId;
             activity.deleted = true;
         }
     }
@@ -1218,10 +1228,7 @@ export function deleteDoneNote(state: State, note: TreeNote): string | undefined
     for (let i = 1; i < state.activities.length; i++) {
         const activity = state.activities[i];
         const lastActivity = state.activities[i - 1];
-        if (
-            (activity.deleted && lastActivity.deleted) ||   
-            (activity.nId && lastActivity.nId === activity.nId) 
-        ) {
+        if (lastActivity.nId === activity.nId) {
             state.activities.splice(i, 1);
             i--;
         }

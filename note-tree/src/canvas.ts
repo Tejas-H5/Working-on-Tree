@@ -1088,7 +1088,7 @@ function Canvas() {
                     backspace(cursorCell);
                 }
             } else {
-                if (key.length === 1) {
+                if (key.length !== 1) {
                     return;
                 }
 

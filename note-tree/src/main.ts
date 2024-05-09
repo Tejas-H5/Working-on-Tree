@@ -733,7 +733,7 @@ type EditableActivityListArgs = {
     activityIndexes: number[] | undefined;
     pageSize?: number;
     height: number | undefined;
-    topToBottom: boolean;
+    shouldScroll: boolean;
 };
 
 function EditableActivityList(): Renderable<EditableActivityListArgs> {
@@ -758,7 +758,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     let lastIdx = -1;
 
     const component = makeComponent<EditableActivityListArgs>(root, () => {
-        const { pageSize, activityIndexes, height, } = component.args;
+        const { pageSize, activityIndexes, height, shouldScroll } = component.args;
 
         pagination.pageSize = pageSize || 10;
         if (lastIdx !== state._currentlyViewingActivityIdx) {
@@ -776,8 +776,9 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
-        listContainer.el.style.height = height ? height + "px" : "";
-        setClass(listContainer, "flex-1", !height);
+        root.el.style.height = height ? height + "px" : "";
+        setClass(root, "flex-1", height === undefined);
+
         let scrollEl: HTMLElement | null = null;
 
         listRoot.render(() => {
@@ -797,7 +798,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                 // This gives us more peace of mind in terms of where the duration came from
                 const hasDiscontinuity = idx !== -1 && 
                     idx + 1 < activities.length - 1 && 
-                    lastRenderedIdx !== idx - 1;
+                    lastRenderedIdx !== idx + 1;
                 lastRenderedIdx = idx;
 
                 if (hasDiscontinuity) {
@@ -826,12 +827,18 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
                     scrollEl = c.el;
                 }
             }
+        });
 
+        setTimeout(() => {
             if (scrollEl) {
                 const scrollParent = listContainer.el;
-                scrollParent.scrollTop = scrollEl.offsetTop - 0.2 * scrollParent.offsetHeight;
+                if (shouldScroll) {
+                    scrollParent.scrollTop = scrollEl.offsetTop - 0.5 * scrollParent.offsetHeight;
+                } else {
+                    scrollParent.scrollTop = 0;
+                }
             }
-        });
+        }, 1);
 
         setVisible(mostRecent, lastIdx === activities.length - 1 && !!activityIndexes);
     });
@@ -1979,29 +1986,26 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     state._currentlyViewingActivityIdx = nextIdx; // not necesssarily the most recent note
 }
 
-let isInTodoList = false;
+let todoNoteIdx = -1;
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
-    isInTodoList = true;
 
-    let idx = -1;
-    for (let i = 0; i < todoNoteIds.length; i++) {
-        const note = getNote(state, todoNoteIds[i]);
+    if (todoNoteIdx === -1) {
+        todoNoteIdx = 0;
+        for (let i = 0; i < todoNoteIds.length; i++) {
+            const note = getNote(state, todoNoteIds[i]);
 
-        if (isCurrentNoteOnOrInsideNote(state, note)) {
-            idx = i;
-            break;
+            if (isCurrentNoteOnOrInsideNote(state, note)) {
+                todoNoteIdx = i;
+                break;
+            }
         }
-    }
-
-    if (idx === -1) {
-        idx = 0;
     } else {
-        idx = Math.max(0, Math.min(todoNoteIds.length - 1, idx + amount));
+        todoNoteIdx = Math.max(0, Math.min(todoNoteIds.length - 1, todoNoteIdx + amount));
     }
 
     // Move to the most recent note in this subtree.
-    const note = getNote(state, state._todoNoteIds[idx]);
+    const note = getNote(state, state._todoNoteIds[todoNoteIdx]);
     const mostRecent = getMostRecentlyWorkedOnChild(state, note);
     setCurrentNote(state, mostRecent.id);
     setIsEditingCurrentNote(state, false);
@@ -2250,8 +2254,8 @@ export function App() {
         }
 
         // returns true if we need a rerender
-        if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && isInTodoList) {
-            isInTodoList = false;
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && todoNoteIdx !== -1) {
+            todoNoteIdx = -1;
             rerenderApp();
         }
     });
@@ -2269,7 +2273,7 @@ export function App() {
             !e.repeat
         ) {
             isInHotlist = false;
-            isInTodoList = false;
+            todoNoteIdx = -1;
         }
 
         // handle modals
@@ -2579,7 +2583,7 @@ export function App() {
          
         if (isInHotlist) {
             currentDockedMenu = "activities";
-        } else if (isInTodoList) {
+        } else if (todoNoteIdx !== -1) {
             currentDockedMenu = "todoLists";
         } else if (!state.showDockedMenu) {
             currentDockedMenu = null;
@@ -2591,10 +2595,11 @@ export function App() {
             // Render activities in their normal spot
             appendChild(bottomRightArea, activityListContainer);
             activityList.render({
-                pageSize: 10,
+                pageSize: 20,
                 activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
                 height: 600,
-                topToBottom: false,
+                // I couldn't make scrolling work in this context :sad:
+                shouldScroll: false,
             });
         } else {
             // Render activities in the side panel
@@ -2603,7 +2608,7 @@ export function App() {
                 pageSize: 20,
                 activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
                 height: undefined,
-                topToBottom: true,
+                shouldScroll: true,
             });
         }
 
@@ -2616,7 +2621,10 @@ export function App() {
             // Render todo list in the right panel
             appendChild(rightPanelArea, todoListContainer);
         }
-        todoList.render({ shouldScroll: true });
+        todoList.render({ 
+            shouldScroll: true ,
+            cursorNoteId: todoNoteIdx !== -1 ? state._todoNoteIds[todoNoteIdx] : undefined,
+        });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
             loadBackupModal.render({
