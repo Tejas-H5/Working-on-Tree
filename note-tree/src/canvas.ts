@@ -2,6 +2,7 @@ import { boundsCheck } from "./array-utils";
 import { copyToClipboard, readFromClipboard } from "./clipboard";
 import { Renderable, div, el, initEl, isVisible, makeComponent, makeComponentList, replaceChildren, setClass, setStyle, setTextContent, setVisible } from "./dom-utils";
 import { makeButton } from "./generic-components";
+import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "./keyboard-input";
 
 type CanvasArgs = {
     onInput(): void;
@@ -18,16 +19,8 @@ type MouseInputState = {
     _prevY: number;
 }
 
-type KeyboardInputState = {
-    isShiftPressed: boolean;
-    isCtrlPressed: boolean;
-    isAltPressed: boolean;
-    key: string;
-}
-
 type CanvasState = {
     mouseInputState: MouseInputState;
-    keyboardInputState: KeyboardInputState;
     rows: RowArgs[];
     currentTool: ToolType;
     layers: AsciiCanvasLayer[];
@@ -487,7 +480,7 @@ function getTextInputCursorCell(canvas: CanvasState) {
 
 
 function getTool(canvas: CanvasState): ToolType {
-    return canvas.keyboardInputState.isAltPressed ? "move-selection" : canvas.currentTool;
+    return isAltPressed() ?  "move-selection" : canvas.currentTool;
 }
 
 function Canvas() {
@@ -726,14 +719,14 @@ function Canvas() {
             if (!cancel) {
                 // Apply our selection preview.
                 
-                if (canvasState.keyboardInputState.isShiftPressed) {
+                if (isShiftPressed()) {
                     forEachCell(canvasState, (c) => {
                         // subtractive selection
                         if (c.isSelectedPreview) {
                             c.isSelected = false;
                         }
                     });
-                } else if (canvasState.keyboardInputState.isCtrlPressed) {
+                } else if (isCtrlPressed()) {
                     forEachCell(canvasState, (c) => {
                         // additive selection
                         c.isSelected = c.isSelected || c.isSelectedPreview;
@@ -846,16 +839,8 @@ function Canvas() {
         _prevX: 0, _prevY: 0,
     };
 
-    const keyboardInputState: KeyboardInputState = {
-        isCtrlPressed: false,
-        isShiftPressed: false,
-        isAltPressed: false,
-        key: "",
-    }
-
     const canvasState: CanvasState = {
         mouseInputState,
-        keyboardInputState,
         rows,
         currentTool: "freeform-select",
 
@@ -959,19 +944,9 @@ function Canvas() {
         onMouseInputStateChange();
     });
 
-    document.addEventListener("keyup", (e) => {
+    document.addEventListener("keyup", () => {
         if (!isVisible(component)) {
             return;
-        }
-
-        keyboardInputState.key = "";
-
-        if (e.key === "Shift") {
-            keyboardInputState.isShiftPressed = false;
-        } else if (e.key === "Control" || e.key === "Meta") {
-            keyboardInputState.isCtrlPressed = false;
-        } else if (e.key === "Alt") {
-            keyboardInputState.isAltPressed = false;
         }
 
         component.args.onInput();
@@ -996,16 +971,6 @@ function Canvas() {
             return nextCursor;
         }
 
-        if (e.key === "Shift") {
-            keyboardInputState.isShiftPressed = true;
-            return;
-        } else if (e.key === "Control" || e.key === "Meta") {
-            keyboardInputState.isCtrlPressed = true;
-            return;
-        } else if (e.key === "Alt") {
-            keyboardInputState.isAltPressed = true;
-            return;
-        }
 
         if (e.key === "Escape") {
             const cancel = true;
@@ -1016,8 +981,6 @@ function Canvas() {
                 return;
             }
         }
-
-        keyboardInputState.key = e.key;
 
         if (isAsciiCanvasKeybind(e)) {
             // The parent AsciiCanvas component wants to handle this event
@@ -1240,6 +1203,10 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     ];
 
     const statusText = div({ style: "text-align: center" });
+    const performanceWarning = div({ style: "text-align: center" }, [
+        "!! Warning: A large number of rows/columns will currently be bad for performance !!"
+    ]);
+
     let toolbar;
     function spacer() {
         return div({ class: "inline-block", style: "width: 30px" } );
@@ -1248,6 +1215,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
             canvas,
             statusText,
+            performanceWarning,
             toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
                 buttons.moreRows,
                 buttons.lessRows,
@@ -1307,8 +1275,8 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         if (selPreviewCount > 0) {
             stringBuilder.push(
                 (
-                    canvas.keyboardInputState.isCtrlPressed ? "adding " : 
-                    canvas.keyboardInputState.isShiftPressed ? "subtracting " : 
+                    isCtrlPressed() ? "adding" : 
+                    isShiftPressed() ? "subtracting" :
                     "replacing "
                 ) + 
                 selPreviewCount 
@@ -1316,6 +1284,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         }
 
         setTextContent(statusText, stringBuilder.join(" | "));
+        setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > 130 * 128);
     }
 
     const canvasArgs : CanvasArgs = {
@@ -1358,6 +1327,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
                 }
 
                 setCharOnCurrentLayer(canvas.canvasState, canvasRow, canvasCol, lines[i][j]);
+                getCell(canvas.canvasState, canvasRow, canvasCol).isSelected = lines[i][j] !== ' ';
             }
         }
     }
@@ -1462,9 +1432,9 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.copyToClipboard.render({
             name: "Copy",
             onClick: copyCanvasToClipboard,
-            selected: canvas.canvasState.keyboardInputState.isCtrlPressed && (
-                canvas.canvasState.keyboardInputState.key === "c" || 
-                canvas.canvasState.keyboardInputState.key === "C"
+            selected: isCtrlPressed() && (
+                isLastKey("c") ||
+                isLastKey("C")
             )
         });
 
@@ -1480,10 +1450,9 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
                         pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
                     }
                 },
-                selected: canvas.canvasState.keyboardInputState.isCtrlPressed && 
-                    !canvas.canvasState.keyboardInputState.isShiftPressed && (
-                    canvas.canvasState.keyboardInputState.key === "v" || 
-                    canvas.canvasState.keyboardInputState.key === "V"
+                selected: isCtrlPressed() && 
+                    !isShiftPressed() && (
+                    isLastKey("V") || isLastKey("v")
                 )
             });
         }
@@ -1497,11 +1466,9 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
                         pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
                     }
                 },
-                selected: canvas.canvasState.keyboardInputState.isCtrlPressed && 
-                    canvas.canvasState.keyboardInputState.isShiftPressed && (
-                    canvas.canvasState.keyboardInputState.key === "v" || 
-                    canvas.canvasState.keyboardInputState.key === "V"
-                )
+                selected: isCtrlPressed() && isShiftPressed() && (
+                    isLastKey("v") || isLastKey("V")
+                ),
             });
         }
         
@@ -1597,7 +1564,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             } else if (e.key === "v" || e.key === "V") {
                 const pasteCell = getTextInputCursorCell(canvas.canvasState);
                 if (pasteCell) {
-                    const whitespaceIsTransparent = canvas.canvasState.keyboardInputState.isShiftPressed;
+                    const whitespaceIsTransparent = e.shiftKey;
                     pasteClipboardToCanvas(pasteCell.i, pasteCell.j, whitespaceIsTransparent);
                 }
             }

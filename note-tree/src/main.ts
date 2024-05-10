@@ -342,11 +342,17 @@ function BreakInput(): Renderable {
     function addBreak() {
         let text = breakInput.el.value || "Taking a break ...";
 
-        pushBreakActivity(state, text, true);
-        breakInput.el.value = "";
+        // When we add a break, we don't want to clear whatever state was preventing us from pressing 'enter' to start editing a note
+        // Hence, the timeout
+        setTimeout(() => {
 
-        debouncedSave();
-        rerenderApp();
+            pushBreakActivity(state, text, true);
+            breakInput.el.value = "";
+
+            debouncedSave();
+            rerenderApp();
+        }, 1);
+
     }
 
     breakInput.el.addEventListener("keydown", (e) => {
@@ -1306,30 +1312,10 @@ function modalPaddingStyles(paddingPx: number) {
     return `width: calc(100% - ${paddingPx * 2}px); height: calc(100% - ${paddingPx * 2}px); padding: ${paddingPx}px;`;
 }
 
-type LoadBackupModalArgs = {
-    fileName: string;
-    text: string;
-};
-function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
+function LoadBackupModal() {
     const fileNameDiv = el("H3");
     const infoDiv = div();
     const loadBackupButton = makeButton("Load this backup");
-    loadBackupButton.el.addEventListener("click", () => {
-        if (!canLoad || !component.args.text) {
-            return;
-        }
-
-        if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
-            const lsKeys = JSON.parse(component.args.text);
-            localStorage.clear();
-            for (const k in lsKeys) {
-                localStorage.setItem(k, lsKeys[k]);
-            }
-
-            initState();
-            setCurrentModal(null);
-        }
-    });
     const modal = Modal(
         div({ class: "col", style: modalPaddingStyles(10) }, [
             fileNameDiv,
@@ -1339,6 +1325,11 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
     );
 
     let canLoad = false;
+    
+    type LoadBackupModalArgs = {
+        fileName: string;
+        text: string;
+    };
     const component = makeComponent<LoadBackupModalArgs>(modal, () => {
         modal.render({
             onClose: () => setCurrentModal(null)
@@ -1376,10 +1367,27 @@ function LoadBackupModal(): Renderable<LoadBackupModalArgs> {
         }
     });
 
+    loadBackupButton.el.addEventListener("click", () => {
+        if (!canLoad || !component.args.text) {
+            return;
+        }
+
+        if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
+            const lsKeys = JSON.parse(component.args.text);
+            localStorage.clear();
+            for (const k in lsKeys) {
+                localStorage.setItem(k, lsKeys[k]);
+            }
+
+            initState();
+            setCurrentModal(null);
+        }
+    });
+
     return component;
 }
 
-function AsciiCanvasModal(): Renderable<AsciiCanvasArgs> {
+function AsciiCanvasModal() {
     const asciiCanvas = AsciiCanvas();
     const modalComponent = Modal(
         div({ style: modalPaddingStyles(10) }, [
@@ -1433,6 +1441,9 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
 
         const lastActivity = getLastActivity(state);
         const isInProgress = lastActivity?.nId === note.id;
+
+        const currentNote = getCurrentNote(state);
+        setStyle(root, "borderBottom", note.id !== currentNote.parentId ? "" : "1px solid var(--fg-color)");
 
         if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
             if (isInProgress) {
@@ -1618,6 +1629,7 @@ function setTheme(theme: AppTheme) {
             ["--fg-in-progress", "#FFF"],
             ["--bg-color", "#FFF"],
             ["--bg-color-focus", "#CCC"],
+            ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
             ["--fg-color", "#000"],
             ["--unfocus-text-color", "gray"],
@@ -1629,6 +1641,7 @@ function setTheme(theme: AppTheme) {
             ["--fg-in-progress", "#FFF"],
             ["--bg-color", "#000"],
             ["--bg-color-focus", "#333"],
+            ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
             ["--fg-color", "#EEE"],
             ["--unfocus-text-color", "gray"],
@@ -2093,7 +2106,6 @@ export function App() {
         rerenderApp();
     });
 
-    // const help = Help();
     const cheatSheet = CheatSheet();
 
     const filterEditor = ActivityFiltersEditor();
@@ -2104,8 +2116,8 @@ export function App() {
     const todoList = TodoList();
     const breakInput = BreakInput();
     const rightPanelArea = div({ style: "width: 30%", class: "col" });
-    const bottomLeftArea = div({ class: "flex-1 col" });
-    const bottomRightArea = div({ class: "flex-1 col" })
+    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px" });
+    const bottomRightArea = div({ class: "flex-1 col", style: "padding: 5px" })
     const activityList = EditableActivityList();
     const activityListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none" }, ["Activity List"]),
@@ -2220,6 +2232,7 @@ export function App() {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
                 div({ class: "flex-1 overflow-y-auto" }, [
+                    cheatSheet,
                     div({ class: "row", style: "padding: 10px;" }, [
                         el("H2", {}, ["Currently working on"]),
                         div({ class: "flex-1" }),
@@ -2501,7 +2514,6 @@ export function App() {
                 }
             } else if (e.key === "Enter") {
                 setIsEditingCurrentNote(state, true);
-
                 debouncedSave();
             } else {
                 needsRerender = false;

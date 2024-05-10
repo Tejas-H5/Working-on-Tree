@@ -11,6 +11,21 @@ input {
     white-space: pre-wrap;
 }
 
+
+body {
+  /* Foreground, Background */
+  scrollbar-color: var(--bg-color-focus-light) var(--bg-color-focus);
+}
+
+body::-webkit-scrollbar-thumb { /* Foreground */
+  background: var(--bg-color-focus-light);
+}
+
+body::-webkit-scrollbar-track { /* Background */
+  background: var(--bg-color-focus);
+}
+
+
 input:focus {
     background-color: var(--bg-color-focus);
 }
@@ -107,3 +122,5 @@ button:active {
     outline: 1px solid var(--fg-color);
     border-radius: 3px;
 }
+
+
