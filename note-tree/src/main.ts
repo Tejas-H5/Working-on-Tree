@@ -379,7 +379,7 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     const timestampWrapper = div({ style: "" }, [timestamp]);
     const noteLink = NoteLink();
     const breakEdit = el<HTMLInputElement>(
-        "INPUT", { class: "pre-wrap w-100 solid-border-sm", style: "padding-left: 5px" }
+        "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
     );
     const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
     const insertBreakButton = makeButton("+ Insert break here");
@@ -561,9 +561,58 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     return component;
 }
 
+function ExportModal() {
+    const root = Modal(div({ class: "col", style: "align-items: stretch" }, [
+        makeButtonWithCallback("Clear all", () => {
+            if (!confirm("Are you sure you want to clear your note tree?")) {
+                return;
+            }
+
+            resetState();
+            rerenderApp();
+
+            showStatusText("Cleared notes");
+        }),
+        makeButtonWithCallback("Download TXT", () => {
+            handleErrors(() => {
+                const flatNotes: NoteId[] = [];
+                recomputeFlatNotes(state, flatNotes, true);
+                const text = exportAsText(state, flatNotes);
+                handleErrors(() => {
+                    saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                });
+
+                showStatusText("Download TXT");
+            });
+        }),
+        makeButtonWithCallback("Copy open notes", () => {
+            handleErrors(() => {
+                const flatNotes: NoteId[] = [];
+                recomputeFlatNotes(state, flatNotes, false);
+
+                copyToClipboard(exportAsText(state, flatNotes));
+                showStatusText("Copied current open notes as text");
+            });
+        }),
+        makeButtonWithCallback("Download JSON", () => {
+            handleErrors(() => {
+                saveText(getStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
+            });
+        }),
+    ]));
+
+    const component = makeComponent(root, () => {
+        root.render({
+            onClose: () => setCurrentModal(null)
+        });
+    });
+
+    return component;
+}
+
 function DeleteModal(): Renderable {
     let heading, textEl, countEl, timeEl, recentEl, deleteButton, cantDelete;
-    const root = Modal(div({ style: "padding: 10px" }, [
+    const root = Modal(div({ style: modalPaddingStyles(10, 70, 50) }, [
         heading = el("H2", { style: "text-align: center" }, [ "Delete current note" ]),
         textEl = div(),
         div({ style: "height: 20px" }),
@@ -666,6 +715,10 @@ function LinkNavModal(): Renderable {
 
     const component = makeComponent(root, () => {
         const currentNote = getCurrentNote(state);
+
+        root.render({
+            onClose: () => setCurrentModal(null)
+        });
 
         idx = 0;
         linkList.render(() => {
@@ -1292,7 +1345,7 @@ function FuzzyFinder(): Renderable {
 function FuzzyFindModal(): Renderable {
     const fuzzyFind = FuzzyFinder();
     const modalComponent = Modal(
-        div({ class: "col h-100", style: "padding: 10px" }, [
+        div({ class: "col h-100", style: modalPaddingStyles(10) }, [
             fuzzyFind
         ])
     );
@@ -1308,8 +1361,8 @@ function FuzzyFindModal(): Renderable {
     return component;
 }
 
-function modalPaddingStyles(paddingPx: number) {
-    return `width: calc(100% - ${paddingPx * 2}px); height: calc(100% - ${paddingPx * 2}px); padding: ${paddingPx}px;`;
+function modalPaddingStyles(paddingPx: number, width = 94, height = 90) {
+    return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
 }
 
 function LoadBackupModal() {
@@ -1317,11 +1370,11 @@ function LoadBackupModal() {
     const infoDiv = div();
     const loadBackupButton = makeButton("Load this backup");
     const modal = Modal(
-        div({ class: "col", style: modalPaddingStyles(10) }, [
+        div({ class: "col", style: modalPaddingStyles(10, 40, 40) }, [
             fileNameDiv,
             infoDiv,
             loadBackupButton,
-        ])
+        ]),
     );
 
     let canLoad = false;
@@ -1522,8 +1575,7 @@ type NoteListInternalArgs = {
 
 function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const root = div({
-        class: "w-100",
-        style: "border-top: 1px solid var(--fg-color);border-bottom: 1px solid var(--fg-color);"
+        class: "w-100 sb1b sb1t",
     });
 
     const noteList = makeComponentList(root, NoteRowInput);
@@ -1822,7 +1874,7 @@ function CheatSheet(): Renderable {
             div({ class: "flex-1" }, [desc]),
         ])
     }
-    return makeComponent(div({}, [
+    return makeComponent(div({ style: "padding: 10px" }, [
         el("H3", {}, ["Cheatsheet"]),
         el("H4", {}, ["Offline use"]),
         isRunningFromFile() ? (
@@ -2115,17 +2167,17 @@ export function App() {
     const notesList = NotesList();
     const todoList = TodoList();
     const breakInput = BreakInput();
-    const rightPanelArea = div({ style: "width: 30%", class: "col" });
+    const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
     const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px" });
-    const bottomRightArea = div({ class: "flex-1 col", style: "padding: 5px" })
+    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px;" })
     const activityList = EditableActivityList();
     const activityListContainer = div({ class: "flex-1 col" }, [
-        el("H3", { style: "user-select: none" }, ["Activity List"]),
+        el("H3", { style: "user-select: none; padding-left: 10px;" }, ["Activity List"]),
         breakInput,
         activityList,
     ]);
     const todoListContainer = div({ class: "flex-1 col" }, [
-        el("H3", {}, ["TODO Lists"]),
+        el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
         todoList
     ]);
 
@@ -2134,8 +2186,7 @@ export function App() {
     const deleteModal = DeleteModal();
     const loadBackupModal = LoadBackupModal();
     const linkNavModal = LinkNavModal();
-    let backupText = "";
-    let backupFilename = "";
+    const exportModal = ExportModal();
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
@@ -2152,7 +2203,9 @@ export function App() {
         toggleCurrentDockedMenu("activities");
     });
 
-    const bottomButtons = div({ class: "row align-items-end" }, [
+    let backupText = "";
+    let backupFilename = "";
+    const bottomButtons = div({ class: "row align-items-end sb1t" }, [
         div({ class: "row align-items-end" }, [
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal(asciiCanvasModal);
@@ -2176,35 +2229,9 @@ export function App() {
             makeButtonWithCallback("Search", () => {
                 setCurrentModal(fuzzyFindModal);
             }),
-            makeButtonWithCallback("Clear all", () => {
-                if (!confirm("Are you sure you want to clear your note tree?")) {
-                    return;
-                }
-
-                resetState();
-                rerenderApp();
-
-                showStatusText("Cleared notes");
-            }),
-            makeButtonWithCallback("Download TXT", () => {
+            makeButtonWithCallback("Export", () => {
                 handleErrors(() => {
-                    const flatNotes: NoteId[] = [];
-                    recomputeFlatNotes(state, flatNotes, true);
-                    const text = exportAsText(state, flatNotes);
-                    handleErrors(() => {
-                        saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
-                    });
-
-                    showStatusText("Download TXT");
-                });
-            }),
-            makeButtonWithCallback("Copy open notes", () => {
-                handleErrors(() => {
-                    const flatNotes: NoteId[] = [];
-                    recomputeFlatNotes(state, flatNotes, false);
-
-                    copyToClipboard(exportAsText(state, flatNotes));
-                    showStatusText("Copied current open notes as text");
+                    setCurrentModal(exportModal);
                 });
             }),
             makeButtonWithCallback("Load JSON", () => {
@@ -2218,11 +2245,6 @@ export function App() {
                         backupText = text;
                         setCurrentModal(loadBackupModal);
                     });
-                });
-            }),
-            makeButtonWithCallback("Download JSON", () => {
-                handleErrors(() => {
-                    saveText(getStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
                 });
             }),
         ])
@@ -2255,6 +2277,7 @@ export function App() {
         deleteModal,
         loadBackupModal,
         linkNavModal,
+        exportModal,
     ]);
 
 
@@ -2657,6 +2680,10 @@ export function App() {
 
         if (setVisible(deleteModal, currentModal === deleteModal)) {
             deleteModal.render(undefined);
+        }
+
+        if (setVisible(exportModal, currentModal === exportModal)) {
+            exportModal.render(undefined);
         }
 
         if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {

@@ -138,8 +138,25 @@
     border-radius: 6px;
 }
 
+.sb1l {
+    border-left: 1px solid var(--fg-color);
+}
+.sb1r {
+    border-right: 1px solid var(--fg-color);
+}
+.sb1t {
+    border-top: 1px solid var(--fg-color);
+}
+.sb1b {
+    border-bottom: 1px solid var(--fg-color);
+}
+
 .solid-border-sm {
-    outline: 1px solid var(--fg-color);
+    border: 1px solid var(--fg-color);
+}
+
+.solid-border-sm-rounded {
+    border: 1px solid var(--fg-color);
     border-radius: 3px;
 }
 
@@ -194,7 +211,8 @@
 }
 
 .modal-shadow {
-    box-shadow: 0px 0px 2px 2000px rgba(0, 0, 0, 0.5);
+    /* box-shadow: 0px 0px 2px 2000px rgba(0, 0, 0, 0.5); */
+    background-color: rgba(0, 0, 0, 0.5);
     pointer-events: all;
 }
 

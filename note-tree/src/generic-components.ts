@@ -7,24 +7,27 @@ type ModalArgs = { onClose(): void };
 
 export function Modal(content: Insertable): Renderable<ModalArgs> {
     const closeButton = makeButton("X");
-
+    const bgRect = div({ style: "background-color: var(--bg-color)" }, [
+        div({ class: "row", style: "z-index: 9999;" }, [ 
+            div({ class: "flex-1" }), 
+            closeButton
+        ]),
+        content,
+    ])
     const root = div({
-        class: "modal-shadow fixed",
-        style: `width: 94vw; left: 3vw; right: 3vw; height: 94vh; top: 3vh; bottom: 3vh;` +
-            `background-color: var(--bg-color); z-index: 9999;`
-    }, [
-        div({ class: "relative absolute-fill" }, [
-            div({ class: "absolute", style: "top: 0; right: 0; z-index: 9999;" }, [closeButton]),
-            content
-        ])
-    ]);
+        class: "modal-shadow fixed align-items-center justify-content-center row",
+        style: `top: 0vh; left: 0vw; right: 0vw; bottom: 0vh; z-index: 9999;`
+    }, [bgRect]);
 
     const component = makeComponent<ModalArgs>(root, () => { });
 
-    closeButton.el.addEventListener("click", () => {
-        const { onClose } = component.args;
-        onClose();
-    });
+    closeButton.el.addEventListener("click", () => component.args.onClose());
+
+    // Clicking outside the modal should close it
+    root.el.addEventListener("click", () => component.args.onClose());
+
+    // Clicking inside the modal shouldn't close it
+    bgRect.el.addEventListener("click", (e) => e.stopPropagation());
 
     return component;
 }
@@ -246,7 +249,7 @@ export function Checkbox(initialLabel?: string): Renderable<GenericInputArgument
     const label = div({ style: "user-select: none" }, initialLabel !== undefined ? [initialLabel] : undefined);
     const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
     const checkbox = div({ class: "row align-items-center" }, [
-        div({ class: "solid-border-sm", style: "padding: 4px; width: 0.65em; height: 0.65em;" }, [
+        div({ class: "solid-border-sm-rounded", style: "padding: 4px; width: 0.65em; height: 0.65em;" }, [
             button,
         ]),
         div({ style: "width: 10px" }),

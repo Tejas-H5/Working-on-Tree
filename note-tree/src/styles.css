@@ -93,6 +93,8 @@ button:active {
     text-align: center;
     font-style: italic;
     margin: 10px;
+    padding: 10px;
+    border-radius: 10px;
 }
 
 .info-button:hover {
