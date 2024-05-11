@@ -814,7 +814,7 @@ type EditableActivityListArgs = {
     shouldScroll: boolean;
 };
 
-function EditableActivityList(): Renderable<EditableActivityListArgs> {
+function EditableActivityList() {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
 
@@ -822,20 +822,18 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
         listRoot,
     ]);
-    const mostRecent = div({ class: "text-align-center" }, [ "<Reached most recent activity>" ]);
+    const statusTextEl = div({ class: "text-align-center" }, [  ]);
     const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
-        mostRecent,
+        statusTextEl,
         listContainer,
         paginationControl,
     ]);
 
-    function rerender() {
-        component.render(component.args);
-    }
-
     let lastIdx = -1;
 
-    const component = newComponent<EditableActivityListArgs>(root, () => {
+    const component = newComponent<EditableActivityListArgs>(root, rerenderActivityList);
+
+    function rerenderActivityList() {
         const { pageSize, activityIndexes, height, shouldScroll } = component.args;
 
         pagination.pageSize = pageSize || 10;
@@ -846,7 +844,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
         paginationControl.render({
             pagination,
             totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
-            rerender,
+            rerender: rerenderActivityList,
         });
 
         const activities = state.activities;
@@ -918,8 +916,23 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
             }
         }, 1);
 
-        setVisible(mostRecent, lastIdx === activities.length - 1 && !!activityIndexes);
-    });
+        let statusText = "";
+        if (activityIndexes) {
+            if (lastIdx === activities.length - 1) {
+                statusText = "Reached most recent activity";
+            } else if (activityIndexes.length === 0) {
+                if (state._durationsOnlyUnderSelected) {
+                    statusText = "0 results under the selected note";
+                } else {
+                    statusText = "0 results in this date range";
+                }
+            }
+        }
+
+        if (setVisible(statusTextEl, !!statusText)) {
+            setText(statusTextEl, statusText);
+        }
+    }
 
     return component;
 }

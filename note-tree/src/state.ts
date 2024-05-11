@@ -485,7 +485,7 @@ export function recomputeState(state: State) {
     // recompute the current filtered activities
     {
         state._useActivityIndices = false; ;
-        const [hasValidRange, start, end] = getRange(state);
+        const [hasValidRange, start, end] = getActivityRange(state);
         if (state._isShowingDurations && hasValidRange) {
             state._useActivityIndices = true;
 
@@ -501,7 +501,7 @@ export function recomputeState(state: State) {
                     !activity.nId ||
                     !getNote(state, activity.nId).data._isUnderCurrent
                 )) {
-                    return;
+                    continue;
                 }
 
                 state._activityIndices.push(i);
@@ -510,7 +510,7 @@ export function recomputeState(state: State) {
     }
 }
 
-export function getRange(state: State): [boolean, number, number] {
+export function getActivityRange(state: State): [boolean, number, number] {
     // NOTE: it's fine for both to be null
     let hasValidRange = state._activitiesFrom === null ||
         state._activitiesTo === null ||
@@ -518,14 +518,14 @@ export function getRange(state: State): [boolean, number, number] {
 
     const activities = state.activities;
     if (!hasValidRange) {
-        return [false, 0, activities.length - 1] as const;
+        return [false, 0, -1];
     }
 
     let start = 0;
     if (state._activitiesFrom) {
         // this range is typically from today T=- to tomorrow T=0 , so let's optimize for that
         
-        start = activities.length - 1;
+        start = activities.length;
         while (
             start > 0 &&
             getActivityTime(activities[start - 1]) > state._activitiesFrom
@@ -534,18 +534,26 @@ export function getRange(state: State): [boolean, number, number] {
         }
     }
 
+    if (start === activities.length) {
+        return [true, 0, -1];
+    }
+
     let end = activities.length - 1;
     if (state._activitiesTo) {
-        start = activities.length - 1;
+        end = start;
         while (
-            end > start + 1 &&
-            getActivityTime(activities[end]) > state._activitiesTo
+            end < activities.length - 1 &&
+            getActivityTime(activities[end]) < state._activitiesTo
         ) {
-            end--;
+            end++;
         }
     }
 
-    return [true, start, end] as const;
+    if (end === start) {
+        return [true, 0, -1];
+    }
+
+    return [true, start, end];
 }
 
 
@@ -1042,7 +1050,7 @@ export function getNoteDuration(state: State, note: TreeNote, useRange: boolean)
     let start = 0, end = activities.length - 1;
     if (useRange) {
         let hasRange;
-        [hasRange, start, end] = getRange(state);
+        [hasRange, start, end] = getActivityRange(state);
     }
 
 
