@@ -1,6 +1,6 @@
 import { boundsCheck } from "./array-utils";
 import { copyToClipboard, readFromClipboard } from "./clipboard";
-import { Renderable, div, el, initEl, isVisible, makeComponent, makeComponentList, replaceChildren, setClass, setStyle, setTextContent, setVisible } from "./dom-utils";
+import { Renderable, div, el, initEl, isVisible, newComponent, newListRenderer, replaceChildren, setClass, setStyle, setText, setVisible } from "./dom-utils";
 import { makeButton } from "./generic-components";
 import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "./keyboard-input";
 
@@ -486,9 +486,9 @@ function getTool(canvas: CanvasState): ToolType {
 function Canvas() {
     const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap;"});
 
-    const rowList = makeComponentList(root, () => {
+    const rowList = newListRenderer(root, () => {
         const root = div({ class: "row justify-content-center" });
-        const charList = makeComponentList(root, () => {
+        const charList = newListRenderer(root, () => {
             const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
 
             // Memoizing for peformance. 
@@ -499,7 +499,7 @@ function Canvas() {
             let bbLast = false;
             let lastChar = "";
 
-            const component = makeComponent<CanvasCellArgs>(root, () => {
+            const component = newComponent<CanvasCellArgs>(root, () => {
                 const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = component.args;
 
 
@@ -512,7 +512,7 @@ function Canvas() {
 
                 if (lastChar !== char) {
                     lastChar = char;
-                    setTextContent(root, char);
+                    setText(root, char);
                 }
 
                 if (blLast !== bl) {
@@ -570,7 +570,7 @@ function Canvas() {
             return component;
         });
 
-        const component = makeComponent<RowArgs>(root, () => {
+        const component = newComponent<RowArgs>(root, () => {
             const { charList: rowList } = component.args;
 
             charList.render(() => {
@@ -855,7 +855,7 @@ function Canvas() {
     };
 
 
-    const component = makeComponent<CanvasArgs>(root, () => {
+    const component = newComponent<CanvasArgs>(root, () => {
         const { outputLayers } = component.args;
 
         if (outputLayers) {
@@ -1145,8 +1145,8 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             textEl, 
         ]);
 
-        const c = makeComponent<ToolbarButtonArgs>(button, () => {
-            setTextContent(button, c.args.name);
+        const c = newComponent<ToolbarButtonArgs>(button, () => {
+            setText(button, c.args.name);
 
             if (c.args.tool || c.args.selected !== undefined) {
                 const tool = getTool(canvas.canvasState);
@@ -1283,7 +1283,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             );
         }
 
-        setTextContent(statusText, stringBuilder.join(" | "));
+        setText(statusText, stringBuilder.join(" | "));
         setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > 130 * 128);
     }
 
@@ -1332,7 +1332,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         }
     }
 
-    const component = makeComponent<AsciiCanvasArgs>(root, () => {
+    const component = newComponent<AsciiCanvasArgs>(root, () => {
         // This single line of code allows us to write to an array that lives outside of this component
         canvasArgs.outputLayers = component.args.outputLayers;
 

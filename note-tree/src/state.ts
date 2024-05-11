@@ -79,6 +79,7 @@ export function recomputeNoteIsUnderFlag(state: State, note: TreeNote) {
 export type Activity = {
     nId?: NoteId;
     t: string;
+    _t?: Date;
 
     // only apply to breaks:
     breakInfo?: string;
@@ -321,6 +322,19 @@ export function recomputeFlatNotes(state: State, flatNotes: NoteId[], allNotes: 
     dfs(getRootNote(state));
 }
 
+export function setActivityTime(activity: Activity, t: Date) {
+    activity.t = getTimestamp(t);
+    activity._t = t;
+}
+
+export function getActivityTime(activity: Activity) {
+    if (!activity._t) {
+        activity._t = new Date(activity.t);
+    }
+
+    return activity._t!;
+}
+
 export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
     if (filter === null) {
         return false;
@@ -471,11 +485,7 @@ export function recomputeState(state: State) {
     // recompute the current filtered activities
     {
         state._useActivityIndices = false; ;
-
-        // NOTE: it's fine for both to be null
-        let hasValidRange = state._activitiesFrom === null ||
-            state._activitiesTo === null ||
-            state._activitiesFrom < state._activitiesTo;
+        const [hasValidRange, start, end] = getRange(state);
         if (state._isShowingDurations && hasValidRange) {
             state._useActivityIndices = true;
 
@@ -483,18 +493,15 @@ export function recomputeState(state: State) {
             recomputeNoteIsUnderFlag(state, currentNote);
 
             state._activityIndices.splice(0, state._activityIndices.length);
-            for (let i = 0; i < state.activities.length; i++) {
-                const activity = state.activities[i];
-                if (!isActivityInRange(state, activity)) {
-                    continue;
-                }
 
+            for (let i = start; i <= end; i++) {
+                const activity = state.activities[i];
                 if (state._durationsOnlyUnderSelected && (
                     activity.deleted ||
                     !activity.nId ||
                     !getNote(state, activity.nId).data._isUnderCurrent
                 )) {
-                    continue;
+                    return;
                 }
 
                 state._activityIndices.push(i);
@@ -502,6 +509,45 @@ export function recomputeState(state: State) {
         }
     }
 }
+
+export function getRange(state: State): [boolean, number, number] {
+    // NOTE: it's fine for both to be null
+    let hasValidRange = state._activitiesFrom === null ||
+        state._activitiesTo === null ||
+        state._activitiesFrom < state._activitiesTo;
+
+    const activities = state.activities;
+    if (!hasValidRange) {
+        return [false, 0, activities.length - 1] as const;
+    }
+
+    let start = 0;
+    if (state._activitiesFrom) {
+        // this range is typically from today T=- to tomorrow T=0 , so let's optimize for that
+        
+        start = activities.length - 1;
+        while (
+            start > 0 &&
+            getActivityTime(activities[start - 1]) > state._activitiesFrom
+        ) {
+            start--;
+        }
+    }
+
+    let end = activities.length - 1;
+    if (state._activitiesTo) {
+        start = activities.length - 1;
+        while (
+            end > start + 1 &&
+            getActivityTime(activities[end]) > state._activitiesTo
+        ) {
+            end--;
+        }
+    }
+
+    return [true, start, end] as const;
+}
+
 
 export function isCurrentNoteOnOrInsideNote(state: State, note: TreeNote): boolean {
     return note.data._isSelected ||    // Current note inside this note
@@ -548,8 +594,8 @@ export function getActivityText(state: State, activity: Activity): string {
 }
 
 export function getActivityDurationMs(activity: Activity, nextActivity?: Activity): number {
-    const startTimeMs = new Date(activity.t).getTime();
-    const nextStart = (nextActivity ? new Date(nextActivity.t) : new Date()).getTime();
+    const startTimeMs = getActivityTime(activity).getTime();
+    const nextStart = (nextActivity ? getActivityTime(nextActivity) : new Date()).getTime();
     return nextStart - startTimeMs;
 }
 
@@ -570,7 +616,7 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     );
 }
 
-export function pushActivity(state: State, activity: Activity, isNewNote = false) {
+function pushActivity(state: State, activity: Activity, isNewNote = false) {
     if (activityNoteIdMatchesLastActivity(state, activity)) {
         // Don't push the same note twice in a row, unless it's a break
         return;
@@ -741,21 +787,32 @@ export function getCurrentNote(state: State) {
 }
 
 function pushNoteActivity(state: State, noteId: NoteId, isNewNote: boolean) {
+    const date = new Date();
     pushActivity(state, {
         nId: noteId,
-        t: getTimestamp(new Date()),
+        t: getTimestamp(date),
     }, isNewNote);
 }
 
-export function pushBreakActivity(state: State, breakInfoText: string, locked: undefined | true, timestamp?: string) {
-    pushActivity(state, {
+export function newBreakActivity(breakInfoText: string, time: Date, locked: boolean): Activity {
+    time = time || new Date();
+    return {
         nId: undefined,
-        t: timestamp || getTimestamp(new Date()),
+        t: getTimestamp(time),
         breakInfo: breakInfoText,
-        locked: locked,
-    });
+        locked: locked || undefined,
+    };
+}
+
+export function pushBreakActivity(state: State, breakActivtiy: Activity) {
+    if (breakActivtiy.nId || !breakActivtiy.breakInfo) {
+        throw new Error("Invalid break activity");
+    }
+
+    pushActivity(state, breakActivtiy);
 
     setIsEditingCurrentNote(state, false);
+
 }
 
 export function isCurrentlyTakingABreak(state: State): boolean {
@@ -972,22 +1029,26 @@ export function getIndentStr(note: Note) {
     return "    ".repeat(repeats);
 }
 
+
 /** 
  * This is the sum of all activities with this note, or any descendant 
  */
-export function getNoteDuration(state: State, note: TreeNote, activityFilterFn?: (activityIdx: number) => boolean) {
+export function getNoteDuration(state: State, note: TreeNote, useRange: boolean) {
     recomputeNoteIsUnderFlag(state, note);
 
     const activities = state.activities;
     let duration = 0;
 
-    for (let i = 0; i < activities.length; i++) {
+    let start = 0, end = activities.length - 1;
+    if (useRange) {
+        let hasRange;
+        [hasRange, start, end] = getRange(state);
+    }
+
+
+    for (let i = start; i <= end; i++) {
         const activity = activities[i];
         if (!activity.nId) {
-            continue;
-        }
-
-        if (activityFilterFn && !activityFilterFn(i)) {
             continue;
         }
 
@@ -1006,7 +1067,7 @@ export function getNoteDuration(state: State, note: TreeNote, activityFilterFn?:
 }
 
 export function getSecondPartOfRow(state: State, note: TreeNote) {
-    const duration = getNoteDuration(state, note);
+    const duration = getNoteDuration(state, note, false);
     const durationStr = formatDuration(duration);
     const secondPart = " " + durationStr;
     return secondPart;
@@ -1079,8 +1140,8 @@ export function isBreak(activity: Activity): boolean {
 }
 
 export function isMultiDay(activity: Activity, nextActivity: Activity | undefined) : boolean {
-    const t = new Date(activity.t);
-    const t1 = nextActivity ? new Date(nextActivity.t) : new Date();
+    const t = getActivityTime(activity);
+    const t1 = nextActivity ? getActivityTime(nextActivity) : new Date();
 
     return !(
         t.getDate() === t1.getDate() &&
@@ -1159,19 +1220,6 @@ export function setActivityRangeToday(state: State) {
     state._activitiesTo = dateTo;
 }
 
-export function isActivityInRange(state: State, activity: Activity) {
-    const t = new Date(activity.t);
-
-    if (!!state._activitiesFrom && t < state._activitiesFrom) {
-        return false;
-    }
-
-    if (!!state._activitiesTo && t > state._activitiesTo) {
-        return false;
-    }
-
-    return true;
-}
 
 export function deleteDoneNote(state: State, note: TreeNote): string | undefined {
     // WARNING: this is a A destructive action that permenantly deletes user data. Take every precaution, and do every check

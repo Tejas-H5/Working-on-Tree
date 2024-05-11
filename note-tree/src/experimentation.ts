@@ -88,7 +88,28 @@ function Counter4() {
 
     const component = makeComponent(root, () => {
         const { count } = component.args;
-        setTextContent(countEl, count);
+        setText(countEl, count);
+    });
+
+    return component;
+}
+
+function CounterASDASD() {
+    const countEl = div();
+    const buttonEl = div();
+    const root = div({ style: "display:flex;gap:5px" }, [
+        buttonEl,
+        countEl
+    ]);
+
+    eventListener(buttonEl, "click", () => {
+        const { count, setCount } = component.args;
+        setCount(count + 1);
+    });
+
+    const c = makeComponent(root, () => {
+        const { count } = component.args;
+        setText(countEl, count);
     });
 
     return component;
@@ -110,7 +131,7 @@ function Counter5() {
 
     const component = makeComponent(root, () => {
         const { count } = component.args;
-        setTextContent(countEl, count);
+        setText(countEl, count);
     });
 
     return component;
@@ -132,7 +153,7 @@ function Counter() {
 
     const component = makeComponent(root, () => {
         const { count } = component.args;
-        setTextContent(countEl, count);
+        setText(countEl, count);
     });
 
     return component;
@@ -148,7 +169,7 @@ function Counter2() {
     });
 
     const component = makeComponent(
-        () => setTextContent(countEl, component.args.count), 
+        () => setText(countEl, component.args.count), 
         div({ style: "display:flex;gap:5px" }, [
             buttonEl,
             countEl

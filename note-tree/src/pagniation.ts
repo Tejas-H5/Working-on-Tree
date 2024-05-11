@@ -1,4 +1,4 @@
-import { Renderable, div, makeComponent, setTextContent, setVisible } from "./dom-utils";
+import { Renderable, div, newComponent, setText, setVisible } from "./dom-utils";
 import { makeButton } from "./generic-components";
 
 export type Pagination = {
@@ -65,14 +65,14 @@ export function PaginationControl(): Renderable<PaginationControlArgs> {
         ]),
     ])
 
-    const component = makeComponent<PaginationControlArgs>(root, () => {
+    const component = newComponent<PaginationControlArgs>(root, () => {
         const { pagination, totalCount } = component.args;
 
         setTotalCount(pagination, totalCount);
         const page = getPage(pagination);
         const start = getStart(pagination) + 1;
         const end = getCurrentEnd(pagination);
-        setTextContent(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount + ")");
+        setText(pageReadout, "Page " + (page + 1) + " (" + start + " - " + end + " / " + pagination.totalCount + ")");
 
         setVisible(leftButton, page !== 0);
         setVisible(leftLeftButton, page !== 0);

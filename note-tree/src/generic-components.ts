@@ -1,6 +1,6 @@
 // TODO: import the missing CSS styles
 
-import { Insertable, Renderable, div, el, makeComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setTextContent, setVisible } from "./dom-utils";
+import { Insertable, Renderable, div, el, newComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./dom-utils";
 import { addDays, floorDateLocalTime, formatDate, parseYMDTDateTime } from "./datetime";
 
 type ModalArgs = { onClose(): void };
@@ -19,7 +19,7 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
         style: `top: 0vh; left: 0vw; right: 0vw; bottom: 0vh; z-index: 9999;`
     }, [bgRect]);
 
-    const component = makeComponent<ModalArgs>(root, () => { });
+    const component = newComponent<ModalArgs>(root, () => { });
 
     closeButton.el.addEventListener("click", () => component.args.onClose());
 
@@ -51,11 +51,11 @@ export function FractionBar(): Renderable<FractionBarArgs> {
         ])
     ]);
 
-    const component = makeComponent<FractionBarArgs>(root, () => {
+    const component = newComponent<FractionBarArgs>(root, () => {
         const { fraction, text, focused } = component.args;
 
-        setTextContent(invertedText, text);
-        setTextContent(normalText, text);
+        setText(invertedText, text);
+        setText(normalText, text);
         bar.el.style.width = (100 * fraction) + "%";
         setStyle(root, "backgroundColor", focused ? "var(--bg-color-focus)" : "");
     });
@@ -108,7 +108,7 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
 
     let lastDate: Date | null = null;
 
-    const component = makeComponent<DateTimeInputArgs>(root, () => {
+    const component = newComponent<DateTimeInputArgs>(root, () => {
         const { value, label, readOnly, nullable } = component.args;
         const canEdit = readOnly && !!value;
 
@@ -127,7 +127,7 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
         const dateText = formatDate(value, undefined, true);
 
         if (setVisible(show, canEdit)) {
-            setTextContent(show, dateText);
+            setText(show, dateText);
         }
 
         if (setVisible(edit, !canEdit)) {
@@ -190,7 +190,7 @@ export function DateTimeInputEx(clazz?: string): Renderable<DateTimeInputArgs> {
         decrMonth = makeButton("-30d"),
     ]);
 
-    const component = makeComponent<DateTimeInputArgs>(root, () => {
+    const component = newComponent<DateTimeInputArgs>(root, () => {
         dateTimeInput.render(component.args);
     });
 
@@ -256,11 +256,11 @@ export function Checkbox(initialLabel?: string): Renderable<GenericInputArgument
         label
     ]);
 
-    const component = makeComponent<GenericInputArguments<boolean>>(checkbox, () => {
+    const component = newComponent<GenericInputArguments<boolean>>(checkbox, () => {
         const { value, label: labelText } = component.args;
 
         if (labelText !== undefined) {
-            setTextContent(label, labelText);
+            setText(label, labelText);
         }
         setClass(button, "checked", value);
     });
@@ -281,12 +281,12 @@ export function TextField(initialLabel?: string): Renderable<GenericInputArgumen
         input
     ]);
 
-    const component = makeComponent<GenericInputArguments<string>>(root, () => {
+    const component = newComponent<GenericInputArguments<string>>(root, () => {
         const { value, label: labelText } = component.args;
 
         setInputValue(input, value);
         if (labelText) {
-            setTextContent(label, labelText);
+            setText(label, labelText);
         }
     });
 

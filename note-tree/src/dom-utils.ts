@@ -67,8 +67,7 @@ export function clearChildren(mountPoint: Insertable) {
 
 /** 
  * A little more performant than setting the style directly.
- * If you need more even more performance in niche circumstances (i.e a hundred thousand plus components), you may need 
- * to memoize your calls to this on your end...
+ * Not as fast as memoizing the variables that effect the style, and then setting this directly only when those vars have changed
  */
 export function setStyle<K extends keyof HTMLElement["style"]>(root: Insertable, val: K, style: HTMLElement["style"][K]) {
     if (root.el.style[val] !== style) {
@@ -78,7 +77,7 @@ export function setStyle<K extends keyof HTMLElement["style"]>(root: Insertable,
 
 /** 
  * A little more performant than adding/removing from the classList directly, but still quite slow actually.
- * If you need more even more performance in niche circumstances (i.e a hundred thousand plus components), try memoising 'state' on your end
+ * Not as fast as memoizing the variables that effect the style, and then setting this directly only when those vars have changed
  */
 export function setClass(
     component: Insertable,
@@ -136,6 +135,12 @@ type ComponentPool<T extends Insertable> = {
     lastIdx: number;
     getNext(): T;
     getIdx(): number;
+    render(renderFn: () => void, noErrorBoundary?: boolean): void;
+}
+
+type KeyedComponentPool<K, T extends Insertable> = {
+    components: Map<K, { c: T, del: boolean }>;
+    getNext(key: K): T;
     render(renderFn: () => void, noErrorBoundary?: boolean): void;
 }
 
@@ -241,7 +246,9 @@ function handleRenderingError(root: Insertable, renderFn: () => void) {
 
 export type ComponentList<T extends Insertable> = Insertable & ComponentPool<T>;
 
-export function makeComponentList<T extends Insertable>(root: Insertable, createFn: () => T): ComponentList<T> {
+export type KeyedComponentList<K, T extends Insertable> = Insertable & KeyedComponentPool<K, T>;
+
+export function newListRenderer<T extends Insertable>(root: Insertable, createFn: () => T): ComponentList<T> {
     return {
         ...root,
         components: [],
@@ -279,8 +286,49 @@ export function makeComponentList<T extends Insertable>(root: Insertable, create
                 component.el.remove();
             } 
         },
-        // TODO: Smarter algorithm that adds/removes at arbitrary positions based on keys
     }
+}
+
+export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, createFn: () => T): KeyedComponentList<K, T> {
+    const updatedComponentList : HTMLElement[] = [];
+    return {
+        ...root,
+        components: new Map<K, { c: T, del: boolean }>(), 
+        getNext(key: K) {
+            const block = this.components.get(key);
+            if (block) {
+                block.del = false;
+                return block.c;
+            }
+
+            const newComponent = createFn();
+            this.components.set(key, { c: newComponent, del: false });
+            return newComponent;
+        },
+        render(renderFn, noErrorBoundary = false) {
+            for (const block of this.components.values()) {
+                block.del = true;
+            }
+
+            if (noErrorBoundary) {
+                renderFn();
+            } else {
+                handleRenderingError(this, renderFn);
+            }
+
+        
+            updatedComponentList.splice(0, updatedComponentList.length);
+            for (const block of this.components.values()) {
+                if (!block.del) {
+                    updatedComponentList.push(block.c.el);
+                }
+                block.del = true;
+            }
+
+            // TODO: try writing a diff-replace algo and see if it's any faster
+            this.el.replaceChildren(...updatedComponentList);
+        },
+    };
 }
 
 type InsertableInput = InsertableGeneric<HTMLTextAreaElement> | InsertableGeneric<HTMLInputElement>;
@@ -301,7 +349,7 @@ export function resizeInputToValue(inputComponent: Insertable) {
  * However, there are some niche use cases (100,000+ components) where you might need even more performance. 
  * In those cases, you will want to avoid calling this function if you know the text hasn't changed.
  */
-export function setTextContent(component: Insertable, text: string) {
+export function setText(component: Insertable, text: string) {
     // @ts-ignore
     if (component.rerender) {
         console.warn("You might be overwriting a component's internal contents by setting it's text");
@@ -343,7 +391,7 @@ export function setInputValue(component: InsertableInput, text: string) {
  * component re-renders.
  *
  */
-export function makeComponent<T = undefined>(root: Insertable, renderFn: () => void) {
+export function newComponent<T = undefined>(root: Insertable, renderFn: () => void) {
     // We may be wrapping another component, i.e reusing it's root. So we should just do this
     root._isInserted = true;
     const component : Renderable<T> = {

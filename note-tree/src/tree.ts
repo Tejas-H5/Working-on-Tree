@@ -2,9 +2,9 @@
 // This tree is supposed to be JSON-serializable. 
 // T is an index into the TreeStore which stores the actual data, rather than an in-memory reference
 
-import { assert } from "./dom-utils";
-
 // to the node object.
+// NOTE: in hindsight, this is a bit of a blunder caused by mindlessness. There's no reason to use uuids here - we should have just used
+// an index into an array. I could change it but I would need to create migration scripts.
 export type TreeNode<T> = {
     id: string;
     parentId: string | null;
@@ -97,7 +97,9 @@ export function remove(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     if (hasNode(tree, node.parentId)) {
         const parent = getNode(tree, node.parentId);
         const idx = parent.childIds.indexOf(node.id);
-        assert(idx !== -1, "Possible data corruption");
+        if (idx === -1) {
+            throw new Error("Possible data corruption");
+        }
         parent.childIds.splice(idx, 1);
     }
 

@@ -49,20 +49,22 @@ import {
     getLastSelectedNote,
     isDoneNoteWithExtraInfo,
     setActivityRangeToday,
-    isActivityInRange,
     getMostRecentlyWorkedOnChildActivityIdx,
     deleteDoneNote,
     setCurrentActivityIdxToCurrentNote,
     DockableMenu,
+    newBreakActivity,
+    getActivityTime,
+    setActivityTime,
 } from "./state";
 import {
     Renderable,
-    makeComponent,
+    newComponent,
     setClass,
     setInputValue,
-    setTextContent,
+    setText,
     setVisible,
-    makeComponentList as makeComponentList,
+    newListRenderer as newListRenderer,
     div,
     el,
     InsertableGeneric,
@@ -102,20 +104,20 @@ type NoteLinkArgs = {
     preventScroll?: boolean;
 };
 
-function NoteLink(): Renderable<NoteLinkArgs> {
+function NoteLink() {
     const root = div({ style: "padding:5px; ", class: "handle-long-words" })
 
-    const component = makeComponent<NoteLinkArgs>(root, () => {
+    function renderNoteLink() {
         const { text, noteId, focusAnyway } = component.args;
 
         setClass(root, "hover-link", !!noteId);
-        setTextContent(root, truncate(text, 500));
+        setText(root, truncate(text, 500));
         root.el.style.backgroundColor = (!!focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)"
         ) : (
             "var(--bg-color)"
         );
-    });
+    }
 
     root.el.addEventListener("click", () => {
         const { noteId, preventScroll, } = component.args;
@@ -131,6 +133,7 @@ function NoteLink(): Renderable<NoteLinkArgs> {
         }, 1);
     });
 
+    const component = newComponent<NoteLinkArgs>(root, renderNoteLink);
     return component;
 }
 
@@ -142,20 +145,20 @@ type TodoListInternalArgs = {
     cursorNoteId?: NoteId;
 };
 
-function TodoListInternal(): Renderable<TodoListInternalArgs> {
+function TodoListInternal() {
     type TodoItemArgs = {
         note: TreeNote;
         focusAnyway: boolean;
         cursorNoteId: NoteId | undefined;
     }
 
-    const componentList = makeComponentList(div(), () => {
+    function TodoListItem() {
         // HACK: the cursor isn't actually bg-color-focus, it is transparent, and it just pushes the row to the side. 
         // The row has bg-color, whereas the root div behind it has --bg-color-focus
         const cursor = div({ class: "pre", }, [" --> "]);
         const noteLink = NoteLink();
         const lastEditedNoteLink = NoteLink();
-        let progressText;
+        const progressText = div();
         const root = div({
             class: "row align-items-center",
             style: "background-color: var(--bg-color-focus);"
@@ -170,7 +173,7 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
                     "background-color: var(--bg-color);"
             }, [
                 div({ class: "row align-items-center" }, [
-                    progressText = div(),
+                    progressText,
                     div({}, [
                         noteLink,
                         div({ style: "padding-left: 60px" }, [
@@ -181,10 +184,12 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
             ]),
         ]);
 
-        const component = makeComponent<TodoItemArgs>(root, () => {
+        const component = newComponent<TodoItemArgs>(root, renderTodoItem);
+
+        function renderTodoItem() {
             const { note, focusAnyway, cursorNoteId } = component.args;
 
-            setTextContent(progressText, getNoteProgressCountText(note));
+            setText(progressText, getNoteProgressCountText(note));
 
             setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
 
@@ -212,20 +217,24 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
                     });
                 }
             }
-        });
+        }
 
         return component;
-    });
+    }
 
+    const componentList = newListRenderer(div(), TodoListItem);
     const headingEl = el("H3", {});
     const root = div({}, [
         headingEl,
         componentList,
     ])
 
-    const component = makeComponent<TodoListInternalArgs>(root, () => {
+    const component = newComponent<TodoListInternalArgs>(root, renderTodoListInternal);
+
+    function renderTodoListInternal() {
         const { heading, priorityLevel, scrollRoot, onScroll, cursorNoteId } = component.args;
-        setTextContent(headingEl, heading);
+
+        setText(headingEl, heading);
         let count = 0;
         let alreadyScrolled = false;
 
@@ -266,7 +275,7 @@ function TodoListInternal(): Renderable<TodoListInternalArgs> {
         });
 
         setVisible(root, count > 0);
-    });
+    }
 
     return component;
 }
@@ -276,7 +285,7 @@ type TodoListArgs = {
     cursorNoteId?: NoteId;
 }
 
-function TodoList(): Renderable<TodoListArgs> {
+function TodoList() {
     const inProgress = TodoListInternal();
     const todo = TodoListInternal();
     const backlog = TodoListInternal();
@@ -288,7 +297,9 @@ function TodoList(): Renderable<TodoListArgs> {
         backlog,
     ]);
 
-    const comopnent = makeComponent<TodoListArgs>(root, () => {
+    const comopnent = newComponent<TodoListArgs>(root, renderTodoList);
+
+    function renderTodoList() {
         const { shouldScroll, cursorNoteId } = comopnent.args;
 
         setVisible(empty, state._todoNoteIds.length === 0);
@@ -318,13 +329,13 @@ function TodoList(): Renderable<TodoListArgs> {
             onScroll: () => alreadyScrolled = true,
             cursorNoteId,
         });
-    });
+    }
 
     return comopnent;
 }
 
 
-function BreakInput(): Renderable {
+function BreakInput() {
     const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const breakButton = makeButton("");
     const root = div({ style: "padding: 5px;", class: "row align-items-center" }, [
@@ -332,12 +343,12 @@ function BreakInput(): Renderable {
         div({}, [breakButton]),
     ]);
 
-    const component = makeComponent(root, () => {
+    function renderBreakInput() {
         const isTakingABreak = isCurrentlyTakingABreak(state);
 
-        setTextContent(breakButton, isTakingABreak ? "Extend break" : "Take a break");
+        setText(breakButton, isTakingABreak ? "Extend break" : "Take a break");
         breakInput.el.setAttribute("placeholder", "Enter break reason (optional)");
-    });
+    }
 
     function addBreak() {
         let text = breakInput.el.value || "Taking a break ...";
@@ -346,7 +357,7 @@ function BreakInput(): Renderable {
         // Hence, the timeout
         setTimeout(() => {
 
-            pushBreakActivity(state, text, true);
+            pushBreakActivity(state, newBreakActivity(text, new Date(), true));
             breakInput.el.value = "";
 
             debouncedSave();
@@ -370,18 +381,15 @@ function BreakInput(): Renderable {
         addBreak();
     });
 
-    return component;
+    return newComponent(root, renderBreakInput);
 }
 
 
-function ActivityListItem(): Renderable<ActivityListItemArgs> {
-    const timestamp = DateTimeInput();
-    const timestampWrapper = div({ style: "" }, [timestamp]);
-    const noteLink = NoteLink();
+function ActivityListItem() {
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
     );
-    const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
+
     const insertBreakButton = makeButton("+ Insert break here");
     const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
         div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
@@ -390,29 +398,36 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
     ]);
 
     const deleteButton = makeButton("x");
-    let visibleRow;
+    const noteLink = NoteLink();
+    const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
+    const timestamp = DateTimeInput();
+    const timestampWrapper = div({ style: "" }, [timestamp]);
+    const visibleRow = div({ class: "hover-parent" }, [
+        div({ class: "row", style: "gap: 20px" }, [
+            div({ class: "flex-1" }, [
+                timestampWrapper,
+                div({ class: "row align-items-center", style: "padding-left: 20px" }, [
+                    noteLink,
+                    breakEdit,
+                    deleteButton,
+                ]),
+            ]),
+            durationEl,
+        ])
+    ])
+
     const root = div({}, [
         div({ class: "hover-parent", style: "min-height: 10px" }, [
             div({ class: "hover-target" }, [
                 breakInsertRow
             ])
         ]),
-        visibleRow = div({ class: "hover-parent" }, [
-            div({ class: "row", style: "gap: 20px" }, [
-                div({ class: "flex-1" }, [
-                    timestampWrapper,
-                    div({ class: "row align-items-center", style: "padding-left: 20px" }, [
-                        noteLink,
-                        breakEdit,
-                        deleteButton,
-                    ]),
-                ]),
-                durationEl,
-            ])
-        ])
+        visibleRow,
     ]);
 
-    const component = makeComponent<ActivityListItemArgs>(root, () => {
+    const component = newComponent<ActivityListItemArgs>(root, renderActivityListItem);
+
+    function renderActivityListItem() {
         const { activity, nextActivity, showDuration, greyedOut, focus } = component.args;
 
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
@@ -444,7 +459,7 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
         }
 
         timestamp.render({
-            value: new Date(activity.t),
+            value: getActivityTime(activity),
             onChange: updateActivityTime,
             readOnly: false,
             nullable: false,
@@ -452,11 +467,11 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
 
         if (setVisible(durationEl, showDuration)) {
             const durationStr = (isEditable ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
-            setTextContent(durationEl, durationStr);
+            setText(durationEl, durationStr);
         }
 
         setVisible(deleteButton, isEditable);
-    });
+    }
 
     function updateActivityTime(date: Date | null) {
         if (!date) {
@@ -467,20 +482,20 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
 
         if (previousActivity) {
             // don't update our date to be before the previous time
-            const prevTime = new Date(previousActivity.t);
+            const prevTime = getActivityTime(previousActivity);
             if (prevTime.getTime() > date.getTime()) {
                 showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
                 return;
             }
         }
 
-        let nextTime = nextActivity ? new Date(nextActivity.t) : new Date();
+        let nextTime = nextActivity ? getActivityTime(nextActivity) : new Date();
         if (nextTime.getTime() < date.getTime()) {
             showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
             return;
         }
 
-        activity.t = getTimestamp(date);
+        setActivityTime(activity, date);
         rerenderApp({ shouldScroll: false });
         debouncedSave();
     }
@@ -493,17 +508,11 @@ function ActivityListItem(): Renderable<ActivityListItemArgs> {
             return;
         }
 
-        const timeA = (new Date(activity.t)).getTime();
+        const timeA = getActivityTime(activity).getTime();
         const duration = getActivityDurationMs(activity, nextActivity);
         const midpoint = timeA + duration / 2;
 
-        const newBreak: Activity = {
-            t: getTimestamp(new Date(midpoint)),
-            breakInfo: "New break",
-            nId: undefined,
-            locked: undefined,
-        };
-
+        const newBreak = newBreakActivity("New break", new Date(midpoint), false);
         state.activities.splice(idx + 1, 0, newBreak);
 
         debouncedSave();
@@ -601,28 +610,36 @@ function ExportModal() {
         }),
     ]));
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, renderExportModal)
+
+    function renderExportModal() {
         root.render({
             onClose: () => setCurrentModal(null)
         });
-    });
+    };
 
     return component;
 }
 
 function DeleteModal(): Renderable {
-    let heading, textEl, countEl, timeEl, recentEl, deleteButton, cantDelete;
+    const heading = el("H2", { style: "text-align: center" }, [ "Delete current note" ]);
+    const textEl = div();
+    const countEl = div();
+    const timeEl = div();
+    const recentEl = div();
+    const deleteButton = makeButton("Delete Note");
+    const cantDelete = div({}, [ "Can't delete notes that are still in progress..." ]);
     const root = Modal(div({ style: modalPaddingStyles(10, 70, 50) }, [
-        heading = el("H2", { style: "text-align: center" }, [ "Delete current note" ]),
-        textEl = div(),
+        heading,
+        textEl,
         div({ style: "height: 20px" }),
-        countEl = div(),
-        timeEl = div(),
-        recentEl = div(),
+        countEl,
+        timeEl,
+        recentEl,
         div({ style: "height: 20px" }),
         div({ class: "row justify-content-center" }, [
-            deleteButton = makeButton("Delete Note"),
-            cantDelete = div({}, [ "Can't delete notes that are still in progress..." ])
+            deleteButton,
+            cantDelete,
         ]),
         div({ style: "height: 20px" }),
         div({ style: "text-align: center" }, [ 
@@ -646,30 +663,32 @@ function DeleteModal(): Renderable {
         );
     });
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, renderDeleteModal);
+
+    function renderDeleteModal() {
         const currentNote = getCurrentNote(state);
 
         root.render({
             onClose: () => setCurrentModal(null),
         });
 
-        setTextContent(textEl, currentNote.data.text);
+        setText(textEl, currentNote.data.text);
 
         let count = 0;
         dfsPre(state, currentNote, () => count++);
-        setTextContent(countEl, count + " notes in total");
+        setText(countEl, count + " notes in total");
 
-        let totalTimeMs = getNoteDuration(state, currentNote);
-        setTextContent(timeEl, formatDuration(totalTimeMs) + " in total");
+        let totalTimeMs = getNoteDuration(state, currentNote, false);
+        setText(timeEl, formatDuration(totalTimeMs) + " in total");
 
         const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
         const activity = state.activities[idx];
-        setTextContent(recentEl, "The last activity under this note was on " + formatDate(new Date(activity.t), undefined, true));
+        setText(recentEl, "The last activity under this note was on " + formatDate(getActivityTime(activity), undefined, true));
 
         const canDelete = currentNote.data._status === STATUS_DONE;
         setVisible(deleteButton, canDelete);
         setVisible(cantDelete, !canDelete);
-    });
+    }
 
     return component;
 }
@@ -689,17 +708,17 @@ function LinkNavModal(): Renderable {
         div({}, [
             content = div({ style: "padding: 20px" }, [
                 el("H2", {}, ["URLs on or under the current note"]),
-                linkList = makeComponentList(div(), () => {
+                linkList = newListRenderer(div(), () => {
                     let cursor, textEl;
                     const root = div({ class: "row", style: "" }, [
                         cursor = div({ class: "pre" }, [" --> "]),
                         textEl = div(),
                     ]);
 
-                    const component = makeComponent<LinkItemArgs>(root, () => {
+                    const component = newComponent<LinkItemArgs>(root, () => {
                         const { text, isFocused, noteId } = component.args;
 
-                        setTextContent(textEl, text);
+                        setText(textEl, text);
                         setVisible(cursor, isFocused);
                         setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
                     });
@@ -713,7 +732,7 @@ function LinkNavModal(): Renderable {
 
     let idx = 0;
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, () => {
         const currentNote = getCurrentNote(state);
 
         root.render({
@@ -799,7 +818,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
 
-    const listRoot = makeComponentList(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
+    const listRoot = newListRenderer(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
     const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
         listRoot,
     ]);
@@ -816,7 +835,7 @@ function EditableActivityList(): Renderable<EditableActivityListArgs> {
 
     let lastIdx = -1;
 
-    const component = makeComponent<EditableActivityListArgs>(root, () => {
+    const component = newComponent<EditableActivityListArgs>(root, () => {
         const { pageSize, activityIndexes, height, shouldScroll } = component.args;
 
         pagination.pageSize = pageSize || 10;
@@ -995,11 +1014,11 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    const component = makeComponent<NoteRowArgs>(root, () => {
+    const component = newComponent<NoteRowArgs>(root, () => {
         const { note } = component.args;
 
         const indentText = getIndentText(note);
-        setTextContent(indent, indentText);
+        setText(indent, indentText);
 
         const isFocused = state.currentNoteId === note.id;
         const isEditing = state._isEditingFocusedNote && isFocused;
@@ -1009,7 +1028,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         }
 
         if (setVisible(whenNotEditing, !isEditing)) {
-            setTextContent(whenNotEditing, note.data.text);
+            setText(whenNotEditing, note.data.text);
         }
 
         root.el.style.backgroundColor = isFocused ? "var(--bg-color-focus)" : "var(--bg-color)";
@@ -1131,7 +1150,7 @@ function ActivityFiltersEditor(): Renderable {
         onlyUnderCurrentNote,
     ]);
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, () => {
         dateFrom.render({
             value: state._activitiesFrom,
             readOnly: false,
@@ -1184,7 +1203,7 @@ function FuzzyFinder(): Renderable {
         hasFocus: boolean;
     }
 
-    const resultList = makeComponentList(div({ class: "h-100" }), () => {
+    const resultList = newListRenderer(div({ class: "h-100" }), () => {
         const textDiv = div();
         const cursor = div({ class: "pre" }, [" --> "]);
         const root = div({ class: "row" }, [
@@ -1192,7 +1211,7 @@ function FuzzyFinder(): Renderable {
             textDiv,
         ]);
         let lastRanges: any = null;
-        const component = makeComponent<ResultArgs>(root, () => {
+        const component = newComponent<ResultArgs>(root, () => {
             const { text, ranges, hasFocus } = component.args;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
@@ -1300,7 +1319,7 @@ function FuzzyFinder(): Renderable {
     }
 
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, () => {
         searchInput.el.focus();
         rerenderSearch();
     });
@@ -1350,7 +1369,7 @@ function FuzzyFindModal(): Renderable {
         ])
     );
 
-    const component = makeComponent(modalComponent, () => {
+    const component = newComponent(modalComponent, () => {
         modalComponent.render({
             onClose: () => setCurrentModal(null)
         });
@@ -1383,14 +1402,14 @@ function LoadBackupModal() {
         fileName: string;
         text: string;
     };
-    const component = makeComponent<LoadBackupModalArgs>(modal, () => {
+    const component = newComponent<LoadBackupModalArgs>(modal, () => {
         modal.render({
             onClose: () => setCurrentModal(null)
         });
 
         const { text, fileName } = component.args;
 
-        setTextContent(fileNameDiv, "Load backup - " + fileName);
+        setText(fileNameDiv, "Load backup - " + fileName);
         setVisible(loadBackupButton, false);
         canLoad = false;
 
@@ -1448,7 +1467,7 @@ function AsciiCanvasModal() {
         ])
     );
 
-    const component = makeComponent<AsciiCanvasArgs>(modalComponent, () => {
+    const component = newComponent<AsciiCanvasArgs>(modalComponent, () => {
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
@@ -1483,7 +1502,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     let isFocused = false;
     let isShowingDurations = false;
 
-    const component = makeComponent<NoteRowArgs>(root, () => {
+    const component = newComponent<NoteRowArgs>(root, () => {
         const { note, stickyOffset, duration, totalDuration, focusedDepth, scrollParent } = component.args;
 
         const wasFocused = isFocused;
@@ -1500,11 +1519,11 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
 
         if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
             if (isInProgress) {
-                setTextContent(inProgress, (isFocused && !state._isEditingFocusedNote) ? " [Enter to continue] " : " [In Progress] ");
+                setText(inProgress, (isFocused && !state._isEditingFocusedNote) ? " [Enter to continue] " : " [In Progress] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#F00";
             } else {
-                setTextContent(inProgress, " [Enter to start] ");
+                setText(inProgress, " [Enter to start] ");
                 inProgress.el.style.color = "#FFF";
                 inProgress.el.style.backgroundColor = "#00F";
             }
@@ -1528,7 +1547,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
 
 
         if (setVisible(durationEl, isShowingDurations || duration > 1)) {
-            setTextContent(durationEl, formatDurationAsHours(duration));
+            setText(durationEl, formatDurationAsHours(duration));
             durationEl.el.setAttribute("title", formatDuration(duration) + " aka " + formatDurationAsHours(duration));
         }
         if (setVisible(progressBar, isShowingDurations)) {
@@ -1577,22 +1596,12 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
     const root = div({
         class: "w-100 sb1b sb1t",
     });
-
-    const noteList = makeComponentList(root, NoteRowInput);
-
+    const noteList = newListRenderer(root, NoteRowInput);
     const durations = new Map<NoteId, number>();
 
+    const component = newComponent<NoteListInternalArgs>(root, renderNoteListInteral);
 
-    function activityFilterFn(idx: number) : boolean {
-        const activity = state.activities[idx];
-        if (!activity.nId) {
-            return false;
-        }
-
-        return isActivityInRange(state, activity);
-    }
-
-    const component = makeComponent<NoteListInternalArgs>(root, () => {
+    function renderNoteListInteral() {
         const { flatNotes, scrollParent } = component.args;
 
         let focusedDepth = -1;
@@ -1613,12 +1622,12 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
 
                 let isSticky = note.data._isSelected;
 
-                const durationMs = getNoteDuration(state, note, activityFilterFn);
+                const durationMs = getNoteDuration(state, note, true);
                 durations.set(note.id, durationMs);
-                
+
                 assert(note.parentId);
                 const parentNote = getNote(state, note.parentId);
-                const parentDurationMs = durations.get(parentNote.id) || getNoteDuration(state, parentNote, activityFilterFn);
+                const parentDurationMs = durations.get(parentNote.id) || getNoteDuration(state, parentNote, true);
                 durations.set(parentNote.id, parentDurationMs);
 
                 component.render({
@@ -1637,7 +1646,7 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
                 }
             }
         });
-    });
+    }
 
     return component;
 }
@@ -1648,7 +1657,7 @@ function NotesList(): Renderable {
         list1,
     ]);
 
-    const component = makeComponent(root, () => {
+    const component = newComponent(root, () => {
         list1.render({ 
             flatNotes: state._flatNoteIds, 
             scrollParent: root.el.parentElement,
@@ -1714,9 +1723,9 @@ function AsciiIcon(): Renderable<AsciiIconData> {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    const component = makeComponent<AsciiIconData>(icon, () => {
+    const component = newComponent<AsciiIconData>(icon, () => {
         const { data } = component.args;
-        setTextContent(icon, data);
+        setText(icon, data);
     });
 
     return component;
@@ -1874,7 +1883,7 @@ function CheatSheet(): Renderable {
             div({ class: "flex-1" }, [desc]),
         ])
     }
-    return makeComponent(div({ style: "padding: 10px" }, [
+    return newComponent(div({ style: "padding: 10px" }, [
         el("H3", {}, ["Cheatsheet"]),
         el("H4", {}, ["Offline use"]),
         isRunningFromFile() ? (
@@ -2112,10 +2121,10 @@ function autoInsertBreakIfRequired() {
         // This should solve the problem of me constantly forgetting to add breaks...
         const lastActivity = getLastActivity(state);
         const time = !lastActivity ? lastCheckTime.getTime() :
-            Math.max(lastCheckTime.getTime(), new Date(lastActivity.t).getTime());
+            Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
 
         if (!isCurrentlyTakingABreak(state)) {
-            pushBreakActivity(state, "Auto-inserted break", undefined, getTimestamp(new Date(time)));
+            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
             rerenderApp();
         }
     }
@@ -2126,8 +2135,15 @@ function autoInsertBreakIfRequired() {
 function getStateAsJSON() {
     const lsKeys: any = {};
     for (const key of Object.values(LOCAL_STORAGE_KEYS)) {
+        if (key === LOCAL_STORAGE_KEYS.STATE) {
+            continue;
+        }
         lsKeys[key] = localStorage.getItem(key);
     }
+
+    const nonCyclicState = recursiveShallowCopy(state);
+    const serialized = JSON.stringify(nonCyclicState);
+    lsKeys[LOCAL_STORAGE_KEYS.STATE] = serialized;
 
     return JSON.stringify(lsKeys);
 }
@@ -2594,7 +2610,7 @@ export function App() {
         console.error("Webworker error: " , e);
     }
 
-    const appComponent = makeComponent(appRoot, () => {
+    const appComponent = newComponent(appRoot, () => {
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
             cheatSheet.render(undefined);
         }
