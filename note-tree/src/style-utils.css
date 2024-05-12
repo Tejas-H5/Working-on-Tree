@@ -229,11 +229,21 @@
     word-break: normal;
 }
 
+.overflow-y-auto {
+    overflow-y: auto;
+}
+
+
 .inverted {
     color: var(--bg-color);
     background-color: var(--fg-color);
 }
 
-.overflow-y-auto {
-    overflow-y: auto;
+.unfocused-text-color {
+    color: var(--unfocus-text-color);
 }
+
+.bg-color-focus {
+    background-color: var(--bg-color-focus);
+}
+

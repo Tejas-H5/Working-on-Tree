@@ -1,11 +1,12 @@
-export function getUrls(text: string): string[] {
-    // urls are a string of non-whitespace that start with "https:", and contain at least 1 dot in there somewhere
-    const urlRegex = /https:\S+\.\S+/g;
-    
-    // returns an array of regex match arrays, which contain [overall match, ...capture groups]
-    const matches = text.matchAll(urlRegex);
+import { matchAllRanges } from "./re";
 
-    return [...matches].map(res => res[0]);
+function urlRegex() {
+    // urls are a string of non-whitespace that start with "https:", and contain at least 1 dot in there somewhere
+    return /https:\S+\.\S+/g;
+}
+
+export function getUrlPositions(text: string): [number, number][] {
+    return matchAllRanges(text, urlRegex());
 }
 
 export function openUrlInNewTab(url: string) {

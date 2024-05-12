@@ -56,6 +56,8 @@ import {
     newBreakActivity,
     getActivityTime,
     setActivityTime,
+    getLastActivityWithNote,
+    hasNote,
 } from "./state";
 import {
     Renderable,
@@ -73,8 +75,8 @@ import {
     Insertable,
     replaceChildren,
     setStyle,
-    ComponentList,
     assert,
+    ChildList,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -87,7 +89,7 @@ import { loadFile, saveText } from "./file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
 import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
 import { copyToClipboard } from "./clipboard";
-import { getUrls, openUrlInNewTab } from "./url";
+import { getUrlPositions, openUrlInNewTab } from "./url";
 import { newWebWorker } from "./web-workers";
 import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setPage } from "./pagniation";
 
@@ -145,6 +147,30 @@ type TodoListInternalArgs = {
     cursorNoteId?: NoteId;
 };
 
+function scrollNavItem(children?: ChildList) {
+    // HACK: (only kind of a hack) the cursor isn't actually bg-color-focus, it is transparent, and it just pushes the row to the side. 
+    // The row has bg-color, whereas the root div behind it has --bg-color-focus
+    const cursor = div({ class: "pre", }, [" --> "]);
+
+    const root = div({
+        class: "row align-items-center",
+        style: "background-color: var(--bg-color-focus);"
+    }, [
+        cursor,
+        div({
+            class: "hover-parent flex-1 handle-long-words",
+            style: "border-top: 1px solid var(--fg-color);" +
+                "border-left: 4px solid var(--fg-color);" +
+                "border-right: 1px solid var(--fg-color);" +
+                "border-bottom: 1px solid var(--fg-color);" +
+                "padding-left: 3px;" +
+                "background-color: var(--bg-color);"
+        }, children)
+    ]);
+
+    return [root, cursor] as const;
+}
+
 function TodoListInternal() {
     type TodoItemArgs = {
         note: TreeNote;
@@ -153,32 +179,16 @@ function TodoListInternal() {
     }
 
     function TodoListItem() {
-        // HACK: the cursor isn't actually bg-color-focus, it is transparent, and it just pushes the row to the side. 
-        // The row has bg-color, whereas the root div behind it has --bg-color-focus
-        const cursor = div({ class: "pre", }, [" --> "]);
         const noteLink = NoteLink();
         const lastEditedNoteLink = NoteLink();
         const progressText = div();
-        const root = div({
-            class: "row align-items-center",
-            style: "background-color: var(--bg-color-focus);"
-        }, [
-            cursor,
-            div({
-                class: "hover-parent flex-1",
-                style: "border-top: 1px solid var(--fg-color);" +
-                    "border-left: 4px solid var(--fg-color);" +
-                    "border-bottom: 1px solid var(--fg-color);" +
-                    "padding-left: 3px;" +
-                    "background-color: var(--bg-color);"
-            }, [
-                div({ class: "row align-items-center" }, [
-                    progressText,
-                    div({}, [
-                        noteLink,
-                        div({ style: "padding-left: 60px" }, [
-                            lastEditedNoteLink,
-                        ]),
+        const [root, cursor] = scrollNavItem([
+            div({ class: "row align-items-center" }, [
+                progressText,
+                div({}, [
+                    noteLink,
+                    div({ style: "padding-left: 60px" }, [
+                        lastEditedNoteLink,
                     ]),
                 ]),
             ]),
@@ -694,60 +704,70 @@ function DeleteModal(): Renderable {
 }
 
 function LinkNavModal(): Renderable {
-    type LinkItemArgs = {
-        noteId: NoteId;
-        text: string;
-        url: string;
-        isFocused: boolean;
-    };
+    function LinkItem() {
+        type LinkItemArgs = {
+            noteId: NoteId;
+            text: string;
+            range: Range;
+            url: string;
+            isFocused: boolean;
+        };
+        
+        const textEl = HighlightedText();
+        const [root, cursor] = scrollNavItem([ textEl ]);
 
-    let content;
-    let linkList: ComponentList<Renderable<LinkItemArgs>> | undefined;
-    let empty;
+        const component = newComponent<LinkItemArgs>(root, renderLinkItem);
+
+        function renderLinkItem() {
+            const { text, range, isFocused, noteId } = component.args;
+
+            textEl.render({
+                text, 
+                highlightedRanges: [ range ]
+            });
+            setVisible(cursor, isFocused);
+            setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
+        }
+
+        return component;
+    }
+
+    const linkList = newListRenderer(div(), LinkItem);
+    const content = div({ style: "padding: 20px" }, [
+        el("H2", {}, ["URLs on or under the current note"]),
+        linkList,
+    ]);
+    const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs on or below the current note."]);
     const root = Modal(
         div({}, [
-            content = div({ style: "padding: 20px" }, [
-                el("H2", {}, ["URLs on or under the current note"]),
-                linkList = newListRenderer(div(), () => {
-                    let cursor, textEl;
-                    const root = div({ class: "row", style: "" }, [
-                        cursor = div({ class: "pre" }, [" --> "]),
-                        textEl = div(),
-                    ]);
-
-                    const component = newComponent<LinkItemArgs>(root, () => {
-                        const { text, isFocused, noteId } = component.args;
-
-                        setText(textEl, text);
-                        setVisible(cursor, isFocused);
-                        setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
-                    });
-
-                    return component;
-                }),
-            ]),
-            empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs on or below the current note."]),
+            content, 
+            empty,
         ])
     );
 
     let idx = 0;
 
-    const component = newComponent(root, () => {
+    const component = newComponent(root, renderLinkNavModal);
+
+    function renderLinkNavModal() {
         const currentNote = getCurrentNote(state);
 
         root.render({
             onClose: () => setCurrentModal(null)
         });
 
+
         idx = 0;
         linkList.render(() => {
             // Dont even need to collect these into an array before rendering them. lmao. 
             dfsPre(state, currentNote, (note) => {
-                const urls = getUrls(note.data.text);
-                for (const url of urls) {
+                const urlPositions = getUrlPositions(note.data.text);
+                for (const range of urlPositions) {
+                    const url = note.data.text.substring(range[0], range[1]);
                     linkList.getNext().render({
                         url,
-                        text: url,
+                        text: note.data.text,
+                        range,
                         isFocused: false,
                         noteId: note.id,
                     });
@@ -759,11 +779,9 @@ function LinkNavModal(): Renderable {
 
         setVisible(content, linkList.components.length > 0);
         setVisible(empty, linkList.components.length === 0);
-    });
+    }
 
     function rerenderItems() {
-        if (!linkList) return;
-
         for (let i = 0; i < linkList.components.length; i++) {
             linkList.components[i].args.isFocused = i === idx;
             linkList.components[i].render(linkList.components[i].args);
@@ -794,8 +812,8 @@ function LinkNavModal(): Renderable {
 
             const currentNote = getCurrentNote(state);
             if (noteId !== currentNote.id) {
-                setCurrentNote(state, noteId);
-                rerenderItems();
+                setCurrentNote(state, noteId, true);
+                rerenderApp();
             } else {
                 openUrlInNewTab(url);
                 setCurrentModal(null);
@@ -1207,49 +1225,99 @@ function getMinFuzzyFindScore(query: string, strict = false) {
     return Math.pow(query.length * 0.7, 2);
 }
 
+function HighlightedText() {
+    function Span() {
+        const root = el("SPAN", { class: "" })
+
+        type Args = { 
+            highlighted: boolean; 
+            text: string; 
+        };
+
+        const component = newComponent<Args>(root, renderSpan);
+
+        function renderSpan() {
+            setText(root, component.args.text);
+            setClass(root, "unfocused-text-color", !component.args.highlighted);
+        }
+
+        return component;
+    }
+
+    const root = div({});
+    const list = newListRenderer(root, Span);
+
+    type Args = {
+        text: string;
+        highlightedRanges: Range[];
+    }
+    const component = newComponent<Args>(root, renderHighlightedText);
+
+    function renderHighlightedText() {
+        const { highlightedRanges: ranges, text } = component.args;
+
+        list.render(() => {
+            let last = 0;
+            for (const [start, end] of ranges) {
+                const part1 = text.substring(last, start);
+                if (part1) {
+                    list.getNext().render({ text: part1, highlighted: false });
+                }
+
+                const part2 = text.substring(start, end);
+                if (part2) {
+                    list.getNext().render({ text: part2, highlighted: true});
+                }
+
+                last = end;
+            }
+
+            const lastPart = text.substring(last);
+            if (lastPart) {
+                list.getNext().render({ text: lastPart, highlighted: false });
+            }
+        });
+    }
+
+    return component;
+}
 
 function FuzzyFinder(): Renderable {
-    const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     type ResultArgs = {
         text: string;
         ranges: Range[];
         hasFocus: boolean;
     }
 
-    const resultList = newListRenderer(div({ class: "h-100" }), () => {
-        const textDiv = div();
-        const cursor = div({ class: "pre" }, [" --> "]);
-        const root = div({ class: "row" }, [
-            cursor,
-            textDiv,
-        ]);
+    function FindResultItem() {
+        const textDiv = HighlightedText();
+        const [root, cursor] = scrollNavItem([ textDiv ]);
         let lastRanges: any = null;
-        const component = newComponent<ResultArgs>(root, () => {
+
+        const component = newComponent<ResultArgs>(root, renderFindResultItem);
+
+        function renderFindResultItem() {
             const { text, ranges, hasFocus } = component.args;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
             if (ranges !== lastRanges) {
-                lastRanges = ranges;
-
-                const spans: Insertable[] = [];
-                let lastRangeEnd = 0;
-                for (let i = 0; i < ranges.length; i++) {
-                    spans.push(el("SPAN", {}, [text.substring(lastRangeEnd, ranges[i][0])]));
-                    spans.push(el("SPAN", { class: "inverted" }, [text.substring(ranges[i][0], ranges[i][1])]));
-                    lastRangeEnd = ranges[i][1];
-                }
-                spans.push(el("SPAN", {}, [text.substring(lastRangeEnd)]));
-
-                replaceChildren(textDiv, spans);
+                textDiv.render({ text: text, highlightedRanges: ranges });
             }
 
             setVisible(cursor, hasFocus);
             root.el.style.backgroundColor = hasFocus ? "var(--bg-color-focus)" : "var(--bg-color)";
-            root.el.style.padding = hasFocus ? "10px" : "";
-        });
+            textDiv.el.style.padding = hasFocus ? "20px" : "10px";
+
+            if (hasFocus) {
+                const scrollParent = root.el.parentElement!;
+                scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
+            }
+        }
 
         return component;
-    });
+    };
+
+    const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), FindResultItem);
 
     type Match = {
         note: TreeNote;
@@ -1259,7 +1327,8 @@ function FuzzyFinder(): Renderable {
     const matches: Match[] = [];
     let currentSelectionIdx = 0;
 
-    const root = div({ class: "col" }, [
+    const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    const root = div({ class: "flex-1 col" }, [
         div({ class: "row align-items-center" }, [
             div({ style: "padding: 10px" }, ["Search:"]),
             searchInput,
@@ -1271,7 +1340,7 @@ function FuzzyFinder(): Renderable {
     ]);
 
     let timeoutId = 0;
-    const DEBOUNCE_MS = 100;
+    const DEBOUNCE_MS = 10;
     function rerenderSearch() {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
@@ -1341,7 +1410,7 @@ function FuzzyFinder(): Renderable {
         if (e.key === "Enter") {
             e.preventDefault();
             const note = matches[currentSelectionIdx].note;
-            setCurrentNote(state, note.id);
+            setCurrentNote(state, note.id, true);
             setCurrentModal(null);
             rerenderApp();
             return;
@@ -1494,7 +1563,7 @@ function AsciiCanvasModal() {
 }
 
 function NoteRowInput(): Renderable<NoteRowArgs> {
-    const text = NoteRowText();
+    const noteRowText = NoteRowText();
     const inProgress = div({ class: "row align-items-center" }, [""]);
 
     const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; padding-right: 10px; text-align: right;" });
@@ -1503,7 +1572,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
         div({ class: "flex-1" }, [
             div({ class: "row" }, [
-                text, 
+                noteRowText, 
                 inProgress, 
                 durationEl
             ]),
@@ -1521,25 +1590,37 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
 
+        const currentNote = getCurrentNote(state);
+
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
 
-        const lastActivity = getLastActivity(state);
-        const isInProgress = lastActivity?.nId === note.id;
 
-        const currentNote = getCurrentNote(state);
+        const lastActivity = getLastActivityWithNote(state);
+        let col = "", progressText = "";
+        const isLastEditedNote = lastActivity?.nId === note.id;
+        if (
+            lastActivity && 
+            (isLastEditedNote || isFocused)
+        ) {
+            col = isLastEditedNote && !isCurrentlyTakingABreak(state) ? "#F00" : "#00F";
+
+            if (isLastEditedNote && isFocused) {
+                progressText = "[Enter to continue]";
+            } else if (isLastEditedNote) {
+                progressText = "[In Progress]";
+            } else if (isFocused) {
+                progressText = "[Enter to start]";
+            }
+        }
+
+        // Dividing line between expanded parents and children on current level
         setStyle(root, "borderBottom", note.id !== currentNote.parentId ? "" : "1px solid var(--fg-color)");
 
-        if (setVisible(inProgress, isInProgress || note.id === state.currentNoteId)) {
-            if (isInProgress) {
-                setText(inProgress, (isFocused && !state._isEditingFocusedNote) ? " [Enter to continue] " : " [In Progress] ");
-                inProgress.el.style.color = "#FFF";
-                inProgress.el.style.backgroundColor = "#F00";
-            } else {
-                setText(inProgress, " [Enter to start] ");
-                inProgress.el.style.color = "#FFF";
-                inProgress.el.style.backgroundColor = "#00F";
-            }
+        if (setVisible(inProgress, !!progressText && !!col)) {
+            setText(inProgress, progressText);
+            inProgress.el.style.color = "#FFF";
+            inProgress.el.style.backgroundColor = col;
         }
 
         let textColor = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) ? "var(--fg-color)" : "var(--unfocus-text-color)";
@@ -1569,7 +1650,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
         }
         
-        text.render(component.args);
+        noteRowText.render(component.args);
 
         if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
 
@@ -1706,7 +1787,7 @@ function setTheme(theme: AppTheme) {
             ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
             ["--fg-color", "#000"],
-            ["--unfocus-text-color", "gray"],
+            ["--unfocus-text-color", "#A0A0A0"],
         ]);
     } else {
         // assume dark theme
@@ -1718,7 +1799,7 @@ function setTheme(theme: AppTheme) {
             ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
             ["--fg-color", "#EEE"],
-            ["--unfocus-text-color", "gray"],
+            ["--unfocus-text-color", "#707070"],
         ]);
     }
 
@@ -1931,16 +2012,14 @@ function CheatSheet(): Renderable {
         ]),
         div({}),
         makeUnorderedList([
-            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in or under a note`),
-        ]),
-        div({}),
-        makeUnorderedList([
             keymapDivs(`[Ctrl] + [Shift] + [A]`, `Toggle between docking the Activity list and the TODO list on the right`),
-            keymapDivs(`[Ctrl] + [Shift] + [Space]`, `Toggle between docking the activity list and the TODO list on the right`),
+            keymapDivs(`[Ctrl] + [Shift] + [Space]`, `Toggle the dock on/off`),
             keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the search modal`),
             keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
-            keymapDivs(`[Ctrl] + [Shift] + [Left/Right]`, `Move back and forth between sequences of notes in the activity list (If you wrote several notes one after the other, the previous notes in the sequence get skipped and you're taken straight to the end of the previous sequence)`),
-            keymapDivs(`[Ctrl] + [Shift] + [Up/Down]`, `Move up and down the TODO list`),
+
+            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in or under a note`),
+            keymapDivs(`[Ctrl] + [Shift] + [Left/Right]`, `Move back and forth between sequences of notes in the activity list, i.e if you wrote several notes one after the other, the previous notes in the sequence get skipped and you're taken straight to the end of the previous sequence. Some actions will save the previous note, which will be used before looking in the activity list.`),
+            keymapDivs(`[Ctrl] + [Shift] + [Up/Down]`, `Move up and down the TODO list. PageUp/PageDown won't work here due to web/browser reasons...`),
         ]),
         el("H4", {}, ["Note statuses"]),
         makeUnorderedList([
@@ -2036,9 +2115,41 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
     return idx;
 }
 
+function moveToLastNote(): boolean{
+    const lastNoteId = state._lastNoteId;
+    
+    if (!lastNoteId) {
+        return false;
+    }
 
-let isInHotlist = false;
+    if (!hasNote(state, lastNoteId)) {
+        return false;
+    }
+
+    const note = getNote(state, lastNoteId);
+    const currentNote = getCurrentNote(state);
+
+    // Don't bother moving to the last note if that note is literally just the one above/below
+    if (currentNote.parentId === note.parentId) {
+        const siblings = getNote(state, currentNote.parentId!).childIds;
+        const currentIdx = siblings.indexOf(currentNote.id);
+        if (siblings[currentIdx-1] === lastNoteId || siblings[currentIdx+1] === lastNoteId) {
+            return false;
+        }
+    }
+
+    setCurrentNote(state, lastNoteId);
+
+    return true;
+}
+
 function moveInDirectonOverHotlist(backwards: boolean) {
+    if (backwards) {
+        if (moveToLastNote()) {
+            return;
+        }
+    }
+
     if (!isInHotlist) {
         isInHotlist = true;
 
@@ -2073,7 +2184,9 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     state._currentlyViewingActivityIdx = nextIdx; // not necesssarily the most recent note
 }
 
+let lateralMovementStartingNote: NoteId | undefined = undefined;
 let todoNoteIdx = -1;
+let isInHotlist = false;
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
@@ -2314,6 +2427,7 @@ export function App() {
         // returns true if we need a rerender
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && isInHotlist) {
             isInHotlist = false;
+            state._lastNoteId = lateralMovementStartingNote;
             setCurrentActivityIdxToCurrentNote(state);
             rerenderApp();
         }
@@ -2321,6 +2435,7 @@ export function App() {
         // returns true if we need a rerender
         if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && todoNoteIdx !== -1) {
             todoNoteIdx = -1;
+            state._lastNoteId = lateralMovementStartingNote;
             rerenderApp();
         }
     });
@@ -2339,6 +2454,7 @@ export function App() {
         ) {
             isInHotlist = false;
             todoNoteIdx = -1;
+            lateralMovementStartingNote = state.currentNoteId;
         }
 
         // handle modals
@@ -2531,8 +2647,10 @@ export function App() {
                     handleUpDownMovement(getNoteNUp(state, currentNote, true));
                 }
             } else if (e.key === "PageUp") {
+                shouldPreventDefault = true;
                 handleUpDownMovement(getNoteNUp(state, currentNote, true, 10));
             } else if (currentNote.parentId && e.key === "PageDown") {
+                shouldPreventDefault = true;
                 handleUpDownMovement(getNoteNDown(state, currentNote, true, 10));
             } else if (currentNote.parentId && e.key === "End") {
                 const parent = getNote(state, currentNote.parentId);

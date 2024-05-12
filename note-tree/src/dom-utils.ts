@@ -220,7 +220,7 @@ export function el<T extends HTMLElement>(
     return insertable;
 }
 
-type ChildList = (Insertable | string | Insertable[])[];
+export type ChildList = (Insertable | string | Insertable[])[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 

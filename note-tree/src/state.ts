@@ -39,6 +39,7 @@ export type State = {
     _durationsOnlyUnderSelected: boolean;         // NOTE: Date isn't JSON serializable
     _useActivityIndices: boolean;
     _activityIndices: number[];
+    _lastNoteId: NoteId | undefined;
 };
 
 
@@ -199,6 +200,7 @@ export function defaultState(): State {
         _durationsOnlyUnderSelected: true,
         _activityIndices: [],
         _useActivityIndices: false,
+        _lastNoteId: undefined,
 
         notes: tree.newTreeStore<Note>(rootNote),
         currentNoteId: "",
@@ -245,6 +247,14 @@ export function setStateFromJSON(savedStateJSON: string) {
 
 export function getLastActivity(state: State): Activity | undefined {
     return state.activities[state.activities.length - 1];
+}
+
+export function getLastActivityWithNote(state: State): Activity | undefined {
+    const idx = getLastActivityWithNoteIdx(state);
+    if (idx === -1) {
+        return undefined;
+    }
+    return state.activities[idx];
 }
 
 export function getLastActivityWithNoteIdx(state: State): number {
@@ -856,7 +866,7 @@ export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, a
     return null;
 }
 
-export function setCurrentNote(state: State, noteId: NoteId | null) {
+export function setCurrentNote(state: State, noteId: NoteId | null, saveJump = false) {
     if (!noteId) {
         return;
     }
@@ -875,6 +885,7 @@ export function setCurrentNote(state: State, noteId: NoteId | null) {
         return;
     }
 
+    state._lastNoteId = !saveJump ? undefined : state.currentNoteId;
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
     deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
