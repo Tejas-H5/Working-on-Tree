@@ -478,6 +478,21 @@ function getTextInputCursorCell(canvas: CanvasState) {
     return cell;
 }
 
+function getCurrentLineStart(canvas: CanvasState, row: number, col: number) {
+    for (let i = row; i >= 0; i--) {
+        // Could be more sophisticated, but for now, the start of the line is just the first non-whitespace on that row
+        for (let j = 0; j <= col; j++) {
+            const char = getCharOnCurrentLayer(canvas, i, j);
+            if (char !== ' ') {
+                return j;
+            }
+        }
+    }
+
+    return col;
+}
+
+
 
 function getTool(canvas: CanvasState): ToolType {
     return isAltPressed() ?  "move-selection" : canvas.currentTool;
@@ -593,12 +608,10 @@ function Canvas() {
     const rows: RowArgs[] = [];
 
     const toolState: {
-        typingStartX: number;
         selectionStartX: number;
         selectionStartY: number;
         startedAction: ToolType | undefined;
     } = {
-        typingStartX: 0,
         selectionStartX: 0,
         selectionStartY: 0,
         startedAction: undefined,
@@ -819,10 +832,6 @@ function Canvas() {
                 tempLayer.iOffset = mouseInputState.y - toolState.selectionStartY;
                 tempLayer.jOffset = mouseInputState.x - toolState.selectionStartX;
             }
-
-            if (clicked && getTextInputCursorCell(canvasState)) {
-                toolState.typingStartX = toolState.selectionStartX;
-            }
         }
 
         mouseInputState._prevX = mouseInputState.x;
@@ -953,9 +962,7 @@ function Canvas() {
     });
 
     function handleKeyDown(e: KeyboardEvent) {
-        // used to be x,y hence the strange order
-        // retuns the next cell
-        function moveCursor(cursor: CanvasCellArgs, j: number, i: number, resetX = false): CanvasCellArgs {
+        function moveCursor(cursor: CanvasCellArgs, i: number, j: number): CanvasCellArgs {
             const nextCursor = getCell(canvasState, i, j);
             if (!nextCursor) {
                 return cursor;
@@ -963,11 +970,6 @@ function Canvas() {
 
             cursor.isSelected = false;
             nextCursor.isSelected = true;
-
-            if (resetX || j < toolState.typingStartX) {
-                toolState.typingStartX = j;
-            }
-
             return nextCursor;
         }
 
@@ -1001,53 +1003,82 @@ function Canvas() {
             }
         }
  
-        const cursorCell = getTextInputCursorCell(canvasState);
+        let cursorCell = getTextInputCursorCell(canvasState);
         if (cursorCell) {
             // Start typing, with the singular selected cursorCell being the cursor
 
+            const typingStartCol = getCurrentLineStart(canvasState, cursorCell.i, cursorCell.j);
+
             function newLine(cursorCell: CanvasCellArgs) {
-                moveCursor(cursorCell, toolState.typingStartX, cursorCell.i + 1);
+                moveCursor(cursorCell, cursorCell.i + 1, typingStartCol);
             }
 
-            function atLineStart(cursorCell: CanvasCellArgs) {
-                return cursorCell.j <= toolState.typingStartX;
-            }
-
-            function backspace(cursorCell: CanvasCellArgs): boolean {
-                // NOTE: Might introduce a 'layer' system that really backspaces text rather than overwriting the cell wtih ' '
-                
-                if (atLineStart(cursorCell)) {
-                    return false;
-                }
-
-                const nextCursor = moveCursor(cursorCell, cursorCell.j - 1, cursorCell.i);
-                if (nextCursor === cursorCell) {
-                    return false;
-                }
-
-                const char = getCharOnCurrentLayer(canvasState, nextCursor.i, nextCursor.j);
-                if (char === ' ') {
-                    return false;
-                }
-
+            function backspace(cursorCell: CanvasCellArgs) {
+                const nextCursor = moveCursor(cursorCell, cursorCell.i, cursorCell.j - 1);
                 setCharOnCurrentLayer(canvasState, nextCursor.i, nextCursor.j, ' ');
-
-                return true;
+                return nextCursor;
             }
+
+            function moveHorizontallyToNonWhitespace(cursorCell: CanvasCellArgs, isWhitespace = true, backwards = true, stopBefore = false) {
+                let j = cursorCell.j
+                const dir = backwards ? -1 : 1;
+                const limitLower = stopBefore ? -1 : 0;
+                const limitHigher = stopBefore ? getNumCols(canvasState) : getNumCols(canvasState) - 1;
+                while (
+                    j + dir >= limitLower && 
+                    j + dir <= limitHigher &&
+                    (getCharOnCurrentLayer(canvasState, cursorCell.i, j) === ' ') === isWhitespace
+                ) {
+                    j += dir;
+                }
+
+                if (stopBefore) {
+                    j -= dir;
+                }
+
+                return moveCursor(cursorCell, cursorCell.i, j);
+            }
+
+            const ctrlPressed = e.ctrlKey || e.metaKey;
 
             if (e.key === "ArrowUp" && cursorCell.i > 0) {
-                moveCursor(cursorCell, cursorCell.j, cursorCell.i - 1);
+                moveCursor(cursorCell, cursorCell.i - 1, cursorCell.j);
             } else if (e.key === "ArrowDown") {
-                moveCursor(cursorCell, cursorCell.j, cursorCell.i + 1);
+                moveCursor(cursorCell, cursorCell.i + 1, cursorCell.j);
             } else if (e.key === "ArrowLeft") {
-                moveCursor(cursorCell, cursorCell.j - 1, cursorCell.i);
+                if (ctrlPressed) {
+                    const onWhitespace = getCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j) === ' ';
+                    cursorCell = moveHorizontallyToNonWhitespace(cursorCell, onWhitespace, true, false);
+                } else {
+                    cursorCell = moveCursor(cursorCell, cursorCell.i, cursorCell.j - 1);
+                }
             } else if (e.key === "ArrowRight") {
-                moveCursor(cursorCell, cursorCell.j + 1, cursorCell.i);
+                if (ctrlPressed) {
+                    const onWhitespace = getCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j) === ' ';
+                    cursorCell = moveHorizontallyToNonWhitespace(cursorCell, onWhitespace, false, false);
+                } else {
+                    cursorCell = moveCursor(cursorCell, cursorCell.i, cursorCell.j + 1);
+                }
+            } else if (e.key === "Home") {
+                cursorCell = moveCursor(cursorCell, cursorCell.i, 0);
+            } else if (e.key === "End") {
+                cursorCell = moveCursor(cursorCell, cursorCell.i, getNumCols(canvasState) - 1);
             } else if (e.key === "Enter") {
                 newLine(cursorCell);
+            } else if (e.key === "Tab") {
+                moveCursor(cursorCell, cursorCell.i, 4 + Math.floor(cursorCell.j / 4) * 4);
             } else if (e.key === "Backspace") {
-                if (e.ctrlKey || e.metaKey) {
-                    while(backspace(cursorCell)) {}
+                if (ctrlPressed) {
+                    cursorCell = moveHorizontallyToNonWhitespace(cursorCell, true, true, true);
+                    while (
+                        getCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j - 1) !== ' '
+                    ) {
+                        const nextCursor = backspace(cursorCell);
+                        if (nextCursor === cursorCell) {
+                            break;
+                        }
+                        cursorCell = nextCursor;
+                    }
                 } else {
                     backspace(cursorCell);
                 }
@@ -1062,7 +1093,7 @@ function Canvas() {
                 if (cursorCell.j === getNumCols(canvasState) - 1) {
                     newLine(cursorCell);
                 } else {
-                    moveCursor(cursorCell, cursorCell.j + 1, cursorCell.i);
+                    moveCursor(cursorCell, cursorCell.i, cursorCell.j + 1);
                 }
             }
         } else if (key.length === 1) {

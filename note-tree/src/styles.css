@@ -14,15 +14,15 @@ input {
 
 body {
   /* Foreground, Background */
-  scrollbar-color: var(--bg-color-focus-light) var(--bg-color-focus);
+  scrollbar-color: var(--bg-color-focus) var(--bg-color);
 }
 
 body::-webkit-scrollbar-thumb { /* Foreground */
-  background: var(--bg-color-focus-light);
+  background: var(--bg-color-focus);
 }
 
 body::-webkit-scrollbar-track { /* Background */
-  background: var(--bg-color-focus);
+  background: var(--bg-color);
 }
 
 

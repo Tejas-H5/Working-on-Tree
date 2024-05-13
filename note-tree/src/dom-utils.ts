@@ -115,13 +115,13 @@ export function setVisibleGroup(state: boolean, groupIf: Insertable[], groupElse
     }
 }
 
-export function setVisible(component: Insertable, state: boolean): boolean {
+export function setVisible(component: Insertable, state: boolean | null | undefined): boolean {
     if (state) {
         component.el.style.setProperty("display", "", "")
     } else {
         component.el.style.setProperty("display", "none", "important")
     }
-    return state;
+    return !!state;
 }
 
 // This is a certified jQuery moment: https://stackoverflow.com/questions/19669786/check-if-element-is-visible-in-dom
@@ -439,3 +439,14 @@ export function isEditingTextSomewhereInDocument(): boolean {
     return false;
 }
 
+/**
+ * Scrolls {@link scrollParent} to bring scrollTo into view.
+ * {@link scrollToRelativeOffset} specifies where to to scroll to. 0 = bring it to the top of the scroll container, 1 = bring it to the bottom
+ */
+export function scrollIntoViewV(
+    scrollParent: HTMLElement, 
+    scrollTo: Insertable, 
+    scrollToRelativeOffset: number
+) {
+    scrollParent.scrollTop = scrollTo.el.offsetTop - scrollToRelativeOffset * (scrollParent.offsetHeight - scrollTo.el.clientHeight);
+}

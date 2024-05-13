@@ -43,7 +43,6 @@ import {
     getLastActivity,
     getLastActivityWithNoteIdx,
     setStateFromJSON,
-    isTodoNote,
     isCurrentNoteOnOrInsideNote,
     getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
@@ -58,6 +57,8 @@ import {
     setActivityTime,
     getLastActivityWithNote,
     hasNote,
+    AppTheme,
+    toggleCurrentNoteSticky,
 } from "./state";
 import {
     Renderable,
@@ -77,6 +78,7 @@ import {
     setStyle,
     assert,
     ChildList,
+    scrollIntoViewV,
 } from "./dom-utils";
 
 import * as tree from "./tree";
@@ -215,17 +217,13 @@ function TodoListInternal() {
             if (!!lastEditedChildId) {
                 const note = getNote(state, lastEditedChildId);
 
-                // We only want to render our current progress for a particular note,
-                // not any of the tasks under it
-                if (!isTodoNote(note.data)) {
-                    setVisible(lastEditedNoteLink, true);
-                    lastEditedNoteLink.render({
-                        noteId: lastEditedChildId,
-                        text: note.data.text,
-                        preventScroll: true,
-                        focusAnyway,
-                    });
-                }
+                setVisible(lastEditedNoteLink, true);
+                lastEditedNoteLink.render({
+                    noteId: lastEditedChildId,
+                    text: note.data.text,
+                    preventScroll: true,
+                    focusAnyway,
+                });
             }
         }
 
@@ -276,7 +274,7 @@ function TodoListInternal() {
                         (cursorNoteId && note.id === cursorNoteId) ||
                         (!cursorNoteId && currentlyOnOrInsideNote)
                     ) {
-                        scrollRoot.el.scrollTop = c.el.offsetTop - 0.5 * scrollRoot.el.offsetHeight;
+                        scrollIntoViewV(scrollRoot.el, c, 0.5);
                         alreadyScrolled = true;
                         onScroll();
                     }
@@ -615,7 +613,7 @@ function ExportModal() {
         }),
         makeButtonWithCallback("Download JSON", () => {
             handleErrors(() => {
-                saveText(getStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
+                saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
             });
         }),
     ]));
@@ -873,7 +871,7 @@ function EditableActivityList() {
         root.el.style.height = height ? height + "px" : "";
         setClass(root, "flex-1", height === undefined);
 
-        let scrollEl: HTMLElement | null = null;
+        let scrollEl: Insertable;
 
         listRoot.render(() => {
             let lastRenderedIdx = -1;
@@ -918,7 +916,7 @@ function EditableActivityList() {
                 });
 
                 if (isFocused && !scrollEl) {
-                    scrollEl = c.el;
+                    scrollEl = c;
                 }
             }
         });
@@ -926,8 +924,8 @@ function EditableActivityList() {
         setTimeout(() => {
             if (scrollEl) {
                 const scrollParent = listContainer.el;
-                if (shouldScroll) {
-                    scrollParent.scrollTop = scrollEl.offsetTop - 0.5 * scrollParent.offsetHeight;
+                if (shouldScroll && scrollEl) {
+                    scrollIntoViewV(scrollParent, scrollEl, 0.5);
                 } else {
                     scrollParent.scrollTop = 0;
                 }
@@ -979,7 +977,6 @@ type NoteRowArgs = {
     stickyOffset?: number;
     duration: number;
     totalDuration: number;
-    focusedDepth: number;
     scrollParent: HTMLElement | null;
 };
 
@@ -1073,8 +1070,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const { note } = component.args;
 
         note.data.text = whenEditing.el.value;
-
-        state._debounceNewNoteActivity = false;
 
         // Perform a partial update on the state, to just the thing we're editing
 
@@ -1310,7 +1305,7 @@ function FuzzyFinder(): Renderable {
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
-                scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
+                scrollIntoViewV(scrollParent, root, 0.5);
             }
         }
 
@@ -1496,13 +1491,14 @@ function LoadBackupModal() {
         canLoad = false;
 
         try {
-            const lsKeys = JSON.parse(text);
-            const lastOnline = parseDateSafe(lsKeys[LOCAL_STORAGE_KEYS.TIME_LAST_POLLED]);
-            const backupState = loadStateFromJSON(lsKeys[LOCAL_STORAGE_KEYS.STATE]);
+            const uploadedLsKeys = JSON.parse(text);
+            const backupState = loadStateFromJSON(uploadedLsKeys[LOCAL_STORAGE_KEY]);
             if (!backupState) {
                 throw "bruh";
             }
-            const theme = lsKeys[LOCAL_STORAGE_KEYS.CURRENT_THEME];
+
+            const lastOnline = parseDateSafe(backupState?.breakAutoInsertLastPolledTime);
+            const theme = backupState.currentTheme;
 
             replaceChildren(infoDiv, [
                 div({}, ["Make sure this looks reasonable before you load the backup:"]),
@@ -1565,32 +1561,68 @@ function AsciiCanvasModal() {
 function NoteRowInput(): Renderable<NoteRowArgs> {
     const noteRowText = NoteRowText();
     const inProgress = div({ class: "row align-items-center" }, [""]);
-
-    const durationEl = div({ class: "row align-items-center", style: "padding-left: 10px; padding-right: 10px; text-align: right;" });
+    const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, ["[!]"]);
+    const durationEl = div({ class: "row align-items-center", style: "text-align: right;" });
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
 
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
         div({ class: "flex-1" }, [
-            div({ class: "row" }, [
+            div({ class: "row", style: "" }, [
                 noteRowText, 
                 inProgress, 
+                sticky,
                 durationEl
             ]),
             progressBar,
         ]),
     ]);
 
+    function setStickyOffset() {
+        const { stickyOffset } = component.args;
+
+        if (stickyOffset !== undefined) {
+            root.el.style.position = "sticky";
+            root.el.style.top = stickyOffset + "px";
+            return;
+        } 
+
+        clearStickyOffset();
+    }
+
+    function clearStickyOffset() {
+        root.el.style.position = "";
+        root.el.style.top = "";
+    }
+
+    function scrollComponentToView() {
+        const { scrollParent } = component.args;
+
+        if (!scrollParent) {
+            return;
+        }
+
+        // Clearing and setting the sticky style allows for scrolling to work.
+        
+        clearStickyOffset();
+
+        scrollIntoViewV(scrollParent, root, 0.5);
+
+        setStickyOffset();
+    }
 
     let isFocused = false;
     let isShowingDurations = false;
 
-    const component = newComponent<NoteRowArgs>(root, () => {
-        const { note, stickyOffset, duration, totalDuration, focusedDepth, scrollParent } = component.args;
+    const component = newComponent<NoteRowArgs>(root, renderNoteRowInput);
+
+    function renderNoteRowInput() {
+        const { note, duration, totalDuration } = component.args;
 
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
 
         const currentNote = getCurrentNote(state);
+        const isOnCurrentLevel = note.parentId === currentNote.parentId;
 
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
@@ -1623,27 +1655,18 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
             inProgress.el.style.backgroundColor = col;
         }
 
-        let textColor = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) ? "var(--fg-color)" : "var(--unfocus-text-color)";
-        const isOnCurrentLevel = note.data._depth === focusedDepth;
+        root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) ? 
+            "var(--fg-color)" : "var(--unfocus-text-color)";
 
-        root.el.style.color = textColor;
-        if (
-            stickyOffset !== undefined && 
-            // Never stick notes on the same level - we can run into a bug where moving up too fast sticks the note, and breaks auto-scrolling
-            !isOnCurrentLevel
-        ) {
-            root.el.style.position = "sticky";
-            root.el.style.top = stickyOffset + "px";
-        } else {
-            root.el.style.position = "";
-            root.el.style.top = stickyOffset + "";
-        }
+        setStickyOffset();
 
+        setVisible(sticky, note.data.isSticky);
 
         if (setVisible(durationEl, isShowingDurations || duration > 1)) {
             setText(durationEl, formatDurationAsHours(duration));
             durationEl.el.setAttribute("title", formatDuration(duration) + " aka " + formatDurationAsHours(duration));
         }
+
         if (setVisible(progressBar, isShowingDurations)) {
             let percent = totalDuration < 0.000001 ? 0 : 100 * duration! / totalDuration!;
             setStyle(progressBar, "width", percent + "%")
@@ -1655,21 +1678,14 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
 
             if (renderOptions.shouldScroll) {
-                function scrollComponentToView() {
-                    if (!scrollParent) {
-                        return;
-                    }
-
-                    // without setTimeout here, calling focus won't work as soon as the page loads.
-                    setTimeout(() => {
-                        scrollParent.scrollTop = root.el.offsetTop - 0.5 * scrollParent.offsetHeight;
-                    }, 1);
-                }
-
-                scrollComponentToView();
+                // without setTimeout here, calling focus won't work as soon as the page loads.
+                setTimeout(() => {
+                    scrollComponentToView();
+                }, 1);
             }
         }
-    });
+    }
+
 
     root.el.addEventListener("click", () => {
         const { note } = component.args;
@@ -1698,24 +1714,24 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
     function renderNoteListInteral() {
         const { flatNotes, scrollParent } = component.args;
 
-        let focusedDepth = -1;
-        for (let i = 0; i < state._flatNoteIds.length; i++) {
-            const note = getNote(state, state._flatNoteIds[i]);
-            focusedDepth = Math.max(focusedDepth, note.data._depth);
-        }
-
         noteList.render(() => {
             let stickyOffset = 0;
 
             durations.clear();
+            const currentNote = getCurrentNote(state);
 
             for (let i = 0; i < flatNotes.length; i++) {
                 const id = flatNotes[i];
                 const note = getNote(state, id);
                 const component = noteList.getNext();
 
-                let isSticky = note.data._isSelected;
-
+                const isOnCurrentLevel = currentNote.parentId === note.parentId;
+                let isSticky = note.data._isSelected ||
+                    (isOnCurrentLevel && (
+                        note.data.isSticky || 
+                        getLastActivityWithNote(state)?.nId === note.id
+                    ));
+                    
                 const durationMs = getNoteDuration(state, note, true);
                 durations.set(note.id, durationMs);
 
@@ -1729,7 +1745,6 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
                     stickyOffset: isSticky ? stickyOffset : undefined,
                     duration: durationMs,
                     totalDuration: parentDurationMs,
-                    focusedDepth: focusedDepth,
                     scrollParent,
                 });
 
@@ -1765,10 +1780,8 @@ const renderOptions: RenderOptions = {
     shouldScroll: false
 };
 
-type AppTheme = "Light" | "Dark";
-
 function getTheme(): AppTheme {
-    if (localStorage.getItem(LOCAL_STORAGE_KEYS.CURRENT_THEME) === "Dark") {
+    if (state.currentTheme === "Dark") {
         return "Dark";
     }
 
@@ -1776,7 +1789,7 @@ function getTheme(): AppTheme {
 };
 
 function setTheme(theme: AppTheme) {
-    localStorage.setItem(LOCAL_STORAGE_KEYS.CURRENT_THEME, theme);
+    state.currentTheme = theme;
 
     if (theme === "Light") {
         setCssVars([
@@ -1784,7 +1797,6 @@ function setTheme(theme: AppTheme) {
             ["--fg-in-progress", "#FFF"],
             ["--bg-color", "#FFF"],
             ["--bg-color-focus", "#CCC"],
-            ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
             ["--fg-color", "#000"],
             ["--unfocus-text-color", "#A0A0A0"],
@@ -1796,14 +1808,11 @@ function setTheme(theme: AppTheme) {
             ["--fg-in-progress", "#FFF"],
             ["--bg-color", "#000"],
             ["--bg-color-focus", "#333"],
-            ["--bg-color-focus-light", "#888"],
             ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
             ["--fg-color", "#EEE"],
             ["--unfocus-text-color", "#707070"],
         ]);
     }
-
-
 };
 
 
@@ -2216,14 +2225,8 @@ function moveInDirectionOverTodoList(amount: number) {
 // However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
 // The main benefit of having just a single tree (apart from simplicity and less code) is that
 // You can track all your activities and see analytics for all of them in one place. 
-const LOCAL_STORAGE_KEYS = {
-    STATE: "NoteTree.Everything",
-    // Actually quite useful to back this up with a user's data.
-    // If they ever need to revert to a backed up version of their state, 
-    // this will cause our thing to auto-insert a break corresponding to all the data they lost
-    TIME_LAST_POLLED: "TimeLastPolled",
-    CURRENT_THEME: "State.currentTheme",
-} as const;
+// As it turns out, storing state in anything besides the global state object can result in bugs. so I've completely removed this now.
+const LOCAL_STORAGE_KEY = "NoteTree.Everything";
 
 const initState = () => {
     loadState();
@@ -2236,7 +2239,7 @@ function autoInsertBreakIfRequired() {
 
     // Need to automatically add breaks if we haven't called this method in a while.
     const time = new Date();
-    const lastCheckTime = parseDateSafe(localStorage.getItem(LOCAL_STORAGE_KEYS.TIME_LAST_POLLED) || "");
+    const lastCheckTime = parseDateSafe(state.breakAutoInsertLastPolledTime);
 
     if (
         !!lastCheckTime &&
@@ -2255,23 +2258,15 @@ function autoInsertBreakIfRequired() {
         }
     }
 
-    localStorage.setItem(LOCAL_STORAGE_KEYS.TIME_LAST_POLLED, getTimestamp(time));
+    state.breakAutoInsertLastPolledTime = getTimestamp(time);
 }
 
-function getStateAsJSON() {
-    const lsKeys: any = {};
-    for (const key of Object.values(LOCAL_STORAGE_KEYS)) {
-        if (key === LOCAL_STORAGE_KEYS.STATE) {
-            continue;
-        }
-        lsKeys[key] = localStorage.getItem(key);
-    }
-
+function getCurrentStateAsJSON() {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
-    lsKeys[LOCAL_STORAGE_KEYS.STATE] = serialized;
-
-    return JSON.stringify(lsKeys);
+    return JSON.stringify({
+        [LOCAL_STORAGE_KEY]: serialized,
+    });
 }
 
 function isRunningFromFile(): boolean {
@@ -2320,7 +2315,9 @@ export function App() {
     ]);
     const todoListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
-        todoList
+        div ({ class: "flex-1", style: "padding-left: 5px" }, [
+            todoList
+        ]),
     ]);
 
     const asciiCanvasModal = AsciiCanvasModal();
@@ -2446,6 +2443,16 @@ export function App() {
         const shiftPressed = e.shiftKey;
         const currentNote = getCurrentNote(state);
 
+        if (currentModal !== null) {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                setCurrentModal(null);
+            }
+
+            // Don't need to do anything here if a modal is open.
+            return;
+        }
+
         if (
             ctrlPressed &&
             shiftPressed &&
@@ -2457,7 +2464,7 @@ export function App() {
             lateralMovementStartingNote = state.currentNoteId;
         }
 
-        // handle modals
+        // handle modals or gloabl key shortcuts
         if (e.key === "Delete") {
             e.preventDefault();
             setCurrentModal(deleteModal);
@@ -2533,11 +2540,12 @@ export function App() {
             setCurrentModal(linkNavModal);
             return;
         } else if (
-            currentModal !== null &&
-            e.key === "Escape"
+            ctrlPressed &&
+            shiftPressed &&
+            (e.key === "1" || e.key === "!")
         ) {
-            e.preventDefault();
-            setCurrentModal(null);
+            toggleCurrentNoteSticky(state);
+            rerenderApp();
             return;
         }
 
@@ -2755,8 +2763,6 @@ export function App() {
         setClass(todoNotesButton, "inverted", state.dockedMenu === "todoLists" && state.showDockedMenu);
         setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
 
-        notesList.render(undefined);
-
         if (setVisible(filterEditorRow, state._isShowingDurations)) {
             filterEditor.render(undefined);
         }
@@ -2772,6 +2778,10 @@ export function App() {
         }
 
         setVisible(rightPanelArea, currentDockedMenu !== null);
+
+        // Render the list after rendering the right dock, so that the sticky offsets have the correct heights.
+        // The right panel can cause lines to wrap when they otherwise wouldn't have, resulting in incorrect heights
+        notesList.render(undefined);
 
         if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
             // Render activities in their normal spot
@@ -2916,7 +2926,7 @@ const debouncedSave = () => {
 };
 
 function loadState() {
-    const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEYS.STATE);
+    const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!savedStateJSON) {
         return;
     }
@@ -2929,7 +2939,7 @@ let saveTimeout = 0;
 function saveState(state: State) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
-    localStorage.setItem(LOCAL_STORAGE_KEYS.STATE, serialized);
+    localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
 }
 
 

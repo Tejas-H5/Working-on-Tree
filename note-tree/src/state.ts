@@ -10,6 +10,7 @@ export type TaskId = string;
 export type TreeNote = tree.TreeNode<Note>;
 
 export type DockableMenu = "activities" | "todoLists";
+export type AppTheme = "Light" | "Dark";
 
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
@@ -19,6 +20,8 @@ export type State = {
     currentNoteId: NoteId;
     dockedMenu: DockableMenu;
     showDockedMenu: boolean;
+    breakAutoInsertLastPolledTime: string;
+    currentTheme: AppTheme;
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -32,22 +35,26 @@ export type State = {
     _currentlyViewingActivityIdx: number;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
-    _debounceNewNoteActivity: boolean;
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
-    _durationsOnlyUnderSelected: boolean;         // NOTE: Date isn't JSON serializable
+    _durationsOnlyUnderSelected: boolean;
     _useActivityIndices: boolean;
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
 };
 
 
+type JsonBoolean = true | undefined;
+
 export type Note = {
     id: NoteId;
     text: string;
     openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
     lastSelectedChildIdx: number; // this is now an index into 
+
+    // Should this note be sticky?
+    isSticky: JsonBoolean;
 
     /** 
      * The ID of this note's parent before it was archived. 
@@ -76,10 +83,14 @@ export function recomputeNoteIsUnderFlag(state: State, note: TreeNote) {
 }
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
-// Yeah it isn't the best practice
+// Yeah it isn't the best practice, but it works
 export type Activity = {
     nId?: NoteId;
+    // Time this note was created
     t: string;
+    // Are we creating a brand new note? 1 if true
+    c?: number;
+
     _t?: Date;
 
     // only apply to breaks:
@@ -188,11 +199,18 @@ export function defaultState(): State {
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
     const state: State = {
+        notes: tree.newTreeStore<Note>(rootNote),
+        currentNoteId: "",
+        dockedMenu: "activities",
+        showDockedMenu: false,
+        activities: [],
+        scratchPadCanvasLayers: [],
+        currentTheme: "Light",
+        breakAutoInsertLastPolledTime: "",
+
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
-        _debounceNewNoteActivity: false,
         _todoNoteIds: [],
-
         _currentlyViewingActivityIdx: 0,
         _isShowingDurations: false,
         _activitiesFrom: null,
@@ -202,12 +220,6 @@ export function defaultState(): State {
         _useActivityIndices: false,
         _lastNoteId: undefined,
 
-        notes: tree.newTreeStore<Note>(rootNote),
-        currentNoteId: "",
-        dockedMenu: "activities",
-        showDockedMenu: false,
-        activities: [],
-        scratchPadCanvasLayers: [],
     };
 
     setActivityRangeToday(state);
@@ -286,6 +298,7 @@ export function defaultNote(state: State | null): Note {
         openedAt: getTimestamp(new Date()),
         lastSelectedChildIdx: 0,
         preArchivalParentId: undefined,
+        isSticky: undefined,
 
         // the following is just visual flags which are frequently recomputed
 
@@ -622,42 +635,44 @@ export function createNewNote(state: State, text: string): TreeNote {
     const note = defaultNote(state);
     note.text = text;
 
-    return tree.newTreeNode(note, note.id);
+    const newTreeNode = tree.newTreeNode(note, note.id);
+
+    pushNoteActivity(state, newTreeNode.id, true);
+
+    return newTreeNode;
 }
 
 
 export function activityNoteIdMatchesLastActivity(state: State, activity: Activity) : boolean {
-    return (
-        !isBreak(activity) &&
-        state.activities.length > 0 &&
-        state.activities[state.activities.length - 1].nId === activity.nId
-    );
+    const lastActivity = getLastActivity(state);
+    if (!lastActivity) {
+        return false;
+    }
+
+    if (isBreak(lastActivity)) {
+        return lastActivity.breakInfo === activity.breakInfo;
+    }
+
+    return lastActivity.nId === activity.nId;
 }
 
-function pushActivity(state: State, activity: Activity, isNewNote = false) {
+function pushActivity(state: State, activity: Activity) {
     if (activityNoteIdMatchesLastActivity(state, activity)) {
-        // Don't push the same note twice in a row, unless it's a break
+        // Don't push the same activity twice in a row
         return;
     }
 
-    if (
-        !isNewNote &&
-        state._debounceNewNoteActivity &&
-        !isBreak(activity)
-    ) {
+    const lastActivity = getLastActivity(state);
+    if (lastActivity && lastActivity.c !== 1) {
+        // This activity wasn't a 'create' activity, so we can replace it if it isn't old enough.
+        
         const ONE_MINUTE = 1000 * 60;
-        const lastActivity = getLastActivity(state);
-        if (
-            lastActivity && 
-            !isBreak(lastActivity) &&
-            getActivityDurationMs(lastActivity, activity) < ONE_MINUTE
-        ) {
+        if (getActivityDurationMs(lastActivity, activity) < ONE_MINUTE) {
             state.activities.pop();
-            state._debounceNewNoteActivity = false;
         }
 
         if (activityNoteIdMatchesLastActivity(state, activity)) {
-            // Still, don't push the same note twice in a row, unless it's a break
+            // Still, don't push the same activity twice in a row
             return;
         }
     }
@@ -750,7 +765,7 @@ export function insertNoteAfterCurrent(state: State) {
     const newNote = createNewNote(state, "");
     tree.addAfter(state.notes, currentNote, newNote)
     setCurrentNote(state, newNote.id);
-    setIsEditingCurrentNote(state, true, true);
+    setIsEditingCurrentNote(state, true);
     return true;
 }
 
@@ -766,7 +781,7 @@ export function insertChildNode(state: State): TreeNote | null {
 
     tree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id);
-    setIsEditingCurrentNote(state, true, true);
+    setIsEditingCurrentNote(state, true);
     return newNote;
 }
 
@@ -809,7 +824,8 @@ function pushNoteActivity(state: State, noteId: NoteId, isNewNote: boolean) {
     pushActivity(state, {
         nId: noteId,
         t: getTimestamp(date),
-    }, isNewNote);
+        c: isNewNote ? 1 : undefined,
+    });
 }
 
 export function newBreakActivity(breakInfoText: string, time: Date, locked: boolean): Activity {
@@ -829,7 +845,9 @@ export function pushBreakActivity(state: State, breakActivtiy: Activity) {
 
     pushActivity(state, breakActivtiy);
 
-    setIsEditingCurrentNote(state, false);
+    if (state._isEditingFocusedNote) {
+        setIsEditingCurrentNote(state, false);
+    }
 
 }
 
@@ -903,23 +921,20 @@ export function setCurrentActivityIdxToCurrentNote(state: State) {
 }
 
 
-export function setIsEditingCurrentNote(state: State, isEditing: boolean, isNewNote = false) {
+export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
     state._isEditingFocusedNote = isEditing;
 
     if (isEditing) {
         const currentNote = getCurrentNote(state);
-        pushNoteActivity(state, currentNote.id, isNewNote);
+        pushNoteActivity(state, currentNote.id, false);
         setCurrentActivityIdxToCurrentNote(state);
-
-        // Prevents multiple notes being added when we sometimes press "Enter" on a note
-        // only to then create a new note under it.
-        // This should then be set to false as soon as we edit the note, or a similar action that would 'cement' this activity
-        state._debounceNewNoteActivity = true;
 
         if (currentNote.parentId) {
             const parent = getNote(state, currentNote.parentId);
             parent.data.lastSelectedChildIdx = parent.childIds.indexOf(currentNote.id);
         }
+    } else {
+        pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
     }
 }
 
@@ -976,7 +991,8 @@ export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote
         siblings[0] === note.id ||
         siblings[siblings.length - 1] === note.id ||
         note.data._isSelected ||
-        (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS))
+        (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS)) ||
+        !!note.data.isSticky
     );
 }
 
@@ -1325,6 +1341,11 @@ export function deleteDoneNote(state: State, note: TreeNote): string | undefined
     }
 
     // If we implemented deleting right, we simply have no more notes to move to now...
+}
+
+export function toggleCurrentNoteSticky(state: State) {
+    const currentNote = getCurrentNote(state);
+    currentNote.data.isSticky = (!currentNote.data.isSticky) || undefined;
 }
 
 export function resetState() {
