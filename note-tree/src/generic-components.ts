@@ -1,4 +1,4 @@
-// TODO: import the missing CSS styles
+// TODO: import the missing CSS stylesgener
 
 import { Insertable, Renderable, div, el, newComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./dom-utils";
 import { addDays, floorDateLocalTime, formatDate, parseYMDTDateTime } from "./datetime";
@@ -134,7 +134,7 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
             setInputValueAndResize(edit, dateText);
         }
 
-        setStyle(root, "color", !!value ? "var(--fg-color)" : "var(--unfocus-text-color)");
+        setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
     });
     
     function onCheckOrUncheck(b: boolean) {

@@ -23,7 +23,7 @@ import {
     getNoteNUp,
     getSecondPartOfRow,
     getTodoNotePriority,
-    insertChildNode,
+    insertChildNote,
     insertNoteAfterCurrent,
     isCurrentlyTakingABreak,
     isEditableBreak,
@@ -441,10 +441,10 @@ function ActivityListItem() {
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
         setStyle(root, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
 
-        const isEditable = isEditableBreak(activity);
+        const isEditable = !greyedOut && isEditableBreak(activity);
         // I think all break text should just be editable...
         // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
-        const canEditBreakText = isBreak(activity);
+        const canEditBreakText = !greyedOut && isBreak(activity);
 
         const activityText = getActivityText(state, activity);
 
@@ -732,10 +732,10 @@ function LinkNavModal(): Renderable {
 
     const linkList = newListRenderer(div(), LinkItem);
     const content = div({ style: "padding: 20px" }, [
-        el("H2", {}, ["URLs on or under the current note"]),
+        el("H2", {}, ["URLs above or under the current note"]),
         linkList,
     ]);
-    const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs on or below the current note."]);
+    const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
     const root = Modal(
         div({}, [
             content, 
@@ -757,9 +757,10 @@ function LinkNavModal(): Renderable {
 
         idx = 0;
         linkList.render(() => {
-            // Dont even need to collect these into an array before rendering them. lmao. 
-            dfsPre(state, currentNote, (note) => {
+
+            function renderLink(note: TreeNote) {
                 const urlPositions = getUrlPositions(note.data.text);
+
                 for (const range of urlPositions) {
                     const url = note.data.text.substring(range[0], range[1]);
                     linkList.getNext().render({
@@ -770,6 +771,28 @@ function LinkNavModal(): Renderable {
                         noteId: note.id,
                     });
                 }
+
+                return urlPositions.length;
+            }
+
+
+            let notes: TreeNote[] = [];
+            tree.forEachParent(state.notes, currentNote, (note) => {
+                if (note !== currentNote) {
+                    notes.push(note);
+                }
+
+                return false;
+            });
+
+            idx = 0;
+            for (let i = notes.length - 1; i >= 0; i--) {
+                idx += renderLink(notes[i]);
+            }
+
+            // Dont even need to collect these into an array before rendering them. lmao. 
+            dfsPre(state, currentNote, (note) => {
+                renderLink(note);
             });
         });
 
@@ -915,6 +938,22 @@ function EditableActivityList() {
                     focus: isFocused,
                 });
 
+                if (
+                    i + 1 === activitiesToRender && 
+                    idx - 2 >= 0
+                ) {
+                    const previousPreviousActivity = activities[idx - 2];
+                    // Also render the activity before this list. so we can see the 1 activity before the ones in the lsit
+                    listRoot.getNext().render({
+                        previousActivity: previousPreviousActivity,
+                        activity: previousActivity,
+                        nextActivity: activity,
+                        showDuration: true,
+                        focus: false,
+                        greyedOut: true,
+                    });
+                }
+
                 if (isFocused && !scrollEl) {
                     scrollEl = c;
                 }
@@ -1033,7 +1072,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
     );
 
-    function onRerenderWhenEditing() {
+    function updateTextContentAndSize() {
         const { note } = component.args;
 
         setInputValue(whenEditing, note.data.text);
@@ -1042,7 +1081,9 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    const component = newComponent<NoteRowArgs>(root, () => {
+    const component = newComponent<NoteRowArgs>(root, renderNoteRow);
+
+    function renderNoteRow() {
         const { note } = component.args;
 
         const indentText = getIndentText(note);
@@ -1063,17 +1104,17 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         // Actually quite important that this runs even when we aren't editing, because when we eventually
         // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
-        onRerenderWhenEditing();
-    });
+        updateTextContentAndSize();
+    }
 
     whenEditing.el.addEventListener("input", () => {
         const { note } = component.args;
 
-        note.data.text = whenEditing.el.value;
-
         // Perform a partial update on the state, to just the thing we're editing
 
-        onRerenderWhenEditing();
+        note.data.text = whenEditing.el.value;
+
+        updateTextContentAndSize();
 
         debouncedSave();
 
@@ -1084,12 +1125,14 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const currentNote = getCurrentNote(state);
 
         const shiftPressed = e.shiftKey;
+        const ctrlPressed = e.ctrlKey || e.metaKey;
 
         let needsRerender = true;
         let shouldPreventDefault = true;
 
-        if (e.key === "Enter" && !shiftPressed) {
-            insertNoteAfterCurrent(state);
+        if (e.key === "Enter" && (shiftPressed || ctrlPressed)) {
+            // dont react to these, they are handled at the document input level for inserting notes.
+            needsRerender = false;
         } else if (e.key === "Backspace") {
             deleteNoteIfEmpty(state, currentNote.id);
             shouldPreventDefault = false;
@@ -1561,8 +1604,8 @@ function AsciiCanvasModal() {
 function NoteRowInput(): Renderable<NoteRowArgs> {
     const noteRowText = NoteRowText();
     const inProgress = div({ class: "row align-items-center" }, [""]);
-    const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, ["[!]"]);
-    const durationEl = div({ class: "row align-items-center", style: "text-align: right;" });
+    const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
+    const durationEl = div({ class: "row align-items-center", style: "text-align: right; padding-left: 5px;" });
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
 
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
@@ -1638,11 +1681,11 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
             col = isLastEditedNote && !isCurrentlyTakingABreak(state) ? "#F00" : "#00F";
 
             if (isLastEditedNote && isFocused) {
-                progressText = "[Enter to continue]";
+                progressText = state._isEditingFocusedNote ? " <<< " : " Enter to continue ";
             } else if (isLastEditedNote) {
-                progressText = "[In Progress]";
+                progressText = " In Progress ";
             } else if (isFocused) {
-                progressText = "[Enter to start]";
+                progressText = " Enter to start ";
             }
         }
 
@@ -1655,7 +1698,7 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
             inProgress.el.style.backgroundColor = col;
         }
 
-        root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS) ? 
+        root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ? 
             "var(--fg-color)" : "var(--unfocus-text-color)";
 
         setStickyOffset();
@@ -2009,9 +2052,9 @@ function CheatSheet(): Renderable {
         div({}),
         makeUnorderedList([
             keymapDivs(`[Enter], while not editing`, `start editing the current note`),
-            keymapDivs(`[Enter], while editing`, `create a new note under the current note`),
-            keymapDivs(`[Shift] + [Enter], while not editing`, `create a new note 1 level below the current note`),
-            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines in the note text`),
+            keymapDivs(`[Enter], while editing`, `create a new note after the current note`),
+            keymapDivs(`[Ctrl] + [Enter]`, `create a new note 1 level below the current note`),
+            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines in the note text. Unless the note starts with --- in which case [Shift] + [Enter] adds a new note after this one, and [Enter] adds new lines.`),
             keymapDivs(`[Esc], when editing`, `Stop editing`),
             keymapDivs(`[Up]/[PageUp]/[Home]/[Ctrl+Up], not editing`, `Move upwards various amounts`),
             keymapDivs(`[Down]/[PageDown]/[Home]/[Ctrl+Down], not editing`, `Move downwards various amounts`),
@@ -2025,8 +2068,8 @@ function CheatSheet(): Renderable {
             keymapDivs(`[Ctrl] + [Shift] + [Space]`, `Toggle the dock on/off`),
             keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the search modal`),
             keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
-
-            keymapDivs(`[Ctrl] + [Enter]`, `Find and open URLs in or under a note`),
+            keymapDivs(`[Ctrl] + [/]`, `Find and open URLs above or below a note`),
+            keymapDivs(`[Ctrl] + [Shift] + [1]`, `Make this note sticky. It will still be visible when youve scrolled down a lot.`),
             keymapDivs(`[Ctrl] + [Shift] + [Left/Right]`, `Move back and forth between sequences of notes in the activity list, i.e if you wrote several notes one after the other, the previous notes in the sequence get skipped and you're taken straight to the end of the previous sequence. Some actions will save the previous note, which will be used before looking in the activity list.`),
             keymapDivs(`[Ctrl] + [Shift] + [Up/Down]`, `Move up and down the TODO list. PageUp/PageDown won't work here due to web/browser reasons...`),
         ]),
@@ -2506,24 +2549,7 @@ export function App() {
             state.showDockedMenu = !state.showDockedMenu;
             rerenderApp();
             return;
-        } else if (
-            // Not sure if I like A and space, or K and L....
-            e.key === "K" &&
-            ctrlPressed &&
-            shiftPressed
-        ) {
-            e.preventDefault();
-            toggleCurrentDockedMenu("activities")
-            return;
-        } else if (
-            e.key === "L" &&
-            ctrlPressed &&
-            shiftPressed
-        ) {
-            e.preventDefault();
-            toggleCurrentDockedMenu("todoLists")
-            return;
-        } else if (
+        }  else if (
             e.key === "D" &&
             ctrlPressed &&
             shiftPressed
@@ -2533,8 +2559,8 @@ export function App() {
             rerenderApp();
             return;
         } else if (
-            e.key === "Enter" &&
-            ctrlPressed
+            (e.key === "?" || e.key === "/") &&
+            ctrlPressed 
         ) {
             e.preventDefault();
             setCurrentModal(linkNavModal);
@@ -2547,6 +2573,29 @@ export function App() {
             toggleCurrentNoteSticky(state);
             rerenderApp();
             return;
+        } else if (e.key === "Enter") {
+            if (ctrlPressed) {
+                insertChildNote(state);
+                e.preventDefault();
+                rerenderApp();
+                return;
+            }
+
+            if (!state._isEditingFocusedNote) {
+                e.preventDefault();
+                setIsEditingCurrentNote(state, true);
+                debouncedSave();
+                rerenderApp();
+                return;
+            }
+
+            let shiftMakesNewNote = currentNote.data.text.startsWith("---")
+            if (shiftMakesNewNote === shiftPressed) {
+                e.preventDefault();
+                insertNoteAfterCurrent(state);
+                rerenderApp();
+                return;
+            }
         }
 
         const isEditingSomeText = isEditingTextSomewhereInDocument();
@@ -2685,14 +2734,6 @@ export function App() {
                     // move into note
                     handleMovingIn();
                 }
-            } else if (shiftPressed && e.key === "Enter") {
-                const newNote = insertChildNode(state);
-                if (newNote) {
-                    setIsEditingCurrentNote(state, true);
-                }
-            } else if (e.key === "Enter") {
-                setIsEditingCurrentNote(state, true);
-                debouncedSave();
             } else {
                 needsRerender = false;
             }

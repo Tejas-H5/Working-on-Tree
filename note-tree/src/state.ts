@@ -380,6 +380,15 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
 // TODO: super inefficient, need to set up a compute graph or something more complicated
 export function recomputeState(state: State) {
     assert(!!state, "WTF");
+    
+    // delete the empty notes
+    {
+        dfsPre(state, getRootNote(state), (n) => {
+            if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
+                deleteNoteIfEmpty(state, n.id)
+            }
+        });
+    }
 
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
@@ -709,7 +718,7 @@ export function recursiveShallowCopy(obj: any): any {
 
 export function deleteNoteIfEmpty(state: State, id: NoteId) {
     const note = getNote(state, id);
-    if (!!note.data.text) {
+    if (!!note.data.text.trim()) {
         return false;
     }
 
@@ -733,7 +742,8 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
         return false;
     }
 
-    setCurrentNote(state, noteToMoveTo);
+    const nId = note.id;
+    const parentId = note.parentId;
 
     // delete from the ids list, as well as the note database
     tree.remove(state.notes, note);
@@ -741,8 +751,8 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
     // NOTE: activities should not be deleted from the activities list. they are required, if we want to keep duration info accurate. 
     for (let i = 0; i < state.activities.length; i++) {
         const activity = state.activities[i];
-        if (activity.nId === note.id) {
-            activity.nId = note.parentId;
+        if (activity.nId === nId) {
+            activity.nId = parentId;
             activity.deleted = true;
         }
     }
@@ -751,13 +761,16 @@ export function deleteNoteIfEmpty(state: State, id: NoteId) {
         state.activities.pop();
     }
 
+    // setting the note appends an activity. so we have to do it at the end
+    setCurrentNote(state, noteToMoveTo);
+
     return true;
 }
 
 export function insertNoteAfterCurrent(state: State) {
     const currentNote = getCurrentNote(state);
     assert(currentNote.parentId, "Cant insert after the root note");
-    if (!currentNote.data.text) {
+    if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
@@ -769,16 +782,15 @@ export function insertNoteAfterCurrent(state: State) {
     return true;
 }
 
-export function insertChildNode(state: State): TreeNote | null {
+export function insertChildNote(state: State): TreeNote | null {
     const currentNote = getCurrentNote(state);
     assert(currentNote.parentId, "Cant insert after the root note");
-    if (!currentNote.data.text) {
+    if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return null;
     }
 
     const newNote = createNewNote(state, "");
-
     tree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id);
     setIsEditingCurrentNote(state, true);
