@@ -665,15 +665,39 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     return lastActivity.nId === activity.nId;
 }
 
+function canActivityBeDebounced(state: State, activity: Activity): boolean {
+    if(!activity) {
+        return false;
+    }
+
+    if (
+        isBreak(activity) ||
+        activity.deleted ||
+        activity.c !== 1 // not a 'create' activity, it can be debounced
+    ) {
+        return true;
+    }
+
+    if (!activity.nId || !hasNote(state, activity.nId)) {
+        return true;
+    }
+
+    if (!getNote(state, activity.nId).data.text.trim()) {
+        return true;
+    }
+
+    return false;
+}
+
 function pushActivity(state: State, activity: Activity) {
+    const lastActivity = getLastActivity(state);
     if (activityNoteIdMatchesLastActivity(state, activity)) {
         // Don't push the same activity twice in a row
         return;
     }
 
-    const lastActivity = getLastActivity(state);
-    if (lastActivity && lastActivity.c !== 1) {
-        // This activity wasn't a 'create' activity, so we can replace it if it isn't old enough.
+    if (lastActivity && canActivityBeDebounced(state, lastActivity)) {
+        // we can replace it if it isn't old enough.
         
         const ONE_MINUTE = 1000 * 60;
         if (getActivityDurationMs(lastActivity, activity) < ONE_MINUTE) {

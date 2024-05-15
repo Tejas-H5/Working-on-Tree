@@ -810,6 +810,8 @@ function LinkNavModal(): Renderable {
     }
 
     document.addEventListener("keydown", (e) => {
+        autoInsertBreakIfRequired();
+
         if (currentModal !== component) {
             // Don't let this code execute  when this modal is closed...
             return;
@@ -1130,9 +1132,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         let needsRerender = true;
         let shouldPreventDefault = true;
 
-        if (e.key === "Enter" && (shiftPressed || ctrlPressed)) {
-            // dont react to these, they are handled at the document input level for inserting notes.
-            needsRerender = false;
+        if (e.key === "Enter" && handleEnterPress(ctrlPressed, shiftPressed)) {
+            // it was handled
         } else if (e.key === "Backspace") {
             deleteNoteIfEmpty(state, currentNote.id);
             shouldPreventDefault = false;
@@ -2323,6 +2324,29 @@ function makeDownloadThisPageButton() {
     })
 }
 
+function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean {
+    const currentNote = getCurrentNote(state);
+
+    if (ctrlPressed) {
+        insertChildNote(state);
+        return true;
+    }
+
+    if (!state._isEditingFocusedNote) {
+        setIsEditingCurrentNote(state, true);
+        debouncedSave();
+        return true;
+    }
+
+    let shiftMakesNewNote = currentNote.data.text.startsWith("---");
+    if (shiftMakesNewNote === shiftPressed) {
+        insertNoteAfterCurrent(state);
+        return true;
+    }
+
+    return false;
+}
+
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
@@ -2573,29 +2597,6 @@ export function App() {
             toggleCurrentNoteSticky(state);
             rerenderApp();
             return;
-        } else if (e.key === "Enter") {
-            if (ctrlPressed) {
-                insertChildNote(state);
-                e.preventDefault();
-                rerenderApp();
-                return;
-            }
-
-            if (!state._isEditingFocusedNote) {
-                e.preventDefault();
-                setIsEditingCurrentNote(state, true);
-                debouncedSave();
-                rerenderApp();
-                return;
-            }
-
-            let shiftMakesNewNote = currentNote.data.text.startsWith("---")
-            if (shiftMakesNewNote === shiftPressed) {
-                e.preventDefault();
-                insertNoteAfterCurrent(state);
-                rerenderApp();
-                return;
-            }
         }
 
         const isEditingSomeText = isEditingTextSomewhereInDocument();
@@ -2685,7 +2686,9 @@ export function App() {
 
             if (e.key === "End" || e.key === "Home") {
                 // Do nothing. Ignore the default behaviour of the browser as well.
-            } if (e.key === "ArrowDown") {
+            } else if (e.key === "Enter" && !isEditingSomeText && handleEnterPress(ctrlPressed, shiftPressed)) {
+                // Do nothing - it was handled. else handleEnterPressed returned false and we keep going down this list
+            } else if (e.key === "ArrowDown") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
                     moveInDirectionOverTodoList(1);
@@ -2790,7 +2793,11 @@ export function App() {
         console.error("Webworker error: " , e);
     }
 
-    const appComponent = newComponent(appRoot, () => {
+    const appComponent = newComponent(appRoot, rerenderAppComponent);
+
+    initState();
+
+    function rerenderAppComponent() {
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
             cheatSheet.render(undefined);
         }
@@ -2892,9 +2899,7 @@ export function App() {
                 }
             });
         }
-    });
-
-    initState();
+    }
 
     return appComponent;
 };
