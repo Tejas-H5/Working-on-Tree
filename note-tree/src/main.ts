@@ -2417,9 +2417,8 @@ export function App() {
                 setCurrentModal(asciiCanvasModal);
             }),
         ]),
-        div({ class: "flex-1" }),
-        div({}, [statusTextIndicator]),
-        div({ class: "flex-1" }),
+        div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
+        div({ style: "width: 100px" }, ["v1.0.0"]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div() 
@@ -2461,7 +2460,7 @@ export function App() {
             div({ class: "row flex-1" } , [
                 div({ class: "flex-1 overflow-y-auto" }, [
                     cheatSheet,
-                    div({ class: "row", style: "padding: 10px;" }, [
+                    div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         el("H2", {}, ["Currently working on"]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,

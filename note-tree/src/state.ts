@@ -672,8 +672,7 @@ function canActivityBeDebounced(state: State, activity: Activity): boolean {
 
     if (
         isBreak(activity) ||
-        activity.deleted ||
-        activity.c !== 1 // not a 'create' activity, it can be debounced
+        activity.deleted
     ) {
         return true;
     }
