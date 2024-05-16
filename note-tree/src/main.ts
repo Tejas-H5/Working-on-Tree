@@ -2684,9 +2684,7 @@ export function App() {
                 }
             }
 
-            if (e.key === "End" || e.key === "Home") {
-                // Do nothing. Ignore the default behaviour of the browser as well.
-            } else if (e.key === "Enter" && !isEditingSomeText && handleEnterPress(ctrlPressed, shiftPressed)) {
+            if (e.key === "Enter" && !isEditingSomeText && handleEnterPress(ctrlPressed, shiftPressed)) {
                 // Do nothing - it was handled. else handleEnterPressed returned false and we keep going down this list
             } else if (e.key === "ArrowDown") {
                 if (ctrlPressed && shiftPressed) {
