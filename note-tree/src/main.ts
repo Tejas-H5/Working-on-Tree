@@ -298,7 +298,7 @@ function TodoList() {
     const todo = TodoListInternal();
     const backlog = TodoListInternal();
     const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
-    const root = div({ style: "overflow-y: auto" }, [
+    const root = div({ class: "flex-1 col", style: "overflow-y: auto" }, [
         empty,
         inProgress,
         todo,
@@ -2382,7 +2382,7 @@ export function App() {
     ]);
     const todoListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
-        div ({ class: "flex-1", style: "padding-left: 5px" }, [
+        div ({ class: "col flex-1", style: "padding-left: 5px" }, [
             todoList
         ]),
     ]);
@@ -2418,7 +2418,7 @@ export function App() {
             }),
         ]),
         div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
-        div({ style: "width: 100px" }, ["v1.0.0"]),
+        div({ style: "width: 100px" }, ["v1.0.001"]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div() 
