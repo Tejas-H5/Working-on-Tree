@@ -59,6 +59,7 @@ import {
     hasNote,
     AppTheme,
     toggleCurrentNoteSticky,
+    getNoteEstimate,
 } from "./state";
 import {
     Renderable,
@@ -1018,6 +1019,7 @@ type NoteRowArgs = {
     stickyOffset?: number;
     duration: number;
     totalDuration: number;
+    hasDivider: boolean;
     scrollParent: HTMLElement | null;
 };
 
@@ -1058,21 +1060,20 @@ function getIndentText(note: TreeNote) {
 }
 
 function NoteRowText(): Renderable<NoteRowArgs> {
-    const indent = div({ class: "pre" });
+    const indentWidthEl = div({ class: "pre", style: "padding-right: 5px" });
+    const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; "});
 
-    const whenNotEditing = div({ class: "pre-wrap handle-long-words", style: "" });
+    const whenNotEditing = div({ class: "handle-long-words", style: "" });
     const whenEditing = TextArea();
     whenEditing.el.setAttribute("rows", "1");
     whenEditing.el.setAttribute("class", "flex-1");
     whenEditing.el.setAttribute("style", "overflow-y: hidden; padding: 0;");
 
-    const root = div(
-        {
-            class: "pre-wrap flex-1",
-            style: "overflow-y: hidden; padding-left: 10px;"
-        },
-        [div({ class: "row v-align-bottom" }, [indent, whenNotEditing, whenEditing])]
-    );
+    const root = div({ class: "flex-1", style: "overflow-y: hidden;" }, [
+        div({ class: "row h-100" }, [
+            indentWidthEl, indentEl, whenNotEditing, whenEditing
+        ])
+    ]);
 
     function updateTextContentAndSize() {
         const { note } = component.args;
@@ -1088,8 +1089,23 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     function renderNoteRow() {
         const { note } = component.args;
 
-        const indentText = getIndentText(note);
-        setText(indent, indentText);
+        const currentNote = getCurrentNote(state);
+        const isOnSameLevel = currentNote.parentId === note.parentId;
+
+        // This is mainly so that multi-line notes won't take up so much space as a parent note
+        setStyle(root, "whiteSpace", isOnSameLevel ? "pre-wrap" : "nowrap" );
+
+        const indentText = noteStatusToString(note.data._status);
+        setText(indentEl, indentText + " - ");
+        const INDENT = 1;
+        const INDENT2 = 4;
+        const indent1 = INDENT * note.data._depth;
+        const depth = isOnSameLevel ? (
+            // the current level gets indented a bit more, for visual clarity,
+            // and the parent notes won't get indented as much so that we aren't wasting space
+            indent1 - INDENT + INDENT2
+        ) : indent1;
+        setStyle(indentWidthEl, "minWidth", depth + "ch");
 
         const isFocused = state.currentNoteId === note.id;
         const isEditing = state._isEditingFocusedNote && isFocused;
@@ -1101,8 +1117,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         if (setVisible(whenNotEditing, !isEditing)) {
             setText(whenNotEditing, note.data.text);
         }
-
-        root.el.style.backgroundColor = isFocused ? "var(--bg-color-focus)" : "var(--bg-color)";
 
         // Actually quite important that this runs even when we aren't editing, because when we eventually
         // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
@@ -1602,20 +1616,58 @@ function AsciiCanvasModal() {
     return component;
 }
 
-function NoteRowInput(): Renderable<NoteRowArgs> {
+function NoteRowDurationInfo() {
+    const durationEl = div();
+    const estimateEl = div();
+    const root = div({ style: "text-align: right;" }, [
+        durationEl,
+        estimateEl,
+    ]);
+
+    const component = newComponent<{ note: TreeNote; duration: number; }>(root, renderNoteRowDurationInfo);
+
+    function renderNoteRowDurationInfo() {
+        const { note, duration } = component.args;
+
+        // render task duration/estimate info right here itself.
+        const estimate = getNoteEstimate(state, note);
+
+        const hasDuration = duration > 0;
+        const hasEstimate = estimate > 0;
+
+        if (setVisible(durationEl, hasDuration)) {
+            setText(durationEl, formatDurationAsHours(duration));
+        }
+
+        if (setVisible(estimateEl, hasEstimate)) {
+            const durationNoRange = getNoteDuration(state, note, false);
+            setStyle(estimateEl, "color", durationNoRange < estimate ? "" : "#F00");
+            setText(estimateEl, formatDurationAsHours(durationNoRange) + "/" + formatDurationAsHours(estimate));
+        }
+    }
+
+    return component;
+}
+
+function NoteRowInput() {
     const noteRowText = NoteRowText();
-    const inProgress = div({ class: "row align-items-center" }, [""]);
+
     const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
-    const durationEl = div({ class: "row align-items-center", style: "text-align: right; padding-left: 5px;" });
+    const noteDuration = NoteRowDurationInfo();
+    const cursorEl = div({ style: "width: 10px;" });
+    const inProgressBar = div({ class: "row align-items-center", style: "padding-right: 4px" }, [
+        noteDuration
+    ]);
+
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
 
     const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
         div({ class: "flex-1" }, [
-            div({ class: "row", style: "" }, [
+            div({ class: "row align-items-stretch", style: "" }, [
+                cursorEl,
                 noteRowText, 
-                inProgress, 
                 sticky,
-                durationEl
+                inProgressBar, 
             ]),
             progressBar,
         ]),
@@ -1649,7 +1701,8 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
         
         clearStickyOffset();
 
-        scrollIntoViewV(scrollParent, root, 0.5);
+        // We can completely obscure the activity and todo lists, now that we have the right-dock
+        scrollIntoViewV(scrollParent, root, 1);
 
         setStickyOffset();
     }
@@ -1660,72 +1713,77 @@ function NoteRowInput(): Renderable<NoteRowArgs> {
     const component = newComponent<NoteRowArgs>(root, renderNoteRowInput);
 
     function renderNoteRowInput() {
-        const { note, duration, totalDuration } = component.args;
+        const { note, duration, totalDuration, hasDivider } = component.args;
+        const currentNote = getCurrentNote(state);
 
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
-
-        const currentNote = getCurrentNote(state);
-        const isOnCurrentLevel = note.parentId === currentNote.parentId;
-
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
+        
+        // render cursor 
+        {
+            const lastActivity = getLastActivityWithNote(state);
+            const isLastEditedNote = lastActivity?.nId === note.id;
+            let isFocusedAndEditing = isLastEditedNote && !isCurrentlyTakingABreak(state);
 
-
-        const lastActivity = getLastActivityWithNote(state);
-        let col = "", progressText = "";
-        const isLastEditedNote = lastActivity?.nId === note.id;
-        if (
-            lastActivity && 
-            (isLastEditedNote || isFocused)
-        ) {
-            col = isLastEditedNote && !isCurrentlyTakingABreak(state) ? "#F00" : "#00F";
-
-            if (isLastEditedNote && isFocused) {
-                progressText = state._isEditingFocusedNote ? " <<< " : " Enter to continue ";
-            } else if (isLastEditedNote) {
-                progressText = " In Progress ";
+            let col = "";
+            if (isFocusedAndEditing) {
+                col = "#F00";
             } else if (isFocused) {
-                progressText = " Enter to start ";
+                col = "var(--fg-color)";
+            } else if (isLastEditedNote) {
+                col = "#00F";
             }
+
+            setStyle(cursorEl, "backgroundColor", col);
+        }
+        
+
+        // render progress text
+        {
+            noteDuration.render({ note, duration });
         }
 
-        // Dividing line between expanded parents and children on current level
-        setStyle(root, "borderBottom", note.id !== currentNote.parentId ? "" : "1px solid var(--fg-color)");
-
-        if (setVisible(inProgress, !!progressText && !!col)) {
-            setText(inProgress, progressText);
-            inProgress.el.style.color = "#FFF";
-            inProgress.el.style.backgroundColor = col;
+        // render the sticky indicator
+        {
+            setVisible(sticky, note.data.isSticky);
+            setStickyOffset();
         }
 
-        root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ? 
-            "var(--fg-color)" : "var(--unfocus-text-color)";
 
-        setStickyOffset();
+        // add some root styling
+        {
+            root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ? 
+                "var(--fg-color)" : "var(--unfocus-text-color)";
 
-        setVisible(sticky, note.data.isSticky);
-
-        if (setVisible(durationEl, isShowingDurations || duration > 1)) {
-            setText(durationEl, formatDurationAsHours(duration));
-            durationEl.el.setAttribute("title", formatDuration(duration) + " aka " + formatDurationAsHours(duration));
+            // Dividing line between different levels
+            setStyle(root, "borderBottom", !hasDivider ? "" : "1px solid var(--fg-color)");
+            setStyle(root, "backgroundColor", isFocused ? "var(--bg-color-focus)" : "var(--bg-color)");
         }
 
+
+        // render the progress bar if needed
         if (setVisible(progressBar, isShowingDurations)) {
+            const isOnCurrentLevel = note.parentId === currentNote.parentId;
             let percent = totalDuration < 0.000001 ? 0 : 100 * duration! / totalDuration!;
+
             setStyle(progressBar, "width", percent + "%")
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
         }
         
+        // render the text input
         noteRowText.render(component.args);
 
-        if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
-
-            if (renderOptions.shouldScroll) {
-                // without setTimeout here, calling focus won't work as soon as the page loads.
-                setTimeout(() => {
-                    scrollComponentToView();
-                }, 1);
+        // do auto-scrolling
+        {
+            if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
+                if (renderOptions.shouldScroll) {
+                    // without setTimeout here, calling focus won't work as soon as the page loads.
+                    setTimeout(() => {
+                        scrollComponentToView();
+                    }, 1);
+                }
             }
         }
     }
@@ -1788,6 +1846,7 @@ function NoteListInternal(): Renderable<NoteListInternalArgs> {
                     note,
                     stickyOffset: isSticky ? stickyOffset : undefined,
                     duration: durationMs,
+                    hasDivider: !isOnCurrentLevel,
                     totalDuration: parentDurationMs,
                     scrollParent,
                 });
@@ -2418,7 +2477,7 @@ export function App() {
             }),
         ]),
         div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
-        div({ style: "width: 100px" }, ["v1.0.001"]),
+        div({ style: "width: 100px" }, ["v1.0.1"]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div() 

@@ -665,7 +665,7 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     return lastActivity.nId === activity.nId;
 }
 
-function canActivityBeDebounced(state: State, activity: Activity): boolean {
+function canActivityBeDebounced(state: State, activity: Activity, nextActivity: Activity): boolean {
     if(!activity) {
         return false;
     }
@@ -685,7 +685,12 @@ function canActivityBeDebounced(state: State, activity: Activity): boolean {
         return true;
     }
 
-    return false;
+    if (activity.c === 1) {
+        return false;
+    }
+
+    const DEBOUNCE_TIME = 2000;
+    return getActivityDurationMs(activity, nextActivity) < DEBOUNCE_TIME;
 }
 
 function pushActivity(state: State, activity: Activity) {
@@ -695,14 +700,10 @@ function pushActivity(state: State, activity: Activity) {
         return;
     }
 
-    if (lastActivity && canActivityBeDebounced(state, lastActivity)) {
+    if (lastActivity && canActivityBeDebounced(state, lastActivity, activity)) {
         // we can replace it if it isn't old enough.
+        state.activities.pop();
         
-        const ONE_MINUTE = 1000 * 60;
-        if (getActivityDurationMs(lastActivity, activity) < ONE_MINUTE) {
-            state.activities.pop();
-        }
-
         if (activityNoteIdMatchesLastActivity(state, activity)) {
             // Still, don't push the same activity twice in a row
             return;
@@ -974,13 +975,14 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
 }
 
 
-type NoteFilterFunction = (state: State, note: TreeNote, nextNote: TreeNote | undefined) => boolean;
+type NoteFilterFunction = (state: State, note: TreeNote, nextNote: TreeNote | undefined, prevNote: TreeNote | undefined) => boolean;
 export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
     let idx = childIds.indexOf(id) + 1;
     while (idx < childIds.length) {
         const note = getNote(state, childIds[idx]);
         const nextNote = getNoteOrUndefined(state, childIds[idx + 1]);
-        if (filterFn(state, note, nextNote)) {
+        const prevNote = getNoteOrUndefined(state, childIds[idx - 1]);
+        if (filterFn(state, note, nextNote, prevNote)) {
             return note.id;
         }
 
@@ -995,7 +997,8 @@ export function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, f
     while (idx >= 0) {
         const note = getNote(state, childIds[idx]);
         const nextNote = getNoteOrUndefined(state, childIds[idx - 1]);
-        if (filterFn(state, note, nextNote)) {
+        const prevNote = getNoteOrUndefined(state, childIds[idx + 1]);
+        if (filterFn(state, note, nextNote, prevNote)) {
             return note.id;
         }
 
@@ -1015,7 +1018,7 @@ export function getNoteOneDownLocally(state: State, note: TreeNote) {
     return findNextNote(state, siblings, note.id, isNoteImportant);
 }
 
-export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote | undefined): boolean {
+export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote | undefined, prevNote: TreeNote | undefined): boolean {
     if (!note.parentId) {
         return true;
     }
@@ -1026,7 +1029,8 @@ export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote
         siblings[0] === note.id ||
         siblings[siblings.length - 1] === note.id ||
         note.data._isSelected ||
-        (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS)) ||
+        // (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS)) ||
+        (!!prevNote && (note.data._status === STATUS_IN_PROGRESS) !== (prevNote.data._status === STATUS_IN_PROGRESS)) ||
         !!note.data.isSticky
     );
 }
@@ -1135,6 +1139,71 @@ export function getNoteDuration(state: State, note: TreeNote, useRange: boolean)
 
     return duration;
 }
+
+// NOTE: doesn't detect the 'h'. so it might be inaccurate.
+function hasEstimate(text: string) {
+    const DELIMITER = "E=";
+    return text.indexOf(DELIMITER) !== -1;
+}
+
+function parseNoteEstimate(text: string): number {
+    const DELIMITER = "E=";
+    const start = text.indexOf(DELIMITER) + DELIMITER.length;
+    if (start === -1) {
+        return 0;
+    }
+
+    const END_DELIMITER = "h";
+    const end = text.indexOf(END_DELIMITER, start + 1);
+    if (end === -1) {
+        return 0;
+    }
+
+    const hoursStr = text.substring(start, end);
+    const hours = parseFloat(hoursStr);
+    if (!hours) {
+        return 0;
+    }
+
+    return Math.floor(hours * 60 * 60 * 1000);
+}
+
+export function getNoteEstimate(state: State, note: TreeNote): number {
+    recomputeNoteIsUnderFlag(state, note);
+
+    if (!hasEstimate(note.data.text)) {
+        // if this note doesn't have any parent notes with estimates, we shouldn't recurse down all children to find estimates.
+        // In this way, we can prevent 'estimates' from leaking all the way up the tree - only subtrees with E= can have estimates for now.
+        if (!tree.forEachParent(
+            state.notes, 
+            note, 
+            (note) => hasEstimate(note.data.text),
+        )) {
+            console.log("Broooo")
+            return 0;
+        }
+    }
+
+    let estimate = 0;
+    const dfs = (note: TreeNote) => {
+        if (note.data._status !== STATUS_IN_PROGRESS) {
+            return;
+        }
+
+        estimate += parseNoteEstimate(note.data.text);
+
+        for (const id of note.childIds) {
+            const note = getNote(state, id);
+            dfs(note);
+        }
+    };
+
+    dfs(note);
+
+    return estimate;
+}
+
+
 
 export function getSecondPartOfRow(state: State, note: TreeNote) {
     const duration = getNoteDuration(state, note, false);

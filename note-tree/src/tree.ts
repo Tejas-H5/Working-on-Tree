@@ -41,13 +41,14 @@ export function forEachNode(tree: TreeStore<unknown>, fn: (id: string) => void) 
     }
 }
 
-export function forEachParent<T>(tree: TreeStore<T>, node: TreeNode<T>, fn: (node: TreeNode<T>) => boolean) {
+export function forEachParent<T>(tree: TreeStore<T>, node: TreeNode<T>, fn: (node: TreeNode<T>) => boolean) : boolean {
     while (node.parentId) {
         if (fn(node)) {
-            break;
+            return true;
         }
         node = getNode(tree, node.parentId);
     }
+    return false;
 }
 
 export function hasNode(tree: TreeStore<unknown>, id: string): boolean {

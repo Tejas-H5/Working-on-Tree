@@ -129,10 +129,19 @@ export function formatDurationInWorkdays(ms: number): string {
 }
 
 export function formatDurationAsHours(ms: number): string {
+    const hours = ms / 1000 / 60 / 60;
+    return hours.toFixed(1) + "h";
+}
+
+export function formatDurationAsHoursMinutes(ms: number): string {
     const hours = Math.floor(ms / 1000 / 60 / 60);
     const minutes = Math.floor(ms / 1000 / 60) % 60;
-    const seconds = Math.floor(ms / 1000) % 60;
-    return hours + "h " + minutes + "m " + seconds + "s";
+
+    if (hours === 0) {
+        return minutes + "m";
+    }
+
+    return hours + "h " + minutes + "m";
 }
 
 export function formatDuration(ms: number, unitLimit = -1) {
