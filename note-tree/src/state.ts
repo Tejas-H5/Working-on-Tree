@@ -1179,7 +1179,6 @@ export function getNoteEstimate(state: State, note: TreeNote): number {
             note, 
             (note) => hasEstimate(note.data.text),
         )) {
-            console.log("Broooo")
             return 0;
         }
     }

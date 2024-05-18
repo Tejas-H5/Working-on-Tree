@@ -200,22 +200,28 @@ function Counter2() {
     );
 }
 
-
-function CounterImmediateMode(root) {
-    let count = 0;
-
-    render() {
-        render(root, () => {
-            root.pushDivKeyed({ 
-                attributes: { 
-                    style: {
-                    }, 
-                    class: {
-                    }
-                },
-                
-            });
-        });
+function CounterImmediateMode() {
+    clear(root);
+    const div = root.add("div", 
+    {
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
+        const div3 = add(div, alkasjdkas);
+        {
+            add (div3, x);
+            add (div3, x);
+            add (div3, x);
+            add (div3, x);
+            add (div3, x);
+            add (div3, x);
+            add (div3, x);
+        }
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
+        add(div, alkasjdkas);
     }
 }
 

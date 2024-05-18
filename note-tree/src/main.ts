@@ -98,6 +98,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
+const VERSION_NUMBER = "v1.0.1002";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2477,7 +2478,7 @@ export function App() {
             }),
         ]),
         div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
-        div({ style: "width: 100px" }, ["v1.0.1001"]),
+        div({ style: "width: 100px" }, [VERSION_NUMBER]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div() 
