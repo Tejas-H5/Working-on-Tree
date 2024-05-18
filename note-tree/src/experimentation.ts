@@ -179,4 +179,44 @@ function Counter2() {
 
 
 
+
+function Counter2() {
+    return component((ctx) => {
+        
+    });
+    const countEl = div();
+    const buttonEl = div();
+    eventListener(buttonEl, "click", () => {
+        const { setCount, count } = component.args;
+        setCount(count + 1);
+    });
+
+    const component = makeComponent(
+        () => setText(countEl, component.args.count), 
+        div({ style: "display:flex;gap:5px" }, [
+            buttonEl,
+            countEl
+        ])
+    );
+}
+
+
+function CounterImmediateMode(root) {
+    let count = 0;
+
+    render() {
+        render(root, () => {
+            root.pushDivKeyed({ 
+                attributes: { 
+                    style: {
+                    }, 
+                    class: {
+                    }
+                },
+                
+            });
+        });
+    }
+}
+
 */

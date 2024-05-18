@@ -1096,7 +1096,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         setStyle(root, "whiteSpace", isOnSameLevel ? "pre-wrap" : "nowrap" );
 
         const indentText = noteStatusToString(note.data._status);
-        setText(indentEl, indentText + " - ");
+        setText(indentEl, indentText + getNoteProgressCountText(note) +  " - ");
         const INDENT = 1;
         const INDENT2 = 4;
         const indent1 = INDENT * note.data._depth;
@@ -1702,7 +1702,7 @@ function NoteRowInput() {
         clearStickyOffset();
 
         // We can completely obscure the activity and todo lists, now that we have the right-dock
-        scrollIntoViewV(scrollParent, root, 1);
+        scrollIntoViewV(scrollParent, root, 0.5);
 
         setStickyOffset();
     }
@@ -2072,7 +2072,7 @@ function setCurrentDockedMenu(menu: DockableMenu | null) {
         state.showDockedMenu = false;
     } else {
         state.showDockedMenu = true;
-        state.dockedMenu = menu;
+        state.dockedMenu = menu;main
     }
 
     rerenderApp();
@@ -2477,7 +2477,7 @@ export function App() {
             }),
         ]),
         div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
-        div({ style: "width: 100px" }, ["v1.0.1"]),
+        div({ style: "width: 100px" }, ["v1.0.1001"]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div() 
