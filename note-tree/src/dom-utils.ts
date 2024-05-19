@@ -456,3 +456,10 @@ export function scrollIntoViewV(
 
     scrollParent.scrollTop = scrollToElOffsetTop - scrollOffset  + elementHeightOffset;
 }
+
+export function setCssVars(vars: [string, string][]) {
+    const cssRoot = document.querySelector(":root") as HTMLElement;
+    for (const [k, v] of vars) {
+        cssRoot.style.setProperty(k, v);
+    }
+};

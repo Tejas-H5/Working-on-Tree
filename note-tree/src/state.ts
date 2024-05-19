@@ -665,18 +665,18 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     return lastActivity.nId === activity.nId;
 }
 
-function canActivityBeReplacedWithNewActivity(state: State, activity: Activity, nextActivity: Activity): boolean {
+function canActivityBeReplacedWithNewActivity(state: State, lastActivity: Activity): boolean {
     const ONE_SECOND = 1000;
-    const activityDurationMs = getActivityDurationMs(activity, nextActivity);
+    const activityDurationMs = getActivityDurationMs(lastActivity);
     if (
         // A bunch of conditions that make this activity something we don't need to keep around as much
-        !activity || 
-        !activity.nId ||
-        !hasNote(state, activity.nId) || 
-        activity.deleted || 
-        activity.c !== 1 || // activity wasn't created, but edited
-        isBreak(activity) || 
-        !getNote(state, activity.nId).data.text.trim()   // empty text
+        !lastActivity || 
+        !lastActivity.nId ||
+        !hasNote(state, lastActivity.nId) || 
+        lastActivity.deleted || 
+        lastActivity.c !== 1 || // activity wasn't created, but edited
+        isBreak(lastActivity) || 
+        !getNote(state, lastActivity.nId).data.text.trim()   // empty text
     ) {
         // The activity is more replaceable, so we extend this time.
         const LONG_DEBOUNCE = 1 * 60 * ONE_SECOND;
@@ -694,7 +694,7 @@ function pushActivity(state: State, activity: Activity) {
         return;
     }
 
-    if (lastActivity && canActivityBeReplacedWithNewActivity(state, lastActivity, activity)) {
+    if (lastActivity && canActivityBeReplacedWithNewActivity(state, lastActivity)) {
         // this activity may be popped - effectively replaced with the new activity
         state.activities.pop();
         

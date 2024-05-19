@@ -12,7 +12,6 @@ import {
     getActivityText,
     getCurrentNote,
     getFirstPartOfRow,
-    getIndentStr,
     getNote,
     getNoteDuration,
     getNoteOneDownLocally,
@@ -81,6 +80,7 @@ import {
     assert,
     ChildList,
     scrollIntoViewV,
+    setCssVars,
 } from "./dom-utils";
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput,  Modal,  makeButton } from "./generic-components";
@@ -97,7 +97,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.2001";
+const VERSION_NUMBER = "v1.0.2002";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1042,12 +1042,6 @@ function getNoteProgressCountText(note: TreeNote): string {
     }
 
     return progressText;
-}
-
-function getIndentText(note: TreeNote) {
-    const dashChar = note.data._isSelected ? "-" : "-";
-    const progressText = getNoteProgressCountText(note);
-    return `${getIndentStr(note.data)} ${noteStatusToString(note.data._status)}${progressText} ${dashChar} `;
 }
 
 function NoteRowText(): Renderable<NoteRowArgs> {
@@ -3026,13 +3020,6 @@ export function App() {
     }
 
     return appComponent;
-};
-
-const setCssVars = (vars: [string, string][]) => {
-    const cssRoot = document.querySelector(":root") as HTMLElement;
-    for (const [k, v] of vars) {
-        cssRoot.style.setProperty(k, v);
-    }
 };
 
 function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
