@@ -59,7 +59,7 @@ export function PaginationControl(): Renderable<PaginationControlArgs> {
             leftLeftButton,
             leftButton,
         ]),
-        div({ style: "width: 100px", class: "row" }, [
+        div({ style: "width: 100px", class: "row justify-content-right" }, [
             rightButton,
             rightRightButton,
         ]),

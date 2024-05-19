@@ -60,6 +60,8 @@ import {
     AppTheme,
     toggleCurrentNoteSticky,
     getNoteEstimate,
+    findNextActiviyIndex,
+    findPreviousActiviyIndex,
 } from "./state";
 import {
     Renderable,
@@ -98,7 +100,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.1002";
+const VERSION_NUMBER = "v1.0.2";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -291,7 +293,6 @@ function TodoListInternal() {
 }
 
 type TodoListArgs = {
-    shouldScroll: boolean;
     cursorNoteId?: NoteId;
 }
 
@@ -310,7 +311,7 @@ function TodoList() {
     const comopnent = newComponent<TodoListArgs>(root, renderTodoList);
 
     function renderTodoList() {
-        const { shouldScroll, cursorNoteId } = comopnent.args;
+        const { cursorNoteId } = comopnent.args;
 
         setVisible(empty, state._todoNoteIds.length === 0);
 
@@ -319,7 +320,7 @@ function TodoList() {
         inProgress.render({
             priorityLevel: 3,
             heading: "In Progress",
-            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            scrollRoot: (alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
             cursorNoteId,
         });
@@ -327,7 +328,7 @@ function TodoList() {
         todo.render({
             priorityLevel: 2,
             heading: "TODO",
-            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            scrollRoot: (alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
             cursorNoteId,
         });
@@ -335,7 +336,7 @@ function TodoList() {
         backlog.render({
             priorityLevel: 1,
             heading: "Backlog",
-            scrollRoot: (!shouldScroll || alreadyScrolled) ? undefined : root,
+            scrollRoot: (alreadyScrolled) ? undefined : root,
             onScroll: () => alreadyScrolled = true,
             cursorNoteId,
         });
@@ -853,8 +854,6 @@ function LinkNavModal(): Renderable {
 type EditableActivityListArgs = {
     activityIndexes: number[] | undefined;
     pageSize?: number;
-    height: number | undefined;
-    shouldScroll: boolean;
 };
 
 function EditableActivityList() {
@@ -877,7 +876,7 @@ function EditableActivityList() {
     const component = newComponent<EditableActivityListArgs>(root, rerenderActivityList);
 
     function rerenderActivityList() {
-        const { pageSize, activityIndexes, height, shouldScroll } = component.args;
+        const { pageSize, activityIndexes } = component.args;
 
         pagination.pageSize = pageSize || 10;
         if (lastIdx !== state._currentlyViewingActivityIdx) {
@@ -895,11 +894,7 @@ function EditableActivityList() {
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
-        root.el.style.height = height ? height + "px" : "";
-        setClass(root, "flex-1", height === undefined);
-
         let scrollEl: Insertable;
-
         listRoot.render(() => {
             let lastRenderedIdx = -1;
 
@@ -932,15 +927,17 @@ function EditableActivityList() {
                     });
                 }
 
-                const isFocused = activity.nId === state.currentNoteId;
                 const c = listRoot.getNext();
                 c.render({
                     previousActivity,
                     activity,
                     nextActivity,
                     showDuration: true,
-                    focus: isFocused,
+                    focus: activity.nId === state.currentNoteId,
                 });
+                if (idx === state._currentlyViewingActivityIdx) {
+                    scrollEl = c;
+                }
 
                 if (
                     i + 1 === activitiesToRender && 
@@ -957,17 +954,13 @@ function EditableActivityList() {
                         greyedOut: true,
                     });
                 }
-
-                if (isFocused && !scrollEl) {
-                    scrollEl = c;
-                }
             }
         });
 
         setTimeout(() => {
             if (scrollEl) {
                 const scrollParent = listContainer.el;
-                if (shouldScroll && scrollEl) {
+                if (scrollEl) {
                     scrollIntoViewV(scrollParent, scrollEl, 0.5);
                 } else {
                     scrollParent.scrollTop = 0;
@@ -1938,33 +1931,38 @@ function AsciiIcon(): Renderable<AsciiIconData> {
     return component;
 }
 
-const makeDarkModeToggle = () => {
-    function getThemeAsciiIcon() {
-        const theme = getTheme();
-        if (theme === "Light") {
-            return ASCII_SUN;
-        }
+function DarkModeToggle() {
+    const button = makeButton("");
+    const iconEl = AsciiIcon();
+    replaceChildren(button, [
+        iconEl,
+    ]);
 
+    const component = newComponent(button, renderButton);
+
+    function getIcon(theme: AppTheme) {
+        if (theme === "Light") return ASCII_SUN;
+        if (theme === "Dark") return ASCII_MOON_STARS;
         return ASCII_MOON_STARS;
-    };
+    }
 
-    const icon = AsciiIcon();
-    const button = makeButtonWithCallback("", () => {
-        let themeName = getTheme();
-        if (!themeName || themeName === "Light") {
-            themeName = "Dark";
+    function renderButton() {
+        iconEl.render(getIcon(getTheme()));
+    }
+
+    button.el.addEventListener("click", () => {
+        let theme = getTheme();
+        if (!theme || theme === "Light") {
+            theme = "Dark";
         } else {
-            themeName = "Light";
+            theme = "Light";
         }
 
-        setTheme(themeName);
-        icon.render(getThemeAsciiIcon());
+        setTheme(theme);
+        rerenderApp();
     });
 
-    replaceChildren(button, [icon]);
-    icon.render(getThemeAsciiIcon());
-
-    return button;
+    return component;
 };
 
 
@@ -2073,10 +2071,97 @@ function setCurrentDockedMenu(menu: DockableMenu | null) {
         state.showDockedMenu = false;
     } else {
         state.showDockedMenu = true;
-        state.dockedMenu = menu;main
+        state.dockedMenu = menu;
     }
 
     rerenderApp();
+}
+
+function ActivityListContainer() {
+    const scrollActivitiesToTop = makeButton("Top");
+    const scrollActivitiesToMostRecent = makeButton("Most Recent");
+    const nextActivity = makeButton("<-");
+    const prevActivity = makeButton("->");
+    const activityList = EditableActivityList();
+    const breakInput = BreakInput();
+    const root = div({ class: "flex-1 col" }, [
+        div({ class: "flex row align-items-center", style: "user-select: none; padding-left: 10px;" }, [
+            el("H3", { style: "" }, ["Activity List"]),
+            div({ class: "flex-1" }),
+            scrollActivitiesToTop,
+            div({ style: "width: 10px" }),
+            div({ style: "width: 50px" }, [nextActivity]),
+            div({ style: "width: 50px" }, [prevActivity]),
+        ]),
+        breakInput,
+        activityList,
+    ]);
+
+    const component = newComponent<{ docked: boolean }>(root, render);
+
+    function getNextIdx() {
+        return findNextActiviyIndex(state, state.currentNoteId, state._currentlyViewingActivityIdx);
+    }
+
+    function getPrevIdx() {
+        return findPreviousActiviyIndex(state, state.currentNoteId, state._currentlyViewingActivityIdx);
+    }
+
+    function getMostRecentIdx() {
+        return findPreviousActiviyIndex(state, state.currentNoteId, 0);
+    }
+
+
+    function render() {
+        breakInput.render(undefined);
+
+        if (component.args.docked) {
+            activityList.render({
+                pageSize: 20,
+                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
+            });
+
+        } else {
+            activityList.render({
+                pageSize: 20,
+                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
+            });
+        }
+
+        setVisible(scrollActivitiesToTop, state._currentlyViewingActivityIdx !== state.activities.length - 1);
+        setVisible(scrollActivitiesToMostRecent, state._currentlyViewingActivityIdx !== getMostRecentIdx());
+        setVisible(prevActivity, getPrevIdx() !== -1);
+        setVisible(nextActivity, getNextIdx() !== -1);
+    }
+
+    scrollActivitiesToTop.el.addEventListener("click", () => {
+        state._currentlyViewingActivityIdx = state.activities.length - 1;
+        rerenderApp();
+    });
+
+    scrollActivitiesToMostRecent.el.addEventListener("click", () => {
+        state._currentlyViewingActivityIdx = getMostRecentIdx();
+        rerenderApp();
+    });
+
+    prevActivity.el.addEventListener("click", () => {
+        const idx = getPrevIdx();
+        if (idx !== -1) {
+            state._currentlyViewingActivityIdx = idx;
+            rerenderApp();
+        }
+    });
+
+    nextActivity.el.addEventListener("click", () => {
+        const idx = getNextIdx();
+        if (idx !== -1) {
+            state._currentlyViewingActivityIdx = idx;
+            rerenderApp();
+        }
+    });
+
+
+    return component;
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
@@ -2416,6 +2501,7 @@ export function App() {
     const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
+    const darkModeToggle = DarkModeToggle();
     let currentHelpInfo = 1;
     cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
@@ -2430,16 +2516,11 @@ export function App() {
     ]);
     const notesList = NotesList();
     const todoList = TodoList();
-    const breakInput = BreakInput();
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
-    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px" });
-    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px;" })
-    const activityList = EditableActivityList();
-    const activityListContainer = div({ class: "flex-1 col" }, [
-        el("H3", { style: "user-select: none; padding-left: 10px;" }, ["Activity List"]),
-        breakInput,
-        activityList,
-    ]);
+    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px; height: 700px;" });
+    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px; height: 700px;" })
+ 
+    const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
         div ({ class: "col flex-1", style: "padding-left: 5px" }, [
@@ -2524,7 +2605,7 @@ export function App() {
                         el("H2", {}, ["Currently working on"]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
-                        makeDarkModeToggle(),
+                        darkModeToggle,
                     ]),
                     notesList,
                     div({ class: "row", style: "" }, [
@@ -2859,6 +2940,8 @@ export function App() {
             cheatSheet.render(undefined);
         }
 
+        darkModeToggle.render(undefined);
+
         recomputeState(state);
         autoInsertBreakIfRequired();
 
@@ -2891,25 +2974,12 @@ export function App() {
         if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
             // Render activities in their normal spot
             appendChild(bottomRightArea, activityListContainer);
-            activityList.render({
-                pageSize: 20,
-                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
-                height: 600,
-                // I couldn't make scrolling work in this context :sad:
-                shouldScroll: false,
-            });
+            activityListContainer.render({ docked: false });
         } else {
             // Render activities in the side panel
             appendChild(rightPanelArea, activityListContainer);
-            activityList.render({
-                pageSize: 20,
-                activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
-                height: undefined,
-                shouldScroll: true,
-            });
+            activityListContainer.render({ docked: true });
         }
-
-        breakInput.render(undefined);
 
         if (setVisible(bottomLeftArea, currentDockedMenu !== "todoLists")) {
             // Render todo list in their normal spot
@@ -2919,7 +2989,6 @@ export function App() {
             appendChild(rightPanelArea, todoListContainer);
         }
         todoList.render({ 
-            shouldScroll: true ,
             cursorNoteId: todoNoteIdx !== -1 ? state._todoNoteIds[todoNoteIdx] : undefined,
         });
 

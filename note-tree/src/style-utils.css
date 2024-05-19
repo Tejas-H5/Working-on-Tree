@@ -71,6 +71,10 @@
     justify-content: center;
 }
 
+.justify-content-end {
+    justify-content: end;
+}
+
 .align-items-end {
     align-items: flex-end;
 }

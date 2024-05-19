@@ -949,6 +949,10 @@ export function setCurrentNote(state: State, noteId: NoteId | null, saveJump = f
 }
 
 export function setCurrentActivityIdxToCurrentNote(state: State) {
+    if (state.activities[state._currentlyViewingActivityIdx]?.nId === state.currentNoteId) {
+        return;
+    }
+
     const note = getCurrentNote(state);
     const idx = getMostRecentActivityIdx(state, note);
     if (idx !== -1) {
@@ -1444,6 +1448,32 @@ export function deleteDoneNote(state: State, note: TreeNote): string | undefined
     }
 
     // If we implemented deleting right, we simply have no more notes to move to now...
+}
+
+export function findPreviousActiviyIndex(state: State, nId: NoteId, idx: number): number {
+    // Why couldn't they just have findLastIndex whyyyyyy??
+    const activities = state.activities;
+    for (let i = idx - 1; i >= 0; i--) {
+        const a = activities[i];
+        if (a.nId === nId) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+export function findNextActiviyIndex(state: State, nId: NoteId, idx: number): number {
+    // Why couldn't they just have findLastIndex whyyyyyy??
+    const activities = state.activities;
+    for (let i = idx + 1; i < activities.length; i++) {
+        const a = activities[i];
+        if (a.nId === nId) {
+            return i;
+        }
+    }
+
+    return -1;
 }
 
 export function toggleCurrentNoteSticky(state: State) {

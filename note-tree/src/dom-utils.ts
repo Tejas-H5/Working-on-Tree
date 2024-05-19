@@ -446,7 +446,13 @@ export function isEditingTextSomewhereInDocument(): boolean {
 export function scrollIntoViewV(
     scrollParent: HTMLElement, 
     scrollTo: Insertable, 
-    scrollToRelativeOffset: number
+    scrollToRelativeOffset: number,
 ) {
-    scrollParent.scrollTop = scrollTo.el.offsetTop - scrollToRelativeOffset * (scrollParent.offsetHeight - scrollTo.el.clientHeight);
+    const scrollOffset = scrollToRelativeOffset * scrollParent.offsetHeight;
+    const elementHeightOffset = scrollToRelativeOffset * scrollTo.el.getBoundingClientRect().height;
+
+    // offsetTop is relative to the document, not the scroll container. lmao
+    const scrollToElOffsetTop = scrollTo.el.offsetTop - scrollParent.offsetTop;
+
+    scrollParent.scrollTop = scrollToElOffsetTop - scrollOffset  + elementHeightOffset;
 }
