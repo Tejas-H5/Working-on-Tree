@@ -1,6 +1,5 @@
 import "./styles.css"
 import "./style-utils.css"
-
 import {
     Activity,
     NoteId,
@@ -83,13 +82,11 @@ import {
     ChildList,
     scrollIntoViewV,
 } from "./dom-utils";
-
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput,  Modal,  makeButton } from "./generic-components";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "./datetime";
 import { countOccurances, filterInPlace } from "./array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
-
 import { loadFile, saveText } from "./file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
 import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
@@ -100,7 +97,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.2";
+const VERSION_NUMBER = "v1.0.2001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2089,6 +2086,7 @@ function ActivityListContainer() {
             el("H3", { style: "" }, ["Activity List"]),
             div({ class: "flex-1" }),
             scrollActivitiesToTop,
+            scrollActivitiesToMostRecent,
             div({ style: "width: 10px" }),
             div({ style: "width: 50px" }, [nextActivity]),
             div({ style: "width: 50px" }, [prevActivity]),
@@ -2108,7 +2106,7 @@ function ActivityListContainer() {
     }
 
     function getMostRecentIdx() {
-        return findPreviousActiviyIndex(state, state.currentNoteId, 0);
+        return findPreviousActiviyIndex(state, state.currentNoteId, state.activities.length - 1);
     }
 
 
