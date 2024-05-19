@@ -665,32 +665,26 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
     return lastActivity.nId === activity.nId;
 }
 
-function canActivityBeDebounced(state: State, activity: Activity, nextActivity: Activity): boolean {
-    if(!activity) {
-        return false;
-    }
-
+function canActivityBeReplacedWithNewActivity(state: State, activity: Activity, nextActivity: Activity): boolean {
+    const ONE_SECOND = 1000;
+    const activityDurationMs = getActivityDurationMs(activity, nextActivity);
     if (
-        isBreak(activity) ||
-        activity.deleted
+        // A bunch of conditions that make this activity something we don't need to keep around as much
+        !activity || 
+        !activity.nId ||
+        !hasNote(state, activity.nId) || 
+        activity.deleted || 
+        activity.c !== 1 || // activity wasn't created, but edited
+        isBreak(activity) || 
+        !getNote(state, activity.nId).data.text.trim()   // empty text
     ) {
-        return true;
+        // The activity is more replaceable, so we extend this time.
+        const LONG_DEBOUNCE = 1 * 60 * ONE_SECOND;
+        return activityDurationMs < LONG_DEBOUNCE;
     }
 
-    if (!activity.nId || !hasNote(state, activity.nId)) {
-        return true;
-    }
-
-    if (!getNote(state, activity.nId).data.text.trim()) {
-        return true;
-    }
-
-    if (activity.c === 1) {
-        return false;
-    }
-
-    const DEBOUNCE_TIME = 2000;
-    return getActivityDurationMs(activity, nextActivity) < DEBOUNCE_TIME;
+    const SHORT_DEBOUNCE = 2 * ONE_SECOND;
+    return activityDurationMs < SHORT_DEBOUNCE;
 }
 
 function pushActivity(state: State, activity: Activity) {
@@ -700,8 +694,8 @@ function pushActivity(state: State, activity: Activity) {
         return;
     }
 
-    if (lastActivity && canActivityBeDebounced(state, lastActivity, activity)) {
-        // we can replace it if it isn't old enough.
+    if (lastActivity && canActivityBeReplacedWithNewActivity(state, lastActivity, activity)) {
+        // this activity may be popped - effectively replaced with the new activity
         state.activities.pop();
         
         if (activityNoteIdMatchesLastActivity(state, activity)) {
@@ -949,10 +943,6 @@ export function setCurrentNote(state: State, noteId: NoteId | null, saveJump = f
 }
 
 export function setCurrentActivityIdxToCurrentNote(state: State) {
-    if (state.activities[state._currentlyViewingActivityIdx]?.nId === state.currentNoteId) {
-        return;
-    }
-
     const note = getCurrentNote(state);
     const idx = getMostRecentActivityIdx(state, note);
     if (idx !== -1) {
