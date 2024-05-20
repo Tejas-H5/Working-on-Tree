@@ -97,7 +97,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.3";
+const VERSION_NUMBER = "v1.0.3001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1095,7 +1095,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         const isFocused = state.currentNoteId === note.id;
         const isEditing = state._isEditingFocusedNote && isFocused;
 
-        if (setVisible(whenEditing, isEditing)) {
+        if (setVisible(whenEditing, isEditing) && !isEditingTextSomewhereInDocument()) {
             whenEditing.el.focus({ preventScroll: true });
         }
 

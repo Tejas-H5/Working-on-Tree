@@ -373,13 +373,17 @@ export function setText(component: Insertable, text: string) {
 };
 
 /** NOTE: assumes that component.el is an HTMLInputElement */
-export function setInputValue(component: InsertableInput, text: string) {
+export function setInputValue(component: InsertableInput, text: string, notWhenEditing = true) {
     const inputElement = component.el;
 
     // Yeah, its up to you to call it on the right component. 
     // I don't want to add proper types here, because I can't infer the type `htmlf` will return
     if (inputElement.value === text) {
         // might be a huge performance speedup! ?
+        return;
+    }
+
+    if (notWhenEditing && document.activeElement === inputElement) {
         return;
     }
 
