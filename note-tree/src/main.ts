@@ -97,7 +97,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.2002";
+const VERSION_NUMBER = "v1.0.3";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2027,12 +2027,6 @@ type RenderOptions = {
     shouldScroll: boolean;
 }
 
-const rerenderApp = (opts?: RenderOptions) => {
-    // there are actually very few times when we don't want to scroll to the current note
-    renderOptions.shouldScroll = opts ? opts.shouldScroll : true;
-    app.render(undefined);
-}
-
 let currentModal: Insertable | null = null;
 const setCurrentModal = (modal: Insertable | null) => {
     if (currentModal === modal) {
@@ -2186,6 +2180,9 @@ function CheatSheet(): Renderable {
                 ` I would recommend this, because if I, or my hosting provider, decided to change the URL of this page (lets say I don't like Tejas-H5 as a github username, and I change it to Tejas-H6 for example) - all your data will be lost.`,
             ])
         ),
+        div({}, [
+            "I will be frequently updating the app (https://tejas-h5.github.io/Working-on-Tree/) whenever I find bugs or think of improvements, so you might be interested in checking there for updates every now and then"
+        ]),
         el("H4", {}, ["Basic functionality, and shortcut keys"]),
         div({}),
         makeUnorderedList([
@@ -2490,6 +2487,7 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
 export function App() {
+    const header = el("H2", {}, ["Currently working on"]);
     const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
@@ -2594,7 +2592,7 @@ export function App() {
                 div({ class: "flex-1 overflow-y-auto" }, [
                     cheatSheet,
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
-                        el("H2", {}, ["Currently working on"]),
+                        header,
                         div({ class: "flex-1" }),
                         cheatSheetButton,
                         darkModeToggle,
@@ -2742,7 +2740,7 @@ export function App() {
         ) {
             // handle movements here
 
-            function handleUpDownMovement(nextNoteId: NoteId | null) {
+            function handleUpDownMovement(nextNoteId: NoteId | undefined) {
                 if (!nextNoteId) {
                     return;
                 }
@@ -2845,11 +2843,11 @@ export function App() {
             } else if (currentNote.parentId && e.key === "End") {
                 const parent = getNote(state, currentNote.parentId);
                 const siblings = parent.childIds;
-                handleUpDownMovement(siblings[siblings.length - 1] || null);
+                handleUpDownMovement(siblings[siblings.length - 1] || undefined);
             } else if (currentNote.parentId && e.key === "Home") {
                 const parent = getNote(state, currentNote.parentId);
                 const siblings = parent.childIds;
-                handleUpDownMovement(siblings[0] || null);
+                handleUpDownMovement(siblings[0] || undefined);
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
@@ -2933,6 +2931,8 @@ export function App() {
         }
 
         darkModeToggle.render(undefined);
+
+        setText(header, "Currently working on - " + formatDate(new Date(), undefined, true, true));
 
         recomputeState(state);
         autoInsertBreakIfRequired();
@@ -3110,4 +3110,16 @@ const root: Insertable = {
 const app = App();
 appendChild(root, app);
 
-app.render(undefined);
+const rerenderApp = (opts?: RenderOptions) => {
+    // there are actually very few times when we don't want to scroll to the current note
+    renderOptions.shouldScroll = opts ? opts.shouldScroll : true;
+    app.render(undefined);
+}
+
+setInterval(() => {
+    // We need our clock to tick exactly every second, otherwise it looks strange. 
+    // For this reason, we will just rerender our entire app every second (BASED)
+    rerenderApp();
+}, 1000);
+
+rerenderApp();

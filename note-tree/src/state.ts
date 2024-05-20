@@ -886,9 +886,9 @@ export function isCurrentlyTakingABreak(state: State): boolean {
     return !!last && isBreak(last);
 }
 
-export function getNoteNDown(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | null {
+export function getNoteNDown(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
     if (!note.parentId) {
-        return null;
+        return undefined;
     }
 
     const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
@@ -897,12 +897,12 @@ export function getNoteNDown(state: State, note: TreeNote, useSiblings: boolean,
         return list[Math.min(list.length - 1, idx + amount)];
     }
 
-    return null;
+    return undefined;
 }
 
-export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | null {
+export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
     if (!note.parentId) {
-        return null;
+        return undefined;
     }
 
     const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
@@ -911,7 +911,7 @@ export function getNoteNUp(state: State, note: TreeNote, useSiblings: boolean, a
         return list[Math.max(0, idx - amount)];
     }
 
-    return null;
+    return undefined;
 }
 
 export function setCurrentNote(state: State, noteId: NoteId | null, saveJump = false) {
@@ -964,78 +964,62 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
             parent.data.lastSelectedChildIdx = parent.childIds.indexOf(currentNote.id);
         }
     } else {
-        pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
-    }
-}
-
-
-type NoteFilterFunction = (state: State, note: TreeNote, nextNote: TreeNote | undefined, prevNote: TreeNote | undefined) => boolean;
-export function findNextNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-    let idx = childIds.indexOf(id) + 1;
-    while (idx < childIds.length) {
-        const note = getNote(state, childIds[idx]);
-        const nextNote = getNoteOrUndefined(state, childIds[idx + 1]);
-        const prevNote = getNoteOrUndefined(state, childIds[idx - 1]);
-        if (filterFn(state, note, nextNote, prevNote)) {
-            return note.id;
+        if (!isCurrentlyTakingABreak(state)) {
+            pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
         }
-
-        idx++;
     }
-
-    return null;
 }
 
-export function findPreviousNote(state: State, childIds: NoteId[], id: NoteId, filterFn: NoteFilterFunction) {
-    let idx = childIds.indexOf(id) - 1;
-    while (idx >= 0) {
-        const note = getNote(state, childIds[idx]);
-        const nextNote = getNoteOrUndefined(state, childIds[idx - 1]);
-        const prevNote = getNoteOrUndefined(state, childIds[idx + 1]);
-        if (filterFn(state, note, nextNote, prevNote)) {
-            return note.id;
+
+export function findNextImportantNote(state: State, note: TreeNote, backwards = false): TreeNote | undefined {
+    if (!note.parentId) {
+        return undefined;
+    }
+
+    const siblings = getNote(state, note.parentId).childIds;
+    const idx = siblings.indexOf(note.id);
+    if (idx === -1) {
+        return undefined;
+    }
+
+    const dir = backwards ? -1 : 1;
+    const nextNote = getNoteOrUndefined(state, siblings[idx + dir]);
+    if (!nextNote) {
+        return undefined;
+    }
+
+    const isInProgress = nextNote.data._status === STATUS_IN_PROGRESS;
+    for (let i = idx + dir; i + dir >= -1 &&  i + dir <= siblings.length; i += dir) {
+        const note = getNote(state, siblings[i]);
+        if (
+            i <= 0 ||
+            i >= siblings.length - 1 ||
+            (!note.data._isSelected && note.data.isSticky) ||
+            (note.data._status === STATUS_IN_PROGRESS) !== isInProgress
+        ) {
+            return note;
         }
-
-        idx--;
     }
 
-    return null;
+    return undefined;
 }
-
 
 export function getNoteOneDownLocally(state: State, note: TreeNote) {
     if (!note.parentId) {
-        return null;
+        return undefined;
     }
 
-    const siblings = getNote(state, note.parentId).childIds;
-    return findNextNote(state, siblings, note.id, isNoteImportant);
-}
-
-export function isNoteImportant(state: State, note: TreeNote, nextNote: TreeNote | undefined, prevNote: TreeNote | undefined): boolean {
-    if (!note.parentId) {
-        return true;
-    }
-
-    const siblings = getNote(state, note.parentId).childIds;
-
-    return (
-        siblings[0] === note.id ||
-        siblings[siblings.length - 1] === note.id ||
-        note.data._isSelected ||
-        // (!!nextNote && (note.data._status === STATUS_IN_PROGRESS) !== (nextNote.data._status === STATUS_IN_PROGRESS)) ||
-        (!!prevNote && (note.data._status === STATUS_IN_PROGRESS) !== (prevNote.data._status === STATUS_IN_PROGRESS)) ||
-        !!note.data.isSticky
-    );
+    const backwards = false;
+    return findNextImportantNote(state, note, backwards)?.id;
 }
 
 export function getNoteOneUpLocally(state: State, note: TreeNote) {
     if (!note.parentId) {
-        return null;
+        return undefined;
     }
 
-    const siblings = getNote(state, note.parentId).childIds;
-    return findPreviousNote(state, siblings, note.id, isNoteImportant);
+    const backwards = true;
+    return findNextImportantNote(state, note, backwards)?.id;
 }
 
 export function getPreviousActivityWithNoteIdx(state: State, idx: number): number {

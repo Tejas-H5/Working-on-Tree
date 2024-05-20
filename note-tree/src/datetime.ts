@@ -9,7 +9,7 @@ const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sat",
 ]
 
-export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek = false) {
+export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek = false, useSeconds = false) {
     if (!seperator) {
         seperator = "/";
     }
@@ -24,9 +24,11 @@ export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek =
     const yyyy = date.getFullYear();
     const hours = date.getHours();
     const minutes = date.getMinutes();
+    const seconds = date.getSeconds();
 
     const dayOfTheWeekStr = !dayOfTheWeek ? "" : (DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()] + " ");
-    return `${dayOfTheWeekStr}${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)} ${
+    const secondsText = useSeconds  ? `:${pad2(seconds)}` : "";
+    return `${dayOfTheWeekStr}${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)}${secondsText} ${
         hours < 12 ? "am" : "pm"
     }`;
 }
@@ -129,11 +131,6 @@ export function formatDurationInWorkdays(ms: number): string {
 }
 
 export function formatDurationAsHours(ms: number): string {
-    const hours = ms / 1000 / 60 / 60;
-    return hours.toFixed(1) + "h";
-}
-
-export function formatDurationAsHoursMinutes(ms: number): string {
     const hours = Math.floor(ms / 1000 / 60 / 60);
     const minutes = Math.floor(ms / 1000 / 60) % 60;
 
@@ -141,7 +138,7 @@ export function formatDurationAsHoursMinutes(ms: number): string {
         return minutes + "m";
     }
 
-    return hours + "h " + minutes + "m";
+    return hours + "h" + pad2(minutes) + "m";
 }
 
 export function formatDuration(ms: number, unitLimit = -1) {

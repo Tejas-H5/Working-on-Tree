@@ -44,6 +44,15 @@ export function replaceChildren(comp: Insertable, children: (Insertable | undefi
 };
 
 export function appendChild(mountPoint: Insertable, child: Insertable) {
+    const children = mountPoint.el.children;
+    if (children.length > 0 && children[children.length - 1] === child.el) {
+        // This actually increases performance as well.
+        // Because of this return statement, list renderers whos children haven't changed at all can be rerendered 
+        // over and over again without moving any DOM nodes. And I have actually able to verify that it _does_ make a difference -
+        // this return statement eliminated scrollbar-flickering inside of my scrolling list component
+        return;
+    }
+
     child._isInserted = true;
     mountPoint.el.appendChild(child.el);
 };
