@@ -99,7 +99,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.3002";
+const VERSION_NUMBER = "v1.0.3003";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -700,8 +700,11 @@ function DeleteModal(): Renderable {
         setText(timeEl, formatDuration(totalTimeMs) + " in total");
 
         const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
-        const activity = state.activities[idx];
-        setText(recentEl, "The last activity under this note was on " + formatDate(getActivityTime(activity), undefined, true));
+        setVisible(recentEl, !!idx)
+        if (idx !== undefined) {
+            const activity = state.activities[idx];
+            setText(recentEl, "The last activity under this note was on " + formatDate(getActivityTime(activity), undefined, true));
+        }
 
         const canDelete = currentNote.data._status === STATUS_DONE;
         setVisible(deleteButton, canDelete);

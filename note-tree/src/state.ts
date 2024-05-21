@@ -1272,6 +1272,10 @@ export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): Tree
         return note;
     }
 
+    if (!idx) {
+        return note;
+    }
+
     const activity = state.activities[idx];
     if (!activity.nId) {
         return note;
@@ -1281,11 +1285,18 @@ export function getMostRecentlyWorkedOnChild(state: State, note: TreeNote): Tree
 }
 
 // This is recursive
-export function getMostRecentlyWorkedOnChildActivityIdx(state: State, note: TreeNote): number {
+export function getMostRecentlyWorkedOnChildActivityIdx(state: State, note: TreeNote): number | undefined {
     recomputeNoteIsUnderFlag(state, note);
+
+    const noteCreatedAt = new Date(note.data.openedAt);
 
     for (let i = state.activities.length - 1; i > 0; i--) {
         const activity = state.activities[i];
+        if (getActivityTime(activity) < noteCreatedAt) {
+            // Can't possibly be any activities before this
+            break;
+        }
+
         if (!activity.nId) {
             continue;
         }
@@ -1296,7 +1307,7 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: State, note: Tree
         }
     }
 
-    throw new Error("This code should never be reached, if `note` is really in the tree");
+    return undefined;
 }
 
 export function getMostRecentActivityIdx(state: State, note: TreeNote): number {
