@@ -1,6 +1,6 @@
 // TODO: import the missing CSS stylesgener
 
-import { Insertable, Renderable, div, el, newComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./dom-utils";
+import { Insertable, Renderable, div, el, isEditingInput, newComponent, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./dom-utils";
 import { addDays, floorDateLocalTime, formatDate, parseYMDTDateTime } from "./datetime";
 
 type ModalArgs = { onClose(): void };
@@ -108,8 +108,11 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
 
     let lastDate: Date | null = null;
 
-    const component = newComponent<DateTimeInputArgs>(root, () => {
+    const component = newComponent<DateTimeInputArgs>(root, renderDateTimeInput);
+
+    function renderDateTimeInput() {
         const { value, label, readOnly, nullable } = component.args;
+
         const canEdit = readOnly && !!value;
 
         if (setVisible(checkbox, !readOnly && nullable)) {
@@ -120,10 +123,6 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
             });
         }
 
-        if (value) {
-            lastDate = value;
-        }
-
         const dateText = formatDate(value, undefined, true);
 
         if (setVisible(show, canEdit)) {
@@ -131,11 +130,15 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
         }
 
         if (setVisible(edit, !canEdit)) {
-            setInputValueAndResize(edit, dateText);
+            if (!isEditingInput(edit)) {
+                setInputValueAndResize(edit, dateText);
+            }
         }
 
+        lastDate = value;
+
         setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
-    });
+    }
     
     function onCheckOrUncheck(b: boolean) {
         const { onChange } = component.args;
@@ -272,7 +275,7 @@ export function Checkbox(initialLabel?: string): Renderable<GenericInputArgument
     return component;
 }
 
-export function TextField(initialLabel?: string): Renderable<GenericInputArguments<string>> {
+export function TextField(initialLabel?: string) {
     const input = el<HTMLInputElement>("INPUT", { class: "pre-wrap w-100" });
     const label = div({}, initialLabel ? [ initialLabel ] : undefined);
     const root = div({class: "row"}, [
@@ -281,14 +284,16 @@ export function TextField(initialLabel?: string): Renderable<GenericInputArgumen
         input
     ]);
 
-    const component = newComponent<GenericInputArguments<string>>(root, () => {
+    const component = newComponent<GenericInputArguments<string>>(root, renderTextField);
+
+    function renderTextField() {
         const { value, label: labelText } = component.args;
 
         setInputValue(input, value);
         if (labelText) {
             setText(label, labelText);
         }
-    });
+    }
 
     input.el.addEventListener("input", () => {
         component.args.onChange(input.el.value);

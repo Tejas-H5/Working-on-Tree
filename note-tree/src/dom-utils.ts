@@ -372,8 +372,12 @@ export function setText(component: Insertable, text: string) {
     component.el.textContent = text;
 };
 
+export function isEditingInput(component: Insertable): boolean {
+    return document.activeElement === component.el;
+}
+
 /** NOTE: assumes that component.el is an HTMLInputElement */
-export function setInputValue(component: InsertableInput, text: string, notWhenEditing = true) {
+export function setInputValue(component: InsertableInput, text: string) {
     const inputElement = component.el;
 
     // Yeah, its up to you to call it on the right component. 
@@ -383,12 +387,12 @@ export function setInputValue(component: InsertableInput, text: string, notWhenE
         return;
     }
 
-    if (notWhenEditing && document.activeElement === inputElement) {
-        return;
-    }
+    const { selectionStart, selectionEnd } = inputElement;
 
-    // @ts-ignore 
     inputElement.value = text;
+
+    inputElement.selectionStart = selectionStart;
+    inputElement.selectionEnd = selectionEnd;
 };
 
 /** 

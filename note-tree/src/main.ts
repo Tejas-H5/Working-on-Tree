@@ -81,6 +81,8 @@ import {
     ChildList,
     scrollIntoViewV,
     setCssVars,
+    isEditingInput,
+    initEl,
 } from "./dom-utils";
 import * as tree from "./tree";
 import { Checkbox, DateTimeInput,  Modal,  makeButton } from "./generic-components";
@@ -97,7 +99,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.3001";
+const VERSION_NUMBER = "v1.0.3002";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -145,8 +147,7 @@ function NoteLink() {
 type TodoListInternalArgs = {
     priorityLevel: number;
     heading: string;
-    scrollRoot?: Insertable;
-    onScroll?(): void;
+    setScrollEl?(c: Insertable): void;
     cursorNoteId?: NoteId;
 };
 
@@ -241,7 +242,7 @@ function TodoListInternal() {
     const component = newComponent<TodoListInternalArgs>(root, renderTodoListInternal);
 
     function renderTodoListInternal() {
-        const { heading, priorityLevel, scrollRoot, onScroll, cursorNoteId } = component.args;
+        const { heading, priorityLevel, setScrollEl, cursorNoteId } = component.args;
 
         setText(headingEl, heading);
         let count = 0;
@@ -270,14 +271,13 @@ function TodoListInternal() {
                     cursorNoteId
                 });
 
-                if (scrollRoot && onScroll && !alreadyScrolled) {
+                if (setScrollEl && !alreadyScrolled) {
                     if (
                         (cursorNoteId && note.id === cursorNoteId) ||
                         (!cursorNoteId && currentlyOnOrInsideNote)
                     ) {
-                        scrollIntoViewV(scrollRoot.el, c, 0.5);
+                        setScrollEl(c);
                         alreadyScrolled = true;
-                        onScroll();
                     }
                 }
             }
@@ -298,7 +298,7 @@ function TodoList() {
     const todo = TodoListInternal();
     const backlog = TodoListInternal();
     const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
-    const root = div({ class: "flex-1 col", style: "overflow-y: auto" }, [
+    const root = initEl(ScrollContainerV(), { class: "flex-1 col" }, [ 
         empty,
         inProgress,
         todo,
@@ -312,30 +312,38 @@ function TodoList() {
 
         setVisible(empty, state._todoNoteIds.length === 0);
 
-        let alreadyScrolled = false;
+        let scrollEl: Insertable | null = null;
+
+        function setScrollEl(el: Insertable) {
+            if (!scrollEl) {
+                scrollEl = el;
+            }
+        }
 
         inProgress.render({
             priorityLevel: 3,
             heading: "In Progress",
-            scrollRoot: (alreadyScrolled) ? undefined : root,
-            onScroll: () => alreadyScrolled = true,
             cursorNoteId,
+            setScrollEl,
         });
 
         todo.render({
             priorityLevel: 2,
             heading: "TODO",
-            scrollRoot: (alreadyScrolled) ? undefined : root,
-            onScroll: () => alreadyScrolled = true,
+            setScrollEl,
             cursorNoteId,
         });
 
         backlog.render({
             priorityLevel: 1,
             heading: "Backlog",
-            scrollRoot: (alreadyScrolled) ? undefined : root,
-            onScroll: () => alreadyScrolled = true,
+            setScrollEl,
             cursorNoteId,
+        });
+
+        root.render({
+            scrollEl,
+            rescrollMs: 5000,
         });
     }
 
@@ -452,7 +460,9 @@ function ActivityListItem() {
             breakEdit,
             canEditBreakText,
         )) {
-            setInputValue(breakEdit, activity.breakInfo!);
+            if (!isEditingInput(breakEdit)) {
+                setInputValue(breakEdit, activity.breakInfo!);
+            }
         }
 
         if (setVisible(noteLink, !canEditBreakText)) {
@@ -853,24 +863,75 @@ type EditableActivityListArgs = {
     pageSize?: number;
 };
 
+function ScrollContainerV() {
+    const scrollContainer = div({ class: "flex-1", style: "overflow-y: auto;" });
+
+    let scrollTimeout = 0;
+    let lastScrollEl : Insertable | null | undefined = undefined;
+    let lastHeight = 0;
+    const component = newComponent<{ rescrollMs?: number, scrollEl: Insertable | null }>(scrollContainer, renderScrollContainer);
+
+    function scrollToLastElement() {
+        clearTimeout(scrollTimeout);
+        setTimeout(() => {
+            const scrollParent = scrollContainer.el;
+            if (lastScrollEl) {
+                scrollIntoViewV(scrollParent, lastScrollEl, 0.5);
+            } else {
+                scrollParent.scrollTop = 0;
+            }
+        }, 1);
+    }
+
+    function renderScrollContainer() {
+        const { scrollEl } = component.args;
+        let height = scrollContainer.el.clientHeight;
+
+        if (
+            lastScrollEl !== scrollEl ||
+            lastHeight !== height
+        ) {
+            lastScrollEl = scrollEl;
+            lastHeight = height;
+            scrollToLastElement();
+        }
+    }
+
+    scrollContainer.el.addEventListener("scroll", () => {
+        const { rescrollMs } = component.args;
+
+        if (!rescrollMs) {
+            // We simply won't scroll back to where we were before.
+            return;
+        }
+
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+             scrollToLastElement();
+        }, rescrollMs);
+    });
+
+    return component;
+}
+
 function EditableActivityList() {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
 
     const listRoot = newListRenderer(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
-    const listContainer = div({ class: "flex-1", style: "overflow-y: auto;" }, [
+    const listScrollContainer = initEl(ScrollContainerV(), { class: "flex-1" }, [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, [  ]);
     const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
         statusTextEl,
-        listContainer,
+        listScrollContainer,
         paginationControl,
     ]);
 
     let lastIdx = -1;
-
     const component = newComponent<EditableActivityListArgs>(root, rerenderActivityList);
+
 
     function rerenderActivityList() {
         const { pageSize, activityIndexes } = component.args;
@@ -891,7 +952,7 @@ function EditableActivityList() {
         const end = getCurrentEnd(pagination);
         const activitiesToRender = end - start;
 
-        let scrollEl: Insertable;
+        let scrollEl: Insertable | null = null;
         listRoot.render(() => {
             let lastRenderedIdx = -1;
 
@@ -954,16 +1015,10 @@ function EditableActivityList() {
             }
         });
 
-        setTimeout(() => {
-            if (scrollEl) {
-                const scrollParent = listContainer.el;
-                if (scrollEl) {
-                    scrollIntoViewV(scrollParent, scrollEl, 0.5);
-                } else {
-                    scrollParent.scrollTop = 0;
-                }
-            }
-        }, 1);
+        listScrollContainer.render({
+            scrollEl,
+            rescrollMs: 5000,
+        });
 
         let statusText = "";
         if (activityIndexes) {
@@ -1060,10 +1115,13 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         ])
     ]);
 
+    let lastNote: TreeNote | undefined = undefined;
+
     function updateTextContentAndSize() {
         const { note } = component.args;
 
         setInputValue(whenEditing, note.data.text);
+        lastNote = note;
 
         whenEditing.el.style.height = "0";
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
@@ -3118,7 +3176,8 @@ const rerenderApp = (opts?: RenderOptions) => {
 
 setInterval(() => {
     // We need our clock to tick exactly every second, otherwise it looks strange. 
-    // For this reason, we will just rerender our entire app every second (BASED)
+    // For this reason, we will just rerender our entire app every second.
+    // This might seem a bit silly, but it's unearthed numerous bugs and improvements
     rerenderApp();
 }, 1000);
 
