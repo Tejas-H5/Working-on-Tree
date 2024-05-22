@@ -1,6 +1,7 @@
 import { AsciiCanvasLayer } from "./canvas";
 import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "./datetime";
 import { assert } from "./dom-utils";
+import { logTrace } from "./log";
 import * as tree from "./tree";
 import { uuid } from "./uuid";
 
@@ -234,6 +235,10 @@ export function loadStateFromJSON(savedStateJSON: string): State | null {
 
     const loadedState = JSON.parse(savedStateJSON) as State;
 
+    return migrateState(loadedState);
+}
+
+export function migrateState(loadedState: State) {
     // prevents missing item cases that may occur when trying to load an older version of the state.
     // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
     // TODO: handle new fields in notes. Shouldn't be too hard actually
@@ -244,7 +249,10 @@ export function loadStateFromJSON(savedStateJSON: string): State | null {
         node.data = autoMigrate(node.data, defaultNote(null));
     });
 
+    // I should actually be doing migrations and validations here but I'm far too lazy
+
     return mergedLoadedState;
+
 }
 
 export function setStateFromJSON(savedStateJSON: string) {
@@ -668,6 +676,16 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
 function canActivityBeReplacedWithNewActivity(state: State, lastActivity: Activity): boolean {
     const ONE_SECOND = 1000;
     const activityDurationMs = getActivityDurationMs(lastActivity);
+
+    if (
+        lastActivity && 
+        lastActivity.nId && 
+        lastActivity.c === 1 && 
+        !lastActivity.deleted 
+    ) {
+        return false;
+    }
+
     if (
         // A bunch of conditions that make this activity something we don't need to keep around as much
         !lastActivity || 
@@ -676,7 +694,7 @@ function canActivityBeReplacedWithNewActivity(state: State, lastActivity: Activi
         lastActivity.deleted || 
         lastActivity.c !== 1 || // activity wasn't created, but edited
         isBreak(lastActivity) || 
-        !getNote(state, lastActivity.nId).data.text.trim()   // empty text
+        !getNote(state, lastActivity.nId).data.text.trim()  // empty text
     ) {
         // The activity is more replaceable, so we extend this time.
         const LONG_DEBOUNCE = 1 * 60 * ONE_SECOND;
@@ -823,7 +841,10 @@ export function getNote(state: State, id: NoteId) {
     return tree.getNode(state.notes, id);
 }
 
-export function getNoteOrUndefined(state: State, id: NoteId): TreeNote | undefined {
+export function getNoteOrUndefined(state: State, id: NoteId | null | undefined): TreeNote | undefined {
+    if (!id) {
+        return undefined;
+    }
     if (hasNote(state, id)) {
         return getNote(state, id);
     }
@@ -1473,4 +1494,139 @@ export function resetState() {
 export let state = defaultState();
 
 
+let db: IDBDatabase | undefined;
+
+// TODO: (low priority) - Promisify and asincify this callback spam.
+// But honestly, even thoguh it looks bad, it works. The wrapper design might require some thought. 
+export function loadState(then: () => void) {
+    // This app will have looked a lot different if I hadn't used localStorage as the storage API, and started with indexedDB.
+
+    logTrace("Opening DB...");
+    const request = window.indexedDB.open(INDEXED_DB_KV_STORE_NAME, 1);
+    request.onerror = (e) => {
+        loadStateFromLocalStorage();
+        console.error("Error requesting db - ", e, request.error);
+
+        then();
+    }
+
+    request.onupgradeneeded = () => {
+        logTrace("Migrating DB...");
+
+        db = request.result;
+
+        // Need to make the database.
+        // It's just a KV store. 
+
+        const kvStore = db.createObjectStore(INDEXED_DB_KV_STORE_NAME, { keyPath: "key" });
+        kvStore.createIndex("value", "value", { unique: false });
+    }
+
+    request.onsuccess = ()  => {
+        db = request.result;
+
+        logTrace("Opened DB");
+
+        assert(!!db, "DB should be defined here");
+        const kvStore = db.transaction([INDEXED_DB_KV_STORE_NAME], "readonly")
+            .objectStore(INDEXED_DB_KV_STORE_NAME);
+
+        const txRequest = kvStore.get(KV_STORE_STATE_KEY);
+        txRequest.onerror = (e) => {
+            console.error("Error getting kv store - ", e, request.error);
+            then();
+        }
+
+        txRequest.onsuccess = () => {
+            logTrace("Checking IndexedDB...");
+            const savedStateJSONWrapper: { key: string, value: string } | undefined = txRequest.result;
+            if (!savedStateJSONWrapper) {
+                logTrace("We don't have anything saved yet. We might have something in local storage though. If not, we'll just start with fresh state");
+
+                // Let's just load the state from local storage in case it exists...
+                loadStateFromLocalStorage();
+
+                then();
+                return;
+            }
+
+            logTrace("Loaded data from IndexedDB (and not localStorage)");
+            setStateFromJSON(savedStateJSONWrapper.value);
+            then();
+        }
+    };
+}
+
+
+export function saveState(state: State, then: () => void) {
+    if (!db) {
+        console.error("Tried to save the state before we even have our database!!!");
+        return;
+    }
+
+    const nonCyclicState = recursiveShallowCopy(state);
+    const serialized = JSON.stringify(nonCyclicState);
+
+    const kvStore = db.transaction([INDEXED_DB_KV_STORE_NAME], "readwrite")
+        .objectStore(INDEXED_DB_KV_STORE_NAME);
+
+    const request = kvStore.put({
+        key: KV_STORE_STATE_KEY,
+        value: serialized,
+    });
+
+    // Do something when all the data is added to the database.
+    request.onsuccess = () => {
+        logTrace("Saved!");
+        then();
+    };
+
+    request.onerror = (event) => {
+        console.error("An error occured while trying to save: ", event, request.error);
+    };
+
+    // return;
+    //
+    // localStorage.setItem(LOCAL_STORAGE_KEY_LEGACY, serialized);
+}
+
+function loadStateFromLocalStorage(): boolean {
+    const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEY_LEGACY);
+    if (savedStateJSON) {
+        logTrace("Loaded legacy data from local storage");
+        setStateFromJSON(savedStateJSON);
+        return true;
+    }
+
+    logTrace("No saved data was found");
+    return false;
+}
+
+// I used to have tabs, but I literally never used then, so I've just removed those components.
+// However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
+// The main benefit of having just a single tree (apart from simplicity and less code) is that
+// You can track all your activities and see analytics for all of them in one place. 
+// As it turns out, storing state in anything besides the global state object can result in bugs. so I've completely removed this now.
+const LOCAL_STORAGE_KEY_LEGACY = "NoteTree.Everything";
+const INDEXED_DB_KV_STORE_NAME = "NoteTreeKVStore";
+const KV_STORE_STATE_KEY = "State";
+
+export function getCurrentStateAsJSON() {
+    const nonCyclicState = recursiveShallowCopy(state);
+    const serialized = JSON.stringify(nonCyclicState);
+    return serialized;
+}
+
+export function loadStateFromBackup(text: string) {
+    const obj = JSON.parse(text);
+    if (LOCAL_STORAGE_KEY_LEGACY in obj) {
+        logTrace("Loading legacy backup format");
+        return loadStateFromJSON(obj[LOCAL_STORAGE_KEY_LEGACY]);
+    }
+
+    // I expect there to be 1 more format if I ever start storing multiple keys in the kv store. But
+    // I have already decided against this due to the much higher potential for bugs r.e partial saving
+    logTrace("Loading backup format v2");
+    return migrateState(obj as State);
+}
 

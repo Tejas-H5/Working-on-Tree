@@ -25,11 +25,9 @@ import {
     insertNoteAfterCurrent,
     isCurrentlyTakingABreak,
     isEditableBreak,
-    loadStateFromJSON,
     pushBreakActivity,
     recomputeFlatNotes,
     recomputeState,
-    recursiveShallowCopy,
     resetState,
     setCurrentNote,
     state,
@@ -40,7 +38,6 @@ import {
     isBreak,
     getLastActivity,
     getLastActivityWithNoteIdx,
-    setStateFromJSON,
     isCurrentNoteOnOrInsideNote,
     getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
@@ -60,6 +57,10 @@ import {
     getNoteEstimate,
     findNextActiviyIndex,
     findPreviousActiviyIndex,
+    getCurrentStateAsJSON,
+    loadStateFromBackup,
+    saveState,
+    loadState,
 } from "./state";
 import {
     Renderable,
@@ -99,7 +100,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.0.3003";
+const VERSION_NUMBER = "v1.1.0";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1119,6 +1120,8 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     ]);
 
     let lastNote: TreeNote | undefined = undefined;
+    let isFocused = false;
+    const component = newComponent<NoteRowArgs>(root, renderNoteRow);
 
     function updateTextContentAndSize() {
         const { note } = component.args;
@@ -1129,8 +1132,6 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         whenEditing.el.style.height = "0";
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
-
-    const component = newComponent<NoteRowArgs>(root, renderNoteRow);
 
     function renderNoteRow() {
         const { note } = component.args;
@@ -1153,11 +1154,17 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         ) : indent1;
         setStyle(indentWidthEl, "minWidth", depth + "ch");
 
-        const isFocused = state.currentNoteId === note.id;
-        const isEditing = state._isEditingFocusedNote && isFocused;
+        const isEditing = state._isEditingFocusedNote;
+        if (lastNote !== note || !isEditing) {
+            isFocused = false;
+        }
 
-        if (setVisible(whenEditing, isEditing) && !isEditingTextSomewhereInDocument()) {
-            whenEditing.el.focus({ preventScroll: true });
+        if (setVisible(whenEditing, isEditing)) {
+            const wasFocused = isFocused;
+            isFocused = state.currentNoteId === note.id;
+            if (!wasFocused && isFocused) {
+                whenEditing.el.focus({ preventScroll: true });
+            }
         }
 
         if (setVisible(whenNotEditing, !isEditing)) {
@@ -1595,10 +1602,9 @@ function LoadBackupModal() {
         canLoad = false;
 
         try {
-            const uploadedLsKeys = JSON.parse(text);
-            const backupState = loadStateFromJSON(uploadedLsKeys[LOCAL_STORAGE_KEY]);
+            const backupState = loadStateFromBackup(text);
             if (!backupState) {
-                throw "bruh";
+                throw new Error("No existing state to back up");
             }
 
             const lastOnline = parseDateSafe(backupState?.breakAutoInsertLastPolledTime);
@@ -1633,8 +1639,9 @@ function LoadBackupModal() {
                 localStorage.setItem(k, lsKeys[k]);
             }
 
-            initState();
-            setCurrentModal(null);
+            initState(() => {
+                setCurrentModal(null);
+            });
         }
     });
 
@@ -2459,19 +2466,6 @@ function moveInDirectionOverTodoList(amount: number) {
     setIsEditingCurrentNote(state, false);
 }
 
-
-// I used to have tabs, but I literally never used then, so I've just removed those components.
-// However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
-// The main benefit of having just a single tree (apart from simplicity and less code) is that
-// You can track all your activities and see analytics for all of them in one place. 
-// As it turns out, storing state in anything besides the global state object can result in bugs. so I've completely removed this now.
-const LOCAL_STORAGE_KEY = "NoteTree.Everything";
-
-const initState = () => {
-    loadState();
-    setTheme(getTheme());
-};
-
 function autoInsertBreakIfRequired() {
     // This function should get run inside of a setInterval that runs every CHECK_INTERVAL_MS,
     // as well as anywhere else that might benefit from rechecking this interval.
@@ -2500,13 +2494,14 @@ function autoInsertBreakIfRequired() {
     state.breakAutoInsertLastPolledTime = getTimestamp(time);
 }
 
-function getCurrentStateAsJSON() {
-    const nonCyclicState = recursiveShallowCopy(state);
-    const serialized = JSON.stringify(nonCyclicState);
-    return JSON.stringify({
-        [LOCAL_STORAGE_KEY]: serialized,
+
+const initState = (then: () => void) => {
+    loadState(() => {
+        setTheme(getTheme());
+        then();
     });
-}
+};
+
 
 function isRunningFromFile(): boolean {
     return window.location.protocol.startsWith("file");
@@ -2984,8 +2979,6 @@ export function App() {
 
     const appComponent = newComponent(appRoot, rerenderAppComponent);
 
-    initState();
-
     function rerenderAppComponent() {
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
             cheatSheet.render(undefined);
@@ -3108,6 +3101,7 @@ const showStatusText = (text: string, color: string = "var(--fg-color)", timeout
     }
 };
 
+let saveTimeout = 0;
 const saveCurrentState = ({ debounced } = { debounced: false }) => {
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
@@ -3116,10 +3110,10 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
     const save = () => {
         // save current note
-        saveState(thisState);
-
-        // notification
-        showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
+        saveState(thisState, () => {
+            // notification
+            showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
+        });
     };
 
     if (!debounced) {
@@ -3143,23 +3137,6 @@ const debouncedSave = () => {
     });
 };
 
-function loadState() {
-    const savedStateJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!savedStateJSON) {
-        return;
-    }
-
-    setStateFromJSON(savedStateJSON);
-}
-
-
-let saveTimeout = 0;
-function saveState(state: State) {
-    const nonCyclicState = recursiveShallowCopy(state);
-    const serialized = JSON.stringify(nonCyclicState);
-    localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
-}
-
 
 
 // Entry point
@@ -3177,11 +3154,16 @@ const rerenderApp = (opts?: RenderOptions) => {
     app.render(undefined);
 }
 
-setInterval(() => {
-    // We need our clock to tick exactly every second, otherwise it looks strange. 
-    // For this reason, we will just rerender our entire app every second.
-    // This might seem a bit silly, but it's unearthed numerous bugs and improvements
-    rerenderApp();
-}, 1000);
 
-rerenderApp();
+initState(() => {
+    setInterval(() => {
+        // We need our clock to tick exactly every second, otherwise it looks strange. 
+        // For this reason, we will just rerender our entire app every second.
+        // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
+        // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
+        // being handled incorrectly, and will mask bugs related to too few renders.
+        rerenderApp();
+    }, 1000);
+
+    rerenderApp();
+});
