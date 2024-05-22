@@ -100,7 +100,7 @@ import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setP
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.0";
+const VERSION_NUMBER = "v1.1.001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2487,6 +2487,7 @@ function autoInsertBreakIfRequired() {
 
         if (!isCurrentlyTakingABreak(state)) {
             pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
+            debouncedSave();
             rerenderApp();
         }
     }
