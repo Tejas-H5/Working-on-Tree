@@ -97,10 +97,11 @@ import { copyToClipboard } from "./clipboard";
 import { getUrlPositions, openUrlInNewTab } from "./url";
 import { newWebWorker } from "./web-workers";
 import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setPage } from "./pagniation";
+import { utf8ByteLength } from "./utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.001";
+const VERSION_NUMBER = "v1.1.2";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -3111,9 +3112,13 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
     const save = () => {
         // save current note
-        saveState(thisState, () => {
+        saveState(thisState, (serialized) => {
             // notification
-            showStatusText("Saved   ", "var(--fg-color)", SAVE_DEBOUNCE);
+
+            // JavaScript strings are UTF-16 encoded
+            const bytes = utf8ByteLength(serialized);
+            const mb = bytes / 1000000;
+            showStatusText("Saved (" + mb.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
         });
     };
 

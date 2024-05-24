@@ -1558,7 +1558,7 @@ export function loadState(then: () => void) {
 }
 
 
-export function saveState(state: State, then: () => void) {
+export function saveState(state: State, then: (serialize: string) => void) {
     if (!db) {
         console.error("Tried to save the state before we even have our database!!!");
         return;
@@ -1578,16 +1578,12 @@ export function saveState(state: State, then: () => void) {
     // Do something when all the data is added to the database.
     request.onsuccess = () => {
         logTrace("Saved!");
-        then();
+        then(serialized);
     };
 
     request.onerror = (event) => {
         console.error("An error occured while trying to save: ", event, request.error);
     };
-
-    // return;
-    //
-    // localStorage.setItem(LOCAL_STORAGE_KEY_LEGACY, serialized);
 }
 
 function loadStateFromLocalStorage(): boolean {
