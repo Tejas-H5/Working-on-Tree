@@ -1,5 +1,5 @@
-import "./styles.css"
-import "./style-utils.css"
+import "src/styles.css"
+import "src/style-utils.css"
 import {
     Activity,
     NoteId,
@@ -84,20 +84,20 @@ import {
     setCssVars,
     isEditingInput,
     initEl,
-} from "./dom-utils";
-import * as tree from "./tree";
-import { Checkbox, DateTimeInput,  Modal,  makeButton } from "./generic-components";
-import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "./datetime";
-import { countOccurances, filterInPlace } from "./array-utils";
-import { Range, fuzzyFind, scoreFuzzyFind } from "./fuzzyfind";
-import { loadFile, saveText } from "./file-download";
-import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "./icons";
-import { AsciiCanvas, AsciiCanvasArgs } from "./canvas";
-import { copyToClipboard } from "./clipboard";
-import { getUrlPositions, openUrlInNewTab } from "./url";
-import { newWebWorker } from "./web-workers";
-import { Pagination, PaginationControl, getCurrentEnd, getStart, idxToPage, setPage } from "./pagniation";
-import { utf8ByteLength } from "./utf8";
+} from "src/utils/dom-utils";
+import * as tree from "src/utils/tree";
+import { Checkbox, DateTimeInput,  Modal, PaginationControl, makeButton } from "src/components";
+import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
+import { countOccurances, filterInPlace } from "src/utils/array-utils";
+import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
+import { loadFile, saveText } from "src/utils/file-download";
+import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
+import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
+import { copyToClipboard } from "src/utils/clipboard";
+import { getUrlPositions, openUrlInNewTab } from "src/utils/url";
+import { newWebWorker } from "src/utils/web-workers";
+import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
+import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;

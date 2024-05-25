@@ -1,8 +1,8 @@
-import { boundsCheck } from "./array-utils";
-import { copyToClipboard, readFromClipboard } from "./clipboard";
-import { Renderable, div, el, initEl, isVisible, newComponent, newListRenderer, replaceChildren, setClass, setStyle, setText, setVisible } from "./dom-utils";
-import { makeButton } from "./generic-components";
-import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "./keyboard-input";
+import { boundsCheck } from "src/utils/array-utils";
+import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
+import { Renderable, div, el, initEl, isVisible, newComponent, newListRenderer, replaceChildren, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { makeButton } from "src/components";
+import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
 
 type CanvasArgs = {
     onInput(): void;

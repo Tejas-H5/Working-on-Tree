@@ -1,4 +1,4 @@
-import { filterInPlace } from "./array-utils";
+import { filterInPlace } from "src/utils/array-utils";
 
 const state = {
     isShiftPressed: false,

@@ -1,9 +1,9 @@
-import { AsciiCanvasLayer } from "./canvas";
-import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "./datetime";
-import { assert } from "./dom-utils";
-import { logTrace } from "./log";
-import * as tree from "./tree";
-import { uuid } from "./uuid";
+import { AsciiCanvasLayer } from "src/canvas";
+import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
+import { assert } from "src/utils/dom-utils";
+import { logTrace } from "src/utils/log";
+import * as tree from "src/utils/tree";
+import { uuid } from "src/utils/uuid";
 
 export type NoteId = string;
 export type TaskId = string;
