@@ -94,14 +94,14 @@ import { loadFile, saveText } from "src/utils/file-download";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
 import { copyToClipboard } from "src/utils/clipboard";
-import { getUrlPositions, openUrlInNewTab } from "src/utils/url";
+import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { newWebWorker } from "src/utils/web-workers";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.2";
+const VERSION_NUMBER = "v1.1.2001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -774,20 +774,22 @@ function LinkNavModal(): Renderable {
         linkList.render(() => {
 
             function renderLink(note: TreeNote) {
-                const urlPositions = getUrlPositions(note.data.text);
+                let urlCount = 0;
 
-                for (const range of urlPositions) {
-                    const url = note.data.text.substring(range[0], range[1]);
+                forEachUrlPosition(note.data.text, (start, end) => {
+                    const url = note.data.text.substring(start, end);
                     linkList.getNext().render({
                         url,
                         text: note.data.text,
-                        range,
+                        range: [start, end],
                         isFocused: false,
                         noteId: note.id,
                     });
-                }
 
-                return urlPositions.length;
+                    urlCount++;
+                });
+
+                return urlCount;
             }
 
 
