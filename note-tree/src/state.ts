@@ -323,34 +323,41 @@ export type NoteFilter = null | {
     not: boolean;
 };
 
-// NOTE: depends on _isSelected
-export function recomputeFlatNotes(state: State, flatNotes: NoteId[], allNotes: boolean) {
+export function getAllNoteIdsInTreeOrder(state: State): NoteId[] {
+    const noteIds: NoteId[] = [];
+    
+    const root = getRootNote(state);
+    for (const childId of root.childIds) {
+        const note = getNote(state, childId);
+        dfsPre(state, note, (note) => {
+            noteIds.push(note.id);
+        });
+    }
+    
+    return noteIds;
+}
+
+export function recomputeFlatNotes(state: State, flatNotes: NoteId[]) {
     flatNotes.splice(0, flatNotes.length);
 
     const currentNote = getCurrentNote(state);
+    if (!currentNote.parentId) {
+        return;
+    }
+    const parent = getNote(state, currentNote.parentId);
 
-    const dfs = (note: TreeNote) => {
-        for (const id of note.childIds) {
-            const note = getNote(state, id);
-
-            if (!allNotes) {
-                if (
-                    // never remove the path we are currently on from the flat notes.
-                    !note.data._isSelected
-                ) {
-                    if (note.parentId !== currentNote.parentId) {
-                        continue;
-                    }
-                }
-            }
-
-            flatNotes.push(note.id);
-
-            dfs(note);
+    tree.forEachParent(state.notes, currentNote, (note) => {
+        if (note.id === currentNote.id) {
+            return;
         }
-    };
 
-    dfs(getRootNote(state));
+        flatNotes.push(note.id);
+    });
+
+    flatNotes.reverse();
+    for (const childId of parent.childIds) {
+        flatNotes.push(childId);
+    }
 }
 
 export function setActivityTime(activity: Activity, t: Date) {
@@ -484,7 +491,7 @@ export function recomputeState(state: State) {
             state._flatNoteIds = [];
         }
 
-        recomputeFlatNotes(state, state._flatNoteIds, false);
+        recomputeFlatNotes(state, state._flatNoteIds);
     }
 
     // recompute the TODO notes

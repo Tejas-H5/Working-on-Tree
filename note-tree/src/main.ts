@@ -61,6 +61,7 @@ import {
     loadStateFromBackup,
     saveState,
     loadState,
+    getAllNoteIdsInTreeOrder,
 } from "./state";
 import {
     Renderable,
@@ -101,7 +102,7 @@ import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.21";
+const VERSION_NUMBER = "v1.1.22";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -604,8 +605,7 @@ function ExportModal() {
         }),
         makeButtonWithCallback("Download TXT", () => {
             handleErrors(() => {
-                const flatNotes: NoteId[] = [];
-                recomputeFlatNotes(state, flatNotes, true);
+                const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
                 const text = exportAsText(state, flatNotes);
                 handleErrors(() => {
                     saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
@@ -617,7 +617,7 @@ function ExportModal() {
         makeButtonWithCallback("Copy open notes", () => {
             handleErrors(() => {
                 const flatNotes: NoteId[] = [];
-                recomputeFlatNotes(state, flatNotes, false);
+                recomputeFlatNotes(state, flatNotes);
 
                 copyToClipboard(exportAsText(state, flatNotes));
                 showStatusText("Copied current open notes as text");
@@ -1855,19 +1855,18 @@ function NoteRowInput() {
     return component;
 }
 
-type NoteListInternalArgs = {
-    flatNotes: NoteId[];
-    scrollParent: HTMLElement | null;
-}
-
-function NoteListInternal(): Renderable<NoteListInternalArgs> {
+function NoteListInternal() {
     const root = div({
         class: "w-100 sb1b sb1t",
     });
     const noteList = newListRenderer(root, NoteRowInput);
     const durations = new Map<NoteId, number>();
 
-    const component = newComponent<NoteListInternalArgs>(root, renderNoteListInteral);
+    type Args = {
+        flatNotes: NoteId[];
+        scrollParent: HTMLElement | null;
+    }
+    const component = newComponent<Args>(root, renderNoteListInteral);
 
     function renderNoteListInteral() {
         const { flatNotes, scrollParent } = component.args;
