@@ -101,7 +101,7 @@ import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.2001";
+const VERSION_NUMBER = "v1.1.21";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1157,14 +1157,14 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         ) : indent1;
         setStyle(indentWidthEl, "minWidth", depth + "ch");
 
-        const isEditing = state._isEditingFocusedNote;
+        const wasFocused = isFocused;
+        isFocused = state.currentNoteId === note.id;
+        const isEditing = isFocused && state._isEditingFocusedNote;
         if (lastNote !== note || !isEditing) {
             isFocused = false;
         }
 
         if (setVisible(whenEditing, isEditing)) {
-            const wasFocused = isFocused;
-            isFocused = state.currentNoteId === note.id;
             if (!wasFocused && isFocused) {
                 whenEditing.el.focus({ preventScroll: true });
             }
