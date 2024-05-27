@@ -255,3 +255,7 @@
     background-color: var(--bg-color-focus);
 }
 
+.strikethrough {
+    text-decoration: line-through;
+    text-decoration-color: var(--fg-color);
+}

@@ -72,7 +72,7 @@ export type Note = {
 };
 
 
-export function recomputeNoteIsUnderFlag(state: State, note: TreeNote) {
+export function recomputeNoteIsUnderFlag(state: State, note: TreeNote) {state
     tree.forEachNode(state.notes, (id) => {
         const note = getNote(state, id);
         note.data._isUnderCurrent = false;
@@ -506,7 +506,11 @@ export function recomputeState(state: State) {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
                 const notePriority = getTodoNotePriority(note.data);
-                if (notePriority === priority && note.data._status !== STATUS_DONE) {
+                if (
+                    notePriority === priority && 
+                    // If we 'complete' a note, we want it to still be in the TODO list if we're on it, so we can jump up/down
+                    (note.data._status !== STATUS_DONE || note.data._isSelected)
+                ) {
                     state._todoNoteIds.push(id);
                 } else if (notePriority === 0) {
                     dfs(note, priority);

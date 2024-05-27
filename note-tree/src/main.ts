@@ -87,7 +87,7 @@ import {
     initEl,
 } from "src/utils/dom-utils";
 import * as tree from "src/utils/tree";
-import { Checkbox, DateTimeInput,  Modal, PaginationControl, makeButton } from "src/components";
+import { ScrollContainerV, Checkbox, DateTimeInput,  Modal, PaginationControl, makeButton } from "src/components";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import { countOccurances, filterInPlace } from "src/utils/array-utils";
 import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
@@ -102,7 +102,7 @@ import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.22";
+const VERSION_NUMBER = "v1.1.26";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -190,9 +190,9 @@ function TodoListInternal() {
         const lastEditedNoteLink = NoteLink();
         const progressText = div();
         const [root, cursor] = scrollNavItem([
-            div({ class: "row align-items-center" }, [
+            div({ class: "flex-1 row align-items-center" }, [
                 progressText,
-                div({}, [
+                div({ class: "flex-1" }, [
                     noteLink,
                     div({ style: "padding-left: 60px" }, [
                         lastEditedNoteLink,
@@ -207,8 +207,9 @@ function TodoListInternal() {
             const { note, focusAnyway, cursorNoteId } = component.args;
 
             setText(progressText, getNoteProgressCountText(note));
-
             setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
+
+            setClass(root, "strikethrough", note.data._status === STATUS_DONE);
 
             noteLink.render({
                 noteId: note.id,
@@ -759,11 +760,16 @@ function LinkNavModal(): Renderable {
     );
 
     let idx = 0;
-
+    let lastNote: TreeNote | undefined;
     const component = newComponent(root, renderLinkNavModal);
 
     function renderLinkNavModal() {
         const currentNote = getCurrentNote(state);
+        if (lastNote === currentNote) {
+            return;
+        }
+
+        lastNote = currentNote;
 
         root.render({
             onClose: () => setCurrentModal(null)
@@ -827,8 +833,6 @@ function LinkNavModal(): Renderable {
     }
 
     document.addEventListener("keydown", (e) => {
-        autoInsertBreakIfRequired();
-
         if (currentModal !== component) {
             // Don't let this code execute  when this modal is closed...
             return;
@@ -849,12 +853,16 @@ function LinkNavModal(): Renderable {
             e.preventDefault();
 
             const { url, noteId } = linkList.components[idx].args;
+            e.stopImmediatePropagation();
 
-            const currentNote = getCurrentNote(state);
-            if (noteId !== currentNote.id) {
-                setCurrentNote(state, noteId, true);
-                rerenderApp();
+            if (e.shiftKey) {
+
+                if (noteId !== state.currentNoteId) {
+                    setCurrentNote(state, noteId, true);
+                    rerenderApp();
+                }
             } else {
+
                 openUrlInNewTab(url);
                 setCurrentModal(null);
             }
@@ -869,57 +877,6 @@ type EditableActivityListArgs = {
     activityIndexes: number[] | undefined;
     pageSize?: number;
 };
-
-function ScrollContainerV() {
-    const scrollContainer = div({ class: "flex-1", style: "overflow-y: auto;" });
-
-    let scrollTimeout = 0;
-    let lastScrollEl : Insertable | null | undefined = undefined;
-    let lastHeight = 0;
-    const component = newComponent<{ rescrollMs?: number, scrollEl: Insertable | null }>(scrollContainer, renderScrollContainer);
-
-    function scrollToLastElement() {
-        clearTimeout(scrollTimeout);
-        setTimeout(() => {
-            const scrollParent = scrollContainer.el;
-            if (lastScrollEl) {
-                scrollIntoViewV(scrollParent, lastScrollEl, 0.5);
-            } else {
-                scrollParent.scrollTop = 0;
-            }
-        }, 1);
-    }
-
-    function renderScrollContainer() {
-        const { scrollEl } = component.args;
-        let height = scrollContainer.el.clientHeight;
-
-        if (
-            lastScrollEl !== scrollEl ||
-            lastHeight !== height
-        ) {
-            lastScrollEl = scrollEl;
-            lastHeight = height;
-            scrollToLastElement();
-        }
-    }
-
-    scrollContainer.el.addEventListener("scroll", () => {
-        const { rescrollMs } = component.args;
-
-        if (!rescrollMs) {
-            // We simply won't scroll back to where we were before.
-            return;
-        }
-
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-             scrollToLastElement();
-        }, rescrollMs);
-    });
-
-    return component;
-}
 
 function EditableActivityList() {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
@@ -2469,8 +2426,9 @@ function moveInDirectionOverTodoList(amount: number) {
 }
 
 function autoInsertBreakIfRequired() {
-    // This function should get run inside of a setInterval that runs every CHECK_INTERVAL_MS,
-    // as well as anywhere else that might benefit from rechecking this interval.
+    // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
+    // webpage opens for the first time.
+    // It may or may not need to be called more or less often, depending on what we add.
 
     // Need to automatically add breaks if we haven't called this method in a while.
     const time = new Date();
@@ -2487,11 +2445,9 @@ function autoInsertBreakIfRequired() {
         const time = !lastActivity ? lastCheckTime.getTime() :
             Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
 
-        if (!isCurrentlyTakingABreak(state)) {
-            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
-            debouncedSave();
-            rerenderApp();
-        }
+        pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
+        rerenderApp();
+        debouncedSave();
     }
 
     state.breakAutoInsertLastPolledTime = getTimestamp(time);
@@ -2566,13 +2522,13 @@ export function App() {
     const notesList = NotesList();
     const todoList = TodoList();
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
-    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px; height: 700px;" });
-    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px; height: 700px;" })
+    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px;" });
+    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px;" })
  
     const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
         el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
-        div ({ class: "col flex-1", style: "padding-left: 5px" }, [
+        div ({ class: "col flex-1", style: "padding: 5px" }, [
             todoList
         ]),
     ]);
@@ -2992,7 +2948,6 @@ export function App() {
         setText(header, "Currently working on - " + formatDate(new Date(), undefined, true, true));
 
         recomputeState(state);
-        autoInsertBreakIfRequired();
 
         // Rerender interactive components _after_ recomputing the state above
 
@@ -3163,6 +3118,8 @@ const rerenderApp = (opts?: RenderOptions) => {
 
 
 initState(() => {
+    autoInsertBreakIfRequired();
+
     setInterval(() => {
         // We need our clock to tick exactly every second, otherwise it looks strange. 
         // For this reason, we will just rerender our entire app every second.
