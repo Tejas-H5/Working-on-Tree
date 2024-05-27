@@ -102,7 +102,7 @@ import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.26";
+const VERSION_NUMBER = "v1.1.5";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -298,11 +298,13 @@ type TodoListArgs = {
 }
 
 function TodoList() {
+    const heading = el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]);
     const inProgress = TodoListInternal();
     const todo = TodoListInternal();
     const backlog = TodoListInternal();
     const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
     const root = initEl(ScrollContainerV(), { class: "flex-1 col" }, [ 
+        heading,
         empty,
         inProgress,
         todo,
@@ -315,6 +317,13 @@ function TodoList() {
         const { cursorNoteId } = comopnent.args;
 
         setVisible(empty, state._todoNoteIds.length === 0);
+
+        const todoRoot = getNote(state, state._todoRootId);
+        if (!todoRoot.parentId) {
+            setText(heading, "TODO Lists - Top level");
+        } else {
+            setText(heading, "TODO Lists - " + todoRoot.data.text);
+        }
 
         let scrollEl: Insertable | null = null;
 
@@ -2244,11 +2253,13 @@ function CheatSheet(): Renderable {
         el("H4", {}, ["TODO notes"]),
         el("P", {}, ["Using specific text at the very start of a note can affect it's status:"]),
         makeUnorderedList([
-            `Starting a note with >, >> or >>> will place it into the Backlog, Todo and In-Progress list respectively`,
-            `Adding a note to a ist will also hide the notes under it from all lists. 
-                This allows you to temporarly move all notes under another note into the 'TODO' section if priorities change, and then bring them all back by removing the '>' again.`,
+            `Starting a note with >, >> or >>> will create a 'TODO note', and place it into the Backlog, Todo and In-Progress list respectively`,
+            `If you are underneath a TODO note, you can only see other notes under that TODO note, and you can't see TODO notes under those notes. 
+                This is a deliberate design decision, which allows you to effectively have >, >> ,>>> tasks within each other, while avoiding
+                flooding the TODO list with hundreds of tasks.`,
             `Starting a note with DONE, Done, done, will mark a particular note and every note above it under the same note as DONE. 
              A note can also be marked as DONE if every note under it has been marked as DONE.`,
+            `Move between TODO notes with [Ctrl] + [Shift] + [Up/Down]`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
@@ -2258,10 +2269,19 @@ function CheatSheet(): Renderable {
             `The only reason breaks exist is to 'delete' time from duration calculations (at least, as far as this program is concerned)`,
             `Breaks will also insert themselves automatically, if you've closed the tab or put your computer to sleep for over ${(CHECK_INTERVAL_MS / 1000).toFixed(2)} seconds.
             I introduced this feature because I kept forgetting to add breaks, and often had to guess when I took the break.`,
+            `Move through the activity list with [Ctrl] + [Shift] + [Left/Right]`,
         ]),
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
-            `Press [Ctrl + Shift + A] to toggle 'analytics mode'. You can now see a bunch of solid bars below each activity that lets you see which tasks you worked on today.`,
+            `Press [Ctrl + Shift + D] to toggle 'duration mode'. You can now see a bunch of solid bars below each activity that lets you see which tasks you worked on today.`,
+            `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
+        ]),
+        el("H4", {}, ["Estimates"]),
+        makeUnorderedList([
+            `You can add estimates to a particular note. Type E=<n>h where <n> is some number of hours (for now, you can only estimate in exact hours - it' a fairly new feature so I don't support 
+                proper duration input like other time-tracking apps. This will pin the total duration of a particular note to the status, and this will go red if you're over your estimate. 
+                This estimate will also contribute to the estimate of it's parent note, which is where the usefulness comes in - you won't have to do a bunch of adding by hand to get the total estimate.
+                Estimation is kinda a pain, so I don't expect you to religiously use this feature.`,
             `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
         ]),
         el("H4", {}, ["Scratchpad"]),
@@ -2419,9 +2439,7 @@ function moveInDirectionOverTodoList(amount: number) {
     }
 
     // Move to the most recent note in this subtree.
-    const note = getNote(state, state._todoNoteIds[todoNoteIdx]);
-    const mostRecent = getMostRecentlyWorkedOnChild(state, note);
-    setCurrentNote(state, mostRecent.id);
+    setCurrentNote(state, state._todoNoteIds[todoNoteIdx]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -2527,7 +2545,6 @@ export function App() {
  
     const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
-        el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]),
         div ({ class: "col flex-1", style: "padding: 5px" }, [
             todoList
         ]),

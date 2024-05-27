@@ -33,6 +33,7 @@ export type State = {
     
     /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     _todoNoteIds: NoteId[];
+    _todoRootId: NoteId;  
     _currentlyViewingActivityIdx: number;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
@@ -199,8 +200,10 @@ export function defaultState(): State {
     rootNote.id = tree.ROOT_KEY;
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
+    const notes = tree.newTreeStore<Note>(rootNote);
+
     const state: State = {
-        notes: tree.newTreeStore<Note>(rootNote),
+        notes,
         currentNoteId: "",
         dockedMenu: "activities",
         showDockedMenu: false,
@@ -212,6 +215,7 @@ export function defaultState(): State {
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
         _todoNoteIds: [],
+        _todoRootId: notes.rootId,
         _currentlyViewingActivityIdx: 0,
         _isShowingDurations: false,
         _activitiesFrom: null,
@@ -501,7 +505,26 @@ export function recomputeState(state: State) {
         // todo list are in the same order as they are in the tree, and they are
         // all packed together. It's like I'm looking at a compressed version of the tree
 
+        // todo notes will now be heirarchical. if you are under a particular TODO note, you will
+        // only see other todo notes underneath that note, but not below those notes. 
+
         state._todoNoteIds.splice(0, state._todoNoteIds.length);
+
+        const currentNote = getCurrentNote(state);
+        let todoRoot = getRootNote(state);
+        tree.forEachParent(state.notes, currentNote, (note) => {
+            if (note.id === currentNote.id) {
+                return;
+            }
+
+            if (getTodoNotePriority(note.data) !== 0) {
+                todoRoot = note;
+                return true;
+            }
+        });
+
+        state._todoRootId = todoRoot.id;
+
         const dfs = (note: TreeNote, priority: number) => {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
@@ -509,7 +532,7 @@ export function recomputeState(state: State) {
                 if (
                     notePriority === priority && 
                     // If we 'complete' a note, we want it to still be in the TODO list if we're on it, so we can jump up/down
-                    (note.data._status !== STATUS_DONE || note.data._isSelected)
+                    (note.data._status !== STATUS_DONE)
                 ) {
                     state._todoNoteIds.push(id);
                 } else if (notePriority === 0) {
@@ -517,9 +540,9 @@ export function recomputeState(state: State) {
                 }
             }
         }
-        dfs(getRootNote(state), 3);
-        dfs(getRootNote(state), 2);
-        dfs(getRootNote(state), 1);
+        dfs(todoRoot, 3);
+        dfs(todoRoot, 2);
+        dfs(todoRoot, 1);
     }
 
     // recompute the range 
