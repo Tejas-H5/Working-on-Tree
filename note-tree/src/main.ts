@@ -102,7 +102,9 @@ import { utf8ByteLength } from "src/utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-const VERSION_NUMBER = "v1.1.5";
+// Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
+// This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
+const VERSION_NUMBER = "v1.1.5001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -248,7 +250,10 @@ function TodoListInternal() {
     function renderTodoListInternal() {
         const { heading, priorityLevel, setScrollEl, cursorNoteId } = component.args;
 
-        setText(headingEl, heading);
+        if (setVisible(headingEl, !!heading)) {
+            setText(headingEl, heading);
+        }
+
         let count = 0;
         let alreadyScrolled = false;
 
@@ -299,15 +304,16 @@ type TodoListArgs = {
 
 function TodoList() {
     const heading = el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]);
-    const inProgress = TodoListInternal();
-    const todo = TodoListInternal();
+    // const inProgress = TodoListInternal();
+    // const todo = TodoListInternal();
     const backlog = TodoListInternal();
-    const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
+    // const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
+    const empty = div({}, ["Notes starting with '>' get put into the TODO list! You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. You can only see other TODO notes underneath the current TODO parent note."]);
     const root = initEl(ScrollContainerV(), { class: "flex-1 col" }, [ 
         heading,
         empty,
-        inProgress,
-        todo,
+        // inProgress,
+        // todo,
         backlog,
     ]);
 
@@ -333,23 +339,23 @@ function TodoList() {
             }
         }
 
-        inProgress.render({
-            priorityLevel: 3,
-            heading: "In Progress",
-            cursorNoteId,
-            setScrollEl,
-        });
-
-        todo.render({
-            priorityLevel: 2,
-            heading: "TODO",
-            setScrollEl,
-            cursorNoteId,
-        });
+        // inProgress.render({
+        //     priorityLevel: 3,
+        //     heading: "In Progress",
+        //     cursorNoteId,
+        //     setScrollEl,
+        // });
+        //
+        // todo.render({
+        //     priorityLevel: 2,
+        //     heading: "TODO",
+        //     setScrollEl,
+        //     cursorNoteId,
+        // });
 
         backlog.render({
             priorityLevel: 1,
-            heading: "Backlog",
+            heading: "",
             setScrollEl,
             cursorNoteId,
         });
@@ -2419,27 +2425,44 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 }
 
 let lateralMovementStartingNote: NoteId | undefined = undefined;
-let todoNoteIdx = -1;
 let isInHotlist = false;
+let isInTodoList = false;
+function getCurrentTodoListIdx() {
+    let currentIdx = -1;
+    for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
+        const id = state._todoNoteIds[i];
+        const note = getNote(state, id);
+        if (note.data._isSelected) {
+            currentIdx = i;
+            break;
+        }
+    }
+
+    if (currentIdx === -1) {
+        currentIdx = state._todoNoteIds.findIndex(id => {
+            const note = getNote(state, id);
+            return isCurrentNoteOnOrInsideNote(state, note);
+        });
+    }
+
+    if (currentIdx === -1) {
+        currentIdx = 0;
+    }
+
+    return currentIdx;
+}
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
-    if (todoNoteIdx === -1) {
-        todoNoteIdx = 0;
-        for (let i = 0; i < todoNoteIds.length; i++) {
-            const note = getNote(state, todoNoteIds[i]);
-
-            if (isCurrentNoteOnOrInsideNote(state, note)) {
-                todoNoteIdx = i;
-                break;
-            }
-        }
+    let wantedIdx = getCurrentTodoListIdx();
+    if (!isInTodoList) {
+        isInTodoList = true;
     } else {
-        todoNoteIdx = Math.max(0, Math.min(todoNoteIds.length - 1, todoNoteIdx + amount));
+        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, wantedIdx + amount));
     }
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._todoNoteIds[todoNoteIdx]);
+    setCurrentNote(state, state._todoNoteIds[wantedIdx]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -2659,8 +2682,14 @@ export function App() {
         }
 
         // returns true if we need a rerender
-        if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && todoNoteIdx !== -1) {
-            todoNoteIdx = -1;
+        if (
+            e.key !== "ArrowUp" && 
+            e.key !== "ArrowDown" && 
+            e.key !== "ArrowLeft" && 
+            e.key !== "ArrowRight" && 
+            isInTodoList
+        ) {
+            isInTodoList = false;
             state._lastNoteId = lateralMovementStartingNote;
             rerenderApp();
         }
@@ -2689,7 +2718,7 @@ export function App() {
             !e.repeat
         ) {
             isInHotlist = false;
-            todoNoteIdx = -1;
+            isInTodoList = false;
             lateralMovementStartingNote = state.currentNoteId;
         }
 
@@ -2883,14 +2912,14 @@ export function App() {
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
-                if (ctrlPressed && shiftPressed) {
+                if (ctrlPressed && shiftPressed && !isInTodoList) {
                     shouldPreventDefault = true;
                     moveInDirectonOverHotlist(true);
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
-                if (ctrlPressed && shiftPressed) {
+                if (ctrlPressed && shiftPressed && !isInTodoList) {
                     shouldPreventDefault = true;
                     moveInDirectonOverHotlist(false);
                 } else {
@@ -2980,7 +3009,7 @@ export function App() {
          
         if (isInHotlist) {
             currentDockedMenu = "activities";
-        } else if (todoNoteIdx !== -1) {
+        } else if (isInTodoList) {
             currentDockedMenu = "todoLists";
         } else if (!state.showDockedMenu) {
             currentDockedMenu = null;
@@ -3010,7 +3039,7 @@ export function App() {
             appendChild(rightPanelArea, todoListContainer);
         }
         todoList.render({ 
-            cursorNoteId: todoNoteIdx !== -1 ? state._todoNoteIds[todoNoteIdx] : undefined,
+            cursorNoteId: isInTodoList ? state._todoNoteIds[getCurrentTodoListIdx()] : undefined,
         });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {

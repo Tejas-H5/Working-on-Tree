@@ -66,7 +66,7 @@ export type Note = {
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
-    _isSelected: boolean; // used to display '>' or - in the note status
+    _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task.
     _depth: number; // used to visually indent the notes
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
@@ -149,9 +149,9 @@ export function getTodoNotePriority(note: Note): number {
     // on now, and which things you want to get to in the future, and you shouldn't be spending all your time ordering the tasks.
 
     // In progress / working set
-    if (note.text.startsWith(">>>")) return 3;
+    // if (note.text.startsWith(">>>")) return 3;
     // Todo - candidate
-    if (note.text.startsWith(">>")) return 2;
+    // if (note.text.startsWith(">>")) return 2;
     // Backlog
     if (note.text.startsWith(">")) return 1;
 
@@ -498,7 +498,7 @@ export function recomputeState(state: State) {
         recomputeFlatNotes(state, state._flatNoteIds);
     }
 
-    // recompute the TODO notes
+    // recompute the TODO note list
     {
         // Should be somewhat inefficient. but I don't care.
         // Seems quite effective, actually. All notes on the
@@ -508,23 +508,6 @@ export function recomputeState(state: State) {
         // todo notes will now be heirarchical. if you are under a particular TODO note, you will
         // only see other todo notes underneath that note, but not below those notes. 
 
-        state._todoNoteIds.splice(0, state._todoNoteIds.length);
-
-        const currentNote = getCurrentNote(state);
-        let todoRoot = getRootNote(state);
-        tree.forEachParent(state.notes, currentNote, (note) => {
-            if (note.id === currentNote.id) {
-                return;
-            }
-
-            if (getTodoNotePriority(note.data) !== 0) {
-                todoRoot = note;
-                return true;
-            }
-        });
-
-        state._todoRootId = todoRoot.id;
-
         const dfs = (note: TreeNote, priority: number) => {
             for (const id of note.childIds) {
                 const note = getNote(state, id);
@@ -532,17 +515,48 @@ export function recomputeState(state: State) {
                 if (
                     notePriority === priority && 
                     // If we 'complete' a note, we want it to still be in the TODO list if we're on it, so we can jump up/down
-                    (note.data._status !== STATUS_DONE)
+                    note.data._status !== STATUS_DONE
                 ) {
                     state._todoNoteIds.push(id);
-                } else if (notePriority === 0) {
+                } 
+
+                if (
+                    notePriority === 0 ||
+                    // Allow looking at all todo notes under selected ancestors (but not the current note, as this has implications on TODO traversal)
+                    // NOTE: this has no effect if the todo root is just the first parent that is a todo note, like it is now
+                    (note.data._isSelected && note.id !== state.currentNoteId)
+                ) {
                     dfs(note, priority);
                 }
             }
         }
-        dfs(todoRoot, 3);
-        dfs(todoRoot, 2);
-        dfs(todoRoot, 1);
+
+        state._todoNoteIds.splice(0, state._todoNoteIds.length);
+
+        const currentNote = getCurrentNote(state);
+        tree.forEachParent(state.notes, currentNote, (note) => {
+            if (note.id === currentNote.id) {
+                return;
+            }
+
+            if (getTodoNotePriority(note.data) === 0) {
+                return;
+            }
+
+            state._todoRootId = note.id;
+            dfs(note, 1);
+
+            if (state._todoNoteIds.length === 0) {
+                // if we still have zero notes in the todo list, keep searching
+                return;
+            }
+
+            return true;
+        });
+
+        if (state._todoNoteIds.length === 0) {
+            dfs(getRootNote(state), 1);
+        }    
     }
 
     // recompute the range 
@@ -988,6 +1002,8 @@ export function setCurrentNote(state: State, noteId: NoteId | null, saveJump = f
         return;
     }
 
+    setNoteAsLastSelected(state, note);
+
     state._lastNoteId = !saveJump ? undefined : state.currentNoteId;
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
@@ -1005,6 +1021,14 @@ export function setCurrentActivityIdxToCurrentNote(state: State) {
     }
 }
 
+function setNoteAsLastSelected(state: State, note: TreeNote) {
+    if (!note.parentId) {
+        return;
+    }
+
+    const parent = getNote(state, note.parentId);
+    parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
+}
 
 export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
     state._isEditingFocusedNote = isEditing;
@@ -1014,10 +1038,7 @@ export function setIsEditingCurrentNote(state: State, isEditing: boolean) {
         pushNoteActivity(state, currentNote.id, false);
         setCurrentActivityIdxToCurrentNote(state);
 
-        if (currentNote.parentId) {
-            const parent = getNote(state, currentNote.parentId);
-            parent.data.lastSelectedChildIdx = parent.childIds.indexOf(currentNote.id);
-        }
+        setNoteAsLastSelected(state, currentNote);
     } else {
         if (!isCurrentlyTakingABreak(state)) {
             pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
