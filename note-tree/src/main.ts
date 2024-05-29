@@ -63,6 +63,7 @@ import {
     getAllNoteIdsInTreeOrder,
     getHigherLevelTask,
     getNoteTextWithoutPriority,
+    setStateFromJSON,
 } from "./state";
 import {
     Renderable,
@@ -106,7 +107,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.5002X";
+const VERSION_NUMBER = "v1.1.5003X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -181,6 +182,17 @@ function scrollNavItem(children?: ChildList) {
 
     return [root, cursor] as const;
 }
+
+function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
+    const currentHigherLevelTask = getHigherLevelTask(state, currentNote);
+    let focusAnyway = false;
+    if (currentHigherLevelTask) {
+        const noteHigherLevelTask = getHigherLevelTask(state, other);
+        focusAnyway = noteHigherLevelTask?.id === currentHigherLevelTask.id;
+    }
+    return focusAnyway;
+}
+
 
 function TodoListInternal() {
     type TodoItemArgs = {
@@ -268,9 +280,6 @@ function TodoListInternal() {
         let count = 0;
         let alreadyScrolled = false;
 
-        const currentNote = getCurrentNote(state);
-        const currentHigherLevelTask = getHigherLevelTask(state, currentNote);
-
         componentList.render(() => {
             for (let i = 0; i < state._todoNoteIds.length; i++) {
                 const id = state._todoNoteIds[i];
@@ -286,12 +295,7 @@ function TodoListInternal() {
                 count++;
 
                 // const focusAnyway = isCurrentNoteOnOrInsideNote(state, note)
-                let focusAnyway = false;
-                if (currentHigherLevelTask) {
-                    const noteHigherLevelTask = getHigherLevelTask(state, note);
-                    focusAnyway = noteHigherLevelTask?.id === currentHigherLevelTask.id;
-                }
-
+                const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
                 const c = componentList.getNext();
                 c.render({
                     note: note,
@@ -1637,11 +1641,11 @@ function LoadBackupModal() {
         }
 
         if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
-            const lsKeys = JSON.parse(component.args.text);
-            localStorage.clear();
-            for (const k in lsKeys) {
-                localStorage.setItem(k, lsKeys[k]);
-            }
+            const { text } = component.args;
+
+            setStateFromJSON(text);
+
+            saveCurrentState({ debounced: false });
 
             initState(() => {
                 setCurrentModal(null);
@@ -2462,50 +2466,42 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInTodoList = false;
-let currentTodoIdx = -1;
 function getCurrentTodoListIdx() {
-    if (currentTodoIdx === -1) {
-        return 0;
+    let currentIdx = -1;
+    for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
+        const id = state._todoNoteIds[i];
+        const note = getNote(state, id);
+        if (note.data._isSelected) {
+            currentIdx = i;
+            break;
+        }
     }
 
-    return currentTodoIdx;
+    if (currentIdx === -1) {
+        currentIdx = state._todoNoteIds.findIndex(id => {
+            const note = getNote(state, id);
+            return isNoteInSameGroupForTodoList(getCurrentNote(state), note);
+        });
+    }
 
-    // let currentIdx = -1;
-    // for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
-    //     const id = state._todoNoteIds[i];
-    //     const note = getNote(state, id);
-    //     if (note.data._isSelected) {
-    //         currentIdx = i;
-    //         break;
-    //     }
-    // }
-    //
-    // if (currentIdx === -1) {
-    //     currentIdx = state._todoNoteIds.findIndex(id => {
-    //         const note = getNote(state, id);
-    //         return isCurrentNoteOnOrInsideNote(state, note);
-    //     });
-    // }
-    //
-    // if (currentIdx === -1) {
-    //     currentIdx = 0;
-    // }
-    //
-    // return currentIdx;
+    if (currentIdx === -1) {
+        currentIdx = 0;
+    }
+
+    return currentIdx;
 }
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
+    let wantedIdx = getCurrentTodoListIdx();
     if (!isInTodoList) {
         isInTodoList = true;
-        currentTodoIdx = 0;
-        state._todoNoteFilters = 0;
     } else {
-        currentTodoIdx  = Math.max(0, Math.min(todoNoteIds.length - 1, currentTodoIdx + amount));
+        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, wantedIdx + amount));
     }
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._todoNoteIds[currentTodoIdx]);
+    setCurrentNote(state, state._todoNoteIds[wantedIdx]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -2735,7 +2731,6 @@ export function App() {
             isInTodoList
         ) {
             isInTodoList = false;
-            currentTodoIdx = -1;
             state._lastNoteId = lateralMovementStartingNote;
             rerenderApp();
         }
@@ -2765,7 +2760,6 @@ export function App() {
         ) {
             isInHotlist = false;
             isInTodoList = false;
-            currentTodoIdx = -1;
             lateralMovementStartingNote = state.currentNoteId;
         }
 
