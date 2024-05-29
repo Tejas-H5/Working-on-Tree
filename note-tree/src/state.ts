@@ -24,6 +24,8 @@ export type State = {
     breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
 
+    /** The quicklist. This is different from the activities list. **/
+
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
 
@@ -31,8 +33,8 @@ export type State = {
 
     // non-serializable fields start with _
     
-    /** These notes are in order of their priority, i.e how important the user thinks a note is. */
     _todoNoteIds: NoteId[];
+    _todoNoteFilters: number;
     _todoRootId: NoteId;  
     _currentlyViewingActivityIdx: number;
     _flatNoteIds: NoteId[];
@@ -67,7 +69,7 @@ export type Note = {
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
-    _isUnderCurrent: boolean; // used to calculate the duration of a specific task.
+    _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
     _depth: number; // used to visually indent the notes
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
 };
@@ -142,6 +144,11 @@ export function getTodoNotePriorityId(state: State, id: NoteId): number {
     return getTodoNotePriority(note.data);
 }
 
+export function getNoteTextWithoutPriority(note: Note): string {
+    const priority = getTodoNotePriority(note);
+    return note.text.substring(priority).trim();
+}
+
 export function getTodoNotePriority(note: Note): number {
     // Keep the priority system simple. 
     // Tasks are are always changing priority, and having too many priorities means they will always be assigned the wrong priority.
@@ -153,9 +160,22 @@ export function getTodoNotePriority(note: Note): number {
     // Todo - candidate
     // if (note.text.startsWith(">>")) return 2;
     // Backlog
-    if (note.text.startsWith(">")) return 1;
+    // if (note.text.startsWith(">")) return 1;
 
-    return 0;
+    // return 0;
+    
+    let priority = 0;
+
+    const text = note.text;
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] !== '>') {
+            break;
+        }
+
+        priority++;
+    }
+
+    return priority;
 }
 
 export type NoteStatus = 1 | 2 | 3;
@@ -216,6 +236,7 @@ export function defaultState(): State {
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
         _todoNoteIds: [],
         _todoRootId: notes.rootId,
+        _todoNoteFilters: 0,
         _currentlyViewingActivityIdx: 0,
         _isShowingDurations: false,
         _activitiesFrom: null,
@@ -500,63 +521,58 @@ export function recomputeState(state: State) {
 
     // recompute the TODO note list
     {
-        // Should be somewhat inefficient. but I don't care.
-        // Seems quite effective, actually. All notes on the
-        // todo list are in the same order as they are in the tree, and they are
-        // all packed together. It's like I'm looking at a compressed version of the tree
-
-        // todo notes will now be heirarchical. if you are under a particular TODO note, you will
-        // only see other todo notes underneath that note, but not below those notes. 
-
-        const dfs = (note: TreeNote, priority: number) => {
-            for (const id of note.childIds) {
-                const note = getNote(state, id);
-                const notePriority = getTodoNotePriority(note.data);
-                if (
-                    notePriority === priority && 
-                    // If we 'complete' a note, we want it to still be in the TODO list if we're on it, so we can jump up/down
-                    note.data._status !== STATUS_DONE
-                ) {
-                    state._todoNoteIds.push(id);
-                } 
-
-                if (
-                    notePriority === 0 ||
-                    // Allow looking at all todo notes under selected ancestors (but not the current note, as this has implications on TODO traversal)
-                    // NOTE: this has no effect if the todo root is just the first parent that is a todo note, like it is now
-                    (note.data._isSelected && note.id !== state.currentNoteId)
-                ) {
-                    dfs(note, priority);
-                }
-            }
-        }
+        // Should be somewhat inefficient. but I don't care. 
+        // most of the calculations here suck actually, now that I think about it...
+        // They're really easy to verify the correctness of and change later though.
 
         state._todoNoteIds.splice(0, state._todoNoteIds.length);
 
-        const currentNote = getCurrentNote(state);
-        tree.forEachParent(state.notes, currentNote, (note) => {
-            if (note.id === currentNote.id) {
-                return;
-            }
-
-            if (getTodoNotePriority(note.data) === 0) {
-                return;
-            }
-
-            state._todoRootId = note.id;
-            dfs(note, 1);
-
-            if (state._todoNoteIds.length === 0) {
-                // if we still have zero notes in the todo list, keep searching
-                return;
-            }
-
-            return true;
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._isUnderCurrent = false;
         });
 
-        if (state._todoNoteIds.length === 0) {
-            dfs(getRootNote(state), 1);
-        }    
+        const currentNote = getCurrentNote(state);
+        const currentHLT = getHigherLevelTask(state, currentNote);
+
+        for (let i = state.activities.length - 1; i >= 0; i--) {
+            const nId = state.activities[i].nId;
+            const note = getNoteOrUndefined(state, nId);
+            if (!note) {
+                continue;
+            }
+
+            if (
+                note.childIds.length > 0 || 
+                note.data._status !== STATUS_IN_PROGRESS ||
+                note.data._isUnderCurrent
+            ) {
+                continue;
+            }
+
+            if (state._todoNoteFilters === -1) {
+                // only show other todo notes with the same higher level task as this one
+                const hlt = getHigherLevelTask(state, note);
+                if (hlt !== currentHLT) {
+                    continue;
+                }
+            } else if (state._todoNoteFilters === 1) {
+                // only show the most recent of each higher level task.
+                const hlt = getHigherLevelTask(state, note);
+                if (!hlt || hlt.data._isUnderCurrent) {
+                    continue;
+                }
+
+                hlt.data._isUnderCurrent = true;
+            }
+
+            state._todoNoteIds.push(note.id);
+            note.data._isUnderCurrent = true;
+
+            if (state._todoNoteIds.length > 100) {
+                break;
+            }
+        }
     }
 
     // recompute the range 
@@ -1651,6 +1667,23 @@ function loadStateFromLocalStorage(): boolean {
 
     logTrace("No saved data was found");
     return false;
+}
+
+export function getHigherLevelTask(state: State, note: TreeNote) {
+    let higherLevelNote: TreeNote | undefined;
+
+    tree.forEachParent(state.notes, note, (parent) => {
+        if (parent.id === note.id) {
+            return;
+        }
+
+        if (getTodoNotePriority(parent.data) >= 2) {
+            higherLevelNote = parent;
+            return true;
+        }
+    });
+
+    return higherLevelNote;
 }
 
 // I used to have tabs, but I literally never used then, so I've just removed those components.

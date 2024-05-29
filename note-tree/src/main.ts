@@ -61,6 +61,8 @@ import {
     saveState,
     loadState,
     getAllNoteIdsInTreeOrder,
+    getHigherLevelTask,
+    getNoteTextWithoutPriority,
 } from "./state";
 import {
     Renderable,
@@ -103,7 +105,8 @@ const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
-const VERSION_NUMBER = "v1.1.5002";
+// 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
+const VERSION_NUMBER = "v1.1.5002X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -207,14 +210,23 @@ function TodoListInternal() {
         function renderTodoItem() {
             const { note, focusAnyway, cursorNoteId } = component.args;
 
+            const higherLevelTask = getHigherLevelTask(state, note);
+
             setText(progressText, getNoteProgressCountText(note));
             setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
 
             setClass(root, "strikethrough", note.data._status === STATUS_DONE);
 
+            let text = note.data.text;
+            if (higherLevelTask) {
+                const higherLevelText = getNoteTextWithoutPriority(higherLevelTask.data);
+                const lowerLevelText = getNoteTextWithoutPriority(note.data);
+                text = "[" + higherLevelText + "] >> " + lowerLevelText
+            }
+
             noteLink.render({
                 noteId: note.id,
-                text: note.data.text,
+                text,
                 preventScroll: true,
                 focusAnyway,
             });
@@ -256,6 +268,9 @@ function TodoListInternal() {
         let count = 0;
         let alreadyScrolled = false;
 
+        const currentNote = getCurrentNote(state);
+        const currentHigherLevelTask = getHigherLevelTask(state, currentNote);
+
         componentList.render(() => {
             for (let i = 0; i < state._todoNoteIds.length; i++) {
                 const id = state._todoNoteIds[i];
@@ -264,25 +279,30 @@ function TodoListInternal() {
                 const note = getNote(state, id);
                 // const nextNote = nextId ? getNote(state, nextId) : undefined;
 
-                if (getTodoNotePriority(note.data) !== priorityLevel) {
-                    continue;
-                }
+                // if (getTodoNotePriority(note.data) !== priorityLevel) {
+                //     continue;
+                // }
 
                 count++;
 
-                const currentlyOnOrInsideNote = isCurrentNoteOnOrInsideNote(state, note)
+                // const focusAnyway = isCurrentNoteOnOrInsideNote(state, note)
+                let focusAnyway = false;
+                if (currentHigherLevelTask) {
+                    const noteHigherLevelTask = getHigherLevelTask(state, note);
+                    focusAnyway = noteHigherLevelTask?.id === currentHigherLevelTask.id;
+                }
 
                 const c = componentList.getNext();
                 c.render({
                     note: note,
-                    focusAnyway: currentlyOnOrInsideNote,
+                    focusAnyway,
                     cursorNoteId
                 });
 
                 if (setScrollEl && !alreadyScrolled) {
                     if (
                         (cursorNoteId && note.id === cursorNoteId) ||
-                        (!cursorNoteId && currentlyOnOrInsideNote)
+                        (!cursorNoteId && focusAnyway)
                     ) {
                         setScrollEl(c);
                         alreadyScrolled = true;
@@ -323,12 +343,19 @@ function TodoList() {
 
         setVisible(empty, state._todoNoteIds.length === 0);
 
-        const todoRoot = getNote(state, state._todoRootId);
-        if (!todoRoot.parentId) {
-            setText(heading, "TODO Lists - Top level");
-        } else {
-            setText(heading, "TODO Lists - " + todoRoot.data.text);
+        const leftArrow = isInTodoList ? "<- "  : "";
+        const rightArrow = isInTodoList ? " ->"  : "";
+
+        let headingText = leftArrow + "Everything in progress" + rightArrow;
+        if (state._todoNoteFilters === -1) {
+            const note = getCurrentNote(state);
+            const hlt = getHigherLevelTask(state, note);
+            const hltText = hlt ? hlt.data.text : "[Nothing]";
+            headingText = "Everything in progress under [" + hltText + "]" + rightArrow;
+        } else if (state._todoNoteFilters === 1) {
+            headingText = leftArrow + "Most recent In-progress items from everything";
         }
+        setText(heading, headingText);
 
         let scrollEl: Insertable | null = null;
 
@@ -2313,13 +2340,6 @@ function CheatSheet(): Renderable {
 }
 
 function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean, stepOver: boolean): number {
-    // This method is for navigating backwards through the activity list to what you were working on before (or forwards, if you've navigated too far backwards).
-    // But if I've made 20 notes one after the other in sequence, I don't want to go back up those notes typically. 
-    // Rather, I want to skip those notes, and go to the discontinuity in activities.
-    // That being said, if I make a note, then I step down 10 notes and write something, I want to go back up, even though it's under the same parent note
-    //      (so I can't just skip over all notes with the same parent as the previous, like I was doing before).
-    // That's the problem that this somewhat complex looking code is trying to solve
-
     const activities = state.activities;
     const direction = backwards ? -1 : 1;
     let lastNoteId = activities[idx].nId;
@@ -2336,23 +2356,33 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
 
         const activity = activities[idx];
         if (activity.nId) {
-            const lastNote = getNote(state, lastNoteId);
-            if (lastNote.parentId) {
-                const parent = getNote(state, lastNote.parentId);
-                const siblings = parent.childIds;
-                const noteSiblingIdx = siblings.indexOf(lastNote.id);
-                const prevSiblingId = siblings[noteSiblingIdx + direction];
+            // This method is for navigating backwards through the activity list to what you were working on before (or forwards, if you've navigated too far backwards).
+            // But if I've made 20 notes one after the other in sequence, I don't want to go back up those notes typically. 
+            // Rather, I want to skip those notes, and go to the discontinuity in activities.
+            // That being said, if I make a note, then I step down 10 notes and write something, I want to go back up, even though it's under the same parent note
+            //      (so I can't just skip over all notes with the same parent as the previous, like I was doing before).
+            // That's the problem that this somewhat complex looking code is trying to solve
 
-                if (activity.nId !== prevSiblingId) {
-                    // we have finally reached the discontinuity
-                    if (!stepOver) {
-                        idx--;
-                    }
-                    break;
-                }
+            // Due to recent overlap with the TODO list requirement, I'm temporarliy scrapping this code. I might delete this for good later
+            break;
 
-                lastNoteId = prevSiblingId;
-            }
+            // const lastNote = getNote(state, lastNoteId);
+            // if (lastNote.parentId) {
+            //     const parent = getNote(state, lastNote.parentId);
+            //     const siblings = parent.childIds;
+            //     const noteSiblingIdx = siblings.indexOf(lastNote.id);
+            //     const prevSiblingId = siblings[noteSiblingIdx + direction];
+            //
+            //     if (activity.nId !== prevSiblingId) {
+            //         // we have finally reached the discontinuity
+            //         if (!stepOver) {
+            //             idx--;
+            //         }
+            //         break;
+            //     }
+            //
+            //     lastNoteId = prevSiblingId;
+            // }
         }
     }
 
@@ -2432,42 +2462,50 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInTodoList = false;
+let currentTodoIdx = -1;
 function getCurrentTodoListIdx() {
-    let currentIdx = -1;
-    for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
-        const id = state._todoNoteIds[i];
-        const note = getNote(state, id);
-        if (note.data._isSelected) {
-            currentIdx = i;
-            break;
-        }
+    if (currentTodoIdx === -1) {
+        return 0;
     }
 
-    if (currentIdx === -1) {
-        currentIdx = state._todoNoteIds.findIndex(id => {
-            const note = getNote(state, id);
-            return isCurrentNoteOnOrInsideNote(state, note);
-        });
-    }
+    return currentTodoIdx;
 
-    if (currentIdx === -1) {
-        currentIdx = 0;
-    }
-
-    return currentIdx;
+    // let currentIdx = -1;
+    // for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
+    //     const id = state._todoNoteIds[i];
+    //     const note = getNote(state, id);
+    //     if (note.data._isSelected) {
+    //         currentIdx = i;
+    //         break;
+    //     }
+    // }
+    //
+    // if (currentIdx === -1) {
+    //     currentIdx = state._todoNoteIds.findIndex(id => {
+    //         const note = getNote(state, id);
+    //         return isCurrentNoteOnOrInsideNote(state, note);
+    //     });
+    // }
+    //
+    // if (currentIdx === -1) {
+    //     currentIdx = 0;
+    // }
+    //
+    // return currentIdx;
 }
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
-    let wantedIdx = getCurrentTodoListIdx();
     if (!isInTodoList) {
         isInTodoList = true;
+        currentTodoIdx = 0;
+        state._todoNoteFilters = 0;
     } else {
-        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, wantedIdx + amount));
+        currentTodoIdx  = Math.max(0, Math.min(todoNoteIds.length - 1, currentTodoIdx + amount));
     }
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._todoNoteIds[wantedIdx]);
+    setCurrentNote(state, state._todoNoteIds[currentTodoIdx]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -2533,7 +2571,11 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
         return true;
     }
 
-    let shiftMakesNewNote = currentNote.data.text.startsWith("---");
+    const text = currentNote.data.text;
+    // Yeah, not sure why I didn't start with ``` tbh. That is what I'm used to in every other textfield
+    // TODO: Not just starts with, but if this occurs anywhere before the current cursor position
+    // TODO-TODO: not just anywhere after ```, but ignore if another ``` closes the previous ```
+    const shiftMakesNewNote = text.startsWith("---") || text.startsWith("```");
     if (shiftMakesNewNote === shiftPressed) {
         insertNoteAfterCurrent(state);
         return true;
@@ -2656,7 +2698,7 @@ export function App() {
                         darkModeToggle,
                     ]),
                     notesList,
-                    div({ class: "row flex-1", style: "" }, [
+                    div({ class: "row ", style: "" }, [
                         bottomLeftArea, 
                         bottomRightArea,
                     ]),
@@ -2693,6 +2735,7 @@ export function App() {
             isInTodoList
         ) {
             isInTodoList = false;
+            currentTodoIdx = -1;
             state._lastNoteId = lateralMovementStartingNote;
             rerenderApp();
         }
@@ -2722,6 +2765,7 @@ export function App() {
         ) {
             isInHotlist = false;
             isInTodoList = false;
+            currentTodoIdx = -1;
             lateralMovementStartingNote = state.currentNoteId;
         }
 
@@ -2915,16 +2959,24 @@ export function App() {
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
-                if (ctrlPressed && shiftPressed && !isInTodoList) {
-                    shouldPreventDefault = true;
-                    moveInDirectonOverHotlist(true);
+                if (ctrlPressed && shiftPressed) {
+                    if (isInTodoList) {
+                        state._todoNoteFilters = Math.max(-1, state._todoNoteFilters - 1);
+                    } else {
+                        shouldPreventDefault = true;
+                        moveInDirectonOverHotlist(true);
+                    }
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
-                if (ctrlPressed && shiftPressed && !isInTodoList) {
-                    shouldPreventDefault = true;
-                    moveInDirectonOverHotlist(false);
+                if (ctrlPressed && shiftPressed) {
+                    if (isInTodoList) {
+                        state._todoNoteFilters = Math.min(1, state._todoNoteFilters + 1);
+                    } else {
+                        shouldPreventDefault = true;
+                        moveInDirectonOverHotlist(false);
+                    }
                 } else {
                     // move into note
                     handleMovingIn();
