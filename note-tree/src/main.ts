@@ -104,7 +104,7 @@ const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
-const VERSION_NUMBER = "v1.1.5001";
+const VERSION_NUMBER = "v1.1.5002";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1096,6 +1096,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
     let lastNote: TreeNote | undefined = undefined;
     let isFocused = false;
+    let isEditing = false;
     const component = newComponent<NoteRowArgs>(root, renderNoteRow);
 
     function updateTextContentAndSize() {
@@ -1129,16 +1130,18 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         ) : indent1;
         setStyle(indentWidthEl, "minWidth", depth + "ch");
 
-        const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
-        const isEditing = isFocused && state._isEditingFocusedNote;
+        const wasEditing = isEditing;
+        isEditing = isFocused && state._isEditingFocusedNote;
         if (lastNote !== note || !isEditing) {
             isFocused = false;
         }
 
         if (setVisible(whenEditing, isEditing)) {
-            if (!wasFocused && isFocused) {
-                whenEditing.el.focus({ preventScroll: true });
+            if (!wasEditing) {
+                if (!renderOptions.isTimer) {
+                    whenEditing.el.focus({ preventScroll: true });
+                }
             }
         }
 
@@ -1907,7 +1910,8 @@ function NotesList(): Renderable {
 }
 
 const renderOptions: RenderOptions = {
-    shouldScroll: false
+    shouldScroll: false,
+    isTimer: false,
 };
 
 function getTheme(): AppTheme {
@@ -2067,6 +2071,8 @@ function exportAsText(state: State, flatNotes: NoteId[]) {
 
 type RenderOptions = {
     shouldScroll: boolean;
+    // We want to detect certain bugs that the timer is hiding, so we use this to prevent rerendering in those cases
+    isTimer: boolean;
 }
 
 let currentModal: Insertable | null = null;
@@ -3158,7 +3164,8 @@ appendChild(root, app);
 
 const rerenderApp = (opts?: RenderOptions) => {
     // there are actually very few times when we don't want to scroll to the current note
-    renderOptions.shouldScroll = opts ? opts.shouldScroll : true;
+    renderOptions.shouldScroll = opts ? opts.shouldScroll  : true;
+    renderOptions.isTimer = opts ? opts.isTimer : false;
     app.render(undefined);
 }
 
@@ -3172,7 +3179,7 @@ initState(() => {
         // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
         // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
         // being handled incorrectly, and will mask bugs related to too few renders.
-        rerenderApp();
+        rerenderApp({ shouldScroll: false, isTimer: true });
     }, 1000);
 
     rerenderApp();
