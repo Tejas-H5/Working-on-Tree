@@ -39,7 +39,6 @@ import {
     getLastActivity,
     getLastActivityWithNoteIdx,
     isCurrentNoteOnOrInsideNote,
-    getMostRecentlyWorkedOnChild,
     getLastSelectedNote,
     isDoneNoteWithExtraInfo,
     setActivityRangeToday,
@@ -140,7 +139,7 @@ function NoteLink() {
         setTimeout(() => {
             if (noteId) {
                 setCurrentNote(state, noteId);
-                rerenderApp({ shouldScroll: preventScroll || false });
+                rerenderApp(preventScroll || false);
             }
         }, 1);
     });
@@ -533,7 +532,7 @@ function ActivityListItem() {
         }
 
         setActivityTime(activity, date);
-        rerenderApp({ shouldScroll: false });
+        rerenderApp(false);
         debouncedSave();
     }
 
@@ -553,7 +552,7 @@ function ActivityListItem() {
         state.activities.splice(idx + 1, 0, newBreak);
 
         debouncedSave();
-        rerenderApp({ shouldScroll: false });
+        rerenderApp(false);
     });
 
     deleteButton.el.addEventListener("click", () => {
@@ -570,7 +569,7 @@ function ActivityListItem() {
         }
 
         state.activities.splice(idx, 1);
-        rerenderApp({ shouldScroll: false });
+        rerenderApp(false);
     });
 
     noteLink.el.addEventListener("click", () => {
@@ -590,7 +589,7 @@ function ActivityListItem() {
         const val = breakEdit.el.value || activity.breakInfo;
 
         activity.breakInfo = val;
-        rerenderApp({ shouldScroll: false });
+        rerenderApp(false);
         debouncedSave();
     }
 
@@ -1210,7 +1209,7 @@ type ActivityListItemArgs = {
 
 function ActivityFiltersEditor(): Renderable {
     function onChange() {
-        rerenderApp({ shouldScroll: false });
+        rerenderApp(false);
     }
 
     const todayButton = makeButton("Today");
@@ -2569,14 +2568,12 @@ export function App() {
     const notesList = NotesList();
     const todoList = TodoList();
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
-    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 5px;" });
+    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0 5px" });
     const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px;" })
  
     const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
-        div ({ class: "col flex-1", style: "padding: 5px" }, [
-            todoList
-        ]),
+        todoList
     ]);
 
     const asciiCanvasModal = AsciiCanvasModal();
@@ -2650,7 +2647,7 @@ export function App() {
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
-                div({ class: "flex-1 overflow-y-auto" }, [
+                div({ class: "col flex-1 overflow-y-auto" }, [
                     cheatSheet,
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         header,
@@ -2659,7 +2656,7 @@ export function App() {
                         darkModeToggle,
                     ]),
                     notesList,
-                    div({ class: "row", style: "" }, [
+                    div({ class: "row flex-1", style: "" }, [
                         bottomLeftArea, 
                         bottomRightArea,
                     ]),
@@ -3162,10 +3159,10 @@ const root: Insertable = {
 const app = App();
 appendChild(root, app);
 
-const rerenderApp = (opts?: RenderOptions) => {
+const rerenderApp = (shouldScroll = true, isTimer = false) => {
     // there are actually very few times when we don't want to scroll to the current note
-    renderOptions.shouldScroll = opts ? opts.shouldScroll  : true;
-    renderOptions.isTimer = opts ? opts.isTimer : false;
+    renderOptions.shouldScroll = shouldScroll;
+    renderOptions.isTimer = isTimer;
     app.render(undefined);
 }
 
@@ -3179,7 +3176,7 @@ initState(() => {
         // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
         // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
         // being handled incorrectly, and will mask bugs related to too few renders.
-        rerenderApp({ shouldScroll: false, isTimer: true });
+        rerenderApp(false, true);
     }, 1000);
 
     rerenderApp();
