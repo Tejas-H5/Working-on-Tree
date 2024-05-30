@@ -155,15 +155,6 @@ export function getTodoNotePriority(note: Note): number {
     // The task priorities/importances should all be in your head. This program should just help you remember which things you're working
     // on now, and which things you want to get to in the future, and you shouldn't be spending all your time ordering the tasks.
 
-    // In progress / working set
-    // if (note.text.startsWith(">>>")) return 3;
-    // Todo - candidate
-    // if (note.text.startsWith(">>")) return 2;
-    // Backlog
-    // if (note.text.startsWith(">")) return 1;
-
-    // return 0;
-    
     let priority = 0;
 
     const text = note.text;

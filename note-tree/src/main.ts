@@ -20,7 +20,6 @@ import {
     getNoteNDown,
     getNoteNUp,
     getSecondPartOfRow,
-    getTodoNotePriority,
     insertChildNote,
     insertNoteAfterCurrent,
     isCurrentlyTakingABreak,
@@ -38,7 +37,6 @@ import {
     isBreak,
     getLastActivity,
     getLastActivityWithNoteIdx,
-    isCurrentNoteOnOrInsideNote,
     getLastSelectedNote,
     isDoneNoteWithExtraInfo,
     setActivityRangeToday,
@@ -107,7 +105,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.5003X";
+const VERSION_NUMBER = "v1.1.5004X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -153,7 +151,6 @@ function NoteLink() {
 }
 
 type TodoListInternalArgs = {
-    priorityLevel: number;
     heading: string;
     setScrollEl?(c: Insertable): void;
     cursorNoteId?: NoteId;
@@ -271,7 +268,7 @@ function TodoListInternal() {
     const component = newComponent<TodoListInternalArgs>(root, renderTodoListInternal);
 
     function renderTodoListInternal() {
-        const { heading, priorityLevel, setScrollEl, cursorNoteId } = component.args;
+        const { heading, setScrollEl, cursorNoteId } = component.args;
 
         if (setVisible(headingEl, !!heading)) {
             setText(headingEl, heading);
@@ -283,18 +280,11 @@ function TodoListInternal() {
         componentList.render(() => {
             for (let i = 0; i < state._todoNoteIds.length; i++) {
                 const id = state._todoNoteIds[i];
-                // const nextId: NoteId | undefined = state.todoNoteIds[i + 1];
 
                 const note = getNote(state, id);
-                // const nextNote = nextId ? getNote(state, nextId) : undefined;
-
-                // if (getTodoNotePriority(note.data) !== priorityLevel) {
-                //     continue;
-                // }
 
                 count++;
 
-                // const focusAnyway = isCurrentNoteOnOrInsideNote(state, note)
                 const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
                 const c = componentList.getNext();
                 c.render({
@@ -327,17 +317,16 @@ type TodoListArgs = {
 
 function TodoList() {
     const heading = el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]);
-    // const inProgress = TodoListInternal();
-    // const todo = TodoListInternal();
-    const backlog = TodoListInternal();
-    // const empty = div({}, ["Notes starting with '>', '>>', or '>>>' will end up in 1 of three lists. Try it out!"]);
-    const empty = div({}, ["Notes starting with '>' get put into the TODO list! You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. You can only see other TODO notes underneath the current TODO parent note."]);
+    const listInternal = TodoListInternal();
+    const empty = div({}, [
+       `Notes starting with '>' get put into the TODO list! 
+        You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
+        You can only see other TODO notes underneath the current TODO parent note.`
+    ]);
     const root = initEl(ScrollContainerV(), { class: "flex-1 col" }, [ 
         heading,
         empty,
-        // inProgress,
-        // todo,
-        backlog,
+        listInternal,
     ]);
 
     const comopnent = newComponent<TodoListArgs>(root, renderTodoList);
@@ -368,23 +357,7 @@ function TodoList() {
                 scrollEl = el;
             }
         }
-
-        // inProgress.render({
-        //     priorityLevel: 3,
-        //     heading: "In Progress",
-        //     cursorNoteId,
-        //     setScrollEl,
-        // });
-        //
-        // todo.render({
-        //     priorityLevel: 2,
-        //     heading: "TODO",
-        //     setScrollEl,
-        //     cursorNoteId,
-        // });
-
-        backlog.render({
-            priorityLevel: 1,
+        listInternal.render({
             heading: "",
             setScrollEl,
             cursorNoteId,
@@ -1470,10 +1443,15 @@ function FuzzyFinder(): Renderable {
                 let text = n.data.text.toLowerCase();
                 let results = fuzzyFind(text, query);
                 if (results.length > 0) {
+                    let score = scoreFuzzyFind(results);
+                    if (n.data._status === STATUS_IN_PROGRESS) {
+                        score *= 2;
+                    }
+
                     matches.push({
                         note: n,
                         ranges: results,
-                        score: scoreFuzzyFind(results),
+                        score,
                     });
                 }
             });
@@ -2343,7 +2321,7 @@ function CheatSheet(): Renderable {
     ]), () => { });
 }
 
-function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean, stepOver: boolean): number {
+function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean): number {
     const activities = state.activities;
     const direction = backwards ? -1 : 1;
     let lastNoteId = activities[idx].nId;
@@ -2358,35 +2336,11 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
     ) {
         idx += direction;
 
+        // Only stepping one activity at a time. not doing anything fancy any more.
+
         const activity = activities[idx];
         if (activity.nId) {
-            // This method is for navigating backwards through the activity list to what you were working on before (or forwards, if you've navigated too far backwards).
-            // But if I've made 20 notes one after the other in sequence, I don't want to go back up those notes typically. 
-            // Rather, I want to skip those notes, and go to the discontinuity in activities.
-            // That being said, if I make a note, then I step down 10 notes and write something, I want to go back up, even though it's under the same parent note
-            //      (so I can't just skip over all notes with the same parent as the previous, like I was doing before).
-            // That's the problem that this somewhat complex looking code is trying to solve
-
-            // Due to recent overlap with the TODO list requirement, I'm temporarliy scrapping this code. I might delete this for good later
             break;
-
-            // const lastNote = getNote(state, lastNoteId);
-            // if (lastNote.parentId) {
-            //     const parent = getNote(state, lastNote.parentId);
-            //     const siblings = parent.childIds;
-            //     const noteSiblingIdx = siblings.indexOf(lastNote.id);
-            //     const prevSiblingId = siblings[noteSiblingIdx + direction];
-            //
-            //     if (activity.nId !== prevSiblingId) {
-            //         // we have finally reached the discontinuity
-            //         if (!stepOver) {
-            //             idx--;
-            //         }
-            //         break;
-            //     }
-            //
-            //     lastNoteId = prevSiblingId;
-            // }
         }
     }
 
@@ -2446,7 +2400,7 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     }
 
     let nextIdx = state._currentlyViewingActivityIdx;
-    nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards, true);
+    nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards);
 
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
         return;
