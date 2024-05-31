@@ -1,26 +1,3 @@
-/**
-   
-// Component boilerplate snippet:
-// If you use VS-Code, there's already a code snippet in this project for this.
-// Vim users will have to copy-paste this and :s/CN/NewName/g over it
-
-type CNArgs = {
-
-}
-
-function CN<CNArgs>() {
-    const root = div();
-
-    const component = makeComponent<CNArgs>(root, () => {
-        const { } = component.args;
-
-    });
-
-    return component;
-}
-   
-*/
-
 export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     if (!trueVal) { 
         console.error(...msg); 
@@ -28,11 +5,10 @@ export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
     } 
 };
 
-export type InsertableGeneric<T extends HTMLElement | Text> = { 
+export type Insertable<T extends HTMLElement | Text = HTMLElement> = { 
     el: T;
     _isInserted: boolean;
 };
-export type Insertable = InsertableGeneric<HTMLElement>
 
 export function replaceChildren(comp: Insertable, children: (Insertable | undefined)[]) {
     comp.el.replaceChildren(
@@ -134,7 +110,14 @@ export function setVisible(component: Insertable, state: boolean | null | undefi
 }
 
 // This is a certified jQuery moment: https://stackoverflow.com/questions/19669786/check-if-element-is-visible-in-dom
-export function isVisible(component: Insertable): boolean {
+// NOTE: this component will also return false if it hasn't been rendered yet. This is to handle the specific case of
+// when we might want to prevent a global event handler from running if our component isn't visible in a modal.
+// This turns out to be one of the few reasons why I would ever use this method...
+export function isVisible(component: Renderable | Insertable): boolean {
+    if ("args" in component && !component.args) {
+        return false;
+    }
+
     const e = component.el;
     return !!( e.offsetWidth || e.offsetHeight || e.getClientRects().length );
 }
@@ -215,10 +198,10 @@ export function el<T extends HTMLElement>(
     type: string, 
     attrs?: Attrs,
     children?: ChildList,
-): InsertableGeneric<T> {
+): Insertable<T> {
     const element = document.createElement(type);
 
-    const insertable: InsertableGeneric<T> = {
+    const insertable: Insertable<T> = {
         el: element as T,
         _isInserted: false,
     };
@@ -350,7 +333,7 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
     };
 }
 
-type InsertableInput = InsertableGeneric<HTMLTextAreaElement> | InsertableGeneric<HTMLInputElement>;
+type InsertableInput = Insertable<HTMLTextAreaElement> | Insertable<HTMLInputElement>;
 
 export function setInputValueAndResize(inputComponent: InsertableInput, text: string) {
     setInputValue(inputComponent, text);
@@ -446,6 +429,29 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
     };
 
     return component;
+}
+
+type RenderGroup = {
+    updateFns: (() => void | Promise<void>)[];
+    push<T extends Insertable>(el: T, updateFn: (el: T) => any | Promise<any>): T;
+    render(): void | Promise<void>;
+}
+
+export function newRenderGroup(): RenderGroup {
+    const rg: RenderGroup = {
+        updateFns: [],
+        push<T extends Insertable>(el: T, updateFn: (el: T) => void | Promise<void>): T {
+            rg.updateFns.push(() => updateFn(el));
+            return el;
+        },
+        render() {
+            for (const fn of rg.updateFns) {
+                fn();
+            }
+        },
+    };
+
+    return rg;
 }
 
 export type Renderable<T = undefined> = Insertable & {

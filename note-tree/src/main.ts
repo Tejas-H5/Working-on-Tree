@@ -73,7 +73,6 @@ import {
     newListRenderer as newListRenderer,
     div,
     el,
-    InsertableGeneric,
     isEditingTextSomewhereInDocument,
     appendChild,
     Insertable,
@@ -85,6 +84,7 @@ import {
     setCssVars,
     isEditingInput,
     initEl,
+    newRenderGroup,
 } from "src/utils/dom-utils";
 import * as tree from "src/utils/tree";
 import { ScrollContainerV, Checkbox, DateTimeInput,  Modal, PaginationControl, makeButton } from "src/components";
@@ -151,7 +151,6 @@ function NoteLink() {
 }
 
 type TodoListInternalArgs = {
-    heading: string;
     setScrollEl?(c: Insertable): void;
     cursorNoteId?: NoteId;
 };
@@ -258,57 +257,41 @@ function TodoListInternal() {
         return component;
     }
 
-    const componentList = newListRenderer(div(), TodoListItem);
-    const headingEl = el("H3", {});
+    const rg = newRenderGroup();
+    const todoItemsList = newListRenderer(div(), TodoListItem);
     const root = div({}, [
-        headingEl,
-        componentList,
-    ])
+        rg.push(todoItemsList, (todoItemsList) => {
+            const { setScrollEl, cursorNoteId } = c.args;
+            let alreadyScrolled = false;
 
-    const component = newComponent<TodoListInternalArgs>(root, renderTodoListInternal);
+            todoItemsList.render(() => {
+                for (const id of state._todoNoteIds) {
+                    const note = getNote(state, id);
+                    const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
+                    const lc = todoItemsList.getNext();
+                    lc.render({
+                        note: note,
+                        focusAnyway,
+                        cursorNoteId
+                    });
 
-    function renderTodoListInternal() {
-        const { heading, setScrollEl, cursorNoteId } = component.args;
-
-        if (setVisible(headingEl, !!heading)) {
-            setText(headingEl, heading);
-        }
-
-        let count = 0;
-        let alreadyScrolled = false;
-
-        componentList.render(() => {
-            for (let i = 0; i < state._todoNoteIds.length; i++) {
-                const id = state._todoNoteIds[i];
-
-                const note = getNote(state, id);
-
-                count++;
-
-                const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
-                const c = componentList.getNext();
-                c.render({
-                    note: note,
-                    focusAnyway,
-                    cursorNoteId
-                });
-
-                if (setScrollEl && !alreadyScrolled) {
-                    if (
-                        (cursorNoteId && note.id === cursorNoteId) ||
-                        (!cursorNoteId && focusAnyway)
-                    ) {
-                        setScrollEl(c);
-                        alreadyScrolled = true;
+                    if (setScrollEl && !alreadyScrolled) {
+                        if (
+                            (cursorNoteId && note.id === cursorNoteId) ||
+                            (!cursorNoteId && focusAnyway)
+                        ) {
+                            setScrollEl(lc);
+                            alreadyScrolled = true;
+                        }
                     }
                 }
-            }
-        });
+            });
+        }),
+    ]);
 
-        setVisible(root, count > 0);
-    }
+    const c = newComponent<TodoListInternalArgs>(root, rg.render);
 
-    return component;
+    return c;
 }
 
 type TodoListArgs = {
@@ -1023,7 +1006,7 @@ function EditableActivityList() {
     return component;
 }
 
-function TextArea(): InsertableGeneric<HTMLTextAreaElement> {
+function TextArea(): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100" });
 
     textArea.el.addEventListener("keydown", (e) => {
