@@ -1,11 +1,6 @@
-export function assert(trueVal: any, ...msg: any[]): asserts trueVal {
-    if (!trueVal) { 
-        console.error(...msg); 
-        throw new Error("assertion failed!"); 
-    } 
-};
+import { assert } from "./assert";
 
-export type Insertable<T extends HTMLElement | Text = HTMLElement> = { 
+export type Insertable<T extends Element | Text = HTMLElement> = { 
     el: T;
     _isInserted: boolean;
 };
@@ -143,10 +138,34 @@ type ValidAttributeName = string;
  * A common bug is to type 'styles' instead of 'style' and wonder why the layout isn't working
  */
 type Attrs = { [qualifiedName: ValidAttributeName]: string | undefined } & {
-    style?: string;
+    style?: string | Record<keyof HTMLElement["style"], string | null>;
     class?: string;
     href?: string;
     src?: string;
+}
+
+/**
+ * NOTE: I've not actually checked if this has performance gains,
+ * just assumed based on every other function.
+ */
+export function setAttr(el: Insertable, key: string, val: string | undefined, wrap = false) {
+    if (val === undefined) {
+        el.el.removeAttribute(key);
+        return;
+    }
+
+    if (wrap) {
+        el.el.setAttribute(key, (getAttr(el, key) || "") + val);
+        return;
+    } 
+
+    if (getAttr(el, key) !== val) {
+        el.el.setAttribute(key, val);
+    }
+}
+
+export function getAttr(el: Insertable, key: string) {
+    return el.el.getAttribute(key);
 }
 
 /** 
@@ -157,17 +176,21 @@ export function initEl<T extends Insertable>(
     ins: T,
     attrs?: Attrs,
     children?: ChildList,
+    wrap = true
 ): T {
     const element = ins.el;
 
     if (attrs) {
         for (const attr in attrs) { 
-            const val = attrs[attr];
-            if (val === undefined) {
-                element.removeAttribute(attr);
-            } else {
-                element.setAttribute(attr, (element.getAttribute(attr) || "") + val);
+            if (attr === "style" && typeof attrs.style === "object") {
+                const styles = attrs[attr] as Record<keyof HTMLElement["style"], string | null>;
+                for (const s in styles) {
+                    // @ts-expect-error trust me bro
+                    setStyle(ins, s, styles[s]);
+                }
             }
+
+            setAttr(ins, attr, attrs[attr], wrap);
         }
     }
 
@@ -212,7 +235,7 @@ export function el<T extends HTMLElement>(
     return insertable;
 }
 
-export type ChildList = (Insertable | string | Insertable[])[];
+export type ChildList = (Insertable | Insertable<Text> | string | Insertable[])[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
@@ -221,6 +244,15 @@ export type ChildList = (Insertable | string | Insertable[])[];
 export function div(attrs?: Attrs, children?: ChildList) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
+
+export function divClass(className: string, children?: ChildList) {
+    return div({ class: className }, children);
+}
+
+export function divStyled(className: string, style: string, children?: ChildList) {
+    return div({ class: className, style: style }, children);
+}
+
 
 // NOTE: function might be removed later
 export function setErrorClass(root: Insertable, state: boolean) {
@@ -291,6 +323,10 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
     }
 }
 
+/**
+ * This seems to be a lot slower than the normal list render in a lot of situations, and
+ * I can't figure out why. So I would suggest not using this for now
+ */
 export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, createFn: () => T): KeyedComponentList<K, T> {
     const updatedComponentList : HTMLElement[] = [];
     return {
@@ -299,15 +335,28 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
         getNext(key: K) {
             const block = this.components.get(key);
             if (block) {
+                if (!block.del) {
+                    console.warn("This key is trying to be used multiple times, which will cause your list render incorrectly: " + key);
+                }
                 block.del = false;
+                updatedComponentList.push(block.c.el);
                 return block.c;
             }
 
             const newComponent = createFn();
+            newComponent._isInserted = true;
             this.components.set(key, { c: newComponent, del: false });
+
             return newComponent;
         },
         render(renderFn, noErrorBoundary = false) {
+            for (const block of this.components.values()) {
+                block.del = true;
+            }
+
+            this.el.replaceChildren();
+
+            updatedComponentList.splice(0, updatedComponentList.length);
             for (const block of this.components.values()) {
                 block.del = true;
             }
@@ -318,13 +367,10 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
                 handleRenderingError(this, renderFn);
             }
 
-        
-            updatedComponentList.splice(0, updatedComponentList.length);
-            for (const block of this.components.values()) {
-                if (!block.del) {
-                    updatedComponentList.push(block.c.el);
+            for (const [k, v] of this.components) {
+                if (v.del) {
+                    this.components.delete(k);
                 }
-                block.del = true;
             }
 
             // TODO: try writing a diff-replace algo and see if it's any faster
@@ -351,14 +397,14 @@ export function resizeInputToValue(inputComponent: Insertable) {
  * However, there are some niche use cases (100,000+ components) where you might need even more performance. 
  * In those cases, you will want to avoid calling this function if you know the text hasn't changed.
  */
-export function setText(component: Insertable, text: string) {
+export function setText(component: Insertable | Insertable<Text>, text: string) {
     // @ts-ignore
     if (component.rerender) {
         console.warn("You might be overwriting a component's internal contents by setting it's text");
     };
 
     if (!component._isInserted) {
-        console.warn("A component hasn't been inserted into the DOM, but it's being rendered anway");
+        console.warn("A component hasn't been inserted into the DOM, but it's being rendered anyway");
     }
 
     if (component.el.textContent === text) {
@@ -415,8 +461,7 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
         args: null,
         render(argsIn, noErrorBoundary = false) {
             if (!this._isInserted) {
-                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anway");
-                return
+                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anyway");
             }
 
             component.args = argsIn;
@@ -431,28 +476,33 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
     return component;
 }
 
-type RenderGroup = {
-    updateFns: (() => void | Promise<void>)[];
-    push<T extends Insertable>(el: T, updateFn: (el: T) => any | Promise<any>): T;
-    render(): void | Promise<void>;
-}
+export function newRenderGroup() {
+    const updateFns: (() => void)[] =  [];
 
-export function newRenderGroup(): RenderGroup {
-    const rg: RenderGroup = {
-        updateFns: [],
-        push<T extends Insertable>(el: T, updateFn: (el: T) => void | Promise<void>): T {
-            rg.updateFns.push(() => updateFn(el));
-            return el;
-        },
-        render() {
-            for (const fn of rg.updateFns) {
+    const push = <T extends Insertable | Insertable<Text>>(el: T, updateFn: (el: T) => any | Promise<any>): T  => {
+        updateFns.push(() => updateFn(el));
+        return el;
+    }
+
+    return Object.assign(push, {
+        render: () => {
+            for (const fn of updateFns) {
                 fn();
             }
         },
-    };
-
-    return rg;
+        text: (fn: () => string): Insertable<Text> => {
+            return push(text(""), (el) => setText(el, fn()));
+        },
+    });
 }
+
+function text(str: string): Insertable<Text> {
+    return {
+        _isInserted: false,
+        el: document.createTextNode(str),
+    };
+}
+
 
 export type Renderable<T = undefined> = Insertable & {
     args: T;

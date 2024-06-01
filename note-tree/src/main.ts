@@ -78,7 +78,6 @@ import {
     Insertable,
     replaceChildren,
     setStyle,
-    assert,
     ChildList,
     scrollIntoViewV,
     setCssVars,
@@ -99,13 +98,14 @@ import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { newWebWorker } from "src/utils/web-workers";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import { utf8ByteLength } from "src/utils/utf8";
+import { assert } from "./utils/assert";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.5004X";
+const VERSION_NUMBER = "v1.1.5005X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -198,17 +198,29 @@ function TodoListInternal() {
     }
 
     function TodoListItem() {
-        const noteLink = NoteLink();
-        const lastEditedNoteLink = NoteLink();
-        const progressText = div();
+        const rg = newRenderGroup();
         const [root, cursor] = scrollNavItem([
             div({ class: "flex-1 row align-items-center" }, [
-                progressText,
+                rg.text(() => getNoteProgressCountText(component.args.note)),
                 div({ class: "flex-1" }, [
-                    noteLink,
-                    div({ style: "padding-left: 60px" }, [
-                        lastEditedNoteLink,
-                    ]),
+                    rg(NoteLink(), (noteLink) => {
+                        const { note, focusAnyway } = component.args;
+
+                        let text = note.data.text;
+                        const higherLevelTask = getHigherLevelTask(state, note);
+                        if (higherLevelTask) {
+                            const higherLevelText = getNoteTextWithoutPriority(higherLevelTask.data);
+                            const lowerLevelText = getNoteTextWithoutPriority(note.data);
+                            text = "[" + higherLevelText + "] >> " + lowerLevelText
+                        }
+
+                        noteLink.render({
+                            noteId: note.id,
+                            text,
+                            preventScroll: true,
+                            focusAnyway,
+                        });
+                    }),
                 ]),
             ]),
         ]);
@@ -216,80 +228,51 @@ function TodoListInternal() {
         const component = newComponent<TodoItemArgs>(root, renderTodoItem);
 
         function renderTodoItem() {
-            const { note, focusAnyway, cursorNoteId } = component.args;
+            const { note, cursorNoteId } = component.args;
 
-            const higherLevelTask = getHigherLevelTask(state, note);
+            rg.render();
 
-            setText(progressText, getNoteProgressCountText(note));
             setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
-
             setClass(root, "strikethrough", note.data._status === STATUS_DONE);
-
-            let text = note.data.text;
-            if (higherLevelTask) {
-                const higherLevelText = getNoteTextWithoutPriority(higherLevelTask.data);
-                const lowerLevelText = getNoteTextWithoutPriority(note.data);
-                text = "[" + higherLevelText + "] >> " + lowerLevelText
-            }
-
-            noteLink.render({
-                noteId: note.id,
-                text,
-                preventScroll: true,
-                focusAnyway,
-            });
-
-            setVisible(lastEditedNoteLink, false);
-            const lastEditedChildId = note.childIds[note.data.lastSelectedChildIdx];
-            if (!!lastEditedChildId) {
-                const note = getNote(state, lastEditedChildId);
-
-                setVisible(lastEditedNoteLink, true);
-                lastEditedNoteLink.render({
-                    noteId: lastEditedChildId,
-                    text: note.data.text,
-                    preventScroll: true,
-                    focusAnyway,
-                });
-            }
         }
 
         return component;
     }
 
-    const rg = newRenderGroup();
     const todoItemsList = newListRenderer(div(), TodoListItem);
     const root = div({}, [
-        rg.push(todoItemsList, (todoItemsList) => {
-            const { setScrollEl, cursorNoteId } = c.args;
-            let alreadyScrolled = false;
-
-            todoItemsList.render(() => {
-                for (const id of state._todoNoteIds) {
-                    const note = getNote(state, id);
-                    const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
-                    const lc = todoItemsList.getNext();
-                    lc.render({
-                        note: note,
-                        focusAnyway,
-                        cursorNoteId
-                    });
-
-                    if (setScrollEl && !alreadyScrolled) {
-                        if (
-                            (cursorNoteId && note.id === cursorNoteId) ||
-                            (!cursorNoteId && focusAnyway)
-                        ) {
-                            setScrollEl(lc);
-                            alreadyScrolled = true;
-                        }
-                    }
-                }
-            });
-        }),
+        todoItemsList,
     ]);
 
-    const c = newComponent<TodoListInternalArgs>(root, rg.render);
+    const c = newComponent<TodoListInternalArgs>(root, render);
+
+    function render() {
+        const { setScrollEl, cursorNoteId } = c.args;
+        let alreadyScrolled = false;
+
+        todoItemsList.render(() => {
+            for (const id of state._todoNoteIds) {
+                const note = getNote(state, id);
+                const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
+                const lc = todoItemsList.getNext();
+                lc.render({
+                    note: note,
+                    focusAnyway,
+                    cursorNoteId
+                });
+
+                if (setScrollEl && !alreadyScrolled) {
+                    if (
+                        (cursorNoteId && note.id === cursorNoteId) ||
+                        (!cursorNoteId && focusAnyway)
+                    ) {
+                        setScrollEl(lc);
+                        alreadyScrolled = true;
+                    }
+                }
+            }
+        });
+    }
 
     return c;
 }
@@ -341,7 +324,6 @@ function TodoList() {
             }
         }
         listInternal.render({
-            heading: "",
             setScrollEl,
             cursorNoteId,
         });
@@ -2968,16 +2950,18 @@ export function App() {
         console.error("Webworker error: " , e);
     }
 
+    setInterval(() => {
+        setText(header, "Currently working on - " + formatDate(new Date(), undefined, true, true));
+    })
+
     const appComponent = newComponent(appRoot, rerenderAppComponent);
 
     function rerenderAppComponent() {
         if (setVisible(cheatSheet, currentHelpInfo === 2)) {
             cheatSheet.render(undefined);
         }
-
+        
         darkModeToggle.render(undefined);
-
-        setText(header, "Currently working on - " + formatDate(new Date(), undefined, true, true));
 
         recomputeState(state);
 
@@ -3153,14 +3137,15 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
 initState(() => {
     autoInsertBreakIfRequired();
 
-    setInterval(() => {
-        // We need our clock to tick exactly every second, otherwise it looks strange. 
-        // For this reason, we will just rerender our entire app every second.
-        // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
-        // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
-        // being handled incorrectly, and will mask bugs related to too few renders.
-        rerenderApp(false, true);
-    }, 1000);
+    // Keep this off for now. It isn't beneficial
+    // setInterval(() => {
+    //     // We need our clock to tick exactly every second, otherwise it looks strange. 
+    //     // For this reason, we will just rerender our entire app every second.
+    //     // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
+    //     // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
+    //     // being handled incorrectly, and will mask bugs related to too few renders.
+    //     rerenderApp(false, true);
+    // }, 1000);
 
     rerenderApp();
 });

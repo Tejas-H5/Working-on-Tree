@@ -34,3 +34,22 @@ export function countOccurances<T>(arr: T[], predicate: (v: T) => boolean): numb
 export function boundsCheck(arr: unknown[], i: number): boolean {
     return i >= 0 && i < arr.length;
 }
+
+export function shuffleArray<T>(arr: T[]) {
+    for (let i = arr.length; i > 0; i--) {
+        let randomIdx = Math.floor(Math.random() * i);
+
+        const temp = arr[i - 1];
+        arr[i - 1] = arr[randomIdx];
+        arr[randomIdx] = temp;
+    }
+}
+
+export function newArray<T>(n: number, fn: (i: number) => T): T[] {
+    const arr = [...Array(n)];
+    for (let i = 0; i < arr.length; i++) {
+        arr[i] = fn(i);
+    }
+
+    return arr;
+}
