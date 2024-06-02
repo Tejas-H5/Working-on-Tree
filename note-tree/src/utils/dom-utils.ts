@@ -1,5 +1,3 @@
-import { assert } from "./assert";
-
 export type Insertable<T extends Element | Text = HTMLElement> = { 
     el: T;
     _isInserted: boolean;
@@ -168,45 +166,50 @@ export function getAttr(el: Insertable, key: string) {
     return el.el.getAttribute(key);
 }
 
-/** 
- * Useful for when you need to append to attributes/children 
- * on an Insertable returned by a function
- */
-export function initEl<T extends Insertable>(
+export function init<T>(obj: T, fn: (obj: T) => void): T {
+    fn(obj);
+    return obj;
+}
+
+export function setAttrs<T extends Insertable>(
     ins: T,
-    attrs?: Attrs,
-    children?: ChildList,
-    wrap = true
+    attrs: Attrs,
+    wrap = false,
 ): T {
-    const element = ins.el;
-
-    if (attrs) {
-        for (const attr in attrs) { 
-            if (attr === "style" && typeof attrs.style === "object") {
-                const styles = attrs[attr] as Record<keyof HTMLElement["style"], string | null>;
-                for (const s in styles) {
-                    // @ts-expect-error trust me bro
-                    setStyle(ins, s, styles[s]);
-                }
+    for (const attr in attrs) { 
+        if (attr === "style" && typeof attrs.style === "object") {
+            const styles = attrs[attr] as Record<keyof HTMLElement["style"], string | null>;
+            for (const s in styles) {
+                // @ts-expect-error trust me bro
+                setStyle(ins, s, styles[s]);
             }
-
-            setAttr(ins, attr, attrs[attr], wrap);
         }
+
+        setAttr(ins, attr, attrs[attr], wrap);
     }
 
-    if (children) {
-        for(const c of children) {
-            if (Array.isArray(c)) {
-                for (const insertable of c) {
-                    element.appendChild(insertable.el);
-                    insertable._isInserted = true;
-                }
-            } else if (typeof c === "string") {
-                element.appendChild(document.createTextNode(c));
-            } else {
-                element.appendChild(c.el);
-                c._isInserted = true;
+    return ins;
+}
+
+export function addChildren<T extends Insertable>(ins: T, children: ChildList): T {
+    const element = ins.el;
+
+
+    for (const c of children) {
+        if (c === false) {
+            continue;
+        }
+
+        if (Array.isArray(c)) {
+            for (const insertable of c) {
+                element.appendChild(insertable.el);
+                insertable._isInserted = true;
             }
+        } else if (typeof c === "string") {
+            element.appendChild(document.createTextNode(c));
+        } else {
+            element.appendChild(c.el);
+            c._isInserted = true;
         }
     }
 
@@ -229,13 +232,18 @@ export function el<T extends HTMLElement>(
         _isInserted: false,
     };
 
+    if (attrs) {
+        setAttrs(insertable, attrs);
+    }
 
-    initEl(insertable, attrs, children);
+    if (children) {
+        addChildren(insertable, children);
+    }
 
     return insertable;
 }
 
-export type ChildList = (Insertable | Insertable<Text> | string | Insertable[])[];
+export type ChildList = (Insertable | Insertable<Text> | string | Insertable[] | false)[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
@@ -387,8 +395,8 @@ export function setInputValueAndResize(inputComponent: InsertableInput, text: st
 }
 
 /** This is how I know to make an input that auto-sizes to it's text */
-export function resizeInputToValue(inputComponent: Insertable) {
-    inputComponent.el.setAttribute("size", "" + (inputComponent.el as HTMLInputElement).value.length);
+export function resizeInputToValue(inputComponent: InsertableInput) {
+    setAttr(inputComponent, "size", "" + inputComponent.el .value.length);
 }
 
 /** 
@@ -477,7 +485,7 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
 }
 
 export function newRenderGroup() {
-    const updateFns: (() => void)[] =  [];
+    const updateFns: (() => Promise<void>)[] =  [];
 
     const push = <T extends Insertable | Insertable<Text>>(el: T, updateFn: (el: T) => any | Promise<any>): T  => {
         updateFns.push(() => updateFn(el));
@@ -485,14 +493,17 @@ export function newRenderGroup() {
     }
 
     return Object.assign(push, {
-        render: () => {
+        async render () {
             for (const fn of updateFns) {
-                fn();
+               await fn();
             }
         },
         text: (fn: () => string): Insertable<Text> => {
             return push(text(""), (el) => setText(el, fn()));
         },
+        component: (renderable: Renderable<undefined>) => {
+            return push(renderable, (r) => r.render(undefined));
+        }
     });
 }
 

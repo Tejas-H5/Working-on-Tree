@@ -1,103 +1,105 @@
-import "src/styles.css"
-import "src/style-utils.css"
+import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
+import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
+import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
+import "src/style-utils.css";
+import "src/styles.css";
+import { countOccurances, filterInPlace } from "src/utils/array-utils";
+import { copyToClipboard } from "src/utils/clipboard";
+import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
+import {
+    ChildList,
+    Insertable,
+    Renderable,
+    appendChild,
+    div,
+    el,
+    isEditingInput,
+    isEditingTextSomewhereInDocument,
+    newComponent,
+    newListRenderer,
+    newRenderGroup,
+    replaceChildren,
+    scrollIntoViewV,
+    setAttr,
+    setAttrs,
+    addChildren,
+    setClass,
+    setCssVars,
+    setInputValue,
+    setStyle,
+    setText,
+    setVisible,
+} from "src/utils/dom-utils";
+import { loadFile, saveText } from "src/utils/file-download";
+import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
+import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
+import * as tree from "src/utils/tree";
+import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
+import { utf8ByteLength } from "src/utils/utf8";
+import { newWebWorker } from "src/utils/web-workers";
 import {
     Activity,
+    AppTheme,
+    DockableMenu,
     NoteId,
+    STATUS_ASSUMED_DONE,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
     State,
     TreeNote,
+    deleteDoneNote,
     deleteNoteIfEmpty,
+    dfsPre,
+    findNextActiviyIndex,
+    findPreviousActiviyIndex,
     getActivityDurationMs,
     getActivityText,
+    getActivityTime,
+    getAllNoteIdsInTreeOrder,
     getCurrentNote,
+    getCurrentStateAsJSON,
     getFirstPartOfRow,
+    getHigherLevelTask,
+    getLastActivity,
+    getLastActivityWithNote,
+    getLastActivityWithNoteIdx,
+    getLastSelectedNote,
+    getMostRecentlyWorkedOnChildActivityIdx,
     getNote,
     getNoteDuration,
-    getNoteOneDownLocally,
-    getNoteOneUpLocally,
-    noteStatusToString,
+    getNoteEstimate,
     getNoteNDown,
     getNoteNUp,
+    getNoteOneDownLocally,
+    getNoteOneUpLocally,
+    getNoteTextWithoutPriority,
+    getRootNote,
     getSecondPartOfRow,
+    hasNote,
     insertChildNote,
     insertNoteAfterCurrent,
+    isBreak,
     isCurrentlyTakingABreak,
+    isDoneNoteWithExtraInfo,
     isEditableBreak,
+    loadState,
+    loadStateFromBackup,
+    newBreakActivity,
+    noteStatusToString,
     pushBreakActivity,
     recomputeFlatNotes,
     recomputeState,
     resetState,
-    setCurrentNote,
-    state,
-    STATUS_ASSUMED_DONE,
-    dfsPre,
-    getRootNote,
-    setIsEditingCurrentNote,
-    isBreak,
-    getLastActivity,
-    getLastActivityWithNoteIdx,
-    getLastSelectedNote,
-    isDoneNoteWithExtraInfo,
-    setActivityRangeToday,
-    getMostRecentlyWorkedOnChildActivityIdx,
-    deleteDoneNote,
-    setCurrentActivityIdxToCurrentNote,
-    DockableMenu,
-    newBreakActivity,
-    getActivityTime,
-    setActivityTime,
-    getLastActivityWithNote,
-    hasNote,
-    AppTheme,
-    toggleCurrentNoteSticky,
-    getNoteEstimate,
-    findNextActiviyIndex,
-    findPreviousActiviyIndex,
-    getCurrentStateAsJSON,
-    loadStateFromBackup,
     saveState,
-    loadState,
-    getAllNoteIdsInTreeOrder,
-    getHigherLevelTask,
-    getNoteTextWithoutPriority,
+    setActivityRangeToday,
+    setActivityTime,
+    setCurrentActivityIdxToCurrentNote,
+    setCurrentNote,
+    setIsEditingCurrentNote,
     setStateFromJSON,
+    state,
+    toggleCurrentNoteSticky,
 } from "./state";
-import {
-    Renderable,
-    newComponent,
-    setClass,
-    setInputValue,
-    setText,
-    setVisible,
-    newListRenderer as newListRenderer,
-    div,
-    el,
-    isEditingTextSomewhereInDocument,
-    appendChild,
-    Insertable,
-    replaceChildren,
-    setStyle,
-    ChildList,
-    scrollIntoViewV,
-    setCssVars,
-    isEditingInput,
-    initEl,
-    newRenderGroup,
-} from "src/utils/dom-utils";
-import * as tree from "src/utils/tree";
-import { ScrollContainerV, Checkbox, DateTimeInput,  Modal, PaginationControl, makeButton } from "src/components";
-import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
-import { countOccurances, filterInPlace } from "src/utils/array-utils";
-import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
-import { loadFile, saveText } from "src/utils/file-download";
-import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
-import { copyToClipboard } from "src/utils/clipboard";
-import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { newWebWorker } from "src/utils/web-workers";
-import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
-import { utf8ByteLength } from "src/utils/utf8";
 import { assert } from "./utils/assert";
 
 const SAVE_DEBOUNCE = 1500;
@@ -105,7 +107,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.5005X";
+const VERSION_NUMBER = "v1.1.5006X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -289,7 +291,7 @@ function TodoList() {
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const root = initEl(ScrollContainerV(), { class: "flex-1 col" }, [ 
+    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }), [ 
         heading,
         empty,
         listInternal,
@@ -350,7 +352,7 @@ function BreakInput() {
         const isTakingABreak = isCurrentlyTakingABreak(state);
 
         setText(breakButton, isTakingABreak ? "Extend break" : "Take a break");
-        breakInput.el.setAttribute("placeholder", "Enter break reason (optional)");
+        setAttr(breakInput, "placeholder", "Enter break reason (optional)");
     }
 
     function addBreak() {
@@ -866,7 +868,7 @@ function EditableActivityList() {
     const paginationControl = PaginationControl();
 
     const listRoot = newListRenderer(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
-    const listScrollContainer = initEl(ScrollContainerV(), { class: "flex-1" }, [
+    const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }), [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, [  ]);
@@ -1052,9 +1054,9 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
     const whenNotEditing = div({ class: "handle-long-words", style: "" });
     const whenEditing = TextArea();
-    whenEditing.el.setAttribute("rows", "1");
-    whenEditing.el.setAttribute("class", "flex-1");
-    whenEditing.el.setAttribute("style", "overflow-y: hidden; padding: 0;");
+    setAttr(whenEditing, "rows", "1");
+    setAttr(whenEditing, "class", "flex-1");
+    setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
     const root = div({ class: "flex-1", style: "overflow-y: hidden;" }, [
         div({ class: "row h-100" }, [

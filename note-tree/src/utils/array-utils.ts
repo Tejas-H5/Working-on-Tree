@@ -53,3 +53,55 @@ export function newArray<T>(n: number, fn: (i: number) => T): T[] {
 
     return arr;
 }
+
+/** 
+ * Assumes arr is sorted. Finds where val is, or where it should be inserted if it isn't there already 
+ *
+ * NOTE: can return arr.length as an insert position
+ */
+export function findIndexIntoSortedArray<T, K>(arr: T[], val: K, key: (a: T) => K, comp: (a: K, b: K) => number) {
+    if (arr.length === 0) {
+        return 0;
+    }
+
+    if (comp(val, key(arr[0])) <= 0) {
+        return 0;
+    }
+
+    if (comp(val, key(arr[arr.length - 1])) > 0) {
+        return arr.length;
+    }
+
+    let start = 0, end = arr.length - 1;
+    
+    let safetyCounter = 100000;
+
+    let mid = -1;
+    while (start + 1 < end) {
+        safetyCounter--;
+        if (safetyCounter <= 1) {
+            throw new Error("Hit the safety counter!!! - your data structure is just too big");
+        }
+
+        mid = start + Math.floor((end - start) / 2);
+        const res = comp(val, key(arr[mid]));
+        if (res <= 0) {
+            // val is smaller than arr[mid].
+            end = mid;
+        } else {
+            // val is >= arr[mid].
+            start = mid;
+        }
+    }
+
+    return end;
+}
+
+export function findInSortedArray<T, K>(arr: T[], val: K, key: (a: T) => K, comp: (a: K, b: K) => number) {
+    const idx = findIndexIntoSortedArray(arr, val, key, comp);
+    if (idx < arr.length && key(arr[idx]) !== val) {
+        return undefined;
+    }
+
+    return arr[idx];
+}

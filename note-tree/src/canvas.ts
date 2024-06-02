@@ -1,6 +1,6 @@
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Renderable, div, el, initEl, isVisible, newComponent, newListRenderer, replaceChildren, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Renderable, div, el, isVisible, newComponent, newListRenderer, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { makeButton } from "src/components";
 import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
 
@@ -1171,7 +1171,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
     function ToolbarButton(): Renderable<ToolbarButtonArgs> {
         const textEl = div();
-        const button = initEl(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" });
+        const button = setAttrs(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" });
         replaceChildren(button, [
             textEl, 
         ]);
