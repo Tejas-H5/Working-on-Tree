@@ -108,7 +108,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.51X";
+const VERSION_NUMBER = "v1.1.511";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -192,6 +192,8 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
     return focusAnyway;
 }
 
+const NIL_HLT_HEADING = "<No higher level task>";
+
 
 function TodoListInternal() {
     type TodoItemArgs = {
@@ -257,10 +259,13 @@ function TodoListInternal() {
                 let text = note.data.text;
                 const higherLevelTask = getHigherLevelTask(state, note);
                 let hltHeading: string | undefined;
-                if (higherLevelTask) {
-                    if (lastHlt !== higherLevelTask) {
-                        lastHlt = higherLevelTask;
+                if (lastHlt !== higherLevelTask) {
+                    lastHlt = higherLevelTask;
+
+                    if (higherLevelTask) {
                         hltHeading = getNoteTextWithoutPriority(higherLevelTask.data);
+                    } else {
+                        hltHeading = NIL_HLT_HEADING;
                     }
                 }
 
@@ -323,7 +328,7 @@ function TodoList() {
         if (state._todoNoteFilters === -1) {
             const note = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, note);
-            const hltText = hlt ? hlt.data.text : "[Nothing]";
+            const hltText = hlt ? hlt.data.text : NIL_HLT_HEADING;
             headingText = "Everything in progress under [" + hltText + "]" + rightArrow;
         } else if (state._todoNoteFilters === 1) {
             headingText = leftArrow + "Most recent In-progress items from everything";

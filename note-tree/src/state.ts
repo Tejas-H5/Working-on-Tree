@@ -525,6 +525,7 @@ export function recomputeState(state: State) {
 
         const currentNote = getCurrentNote(state);
         const currentHLT = getHigherLevelTask(state, currentNote);
+        let showedNilTask = false;
 
         for (let i = state.activities.length - 1; i >= 0; i--) {
             const nId = state.activities[i].nId;
@@ -550,11 +551,17 @@ export function recomputeState(state: State) {
             } else if (state._todoNoteFilters === 1) {
                 // only show the most recent of each higher level task.
                 const hlt = getHigherLevelTask(state, note);
-                if (!hlt || hlt.data._isUnderCurrent) {
-                    continue;
+                if (hlt) {
+                    if (hlt.data._isUnderCurrent) {
+                        continue;
+                    }
+                    hlt.data._isUnderCurrent = true;
+                } else {
+                    if (showedNilTask) {
+                        continue;
+                    }
+                    showedNilTask = true;
                 }
-
-                hlt.data._isUnderCurrent = true;
             }
 
             state._todoNoteIds.push(note.id);
