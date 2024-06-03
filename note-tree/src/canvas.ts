@@ -1171,7 +1171,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
     function ToolbarButton(): Renderable<ToolbarButtonArgs> {
         const textEl = div();
-        const button = setAttrs(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" });
+        const button = setAttrs(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" }, true);
         replaceChildren(button, [
             textEl, 
         ]);

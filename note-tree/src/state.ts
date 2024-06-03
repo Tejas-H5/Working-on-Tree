@@ -1246,10 +1246,6 @@ export function getNoteEstimate(state: State, note: TreeNote): number {
 
     let estimate = 0;
     const dfs = (note: TreeNote) => {
-        if (note.data._status !== STATUS_IN_PROGRESS) {
-            return;
-        }
-
         estimate += parseNoteEstimate(note.data.text);
 
         for (const id of note.childIds) {
@@ -1664,10 +1660,6 @@ export function getHigherLevelTask(state: State, note: TreeNote) {
     let higherLevelNote: TreeNote | undefined;
 
     tree.forEachParent(state.notes, note, (parent) => {
-        if (parent.id === note.id) {
-            return;
-        }
-
         if (getTodoNotePriority(parent.data) >= 2) {
             higherLevelNote = parent;
             return true;

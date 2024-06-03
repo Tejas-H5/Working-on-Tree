@@ -302,7 +302,6 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
             }
 
             if (this.lastIdx === this.components.length) {
-                // could also just show these with setVisible(true)
                 const component = createFn();
                 this.components.push(component);
                 appendChild(root, component);
@@ -321,7 +320,6 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
             }
 
             while(this.components.length > this.lastIdx) {
-                // could also just hide these with setVisible(false)
                 const component = this.components.pop()!;
                 component.el.remove();
             } 

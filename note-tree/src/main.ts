@@ -29,6 +29,7 @@ import {
     setStyle,
     setText,
     setVisible,
+    divStyled,
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
@@ -107,7 +108,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.5006X";
+const VERSION_NUMBER = "v1.1.51X";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -194,30 +195,25 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
 
 function TodoListInternal() {
     type TodoItemArgs = {
-        note: TreeNote;
+        heading: string | undefined;
+        strikethrough: boolean;
+        hasCursor: boolean;
+        text: string;
+        noteId: string;
         focusAnyway: boolean;
         cursorNoteId: NoteId | undefined;
     }
 
     function TodoListItem() {
         const rg = newRenderGroup();
-        const [root, cursor] = scrollNavItem([
+        const [navRoot, cursor] = scrollNavItem([
             div({ class: "flex-1 row align-items-center" }, [
-                rg.text(() => getNoteProgressCountText(component.args.note)),
                 div({ class: "flex-1" }, [
                     rg(NoteLink(), (noteLink) => {
-                        const { note, focusAnyway } = component.args;
-
-                        let text = note.data.text;
-                        const higherLevelTask = getHigherLevelTask(state, note);
-                        if (higherLevelTask) {
-                            const higherLevelText = getNoteTextWithoutPriority(higherLevelTask.data);
-                            const lowerLevelText = getNoteTextWithoutPriority(note.data);
-                            text = "[" + higherLevelText + "] >> " + lowerLevelText
-                        }
+                        const { text, focusAnyway, noteId } = c.args;
 
                         noteLink.render({
-                            noteId: note.id,
+                            noteId,
                             text,
                             preventScroll: true,
                             focusAnyway,
@@ -226,25 +222,24 @@ function TodoListInternal() {
                 ]),
             ]),
         ]);
+        rg(cursor, () => setVisible(cursor, c.args.hasCursor));
+        rg(navRoot, () => setClass(navRoot, "strikethrough", c.args.strikethrough));
 
-        const component = newComponent<TodoItemArgs>(root, renderTodoItem);
+        const root = div({}, [
+            rg(el("H3", { style: "text-align: center" }), (heading) => {
+                if (setVisible(heading, !!c.args.heading) && !!c.args.heading) {
+                    setText(heading, c.args.heading)
+                }
+            }),
+            navRoot, 
+        ]);
 
-        function renderTodoItem() {
-            const { note, cursorNoteId } = component.args;
-
-            rg.render();
-
-            setVisible(cursor, !!cursorNoteId && cursorNoteId === note.id);
-            setClass(root, "strikethrough", note.data._status === STATUS_DONE);
-        }
-
-        return component;
+        const c = newComponent<TodoItemArgs>(root, rg.render);
+        return c;
     }
 
-    const todoItemsList = newListRenderer(div(), TodoListItem);
-    const root = div({}, [
-        todoItemsList,
-    ]);
+    const root = divStyled("", "padding: 0 5px");
+    const todoItemsList = newListRenderer(root, TodoListItem);
 
     const c = newComponent<TodoListInternalArgs>(root, render);
 
@@ -253,12 +248,29 @@ function TodoListInternal() {
         let alreadyScrolled = false;
 
         todoItemsList.render(() => {
+            let lastHlt: TreeNote | undefined;
+
             for (const id of state._todoNoteIds) {
                 const note = getNote(state, id);
                 const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
+
+                let text = note.data.text;
+                const higherLevelTask = getHigherLevelTask(state, note);
+                let hltHeading: string | undefined;
+                if (higherLevelTask) {
+                    if (lastHlt !== higherLevelTask) {
+                        lastHlt = higherLevelTask;
+                        hltHeading = getNoteTextWithoutPriority(higherLevelTask.data);
+                    }
+                }
+
                 const lc = todoItemsList.getNext();
                 lc.render({
-                    note: note,
+                    heading: hltHeading,
+                    noteId: note.id,
+                    text: text,
+                    strikethrough: note.data._status === STATUS_DONE,
+                    hasCursor: !!cursorNoteId && cursorNoteId === note.id,
                     focusAnyway,
                     cursorNoteId
                 });
@@ -284,14 +296,14 @@ type TodoListArgs = {
 }
 
 function TodoList() {
-    const heading = el("H3", { style: "user-select: none; padding-left: 10px;" }, ["TODO Lists"]);
+    const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, ["TODO Lists"]);
     const listInternal = TodoListInternal();
     const empty = div({}, [
        `Notes starting with '>' get put into the TODO list! 
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }), [ 
+    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }, true), [ 
         heading,
         empty,
         listInternal,
@@ -764,7 +776,7 @@ function LinkNavModal(): Renderable {
         idx = 0;
         linkList.render(() => {
 
-            function renderLink(note: TreeNote) {
+            function renderLinks(note: TreeNote) {
                 let urlCount = 0;
 
                 forEachUrlPosition(note.data.text, (start, end) => {
@@ -785,22 +797,37 @@ function LinkNavModal(): Renderable {
 
 
             let notes: TreeNote[] = [];
+            let lastNote: TreeNote | undefined;
             tree.forEachParent(state.notes, currentNote, (note) => {
-                if (note !== currentNote) {
+                if (note === currentNote) {
+                    lastNote = note;
+                    return;
+                }
+
+                notes.push(note);
+                // Also search children 1 level underneath parents. This is very very helpful.
+                for (let id of note.childIds) {
+                    const note = getNote(state, id);
+                    if (note === lastNote) {
+                        // don't collect urls from the same note twice.
+                        continue;
+                    }
+
                     notes.push(note);
                 }
 
-                return false;
+                lastNote = note;
             });
 
+            // we want the urls to appear highest to lowest.
             idx = 0;
             for (let i = notes.length - 1; i >= 0; i--) {
-                idx += renderLink(notes[i]);
+                idx += renderLinks(notes[i]);
             }
 
             // Dont even need to collect these into an array before rendering them. lmao. 
             dfsPre(state, currentNote, (note) => {
-                renderLink(note);
+                renderLinks(note);
             });
         });
 
@@ -868,7 +895,7 @@ function EditableActivityList() {
     const paginationControl = PaginationControl();
 
     const listRoot = newListRenderer(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
-    const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }), [
+    const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }, true), [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, [  ]);
