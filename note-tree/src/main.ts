@@ -29,7 +29,7 @@ import {
     setInputValue,
     setStyle,
     setText,
-    setVisible,
+    setVisible
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
@@ -54,6 +54,7 @@ import {
     findNextActiviyIndex,
     findPreviousActiviyIndex,
     getActivityDurationMs,
+    getActivityRange,
     getActivityText,
     getActivityTime,
     getAllNoteIdsInTreeOrder,
@@ -109,7 +110,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.6";
+const VERSION_NUMBER = "v1.1.61";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -329,7 +330,7 @@ function TodoList() {
         if (state._todoNoteFilters === -1) {
             const note = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, note);
-            const hltText = hlt ? hlt.data.text : NIL_HLT_HEADING;
+            const hltText = hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
             headingText = "Everything in progress under [" + hltText + "]" + rightArrow;
         } else if (state._todoNoteFilters === 1) {
             headingText = leftArrow + "Most recent In-progress items from everything";
@@ -2348,7 +2349,7 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
     return idx;
 }
 
-function moveToLastNote(): boolean{
+function moveToLastNote(): boolean {
     const lastNoteId = state._lastNoteId;
     
     if (!lastNoteId) {
@@ -2534,6 +2535,100 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
     return false;
 }
 
+function HighLevelTaskDurations() {
+    function Row() {
+        const rg = newRenderGroup();
+        const root = div({ class: "row sb1b" }, [
+            div({}, [ rg.text(() => c.args.name) ]),
+            div({ class: "flex-1", style: "min-width: 100px" }),
+            div({}, [ rg.text(() => formatDuration(c.args.durationMs)) ]),
+        ]);
+
+        const c = newComponent<{ name: string; durationMs: number }>(root, rg.render);
+        return c;
+    }
+
+    const rg = newRenderGroup();
+    const list = newListRenderer(div(), Row);
+    const renderBreaksCheckbox = Checkbox();
+    const root = div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
+        el("H3", {}, [ "High level task durations" ]),
+        div({ style: "padding-bottom: 10px" }, [
+            renderBreaksCheckbox,
+        ]),
+        list,
+    ]);
+
+    let hideBreaks = false;
+    const hltMap = new Map<string, number>();
+
+    const c = newComponent(root, render);
+
+    function render() {
+        rg.render();
+
+        renderBreaksCheckbox.render({
+            label: "Hide breaks",
+            value: hideBreaks,
+            onChange: (val) => {
+                hideBreaks = val;
+                render();
+            }
+        });
+
+        list.render(() => {
+            hltMap.clear();
+
+            const [hasRange, start, end] = getActivityRange(state);
+            if (!hasRange) {
+                return;
+            }
+
+            function getHltName(a: Activity) {
+                if (a.nId) {
+                    const note = getNote(state, a.nId);
+                    const hlt = getHigherLevelTask(state, note);
+                    return hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
+                }
+
+                if (isBreak(a) && a.breakInfo) {
+                    return "[Break]: " + a.breakInfo;
+                }
+
+                return "??";
+            }
+
+            for (let i = start; i <= end; i++) {
+                const activity = state.activities[i];
+                const nextActivity = state.activities[i + 1];
+                const durationMs = getActivityDurationMs(activity, nextActivity);
+
+                if (isBreak(activity) && hideBreaks) {
+                    continue;
+                }
+
+                const hltText = getHltName(activity);
+
+                const time = hltMap.get(hltText) ?? 0;
+                hltMap.set(hltText, time + durationMs);
+            }
+
+            if (!setVisible(root, hltMap.size > 0)) {
+                return;
+            }
+
+            for (const [hltName, durationMs] of hltMap) {
+                list.getNext().render({
+                    name: hltName, durationMs,
+                });
+            }
+        });
+    }
+
+    return c;
+
+}
+
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
@@ -2544,14 +2639,11 @@ export function App() {
     const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
-    const darkModeToggle = DarkModeToggle();
     let currentHelpInfo = 1;
     cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
     });
-
-    const cheatSheet = CheatSheet();
 
     const filterEditor = ActivityFiltersEditor();
     const filterEditorRow = div({ class: "row", style: "" }, [
@@ -2638,19 +2730,21 @@ export function App() {
 
     const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
 
+    const rg = newRenderGroup();
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
                 div({ class: "col flex-1 overflow-y-auto" }, [
-                    cheatSheet,
+                    rg.if(() => currentHelpInfo === 2, rg.component(CheatSheet())),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         header,
                         div({ class: "flex-1" }),
                         cheatSheetButton,
-                        darkModeToggle,
+                        rg.component(DarkModeToggle()),
                     ]),
                     errorBanner,
                     notesList,
+                    rg.if(() => state._isShowingDurations, rg.component(HighLevelTaskDurations())),
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea, 
                         bottomRightArea,
@@ -2995,11 +3089,7 @@ export function App() {
     const appComponent = newComponent(appRoot, rerenderAppComponent);
 
     function rerenderAppComponent() {
-        if (setVisible(cheatSheet, currentHelpInfo === 2)) {
-            cheatSheet.render(undefined);
-        }
-        
-        darkModeToggle.render(undefined);
+        rg.render();
 
         recomputeState(state);
 

@@ -501,6 +501,9 @@ export function newRenderGroup() {
         },
         component: (renderable: Renderable<undefined>) => {
             return push(renderable, (r) => r.render(undefined));
+        },
+        if: (fn: () => boolean, ins: Insertable) => {
+            return push(ins, (r) => setVisible(r, fn()));
         }
     });
 }

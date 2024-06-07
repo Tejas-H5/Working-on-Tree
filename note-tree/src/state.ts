@@ -709,7 +709,7 @@ export function getActivityText(state: State, activity: Activity): string {
     return getActivityTextOrUndefined(state, activity) || "< unknown activity text! >";
 }
 
-export function getActivityDurationMs(activity: Activity, nextActivity?: Activity): number {
+export function getActivityDurationMs(activity: Activity, nextActivity: Activity | undefined): number {
     const startTimeMs = getActivityTime(activity).getTime();
     const nextStart = (nextActivity ? getActivityTime(nextActivity) : new Date()).getTime();
     return nextStart - startTimeMs;
@@ -743,7 +743,7 @@ export function activityNoteIdMatchesLastActivity(state: State, activity: Activi
 
 function canActivityBeReplacedWithNewActivity(state: State, lastActivity: Activity): boolean {
     const ONE_SECOND = 1000;
-    const activityDurationMs = getActivityDurationMs(lastActivity);
+    const activityDurationMs = getActivityDurationMs(lastActivity, undefined);
 
     if (
         lastActivity && 
