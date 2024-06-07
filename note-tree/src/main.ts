@@ -10,8 +10,10 @@ import {
     ChildList,
     Insertable,
     Renderable,
+    addChildren,
     appendChild,
     div,
+    divStyled,
     el,
     isEditingInput,
     isEditingTextSomewhereInDocument,
@@ -22,21 +24,19 @@ import {
     scrollIntoViewV,
     setAttr,
     setAttrs,
-    addChildren,
     setClass,
     setCssVars,
     setInputValue,
     setStyle,
     setText,
     setVisible,
-    divStyled,
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import * as tree from "src/utils/tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { utf8ByteLength } from "src/utils/utf8";
+import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
 import {
     Activity,
@@ -100,6 +100,7 @@ import {
     setStateFromJSON,
     state,
     toggleCurrentNoteSticky,
+    tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
 
@@ -108,7 +109,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.511";
+const VERSION_NUMBER = "v1.1.6";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2635,6 +2636,8 @@ export function App() {
         ])
     ]);
 
+    const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
+
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
@@ -2646,6 +2649,7 @@ export function App() {
                         cheatSheetButton,
                         darkModeToggle,
                     ]),
+                    errorBanner,
                     notesList,
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea, 
@@ -3079,6 +3083,14 @@ export function App() {
                 }
             });
         }
+
+        let error = "";
+        if (state.criticalSavingError) {
+            error = state.criticalSavingError;
+        }
+
+        setVisible(errorBanner, !!error);
+        setText(errorBanner, error);
     }
 
     return appComponent;
@@ -3123,8 +3135,37 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
             // JavaScript strings are UTF-16 encoded
             const bytes = utf8ByteLength(serialized);
-            const mb = bytes / 1000000;
+            const mb = bytesToMegabytes(bytes);
+
             showStatusText("Saved (" + mb.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
+
+            // A shame we need to do this :(
+            navigator.storage.estimate().then((data) => {
+                const estimatedMbUsage = bytesToMegabytes(data.usage ?? 0);
+
+                const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " + 
+                            estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
+
+                const COMPACTION_THRESHOLD = 10;
+                const CRITICAL_ERROR_THRESHOLD = 20;
+
+                if (mb * COMPACTION_THRESHOLD < estimatedMbUsage) {
+                    console.warn(baseErrorMessage);
+                    tryForceIndexedDBCompaction();
+                }
+
+                if (mb * CRITICAL_ERROR_THRESHOLD < estimatedMbUsage) {
+                    tryForceIndexedDBCompaction();
+
+                    const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on https://github.com/Tejas-H5/Working-on-Tree"
+
+                    state.criticalSavingError = criticalSavingError;
+                    console.error(criticalSavingError);
+                } else {
+                    state.criticalSavingError = "";
+                }
+            });
+
         });
     };
 
@@ -3171,13 +3212,13 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
 initState(() => {
     autoInsertBreakIfRequired();
 
-    // Keep this off for now. It isn't beneficial
+    // Keep this off for now. While it has resulted in several improvements to the framework,
+    // and several bugs being found regarding incorrect handling of excess rerenders, 
+    // it can also mask bugs relating to too few rerenders.
     // setInterval(() => {
     //     // We need our clock to tick exactly every second, otherwise it looks strange. 
     //     // For this reason, we will just rerender our entire app every second.
     //     // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
-    //     // It's actually a bit of a double-sided sword. It will unearth bugs related to excessive renders/background rerenders 
-    //     // being handled incorrectly, and will mask bugs related to too few renders.
     //     rerenderApp(false, true);
     // }, 1000);
 

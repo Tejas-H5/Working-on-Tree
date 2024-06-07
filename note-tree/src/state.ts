@@ -24,6 +24,11 @@ export type State = {
     breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
 
+    // A stupid bug in chrome causes IndexedDB to be non-functional 
+    // (at least with the way I'm using it as a drop-in replacement for localStorage.).
+    // see usages of this variable for more details.
+    criticalSavingError: string | undefined;
+
     /** The quicklist. This is different from the activities list. **/
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
@@ -222,6 +227,7 @@ export function defaultState(): State {
         scratchPadCanvasLayers: [],
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
+        criticalSavingError: "",
 
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
@@ -1632,22 +1638,21 @@ export function saveState(state: State, then: (serialize: string) => void) {
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
 
-    const kvStore = db.transaction([INDEXED_DB_KV_STORE_NAME], "readwrite")
-        .objectStore(INDEXED_DB_KV_STORE_NAME);
+    const kvStoreTx = db.transaction([INDEXED_DB_KV_STORE_NAME], "readwrite");
 
-    const request = kvStore.put({
+    kvStoreTx.objectStore(INDEXED_DB_KV_STORE_NAME).put({
         key: KV_STORE_STATE_KEY,
         value: serialized,
     });
 
     // Do something when all the data is added to the database.
-    request.onsuccess = () => {
+    kvStoreTx.oncomplete = () => {
         logTrace("Saved!");
         then(serialized);
     };
 
-    request.onerror = (event) => {
-        console.error("An error occured while trying to save: ", event, request.error);
+    kvStoreTx.onerror = (event) => {
+        console.error("An error occured while trying to save: ", event, kvStoreTx.error);
     };
 }
 
@@ -1704,3 +1709,53 @@ export function loadStateFromBackup(text: string) {
     return migrateState(obj as State);
 }
 
+
+export function tryForceIndexedDBCompaction() {
+    // HACK:
+    // https://github.com/localForage/localForage/issues/339#issuecomment-503879440
+    // A user wrote:
+    // > Chromium's implementation of IndexedDB will compact storage after a write of ~4Mb.
+    // > https://stackoverflow.com/questions/15841828/why-does-empty-indexeddb-still-take-up-space
+    // > I found this Chromium commit that says a compaction can be forced by deleting a database.
+    // > https://codereview.chromium.org/100013003
+    // > I wrote a small hack with Dexie.js to create and delete a database to force a compaction, but it doesn't work consistently. 
+    // > It works well when there's a big difference between reported storage (the output of navigator.storage.estimate()), 
+    //      and "desired" storage (the amount of storage you know you've written, excluding "tombstone records")
+
+    // I have faced a similar issue with my own production data, where IndexedDB would grow to 15GB and then crash chrome whenever opening this app.
+    // The 'total data' taken up by our state was only ~2mb. But each save increased our IndexedDB size by 1 mb.
+    // In order to avoid this bug, we need to do some hacks to manually trigger a compaction in levelDB.
+    //
+
+
+    // NOTE: this is what I believe the hack is, as suggested by the user.
+    // HOWEVER, THIS CODE CURRENTLY ISN't WORKING !!!!
+    
+    // logTrace("Forcing a compaction (or trying to, at least). Opening DB...");
+    // const request = window.indexedDB.open(FORCE_COMPACTION_STORE_NAME, 1);
+    // request.onerror = (e) => {
+    //     console.error("Error requesting db for compaction - ", e, request.error);
+    // }
+    // request.onupgradeneeded = () => {
+    //     logTrace("Creating temp store...");
+    //
+    //     const db = request.result;
+    //     db.createObjectStore("tempStore", { keyPath: "k" });
+    //
+    //     logTrace("Created temp store");
+    // }
+    // request.onsuccess = () => {
+    //     logTrace("Deleting temp store...");
+    //     const db = request.result;
+    //     db.close();
+    //
+    //     const request2 = indexedDB.deleteDatabase(FORCE_COMPACTION_STORE_NAME);
+    //     request2.onsuccess = () => {
+    //         logTrace("Deleted temp store!");
+    //     }
+    //     request2.onerror = (e) => {
+    //         console.error("Error deleting db for compaction - ", e, request2.error);
+    //     }
+    //
+    // }
+}
