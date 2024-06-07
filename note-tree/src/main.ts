@@ -110,7 +110,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.61";
+const VERSION_NUMBER = "v1.1.62";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2539,12 +2539,21 @@ function HighLevelTaskDurations() {
     function Row() {
         const rg = newRenderGroup();
         const root = div({ class: "row sb1b" }, [
-            div({}, [ rg.text(() => c.args.name) ]),
+            div({}, [ 
+                rg(NoteLink(), (nl) => {
+                    nl.render({
+                        preventScroll: true,
+                        text: c.args.name,
+                        focusAnyway: false,
+                        noteId: c.args.nId,
+                    });
+                })
+            ]),
             div({ class: "flex-1", style: "min-width: 100px" }),
             div({}, [ rg.text(() => formatDuration(c.args.durationMs)) ]),
         ]);
 
-        const c = newComponent<{ name: string; durationMs: number }>(root, rg.render);
+        const c = newComponent<{ name: string; durationMs: number, nId: NoteId | undefined }>(root, rg.render);
         return c;
     }
 
@@ -2560,7 +2569,7 @@ function HighLevelTaskDurations() {
     ]);
 
     let hideBreaks = false;
-    const hltMap = new Map<string, number>();
+    const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
 
     const c = newComponent(root, render);
 
@@ -2584,19 +2593,6 @@ function HighLevelTaskDurations() {
                 return;
             }
 
-            function getHltName(a: Activity) {
-                if (a.nId) {
-                    const note = getNote(state, a.nId);
-                    const hlt = getHigherLevelTask(state, note);
-                    return hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
-                }
-
-                if (isBreak(a) && a.breakInfo) {
-                    return "[Break]: " + a.breakInfo;
-                }
-
-                return "??";
-            }
 
             for (let i = start; i <= end; i++) {
                 const activity = state.activities[i];
@@ -2607,19 +2603,37 @@ function HighLevelTaskDurations() {
                     continue;
                 }
 
-                const hltText = getHltName(activity);
+                let hltText = "??";
+                let hltNId: NoteId | undefined;
 
-                const time = hltMap.get(hltText) ?? 0;
-                hltMap.set(hltText, time + durationMs);
+                const nId = activity.nId;
+                if (nId) {
+                    hltText = NIL_HLT_HEADING;
+
+                    const note = getNote(state, nId);
+                    const hlt = getHigherLevelTask(state, note);
+                    if (hlt) {
+                        hltText = getNoteTextWithoutPriority(hlt.data);
+                        hltNId = hlt.id;
+                    }
+                } else if (isBreak(activity)) {
+                    hltText = "[Break]: " + activity.breakInfo;
+                }
+
+                const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
+                block.time += durationMs;
+                hltMap.set(hltText, block);
             }
 
-            if (!setVisible(root, hltMap.size > 0)) {
+            if (!setVisible(list, hltMap.size > 0)) {
                 return;
             }
 
-            for (const [hltName, durationMs] of hltMap) {
+            for (const [hltName, { time, nId }] of hltMap) {
                 list.getNext().render({
-                    name: hltName, durationMs,
+                    name: hltName, 
+                    durationMs: time,
+                    nId,
                 });
             }
         });
