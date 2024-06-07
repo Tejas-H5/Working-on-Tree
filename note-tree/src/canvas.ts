@@ -1,6 +1,6 @@
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Renderable, div, el, isVisible, newComponent, newListRenderer, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Renderable, div, el, isVisible, newComponent, newListRenderer, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { makeButton } from "src/components";
 import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
 
@@ -580,7 +580,7 @@ function Canvas() {
                 onMouseInputStateChange();
             }
 
-            root.el.addEventListener("mousemove", handleMouseMovement);
+            on(root, "mousemove", handleMouseMovement);
 
             return component;
         });
@@ -596,7 +596,7 @@ function Canvas() {
             }, true);
         });
 
-        component.el.addEventListener("mouseleave", () => {
+        on(component, "mouseleave", () => {
             canvasState.mouseInputState.x = -1;
             canvasState.mouseInputState.y = -1;
             onMouseInputStateChange();
@@ -1185,7 +1185,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             }
         });
 
-        button.el.addEventListener("click", (e) => { 
+        on(button, "click", (e) => { 
             const { onClick, tool } = c.args;
 
             if (tool) {

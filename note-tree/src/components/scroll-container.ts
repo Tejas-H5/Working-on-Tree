@@ -1,4 +1,4 @@
-import { Insertable, div, newComponent, scrollIntoViewV } from "src/utils/dom-utils";
+import { Insertable, div, newComponent, on, scrollIntoViewV } from "src/utils/dom-utils";
 
 export function ScrollContainerV() {
     const scrollContainer = div({ class: "flex-1", style: "overflow-y: auto;" });
@@ -34,7 +34,7 @@ export function ScrollContainerV() {
         }
     }
 
-    scrollContainer.el.addEventListener("scroll", () => {
+    on(scrollContainer, "scroll", () => {
         const { rescrollMs } = component.args;
 
         if (!rescrollMs) {

@@ -329,6 +329,34 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
     }
 }
 
+/** 
+ * Why extract such simple method calls as `addEventListener` into it's own helper function?
+ * It's mainly so that the code minifier can minify all usages of this method, which should reduce the total filesize sent to the user.
+ * So in other words, the methods are extracted based on usage frequency and not complexity.
+ *
+ * Also I'm thinkig it might make defining simple buttons/interactions a bit simpler, but I haven't found this to be the case just yet.
+ */
+export function on<K extends keyof HTMLElementEventMap>(
+    ins: Insertable,
+    type: K, 
+    listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, 
+    options?: boolean | AddEventListenerOptions
+) {
+    ins.el.addEventListener(type, listener, options);
+    return ins;
+}
+
+/** I've found this is very rarely used compared to `on`. Not that there's anything wrong with using this, of course */
+export function off<K extends keyof HTMLElementEventMap>(
+    ins: Insertable,
+    type: K, 
+    listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any, 
+    options?: boolean | EventListenerOptions,
+) {
+    ins.el.removeEventListener(type, listener, options);
+    return ins;
+}
+
 /**
  * This seems to be a lot slower than the normal list render in a lot of situations, and
  * I can't figure out why. So I would suggest not using this for now

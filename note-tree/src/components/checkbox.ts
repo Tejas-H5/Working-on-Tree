@@ -1,4 +1,4 @@
-import { Renderable, div, newComponent, setClass, setText } from "src/utils/dom-utils";
+import { Renderable, div, newComponent, on, setClass, setText } from "src/utils/dom-utils";
 
 type CheckboxArguments = {
     label?: string;
@@ -26,7 +26,7 @@ export function Checkbox(initialLabel?: string): Renderable<CheckboxArguments> {
         setClass(button, "checked", value);
     });
 
-    checkbox.el.addEventListener("click", () => {
+    on(checkbox, "click", () => {
         component.args.onChange(!component.args.value);
     });
 

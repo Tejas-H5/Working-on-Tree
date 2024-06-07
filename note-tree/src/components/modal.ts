@@ -1,4 +1,4 @@
-import { Insertable, Renderable, div, newComponent } from "src/utils/dom-utils";
+import { Insertable, Renderable, div, newComponent, on } from "src/utils/dom-utils";
 import { makeButton } from "./button";
 
 type ModalArgs = { onClose(): void };
@@ -19,13 +19,13 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
 
     const component = newComponent<ModalArgs>(root, () => { });
 
-    closeButton.el.addEventListener("click", () => component.args.onClose());
+    on(closeButton, "click", () => component.args.onClose());
 
     // Clicking outside the modal should close it
-    root.el.addEventListener("click", () => component.args.onClose());
+    on(root, "click", () => component.args.onClose());
 
     // Clicking inside the modal shouldn't close it
-    bgRect.el.addEventListener("click", (e) => e.stopPropagation());
+    on(bgRect, "click", (e) => e.stopPropagation());
 
     return component;
 }

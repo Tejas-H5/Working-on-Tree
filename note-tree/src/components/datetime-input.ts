@@ -1,6 +1,5 @@
-import * as domUtils from "src/utils/dom-utils";
 import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
-import { setText } from "src/utils/dom-utils";
+import { Renderable, div, el, isEditingInput, newComponent, on, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
 type DateTimeInputArgs = {
@@ -11,13 +10,13 @@ type DateTimeInputArgs = {
     onChange(val: Date | null):void;
 };
 
-export function DateTimeInput(initialLabel?: string): domUtils.Renderable<DateTimeInputArgs> {
-    const show = domUtils.div();
-    const edit = domUtils.el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
+export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputArgs> {
+    const show = div();
+    const edit = el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
     const checkbox = Checkbox();
-    const root = domUtils.div({ class: "row", style: "" }, [
+    const root = div({ class: "row", style: "" }, [
         checkbox,
-        domUtils.div(
+        div(
             { class: "row align-items-center", style: "width: 100%; height: 100%; padding-left: 5px; padding-right: 5px" },
             [
                 show, 
@@ -36,14 +35,14 @@ export function DateTimeInput(initialLabel?: string): domUtils.Renderable<DateTi
 
     let lastDate: Date | null = null;
 
-    const component = domUtils.newComponent<DateTimeInputArgs>(root, renderDateTimeInput);
+    const component = newComponent<DateTimeInputArgs>(root, renderDateTimeInput);
 
     function renderDateTimeInput() {
         const { value, label, readOnly, nullable } = component.args;
 
         const canEdit = readOnly && !!value;
 
-        if (domUtils.setVisible(checkbox, !readOnly && nullable)) {
+        if (setVisible(checkbox, !readOnly && nullable)) {
             checkbox.render({
                 label,
                 value: !!value,
@@ -53,19 +52,19 @@ export function DateTimeInput(initialLabel?: string): domUtils.Renderable<DateTi
 
         const dateText = formatDate(value, undefined, true);
 
-        if (domUtils.setVisible(show, canEdit)) {
+        if (setVisible(show, canEdit)) {
             setText(show, dateText);
         }
 
-        if (domUtils.setVisible(edit, !canEdit)) {
-            if (!domUtils.isEditingInput(edit)) {
-                domUtils.setInputValueAndResize(edit, dateText);
+        if (setVisible(edit, !canEdit)) {
+            if (!isEditingInput(edit)) {
+                setInputValueAndResize(edit, dateText);
             }
         }
 
         lastDate = value;
 
-        domUtils.setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
+        setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
     }
     
     function onCheckOrUncheck(b: boolean) {
@@ -95,13 +94,13 @@ export function DateTimeInput(initialLabel?: string): domUtils.Renderable<DateTi
         // no render call here, onChange is responsible for rendering this component
     }
 
-    edit.el.addEventListener("keypress", (e) => {
+    on(edit, "keypress", (e) => {
         if (e.key === "Enter") {
             handleTextfieldEdit();
         }
     });
 
-    edit.el.addEventListener("blur", () => {
+    on(edit, "blur", () => {
         handleTextfieldEdit();
     });
 

@@ -20,6 +20,7 @@ import {
     newComponent,
     newListRenderer,
     newRenderGroup,
+    on,
     replaceChildren,
     scrollIntoViewV,
     setAttr,
@@ -137,7 +138,7 @@ function NoteLink() {
         );
     }
 
-    root.el.addEventListener("click", () => {
+    on(root, "click", () => {
         const { noteId, preventScroll, } = component.args;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
@@ -390,7 +391,7 @@ function BreakInput() {
 
     }
 
-    breakInput.el.addEventListener("keydown", (e) => {
+    on(breakInput, "keydown", (e) => {
         if (e.key !== "Enter") {
             return;
         }
@@ -399,7 +400,7 @@ function BreakInput() {
         addBreak();
     });
 
-    breakButton.el.addEventListener("click", (e) => {
+    on(breakButton, "click", (e) => {
 
         e.preventDefault();
         addBreak();
@@ -526,7 +527,7 @@ function ActivityListItem() {
         debouncedSave();
     }
 
-    insertBreakButton.el.addEventListener("click", () => {
+    on(insertBreakButton, "click", () => {
         const { activity, nextActivity } = component.args;
 
         const idx = state.activities.indexOf(activity);
@@ -545,7 +546,7 @@ function ActivityListItem() {
         rerenderApp(false);
     });
 
-    deleteButton.el.addEventListener("click", () => {
+    on(deleteButton, "click", () => {
         const { activity } = component.args;
 
         if (!isEditableBreak(activity)) {
@@ -562,7 +563,7 @@ function ActivityListItem() {
         rerenderApp(false);
     });
 
-    noteLink.el.addEventListener("click", () => {
+    on(noteLink, "click", () => {
         const { activity } = component.args;
         if (!activity.nId) {
             return;
@@ -583,13 +584,13 @@ function ActivityListItem() {
         debouncedSave();
     }
 
-    breakEdit.el.addEventListener("keypress", (e) => {
+    on(breakEdit, "keypress", (e) => {
         if (e.key === "Enter") {
             handleBreakTextEdit();
         }
     })
 
-    breakEdit.el.addEventListener("blur", () => {
+    on(breakEdit, "blur", () => {
         handleBreakTextEdit();
     });
 
@@ -672,7 +673,7 @@ function DeleteModal(): Renderable {
         ])
     ]));
 
-    deleteButton.el.addEventListener("click", (e) => {
+    on(deleteButton, "click", (e) => {
         e.preventDefault();
 
         const currentNote = getCurrentNote(state);
@@ -1027,7 +1028,7 @@ function EditableActivityList() {
 function TextArea(): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100" });
 
-    textArea.el.addEventListener("keydown", (e) => {
+    on(textArea, "keydown", (e) => {
         if (e.key === "Tab") {
             e.preventDefault();
 
@@ -1158,7 +1159,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         updateTextContentAndSize();
     }
 
-    whenEditing.el.addEventListener("input", () => {
+    on(whenEditing, "input", () => {
         const { note } = component.args;
 
         // Perform a partial update on the state, to just the thing we're editing
@@ -1172,7 +1173,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
         rerenderApp();
     });
 
-    whenEditing.el.addEventListener("keydown", (e) => {
+    on(whenEditing, "keydown", (e) => {
         const currentNote = getCurrentNote(state);
 
         const shiftPressed = e.shiftKey;
@@ -1218,7 +1219,7 @@ function ActivityFiltersEditor(): Renderable {
     }
 
     const todayButton = makeButton("Today");
-    todayButton.el.addEventListener("click", () => {
+    on(todayButton, "click", () => {
         setActivityRangeToday(state);
         onChange();
     });
@@ -1499,7 +1500,7 @@ function FuzzyFinder(): Renderable {
         rerenderSearch();
     });
 
-    searchInput.el.addEventListener("keydown", (e) => {
+    on(searchInput, "keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
             const note = matches[currentSelectionIdx].note;
@@ -1531,7 +1532,7 @@ function FuzzyFinder(): Renderable {
             rerenderList();
         }
     });
-    searchInput.el.addEventListener("input", rerenderSearch);
+    on(searchInput, "input", rerenderSearch);
 
     return component;
 }
@@ -1614,7 +1615,7 @@ function LoadBackupModal() {
         }
     });
 
-    loadBackupButton.el.addEventListener("click", () => {
+    on(loadBackupButton, "click", () => {
         if (!canLoad || !component.args.text) {
             return;
         }
@@ -1829,7 +1830,7 @@ function NoteRowInput() {
     }
 
 
-    root.el.addEventListener("click", () => {
+    on(root, "click", () => {
         const { note } = component.args;
 
         setCurrentNote(state, note.id);
@@ -1996,7 +1997,7 @@ function DarkModeToggle() {
         iconEl.render(getIcon(getTheme()));
     }
 
-    button.el.addEventListener("click", () => {
+    on(button, "click", () => {
         let theme = getTheme();
         if (!theme || theme === "Light") {
             theme = "Dark";
@@ -2177,17 +2178,17 @@ function ActivityListContainer() {
         setVisible(nextActivity, getNextIdx() !== -1);
     }
 
-    scrollActivitiesToTop.el.addEventListener("click", () => {
+    on(scrollActivitiesToTop, "click", () => {
         state._currentlyViewingActivityIdx = state.activities.length - 1;
         rerenderApp();
     });
 
-    scrollActivitiesToMostRecent.el.addEventListener("click", () => {
+    on(scrollActivitiesToMostRecent, "click", () => {
         state._currentlyViewingActivityIdx = getMostRecentIdx();
         rerenderApp();
     });
 
-    prevActivity.el.addEventListener("click", () => {
+    on(prevActivity, "click", () => {
         const idx = getPrevIdx();
         if (idx !== -1) {
             state._currentlyViewingActivityIdx = idx;
@@ -2195,7 +2196,7 @@ function ActivityListContainer() {
         }
     });
 
-    nextActivity.el.addEventListener("click", () => {
+    on(nextActivity, "click", () => {
         const idx = getNextIdx();
         if (idx !== -1) {
             state._currentlyViewingActivityIdx = idx;
@@ -2654,7 +2655,7 @@ export function App() {
         "cheatsheet?"
     ]);
     let currentHelpInfo = 1;
-    cheatSheetButton.el.addEventListener("click", () => {
+    on(cheatSheetButton, "click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
     });
@@ -3202,7 +3203,7 @@ export function App() {
 
 function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
     const btn = makeButton(text, classes);
-    btn.el.addEventListener("click", fn);
+    on(btn, "click", fn);
     return btn;
 };
 

@@ -1,6 +1,6 @@
-import { Renderable, div, newComponent, setText, setVisible } from "src/utils/dom-utils";
-import { makeButton } from "src/components";
+import { Renderable, div, newComponent, on, setText, setVisible } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
+import { makeButton } from "./button";
 
 type PaginationControlArgs = {
     totalCount: number;
@@ -45,26 +45,26 @@ export function PaginationControl(): Renderable<PaginationControlArgs> {
     });
 
 
-    leftButton.el.addEventListener("click", () => {
+    on(leftButton, "click", () => {
         const { pagination, rerender } = component.args;
         setPage(pagination, getPage(pagination) - 1);
         rerender();
     });
 
-    leftLeftButton.el.addEventListener("click", () => {
+    on(leftLeftButton, "click", () => {
         const { pagination, rerender } = component.args;
         pagination.start = 0;
         rerender();
     });
 
-    rightRightButton.el.addEventListener("click", () => {
+    on(rightRightButton, "click", () => {
         const { pagination, rerender } = component.args;
         pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
         rerender();
     });
 
 
-    rightButton.el.addEventListener("click", () => {
+    on(rightButton, "click", () => {
         const { pagination, rerender } = component.args;
         setPage(pagination, getPage(pagination) + 1);
         rerender();
