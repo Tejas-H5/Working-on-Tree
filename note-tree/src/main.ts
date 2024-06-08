@@ -1,8 +1,10 @@
+import "src/css/colours.css";
+import "src/css/layout.css";
+import "src/css/ui.css";
+
 import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
 import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import "src/style-utils.css";
-import "src/styles.css";
 import { countOccurances, filterInPlace } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
@@ -20,6 +22,7 @@ import {
     newComponent,
     newListRenderer,
     newRenderGroup,
+    newStyleGenerator,
     on,
     replaceChildren,
     scrollIntoViewV,
@@ -111,10 +114,12 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.62";
+const VERSION_NUMBER = "v1.1.63";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
+
+const sg = newStyleGenerator();
 
 type NoteLinkArgs = {
     text: string;
@@ -123,13 +128,18 @@ type NoteLinkArgs = {
     preventScroll?: boolean;
 };
 
+const cnHoverLink = sg.makeClass("hover-link", [
+    `:hover{ cursor: pointer; }`,
+    `:hover::after { content: " -->"; }`,
+]);
+
 function NoteLink() {
     const root = div({ style: "padding:5px; ", class: "handle-long-words" })
 
     function renderNoteLink() {
         const { text, noteId, focusAnyway } = component.args;
 
-        setClass(root, "hover-link", !!noteId);
+        setClass(root, cnHoverLink, !!noteId);
         setText(root, truncate(text, 500));
         root.el.style.backgroundColor = (!!focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)"
@@ -196,7 +206,6 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
 }
 
 const NIL_HLT_HEADING = "<No higher level task>";
-
 
 function TodoListInternal() {
     type TodoItemArgs = {
@@ -445,7 +454,7 @@ function ActivityListItem() {
         div({ class: "hover-parent", style: "min-height: 10px" }, [
             div({ class: "hover-target" }, [
                 breakInsertRow
-            ])
+            ]),
         ]),
         visibleRow,
     ]);
@@ -481,7 +490,7 @@ function ActivityListItem() {
                 text: activityText,
             });
 
-            setClass(noteLink, "hover-link", !!activity.nId);
+            setClass(noteLink, cnHoverLink, !!activity.nId);
             noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
         }
 
@@ -1026,7 +1035,10 @@ function EditableActivityList() {
 }
 
 function TextArea(): Insertable<HTMLTextAreaElement> {
-    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { class: "scratch-pad pre-wrap h-100" });
+    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { 
+        class: "pre-wrap w-100 h-100", 
+        style: "border: 1px var(--fg-color) solid; padding: 0;" 
+    });
 
     on(textArea, "keydown", (e) => {
         if (e.key === "Tab") {
@@ -2644,6 +2656,18 @@ function HighLevelTaskDurations() {
 
 }
 
+const cnInfoButton = sg.makeClass("info-button", [ ` { 
+    display: inline-block;
+    text-align: center;
+    font-style: italic;
+    margin: 10px;
+    padding: 10px;
+    border-radius: 10px;
+}`,
+    `:hover { background-color: #AAF; }`,
+    `:active { background-color: #00F; color: var(--bg-color); }`
+]);
+
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
@@ -2651,7 +2675,7 @@ function HighLevelTaskDurations() {
 // decide to start using those
 export function App() {
     const header = el("H2", {}, ["Currently working on"]);
-    const cheatSheetButton = el("BUTTON", { class: "info-button", title: "click for a list of keyboard shortcuts and functionality" }, [
+    const cheatSheetButton = el("BUTTON", { class: cnInfoButton, title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
     let currentHelpInfo = 1;

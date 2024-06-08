@@ -1,4 +1,4 @@
-import { Renderable, div, newComponent, on, setClass, setText } from "src/utils/dom-utils";
+import { Renderable, div, newComponent, newRenderGroup, newStyleGenerator, on, setClass } from "src/utils/dom-utils";
 
 type CheckboxArguments = {
     label?: string;
@@ -6,29 +6,34 @@ type CheckboxArguments = {
     onChange(val: boolean): void;
 }
 
+const sg = newStyleGenerator();
+const cnCheckbox = sg.makeClass("checkbox-button", [
+    ` { cursor: pointer; }`,
+    `.checked { background-color: var(--fg-color); }`,
+    // Doing the border radius only on hover was an accident, but it turns out to be a pretty nice interaction
+    `:hover { outline: 1px solid var(--fg-color); border-radius: 3px; }`,
+]);
+
 export function Checkbox(initialLabel?: string): Renderable<CheckboxArguments> {
-    const label = div({ style: "user-select: none" }, initialLabel !== undefined ? [initialLabel] : undefined);
-    const button = div({ class: "checkbox w-100 h-100", style: "cursor: pointer;" });
+    const rg = newRenderGroup();
     const checkbox = div({ class: "row align-items-center" }, [
         div({ class: "solid-border-sm-rounded", style: "padding: 4px; width: 0.65em; height: 0.65em;" }, [
-            button,
+            rg(
+                div({ class: `${cnCheckbox} w-100 h-100` }),
+                (el) => setClass(el, "checked", c.args.value)
+            )
         ]),
         div({ style: "width: 10px" }),
-        label
+        div({ style: "user-select: none" }, [ 
+            rg.text(() => c.args.label || initialLabel || "") 
+        ]),
     ]);
 
-    const component = newComponent<CheckboxArguments>(checkbox, () => {
-        const { value, label: labelText } = component.args;
-
-        if (labelText !== undefined) {
-            setText(label, labelText);
-        }
-        setClass(button, "checked", value);
-    });
+    const c = newComponent<CheckboxArguments>(checkbox, rg.render);
 
     on(checkbox, "click", () => {
-        component.args.onChange(!component.args.value);
+        c.args.onChange(!c.args.value);
     });
 
-    return component;
+    return c;
 }

@@ -1,0 +1,62 @@
+/** Global styling to affect all elements. */
+
+body {
+    font-family: monospace;
+    font-size: 18px;
+    background-color: var(--bg-color);
+    color: var(--fg-color);
+}
+
+/** scrollbars */
+
+body {
+    /* Foreground, Background */
+    scrollbar-color: var(--bg-color-focus) var(--bg-color);
+}
+
+body::-webkit-scrollbar-thumb {
+    /* Foreground */
+    background: var(--bg-color-focus);
+}
+
+body::-webkit-scrollbar-track {
+    /* Background */
+    background: var(--bg-color);
+}
+
+input {
+    all: unset;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+input:focus {
+    background-color: var(--bg-color-focus);
+}
+
+textarea {
+    all: unset;
+    font-family: monospace;
+    white-space: pre-wrap;
+    padding: 5px;
+}
+
+textarea:focus {
+    background-color: var(--bg-color-focus);
+}
+
+button {
+    all: unset;
+
+    background-color: var(--bg-color);
+    user-select: none;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: var(--bg-color-focus);
+}
+
+button:active {
+    background-color: var(--bg-color-focus-2);
+}

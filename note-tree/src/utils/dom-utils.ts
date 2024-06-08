@@ -1,3 +1,5 @@
+import { uuid } from "./uuid";
+
 export type Insertable<T extends Element | Text = HTMLElement> = { 
     el: T;
     _isInserted: boolean;
@@ -590,3 +592,30 @@ export function setCssVars(vars: [string, string][]) {
         cssRoot.style.setProperty(k, v);
     }
 };
+
+/**
+ * NOTE: this should always be called at a global scope on a *per-module* basis, and never on a per-component basis.
+ * Otherwise you'll just have a tonne of duplicate styles lying around in the DOM. 
+ */
+export function newStyleGenerator() {
+    const root = el<HTMLStyleElement>("style", { type: "text/css" });
+    document.body.appendChild(root.el);
+
+    const obj = {
+        // css class names can't start with numbers, but uuids occasionally do. hence "g-" + 
+        prefix: "g-" + uuid(),
+        makeClass: (className: string, styles: string[]): string => {
+            const name = obj.prefix + "-" + className;
+
+            for (const style of styles) {
+                root.el.appendChild(
+                    document.createTextNode(`.${name}${style}\n`)
+                );
+            }
+
+            return name;
+        }
+    };
+
+    return obj;
+}
