@@ -122,7 +122,7 @@ type ComponentPool<T extends Insertable> = {
     lastIdx: number;
     getNext(): T;
     getIdx(): number;
-    render(renderFn: () => void | Promise<void>, noErrorBoundary?: boolean): void | Promise<void>;
+    render(renderFn: () => void, noErrorBoundary?: boolean): void;
 }
 
 type KeyedComponentPool<K, T extends Insertable> = {
@@ -487,7 +487,7 @@ export function setInputValue(component: InsertableInput, text: string) {
  * component re-renders.
  *
  */
-export function newComponent<T = undefined>(root: Insertable, renderFn: () => void | Promise<void>) {
+export function newComponent<T = undefined>(root: Insertable, renderFn: () => void) {
     // We may be wrapping another component, i.e reusing it's root. So we should just do this
     root._isInserted = true;
     const component : Renderable<T> = {
@@ -513,17 +513,17 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
 }
 
 export function newRenderGroup() {
-    const updateFns: (() => Promise<void>)[] =  [];
+    const updateFns: (() => void)[] =  [];
 
-    const push = <T extends Insertable | Insertable<Text>>(el: T, updateFn: (el: T) => any | Promise<any>): T  => {
+    const push = <T extends Insertable | Insertable<Text>>(el: T, updateFn: (el: T) => any): T  => {
         updateFns.push(() => updateFn(el));
         return el;
     }
 
     return Object.assign(push, {
-        async render () {
+        render () {
             for (const fn of updateFns) {
-               await fn();
+               fn();
             }
         },
         text: (fn: () => string): Insertable<Text> => {
@@ -548,7 +548,7 @@ function text(str: string): Insertable<Text> {
 
 export type Renderable<T = undefined> = Insertable & {
     args: T;
-    render(args: T, noErrorBoundary?: boolean):void | Promise<void>;
+    render(args: T, noErrorBoundary?: boolean):void;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {

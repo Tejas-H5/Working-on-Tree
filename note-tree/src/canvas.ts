@@ -1331,7 +1331,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     async function pasteClipboardToCanvas(row: number, col: number, whitespaceIsTransparent: boolean) {
         const text = await readFromClipboard();
         if (!text || typeof text !== "string") {
-            console.log("failed to read from clipboard - ", text);
+            console.warn("failed to read from clipboard - ", text);
             return;
         }
 

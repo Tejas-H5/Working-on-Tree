@@ -461,13 +461,30 @@ function ActivityListItem() {
 
     const component = newComponent<ActivityListItemArgs>(root, renderActivityListItem);
 
+    function isEditable() {
+        const { activity, greyedOut } = component.args;
+        return !greyedOut && isEditableBreak(activity);
+    }
+
+    function renderDuration() {
+        const { activity, nextActivity, showDuration, } = component.args;
+
+        // The idea is that only breaks we insert ourselves retroactively are editable, as these times
+        // did not come from the computer's sytem time but our own subjective memory
+        const isAnApproximation = isEditable();
+        
+        if (setVisible(durationEl, showDuration)) {
+            const durationStr = (isAnApproximation ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
+            setText(durationEl, durationStr);
+        }
+    }
+
     function renderActivityListItem() {
-        const { activity, nextActivity, showDuration, greyedOut, focus } = component.args;
+        const { activity, greyedOut, focus } = component.args;
 
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
         setStyle(root, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
 
-        const isEditable = !greyedOut && isEditableBreak(activity);
         // I think all break text should just be editable...
         // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
         const canEditBreakText = !greyedOut && isBreak(activity);
@@ -501,12 +518,9 @@ function ActivityListItem() {
             nullable: false,
         });
 
-        if (setVisible(durationEl, showDuration)) {
-            const durationStr = (isEditable ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
-            setText(durationEl, durationStr);
-        }
+        renderDuration();
 
-        setVisible(deleteButton, isEditable);
+        setVisible(deleteButton, isEditable());
     }
 
     function updateActivityTime(date: Date | null) {
@@ -1156,9 +1170,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 
         if (setVisible(whenEditing, isEditing)) {
             if (!wasEditing) {
-                if (!renderOptions.isTimer) {
-                    whenEditing.el.focus({ preventScroll: true });
-                }
+                whenEditing.el.focus({ preventScroll: true });
             }
         }
 
@@ -2674,7 +2686,7 @@ const cnInfoButton = sg.makeClass("info-button", [ ` {
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
 export function App() {
-    const header = el("H2", {}, ["Currently working on"]);
+    const rg = newRenderGroup();
     const cheatSheetButton = el("BUTTON", { class: cnInfoButton, title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
@@ -2769,14 +2781,15 @@ export function App() {
 
     const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
 
-    const rg = newRenderGroup();
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
                 div({ class: "col flex-1 overflow-y-auto" }, [
                     rg.if(() => currentHelpInfo === 2, rg.component(CheatSheet())),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
-                        header,
+                        el("H2", {}, [
+                            rg.text(() => "Currently working on - " + formatDate(new Date(), undefined, true, true)),
+                        ]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
                         rg.component(DarkModeToggle()),
@@ -3110,6 +3123,7 @@ export function App() {
             
             if (!started) {
                 started = true;
+                // logTrace isn't dfined inside of web workers, so using console.log instead
                 console.log("Web worker successfuly started! This page can now auto-insert breaks if you've closed this tab for extended periods of time");
             }
         }, checkIntervalMs);
@@ -3120,10 +3134,6 @@ export function App() {
     worker.onerror = (e) => {
         console.error("Webworker error: " , e);
     }
-
-    setInterval(() => {
-        setText(header, "Currently working on - " + formatDate(new Date(), undefined, true, true));
-    })
 
     const appComponent = newComponent(appRoot, rerenderAppComponent);
 
@@ -3330,10 +3340,9 @@ const root: Insertable = {
 const app = App();
 appendChild(root, app);
 
-const rerenderApp = (shouldScroll = true, isTimer = false) => {
+const rerenderApp = (shouldScroll = true) => {
     // there are actually very few times when we don't want to scroll to the current note
     renderOptions.shouldScroll = shouldScroll;
-    renderOptions.isTimer = isTimer;
     app.render(undefined);
 }
 
@@ -3341,15 +3350,13 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
 initState(() => {
     autoInsertBreakIfRequired();
 
-    // Keep this off for now. While it has resulted in several improvements to the framework,
-    // and several bugs being found regarding incorrect handling of excess rerenders, 
-    // it can also mask bugs relating to too few rerenders.
-    // setInterval(() => {
-    //     // We need our clock to tick exactly every second, otherwise it looks strange. 
-    //     // For this reason, we will just rerender our entire app every second.
-    //     // This might seem a bit silly, but it's unearthed numerous bugs and improvements.
-    //     rerenderApp(false, true);
-    // }, 1000);
+    // A lot of UI relies on the current date/time to render it's contents
+    // In order for this UI to always be up-to-date, I'm just re-rendering the entire application somewhat frequently.
+    // I have decided that this is a viable approach, and is probably the easiest and simplest way to handle this for now.
+    // Components should just be designed to work despite excessive re-renders anyway.
+    setInterval(() => {
+        rerenderApp(false);
+    }, 100);
 
     rerenderApp();
 });
