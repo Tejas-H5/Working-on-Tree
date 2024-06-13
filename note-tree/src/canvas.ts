@@ -1121,10 +1121,7 @@ function Canvas() {
     });
 
 
-    return {
-        ...component,
-        canvasState,
-    };
+    return [component, canvasState] as const;
 }
 
 function isAsciiCanvasKeybind(e: KeyboardEvent) {
@@ -1164,7 +1161,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             return;
         }
 
-        canvas.canvasState.currentTool = tool;
+        canvasState.currentTool = tool;
         rerenderLocal();
     }
 
@@ -1180,7 +1177,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             setText(button, c.args.name);
 
             if (c.args.tool || c.args.selected !== undefined) {
-                const tool = getTool(canvas.canvasState);
+                const tool = getTool(canvasState);
                 setClass(button, "inverted", c.args.selected || tool === c.args.tool);
             }
         });
@@ -1198,7 +1195,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         return c;
     }
 
-    const canvas = Canvas();
+    const [canvasComponent, canvasState] = Canvas();
     const buttons = {
         moreRows: ToolbarButton(),
         lessRows: ToolbarButton(),
@@ -1244,7 +1241,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     }
     const root = div({ class: "relative h-100 row" }, [
         div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
-            canvas,
+            canvasComponent,
             statusText,
             performanceWarning,
             toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
@@ -1324,7 +1321,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
     };
 
     function copyCanvasToClipboard() {
-        const text = getCanvasSelectionAsString(canvas.canvasState);
+        const text = getCanvasSelectionAsString(canvasState);
         copyToClipboard(text);
     }
 
@@ -1338,8 +1335,8 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         text.replace(/\r/g, "");
         const lines = text.split("\n");
 
-        const numRows = getNumRows(canvas.canvasState);
-        const numCols = getNumCols(canvas.canvasState);
+        const numRows = getNumRows(canvasState);
+        const numCols = getNumCols(canvasState);
         outer: for (let i = 0; i < lines.length; i++) {
             for (let j = 0; j < lines[i].length; j++) {
                 let canvasRow = row + i;
@@ -1357,8 +1354,8 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
                     continue;
                 }
 
-                setCharOnCurrentLayer(canvas.canvasState, canvasRow, canvasCol, lines[i][j]);
-                getCell(canvas.canvasState, canvasRow, canvasCol).isSelected = lines[i][j] !== ' ';
+                setCharOnCurrentLayer(canvasState, canvasRow, canvasCol, lines[i][j]);
+                getCell(canvasState, canvasRow, canvasCol).isSelected = lines[i][j] !== ' ';
             }
         }
     }
@@ -1367,12 +1364,12 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         // This single line of code allows us to write to an array that lives outside of this component
         canvasArgs.outputLayers = component.args.outputLayers;
 
-        canvas.render(canvasArgs);
+        canvasComponent.render(canvasArgs);
 
         buttons.moreRows.render({
             name: "+ Rows",
             onClick: () => {
-                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvas.canvasState));
+                resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
                 rerenderLocal();
             },
         });
@@ -1380,7 +1377,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.lessRows.render({
             name: "- Rows",
             onClick: () => {
-                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvas.canvasState));
+                resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
                 rerenderLocal();
             },
         });
@@ -1388,7 +1385,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.moreCols.render({
             name: "+ Columns",
             onClick: () => {
-                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState), getNumCols(canvas.canvasState) + NUM_COLUMNS_INCR_AMOUNT);
+                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });
@@ -1396,7 +1393,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.lessCols.render({
             name: "- Columns",
             onClick: () => {
-                resizeLayers(canvas.canvasState, getNumRows(canvas.canvasState), getNumCols(canvas.canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
                 rerenderLocal();
             },
         });
@@ -1447,7 +1444,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.clearSelection.render({
             name: "Clear Selection",
             onClick: () => {
-                forEachCell(canvas.canvasState, (c) => c.isSelected = false);
+                forEachCell(canvasState, (c) => c.isSelected = false);
                 rerenderLocal();
             },
         });
@@ -1455,7 +1452,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.invertSelection.render({
             name: "Invert Selection",
             onClick: () => {
-                forEachCell(canvas.canvasState, (c) => c.isSelected = !c.isSelected);
+                forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
                 rerenderLocal();
             },
         });
@@ -1469,7 +1466,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             )
         });
 
-        const cursorCell = getTextInputCursorCell(canvas.canvasState);
+        const cursorCell = getTextInputCursorCell(canvasState);
         const canPaste = !!cursorCell;
 
         if (setVisible(buttons.pasteFromClipboard, canPaste)) {
@@ -1506,7 +1503,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.pipes1FromSelection.render({
             name: "Pipes I",
             onClick: () => {
-                generatePipes(canvas.canvasState, PIPE_MAP_I);
+                generatePipes(canvasState, PIPE_MAP_I);
                 rerenderLocal();
             },
         });
@@ -1514,7 +1511,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.pipes2FromSelection.render({
             name: "Pipes II",
             onClick: () => {
-                generatePipes(canvas.canvasState, PIPE_MAP_II);
+                generatePipes(canvasState, PIPE_MAP_II);
                 rerenderLocal();
             },
         });
@@ -1522,7 +1519,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.pipes3FromSelection.render({
             name: "Pipes III",
             onClick: () => {
-                generatePipes(canvas.canvasState, PIPE_MAP_III);
+                generatePipes(canvasState, PIPE_MAP_III);
                 rerenderLocal();
             },
         });
@@ -1530,7 +1527,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.pipes4FromSelection.render({
             name: "Pipes IV",
             onClick: () => {
-                generatePipes(canvas.canvasState, PIPE_MAP_IV);
+                generatePipes(canvasState, PIPE_MAP_IV);
                 rerenderLocal();
             },
         });
@@ -1538,17 +1535,17 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         buttons.linesFromSelection.render({
             name: "Lines",
             onClick: () => {
-                generateLines(canvas.canvasState);
+                generateLines(canvasState);
                 rerenderLocal();
             }
         });
 
-        updateCanvasStausText(canvas.canvasState);
+        updateCanvasStausText(canvasState);
     });
 
     function prevTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.args.tool === canvas.canvasState.currentTool;
+            return button.args.tool === canvasState.currentTool;
         });
 
         if (idx > 0) {
@@ -1562,7 +1559,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
 
     function nextTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.args.tool === canvas.canvasState.currentTool;
+            return button.args.tool === canvasState.currentTool;
         });
 
         if (idx < mouseScrollList.length - 1) {
@@ -1593,7 +1590,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             } else if (e.key === "c" || e.key === "C") {
                 copyCanvasToClipboard();
             } else if (e.key === "v" || e.key === "V") {
-                const pasteCell = getTextInputCursorCell(canvas.canvasState);
+                const pasteCell = getTextInputCursorCell(canvasState);
                 if (pasteCell) {
                     const whitespaceIsTransparent = e.shiftKey;
                     pasteClipboardToCanvas(pasteCell.i, pasteCell.j, whitespaceIsTransparent);

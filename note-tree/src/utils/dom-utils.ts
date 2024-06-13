@@ -1,14 +1,11 @@
-import { uuid } from "./uuid";
-
 export type Insertable<T extends Element | Text = HTMLElement> = { 
     el: T;
-    _isInserted: boolean;
+    _isHidden: boolean;
 };
 
 export function replaceChildren(comp: Insertable, children: (Insertable | undefined)[]) {
     comp.el.replaceChildren(
         ...children.filter(c => !!c).map((c) => {
-            c!._isInserted = true;
             return c!.el;
         })
     );
@@ -24,7 +21,6 @@ export function appendChild(mountPoint: Insertable, child: Insertable) {
         return;
     }
 
-    child._isInserted = true;
     mountPoint.el.appendChild(child.el);
 };
 
@@ -96,6 +92,7 @@ export function setVisibleGroup(state: boolean, groupIf: Insertable[], groupElse
 }
 
 export function setVisible(component: Insertable, state: boolean | null | undefined): boolean {
+    component._isHidden = !state;
     if (state) {
         component.el.style.setProperty("display", "", "")
     } else {
@@ -109,7 +106,18 @@ export function setVisible(component: Insertable, state: boolean | null | undefi
 // when we might want to prevent a global event handler from running if our component isn't visible in a modal.
 // This turns out to be one of the few reasons why I would ever use this method...
 export function isVisible(component: Renderable | Insertable): boolean {
-    if ("args" in component && !component.args) {
+    if (wasHiddenOrUninserted(component)) {
+        // if _isHidden is set, then the component is guaranteed to be hidden via CSS. 
+        return true;
+    }
+
+    // If _isHidden is false, we need to perform additional checking to determine if a component is visible or not.
+    // This is why we don't call isVisible to disable rendering when a component is hidden.
+
+    if ("argsOrNull" in component && component.argsOrNull === null) {
+        // Args are only populated once a component has been rendered for the first time.
+        // They can be undefined, or some object.
+        // In retrospect, I think I may have mixed up null and undefined here. Might be worth picking a better sentinel value.
         return false;
     }
 
@@ -205,13 +213,11 @@ export function addChildren<T extends Insertable>(ins: T, children: ChildList): 
         if (Array.isArray(c)) {
             for (const insertable of c) {
                 element.appendChild(insertable.el);
-                insertable._isInserted = true;
             }
         } else if (typeof c === "string") {
             element.appendChild(document.createTextNode(c));
         } else {
             element.appendChild(c.el);
-            c._isInserted = true;
         }
     }
 
@@ -228,11 +234,7 @@ export function el<T extends HTMLElement>(
     children?: ChildList,
 ): Insertable<T> {
     const element = document.createElement(type);
-
-    const insertable: Insertable<T> = {
-        el: element as T,
-        _isInserted: false,
-    };
+    const insertable = newInsertable<T>(element as T);
 
     if (attrs) {
         setAttrs(insertable, attrs);
@@ -291,7 +293,8 @@ export type KeyedComponentList<K, T extends Insertable> = Insertable & KeyedComp
 
 export function newListRenderer<T extends Insertable>(root: Insertable, createFn: () => T): ComponentList<T> {
     return {
-        ...root,
+        el: root.el,
+        _isHidden: root._isHidden,
         components: [],
         lastIdx: 0,
         getIdx() {
@@ -366,7 +369,8 @@ export function off<K extends keyof HTMLElementEventMap>(
 export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, createFn: () => T): KeyedComponentList<K, T> {
     const updatedComponentList : HTMLElement[] = [];
     return {
-        ...root,
+        el: root.el,
+        _isHidden: root._isHidden,
         components: new Map<K, { c: T, del: boolean }>(), 
         getNext(key: K) {
             const block = this.components.get(key);
@@ -380,7 +384,6 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
             }
 
             const newComponent = createFn();
-            newComponent._isInserted = true;
             this.components.set(key, { c: newComponent, del: false });
 
             return newComponent;
@@ -427,6 +430,23 @@ export function resizeInputToValue(inputComponent: InsertableInput) {
     setAttr(inputComponent, "size", "" + inputComponent.el .value.length);
 }
 
+function wasHiddenOrUninserted(ins: Insertable | Insertable<Text>) {
+    return ins._isHidden || !ins.el.parentElement;
+}
+
+function shouldAvoidRendering(ins: Insertable | Insertable<Text>) {
+    if (ins._isHidden) {
+        return true;
+    }
+
+    if (!ins.el.parentElement) {
+        console.warn("A component hasn't been inserted into the DOM, but we're trying to do things with it anyway. aborting.");
+        return true;
+    }
+
+    return false;
+}
+
 /** 
  * A LOT faster than just setting the text content manually.
  *
@@ -434,14 +454,13 @@ export function resizeInputToValue(inputComponent: InsertableInput) {
  * In those cases, you will want to avoid calling this function if you know the text hasn't changed.
  */
 export function setText(component: Insertable | Insertable<Text>, text: string) {
-    // @ts-ignore
-    if (component.rerender) {
+    if (shouldAvoidRendering(component)) {
+        return;
+    }
+
+    if ("rerender" in component) {
         console.warn("You might be overwriting a component's internal contents by setting it's text");
     };
-
-    if (!component._isInserted) {
-        console.warn("A component hasn't been inserted into the DOM, but it's being rendered anyway");
-    }
 
     if (component.el.textContent === text) {
         // Actually a huge performance speedup!
@@ -489,18 +508,27 @@ export function setInputValue(component: InsertableInput, text: string) {
  */
 export function newComponent<T = undefined>(root: Insertable, renderFn: () => void) {
     // We may be wrapping another component, i.e reusing it's root. So we should just do this
-    root._isInserted = true;
+    let args: T | null = null;
     const component : Renderable<T> = {
-        ...root,
-        _isInserted: false,
-        // @ts-ignore this is always set before we render the component
-        args: null,
-        render(argsIn, noErrorBoundary = false) {
-            if (!this._isInserted) {
-                console.warn("A component hasn't been inserted into the DOM, but it's being rendered anyway");
+        el: root.el,
+        _isHidden: root._isHidden,
+        get argsOrNull() {
+            return args;
+        },
+        get args() {
+            if (args === null) {
+                throw new Error("Args will always be null before a component is rendered for the first time!");
             }
 
-            component.args = argsIn;
+            return args;
+        },
+        render(argsIn, noErrorBoundary = false) {
+            if (shouldAvoidRendering(this)) {
+                return;
+            }
+
+            args = argsIn;
+
             if (noErrorBoundary) {
                 return renderFn();
             } else {
@@ -538,16 +566,61 @@ export function newRenderGroup() {
     });
 }
 
-function text(str: string): Insertable<Text> {
-    return {
-        _isInserted: false,
-        el: document.createTextNode(str),
+export function newInsertable<T extends HTMLElement | Text>(el: T): Insertable<T> {
+    return  {
+        el,
+        _isHidden: false,
     };
 }
 
+export function text(str: string): Insertable<Text> {
+    return newInsertable<Text>(document.createTextNode(str));
+}
 
 export type Renderable<T = undefined> = Insertable & {
+    /**
+     * A renderable's arguments will be null until during or after the first render
+     * .args is actually a getter that will throw an error if accessed before then.
+     *
+     * ```
+     *
+     * function Component() {
+     *      type Args = { count: number; }
+     *      const rg = newRenderGroup();
+     *      const div2 = div();
+     *
+     *      // this works, provider rg.render is only called during or after the first render
+     *      const button = el("button", {}, ["Clicked ", rg.text(() => c.args.count), " time(s)"]);
+     *
+     *      const root = div({}, [
+     *          button, 
+     *          div2,
+     *      ]);
+     *
+     *      // Runtime error: Args were null!
+     *      setText(div2, "" + c.args.count);   
+     *
+     *      const c = newComponent<Args>(root, () => {
+     *          // this works, c.args being called during (at least) the first render.
+     *          const { count } = c.args;
+     *      });
+     *
+     *      on(button, "click", () => {
+     *          // this works, assuming the component is rendered immediately before the user is able to click the button in the first place.
+     *          const { count } = c.args;
+     *      });
+     *
+     *      document.on("keydown", () => {
+     *          // this will mostly work, but if a user is holding down keys before the site loads, this will error!
+     *          // You'll etiher have to use c.argsOrNull and check for null, or only add the handler once during the first render 
+     *          // (or something more applicable to your project)
+     *          const { count } = c.args;
+     *      });
+     * }
+     * ```
+     */
     args: T;
+    argsOrNull: T | null;
     render(args: T, noErrorBoundary?: boolean):void;
 }
 
@@ -593,6 +666,7 @@ export function setCssVars(vars: [string, string][]) {
     }
 };
 
+let lastClass = 0;
 /**
  * NOTE: this should always be called at a global scope on a *per-module* basis, and never on a per-component basis.
  * Otherwise you'll just have a tonne of duplicate styles lying around in the DOM. 
@@ -601,11 +675,14 @@ export function newStyleGenerator() {
     const root = el<HTMLStyleElement>("style", { type: "text/css" });
     document.body.appendChild(root.el);
 
+    lastClass++;
+
     const obj = {
-        // css class names can't start with numbers, but uuids occasionally do. hence "g-" + 
-        prefix: "g-" + uuid(),
+        // css class names can't start with numbers, but uuids occasionally do. hence "s".
+        // Also, I think the "-" is very important for preventing name collisions.
+        prefix: "s" + lastClass + "-",
         makeClass: (className: string, styles: string[]): string => {
-            const name = obj.prefix + "-" + className;
+            const name = obj.prefix + className;
 
             for (const style of styles) {
                 root.el.appendChild(

@@ -20,6 +20,7 @@ import {
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
+    newInsertable,
     newListRenderer,
     newRenderGroup,
     newStyleGenerator,
@@ -114,7 +115,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.63";
+const VERSION_NUMBER = "v1.1.7";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2610,6 +2611,7 @@ function HighLevelTaskDurations() {
             }
         });
 
+
         list.render(() => {
             hltMap.clear();
 
@@ -2654,7 +2656,9 @@ function HighLevelTaskDurations() {
                 return;
             }
 
-            for (const [hltName, { time, nId }] of hltMap) {
+            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
+
+            for (const [hltName, { time, nId }] of hltSorted) {
                 list.getNext().render({
                     name: hltName, 
                     durationMs: time,
@@ -3276,11 +3280,13 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
             const bytes = utf8ByteLength(serialized);
             const mb = bytesToMegabytes(bytes);
 
+            // in case the storage.estimate().then never happens, lets just show something.
             showStatusText("Saved (" + mb.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
 
             // A shame we need to do this :(
             navigator.storage.estimate().then((data) => {
                 const estimatedMbUsage = bytesToMegabytes(data.usage ?? 0);
+                showStatusText("Saved (" + mb.toFixed(2) + "mb / " + estimatedMbUsage.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
 
                 const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " + 
                             estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
@@ -3329,16 +3335,11 @@ const debouncedSave = () => {
     });
 };
 
-
-
-// Entry point
-const root: Insertable = {
-    _isInserted: true,
-    el: document.getElementById("app")!
-};
-
 const app = App();
-appendChild(root, app);
+appendChild(
+    newInsertable(document.body), 
+    app
+);
 
 const rerenderApp = (shouldScroll = true) => {
     // there are actually very few times when we don't want to scroll to the current note
