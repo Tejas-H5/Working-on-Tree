@@ -128,15 +128,13 @@ export function isVisible(component: Renderable | Insertable): boolean {
 type ComponentPool<T extends Insertable> = {
     components: T[];
     lastIdx: number;
-    getNext(): T;
     getIdx(): number;
-    render(renderFn: () => void, noErrorBoundary?: boolean): void;
+    render(renderFn: (getNext: () => T) => void, noErrorBoundary?: boolean): void;
 }
 
 type KeyedComponentPool<K, T extends Insertable> = {
     components: Map<K, { c: T, del: boolean }>;
-    getNext(key: K): T;
-    render(renderFn: () => void, noErrorBoundary?: boolean): void;
+    render(renderFn: (getNext: (key: K) => T) => void, noErrorBoundary?: boolean): void;
 }
 
 type ValidAttributeName = string;
@@ -204,6 +202,9 @@ export function setAttrs<T extends Insertable>(
 export function addChildren<T extends Insertable>(ins: T, children: ChildList): T {
     const element = ins.el;
 
+    if (typeof children === "string") {
+        children = [children];
+    }
 
     for (const c of children) {
         if (c === false) {
@@ -247,7 +248,7 @@ export function el<T extends HTMLElement>(
     return insertable;
 }
 
-export type ChildList = (Insertable | Insertable<Text> | string | Insertable[] | false)[];
+export type ChildList = string | (Insertable | Insertable<Text> | string | Insertable[] | false)[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
@@ -257,16 +258,10 @@ export function div(attrs?: Attrs, children?: ChildList) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 
-export function divClass(className: string, children?: ChildList) {
-    return div({ class: className }, children);
+export function divClass(className: string, attrs: Attrs = {}, children?: ChildList) {
+    return setAttrs(div(attrs, children), { class: className }, true);
 }
 
-export function divStyled(className: string, style: string, children?: ChildList) {
-    return div({ class: className, style: style }, children);
-}
-
-
-// NOTE: function might be removed later
 export function setErrorClass(root: Insertable, state: boolean) {
     setClass(root, "catastrophic---error", state);
 }
@@ -292,7 +287,26 @@ export type ComponentList<T extends Insertable> = Insertable & ComponentPool<T>;
 export type KeyedComponentList<K, T extends Insertable> = Insertable & KeyedComponentPool<K, T>;
 
 export function newListRenderer<T extends Insertable>(root: Insertable, createFn: () => T): ComponentList<T> {
-    return {
+    function getNext() {
+        if (renderer.lastIdx > renderer.components.length) {
+            throw new Error("Something strange happened when resizing the component pool");
+        }
+
+        if (renderer.lastIdx === renderer.components.length) {
+            const component = createFn();
+            renderer.components.push(component);
+            appendChild(root, component);
+        }
+
+        return renderer.components[renderer.lastIdx++];
+    }
+
+    let renderFn: ((getNext: () => T) => void)  | undefined;
+    function renderFnBinded() {
+        renderFn?.(getNext);
+    }
+
+    const renderer: ComponentList<T> = {
         el: root.el,
         _isHidden: root._isHidden,
         components: [],
@@ -301,37 +315,25 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
             // (We want to get the index of the current iteration, not the literal value of lastIdx)
             return this.lastIdx - 1;
         },
-        getNext() {
-            if (this.lastIdx > this.components.length) {
-                throw new Error("Something strange happened when resizing the component pool");
-            }
-
-            if (this.lastIdx === this.components.length) {
-                const component = createFn();
-                this.components.push(component);
-                appendChild(root, component);
-            }
-
-            return this.components[this.lastIdx++];
-        },
-        render(renderFn, noErrorBoundary = false) {
+        render(renderFnIn, noErrorBoundary = false) {
             this.lastIdx = 0;
 
-            let res;
+            renderFn = renderFnIn;
+
             if (noErrorBoundary) {
-                res = renderFn();
+                renderFnBinded();
             } else {
-                res = handleRenderingError(this, renderFn);
+                handleRenderingError(this, renderFnBinded);
             }
 
             while(this.components.length > this.lastIdx) {
                 const component = this.components.pop()!;
                 component.el.remove();
             } 
-
-            return res;
         },
-    }
+    };
+
+    return renderer;
 }
 
 /** 
@@ -367,28 +369,34 @@ export function off<K extends keyof HTMLElementEventMap>(
  * I can't figure out why. So I would suggest not using this for now
  */
 export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, createFn: () => T): KeyedComponentList<K, T> {
+    function getNext(key: K) {
+        const block = renderer.components.get(key);
+        if (block) {
+            if (!block.del) {
+                console.warn("renderer key is trying to be used multiple times, which will cause your list render incorrectly: " + key);
+            }
+            block.del = false;
+            updatedComponentList.push(block.c.el);
+            return block.c;
+        }
+
+        const newComponent = createFn();
+        renderer.components.set(key, { c: newComponent, del: false });
+
+        return newComponent;
+    };
+    let renderFn: ((getNext: (key: K) => T) => void)  | undefined;
+    function renderFnBinded() {
+        renderFn?.(getNext);
+    }
     const updatedComponentList : HTMLElement[] = [];
-    return {
+    const renderer: KeyedComponentList<K, T> = {
         el: root.el,
         _isHidden: root._isHidden,
         components: new Map<K, { c: T, del: boolean }>(), 
-        getNext(key: K) {
-            const block = this.components.get(key);
-            if (block) {
-                if (!block.del) {
-                    console.warn("This key is trying to be used multiple times, which will cause your list render incorrectly: " + key);
-                }
-                block.del = false;
-                updatedComponentList.push(block.c.el);
-                return block.c;
-            }
+        render(renderFnIn, noErrorBoundary = false) {
+            renderFn = renderFnIn;
 
-            const newComponent = createFn();
-            this.components.set(key, { c: newComponent, del: false });
-
-            return newComponent;
-        },
-        render(renderFn, noErrorBoundary = false) {
             for (const block of this.components.values()) {
                 block.del = true;
             }
@@ -401,9 +409,9 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
             }
 
             if (noErrorBoundary) {
-                renderFn();
+                renderFnBinded();
             } else {
-                handleRenderingError(this, renderFn);
+                handleRenderingError(this, renderFnBinded);
             }
 
             for (const [k, v] of this.components) {
@@ -416,6 +424,7 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
             this.el.replaceChildren(...updatedComponentList);
         },
     };
+    return renderer;
 }
 
 type InsertableInput = Insertable<HTMLTextAreaElement> | Insertable<HTMLInputElement>;
@@ -559,6 +568,18 @@ export function newRenderGroup() {
         },
         component: (renderable: Renderable<undefined>) => {
             return push(renderable, (r) => r.render(undefined));
+        },
+        /** NOTE: only renders the component if argsFn isn't undefined */
+        componentArgs: <T>(renderable: Renderable<T>, argsFn: () => T | undefined) => {
+            return push(renderable, (r) => {
+                const args = argsFn();
+                if (args !== undefined) {
+                    r.render(args);
+                }
+            });
+        },
+        list: <T extends Insertable>(root: Insertable, Component: () => T, renderFn: (getNext: () => T) => void) => {
+            return push(newListRenderer(root, Component), (list) => list.render(renderFn));
         },
         if: (fn: () => boolean, ins: Insertable) => {
             return push(ins, (r) => setVisible(r, fn()));

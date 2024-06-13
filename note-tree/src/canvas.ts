@@ -588,9 +588,9 @@ function Canvas() {
         const component = newComponent<RowArgs>(root, () => {
             const { charList: rowList } = component.args;
 
-            charList.render(() => {
+            charList.render((getNext) => {
                 for (let i = 0; i < rowList.length; i++) {
-                    const c = charList.getNext();
+                    const c = getNext();
                     c.render(rowList[i], true);
                 }
             }, true);
@@ -926,9 +926,9 @@ function Canvas() {
             }
         }
 
-        rowList.render(() => {
+        rowList.render((getNext) => {
             for (let i = 0; i < rows.length; i++) {
-                rowList.getNext().render(rows[i], true);
+                getNext().render(rows[i], true);
             }
         }, true);
     });

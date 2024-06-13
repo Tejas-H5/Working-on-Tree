@@ -15,7 +15,6 @@ import {
     addChildren,
     appendChild,
     div,
-    divStyled,
     el,
     isEditingInput,
     isEditingTextSomewhereInDocument,
@@ -253,7 +252,7 @@ function TodoListInternal() {
         return c;
     }
 
-    const root = divStyled("", "padding: 0 5px");
+    const root = div({ style: "padding: 0 5px" });
     const todoItemsList = newListRenderer(root, TodoListItem);
 
     const c = newComponent<TodoListInternalArgs>(root, render);
@@ -262,7 +261,7 @@ function TodoListInternal() {
         const { setScrollEl, cursorNoteId } = c.args;
         let alreadyScrolled = false;
 
-        todoItemsList.render(() => {
+        todoItemsList.render((getNext) => {
             let lastHlt: TreeNote | undefined;
 
             for (const id of state._todoNoteIds) {
@@ -282,7 +281,7 @@ function TodoListInternal() {
                     }
                 }
 
-                const lc = todoItemsList.getNext();
+                const lc = getNext();
                 lc.render({
                     heading: hltHeading,
                     noteId: note.id,
@@ -806,14 +805,14 @@ function LinkNavModal(): Renderable {
 
 
         idx = 0;
-        linkList.render(() => {
+        linkList.render((getNext) => {
 
             function renderLinks(note: TreeNote) {
                 let urlCount = 0;
 
                 forEachUrlPosition(note.data.text, (start, end) => {
                     const url = note.data.text.substring(start, end);
-                    linkList.getNext().render({
+                    getNext().render({
                         url,
                         text: note.data.text,
                         range: [start, end],
@@ -961,7 +960,7 @@ function EditableActivityList() {
         const activitiesToRender = end - start;
 
         let scrollEl: Insertable | null = null;
-        listRoot.render(() => {
+        listRoot.render((getNext) => {
             let lastRenderedIdx = -1;
 
             // make the elements, so we can render them backwards
@@ -983,7 +982,7 @@ function EditableActivityList() {
 
                 if (hasDiscontinuity) {
                     const nextNextActivity = activities[idx + 2];
-                    listRoot.getNext().render({
+                    getNext().render({
                         previousActivity: activity,
                         activity: nextActivity,
                         nextActivity: nextNextActivity,
@@ -993,7 +992,7 @@ function EditableActivityList() {
                     });
                 }
 
-                const c = listRoot.getNext();
+                const c = getNext();
                 c.render({
                     previousActivity,
                     activity,
@@ -1011,7 +1010,7 @@ function EditableActivityList() {
                 ) {
                     const previousPreviousActivity = activities[idx - 2];
                     // Also render the activity before this list. so we can see the 1 activity before the ones in the lsit
-                    listRoot.getNext().render({
+                    getNext().render({
                         previousActivity: previousPreviousActivity,
                         activity: previousActivity,
                         nextActivity: activity,
@@ -1370,17 +1369,17 @@ function HighlightedText() {
     function renderHighlightedText() {
         const { highlightedRanges: ranges, text } = component.args;
 
-        list.render(() => {
+        list.render((getNext) => {
             let last = 0;
             for (const [start, end] of ranges) {
                 const part1 = text.substring(last, start);
                 if (part1) {
-                    list.getNext().render({ text: part1, highlighted: false });
+                    getNext().render({ text: part1, highlighted: false });
                 }
 
                 const part2 = text.substring(start, end);
                 if (part2) {
-                    list.getNext().render({ text: part2, highlighted: true});
+                    getNext().render({ text: part2, highlighted: true});
                 }
 
                 last = end;
@@ -1388,7 +1387,7 @@ function HighlightedText() {
 
             const lastPart = text.substring(last);
             if (lastPart) {
-                list.getNext().render({ text: lastPart, highlighted: false });
+                getNext().render({ text: lastPart, highlighted: false });
             }
         });
     }
@@ -1499,9 +1498,9 @@ function FuzzyFinder(): Renderable {
                 currentSelectionIdx = 0;
             }
 
-            resultList.render(() => {
+            resultList.render((getNext) => {
                 for (const m of matches) {
-                    resultList.getNext().render({
+                    getNext().render({
                         text: m.note.data.text,
                         ranges: m.ranges,
                         hasFocus: resultList.getIdx() === currentSelectionIdx,
@@ -1881,7 +1880,7 @@ function NoteListInternal() {
     function renderNoteListInteral() {
         const { flatNotes, scrollParent } = component.args;
 
-        noteList.render(() => {
+        noteList.render((getNext) => {
             let stickyOffset = 0;
 
             durations.clear();
@@ -1890,7 +1889,7 @@ function NoteListInternal() {
             for (let i = 0; i < flatNotes.length; i++) {
                 const id = flatNotes[i];
                 const note = getNote(state, id);
-                const component = noteList.getNext();
+                const component = getNext();
 
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
                 let isSticky = note.data._isSelected ||
@@ -2612,7 +2611,7 @@ function HighLevelTaskDurations() {
         });
 
 
-        list.render(() => {
+        list.render((getNext) => {
             hltMap.clear();
 
             const [hasRange, start, end] = getActivityRange(state);
@@ -2659,7 +2658,7 @@ function HighLevelTaskDurations() {
             const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
 
             for (const [hltName, { time, nId }] of hltSorted) {
-                list.getNext().render({
+                getNext().render({
                     name: hltName, 
                     durationMs: time,
                     nId,
