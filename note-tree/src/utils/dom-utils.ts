@@ -92,10 +92,6 @@ export function setVisibleGroup(state: boolean, groupIf: Insertable[], groupElse
 }
 
 export function setVisible(component: Insertable, state: boolean | null | undefined): boolean {
-    if ("_isRendering" in component && component._isRendering) {
-        throw new Error("A render function should never set it's own component's visiblity - once it's set it to false, it won't be able to set it to true again, because components hidden with `setVisible` will be prevented from rendering!");
-    }
-
     component._isHidden = !state;
     if (state) {
         component.el.style.setProperty("display", "", "")
@@ -603,8 +599,7 @@ export function newRenderGroup(): RenderGroup {
 
 export function inlineComponent(insFunction: (rg: RenderGroup) => Insertable) {
     const rg = newRenderGroup();
-    const c = newComponent(insFunction(rg), rg.render);
-    return c;
+    return newComponent(insFunction(rg), rg.render);
 }
 
 export function newInsertable<T extends HTMLElement>(el: T): Insertable<T> {
@@ -617,7 +612,9 @@ export function newInsertable<T extends HTMLElement>(el: T): Insertable<T> {
 export type Renderable<T = undefined> = Insertable & {
     /**
      * A renderable's arguments will be null until during or after the first render
-     * .args is actually a getter that will throw an error if they are null (but not if they are undefined, which is currently the only way to do stateless components)
+     * .args is actually a getter that will throw an error if they are null 
+     * (but not if they are undefined, which is currently the only way to do 
+     * stateless components)
      *
      * ```
      *

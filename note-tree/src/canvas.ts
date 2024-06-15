@@ -591,9 +591,9 @@ function Canvas() {
             charList.render((getNext) => {
                 for (let i = 0; i < rowList.length; i++) {
                     const c = getNext();
-                    c.render(rowList[i], true);
+                    c.render(rowList[i]);
                 }
-            }, true);
+            });
         });
 
         on(component, "mouseleave", () => {
@@ -928,9 +928,9 @@ function Canvas() {
 
         rowList.render((getNext) => {
             for (let i = 0; i < rows.length; i++) {
-                getNext().render(rows[i], true);
+                getNext().render(rows[i]);
             }
-        }, true);
+        });
     });
 
     document.addEventListener("mousedown", () => {
