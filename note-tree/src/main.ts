@@ -2250,7 +2250,7 @@ function CheatSheet(): Renderable {
             div({}, [ 
                 "The 'Download this page!' button is gone, now that you've downloaded the page." ,
                 ` Moving or renaming this file will result in all your data being lost, so make sure you download a copy of your JSON before you do that.`,
-                ` The same is true if I or my hosting provider decided to change the URL of this page - but you have far less control over that.`,
+                ` The same is true if I or my hosting provider decided to change the URL of this page - not something you need to worry about anymore, now that you've downloaded this page.`,
             ])
         ) : (
             div({}, [
@@ -2382,6 +2382,10 @@ function moveToLastNote(): boolean {
     }
 
     if (!hasNote(state, lastNoteId)) {
+        return false;
+    }
+
+    if (state.currentNoteId === lastNoteId) {
         return false;
     }
 
@@ -2596,22 +2600,9 @@ function HighLevelTaskDurations() {
     let hideBreaks = false;
     const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
 
-    const c = newComponent(root, render);
-
-    function render() {
-        rg.render();
-
-        renderBreaksCheckbox.render({
-            label: "Hide breaks",
-            value: hideBreaks,
-            onChange: (val) => {
-                hideBreaks = val;
-                render();
-            }
-        });
-
-
-        list.render((getNext) => {
+    function renderHltList() {
+        // recompute hlt map less frequently
+        if (!renderOptions.isTimer) { 
             hltMap.clear();
 
             const [hasRange, start, end] = getActivityRange(state);
@@ -2650,21 +2641,43 @@ function HighLevelTaskDurations() {
                 block.time += durationMs;
                 hltMap.set(hltText, block);
             }
+        }
 
-            if (!setVisible(list, hltMap.size > 0)) {
-                return;
-            }
+        if (!setVisible(list, hltMap.size > 0)) {
+            return;
+        }
 
-            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
+        // render hlt map
+        {
+            list.render((getNext) => {
+                const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
 
-            for (const [hltName, { time, nId }] of hltSorted) {
-                getNext().render({
-                    name: hltName, 
-                    durationMs: time,
-                    nId,
-                });
+                for (const [hltName, { time, nId }] of hltSorted) {
+                    getNext().render({
+                        name: hltName,
+                        durationMs: time,
+                        nId,
+                    });
+                }
+            });
+        }
+    }
+
+    const c = newComponent(root, render);
+
+    function render() {
+        rg.render();
+
+        renderBreaksCheckbox.render({
+            label: "Hide breaks",
+            value: hideBreaks,
+            onChange: (val) => {
+                hideBreaks = val;
+                render();
             }
         });
+
+        renderHltList(); 
     }
 
     return c;
@@ -2788,18 +2801,18 @@ export function App() {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" } , [
                 div({ class: "col flex-1 overflow-y-auto" }, [
-                    rg.if(() => currentHelpInfo === 2, rg.component(CheatSheet())),
+                    rg.if(() => currentHelpInfo === 2, (rg) => rg.c(CheatSheet())),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         el("H2", {}, [
                             rg.text(() => "Currently working on - " + formatDate(new Date(), undefined, true, true)),
                         ]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
-                        rg.component(DarkModeToggle()),
+                        rg.c(DarkModeToggle()),
                     ]),
                     errorBanner,
                     notesList,
-                    rg.if(() => state._isShowingDurations, rg.component(HighLevelTaskDurations())),
+                    rg.if(() => state._isShowingDurations, (rg) => rg.c(HighLevelTaskDurations())),
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea, 
                         bottomRightArea,
@@ -3340,9 +3353,10 @@ appendChild(
     app
 );
 
-const rerenderApp = (shouldScroll = true) => {
+const rerenderApp = (shouldScroll = true, isTimer = false) => {
     // there are actually very few times when we don't want to scroll to the current note
     renderOptions.shouldScroll = shouldScroll;
+    renderOptions.isTimer = isTimer;
     app.render(undefined);
 }
 
@@ -3355,7 +3369,7 @@ initState(() => {
     // I have decided that this is a viable approach, and is probably the easiest and simplest way to handle this for now.
     // Components should just be designed to work despite excessive re-renders anyway.
     setInterval(() => {
-        rerenderApp(false);
+        rerenderApp(false, true);
     }, 100);
 
     rerenderApp();

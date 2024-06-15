@@ -6,7 +6,7 @@ export function makeButton(text: string, classes: string = "", styles: string = 
         {
             type: "button",
             class: `solid-border ${classes} flex`,
-            style: `min-width: 25px; padding: 3px; margin: 5px; justify-content: center; ${styles}`,
+            style: `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px; justify-content: center; ${styles}`,
         },
         [text]
     );

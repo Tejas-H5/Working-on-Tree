@@ -1,4 +1,4 @@
-export type Insertable<T extends Element | Text = HTMLElement> = { 
+export type Insertable<T extends HTMLElement = HTMLElement> = { 
     el: T;
     _isHidden: boolean;
 };
@@ -92,6 +92,10 @@ export function setVisibleGroup(state: boolean, groupIf: Insertable[], groupElse
 }
 
 export function setVisible(component: Insertable, state: boolean | null | undefined): boolean {
+    if ("_isRendering" in component && component._isRendering) {
+        throw new Error("A render function should never set it's own component's visiblity - once it's set it to false, it won't be able to set it to true again, because components hidden with `setVisible` will be prevented from rendering!");
+    }
+
     component._isHidden = !state;
     if (state) {
         component.el.style.setProperty("display", "", "")
@@ -129,12 +133,12 @@ type ComponentPool<T extends Insertable> = {
     components: T[];
     lastIdx: number;
     getIdx(): number;
-    render(renderFn: (getNext: () => T) => void, noErrorBoundary?: boolean): void;
+    render(renderFn: (getNext: () => T) => void): void;
 }
 
 type KeyedComponentPool<K, T extends Insertable> = {
     components: Map<K, { c: T, del: boolean }>;
-    render(renderFn: (getNext: (key: K) => T) => void, noErrorBoundary?: boolean): void;
+    render(renderFn: (getNext: (key: K) => T) => void): void;
 }
 
 type ValidAttributeName = string;
@@ -248,7 +252,7 @@ export function el<T extends HTMLElement>(
     return insertable;
 }
 
-export type ChildList = string | (Insertable | Insertable<Text> | string | Insertable[] | false)[];
+export type ChildList = string | (Insertable | string | Insertable[] | false)[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
@@ -277,9 +281,7 @@ function handleRenderingError<T>(root: Insertable, renderFn: () => T | undefined
     } catch (e) {
         setErrorClass(root, true);
         console.error("An error occured while rendering your component:", e);
-    }
-
-    return undefined;
+    } 
 }
 
 export type ComponentList<T extends Insertable> = Insertable & ComponentPool<T>;
@@ -308,23 +310,20 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
 
     const renderer: ComponentList<T> = {
         el: root.el,
-        _isHidden: root._isHidden,
+        get _isHidden() { return root._isHidden; },
+        set _isHidden(val: boolean) { root._isHidden = val; },
         components: [],
         lastIdx: 0,
         getIdx() {
             // (We want to get the index of the current iteration, not the literal value of lastIdx)
             return this.lastIdx - 1;
         },
-        render(renderFnIn, noErrorBoundary = false) {
+        render(renderFnIn) {
             this.lastIdx = 0;
 
             renderFn = renderFnIn;
 
-            if (noErrorBoundary) {
-                renderFnBinded();
-            } else {
-                handleRenderingError(this, renderFnBinded);
-            }
+            handleRenderingError(this, renderFnBinded);
 
             while(this.components.length > this.lastIdx) {
                 const component = this.components.pop()!;
@@ -392,9 +391,10 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
     const updatedComponentList : HTMLElement[] = [];
     const renderer: KeyedComponentList<K, T> = {
         el: root.el,
-        _isHidden: root._isHidden,
+        get _isHidden() { return root._isHidden; },
+        set _isHidden(val: boolean) { root._isHidden = val; },
         components: new Map<K, { c: T, del: boolean }>(), 
-        render(renderFnIn, noErrorBoundary = false) {
+        render(renderFnIn) {
             renderFn = renderFnIn;
 
             for (const block of this.components.values()) {
@@ -408,11 +408,7 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
                 block.del = true;
             }
 
-            if (noErrorBoundary) {
-                renderFnBinded();
-            } else {
-                handleRenderingError(this, renderFnBinded);
-            }
+            handleRenderingError(this, renderFnBinded);
 
             for (const [k, v] of this.components) {
                 if (v.del) {
@@ -439,21 +435,14 @@ export function resizeInputToValue(inputComponent: InsertableInput) {
     setAttr(inputComponent, "size", "" + inputComponent.el .value.length);
 }
 
-function wasHiddenOrUninserted(ins: Insertable | Insertable<Text>) {
+function wasHiddenOrUninserted(ins: Insertable) {
     return ins._isHidden || !ins.el.parentElement;
 }
 
-function shouldAvoidRendering(ins: Insertable | Insertable<Text>) {
-    if (ins._isHidden) {
-        return true;
-    }
-
+function checkForRenderMistake(ins: Insertable) {
     if (!ins.el.parentElement) {
         console.warn("A component hasn't been inserted into the DOM, but we're trying to do things with it anyway. aborting.");
-        return true;
     }
-
-    return false;
 }
 
 /** 
@@ -462,11 +451,7 @@ function shouldAvoidRendering(ins: Insertable | Insertable<Text>) {
  * However, there are some niche use cases (100,000+ components) where you might need even more performance. 
  * In those cases, you will want to avoid calling this function if you know the text hasn't changed.
  */
-export function setText(component: Insertable | Insertable<Text>, text: string) {
-    if (shouldAvoidRendering(component)) {
-        return;
-    }
-
+export function setText(component: Insertable, text: string) {
     if ("rerender" in component) {
         console.warn("You might be overwriting a component's internal contents by setting it's text");
     };
@@ -520,7 +505,8 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
     let args: T | null = null;
     const component : Renderable<T> = {
         el: root.el,
-        _isHidden: root._isHidden,
+        get _isHidden() { return root._isHidden; },
+        set _isHidden(val: boolean) { root._isHidden = val; },
         get argsOrNull() {
             return args;
         },
@@ -531,77 +517,107 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
 
             return args;
         },
-        render(argsIn, noErrorBoundary = false) {
-            if (shouldAvoidRendering(this)) {
-                return;
-            }
+        render(argsIn) {
+            checkForRenderMistake(this);
 
             args = argsIn;
 
-            if (noErrorBoundary) {
-                return renderFn();
-            } else {
-                return handleRenderingError(this, renderFn);
-            }
+            handleRenderingError(this, renderFn);
         },
     };
 
     return component;
 }
 
-export function newRenderGroup() {
-    const updateFns: (() => void)[] =  [];
+export type RenderGroup = (<T extends Insertable>(el: T, updateFn: (el: T) => any) => Renderable) & {
+    render(): void;
+    text(fn: () => string): Renderable;
+    c(renderable: Renderable<undefined>): Renderable;
+    /** 
+     * NOTE: 
+     * only renders the component if argsFn doesn't return undefined. 
+     * For components that take in a single `undefined` argument, just use RenderGroup.c 
+     */
+    cArgs<T>(renderable: Renderable<T>, argsFn: () => T | undefined): Renderable;
+    list<T extends Insertable>(root: Insertable, Component: () => T, renderFn: (getNext: () => T) => void): Renderable;
+    /** c is typically created with rg.inline */
+    if(fn: () => boolean, insFn: (rg: RenderGroup) => Insertable): Renderable;
+    inline(insFn: (rg: RenderGroup) => Insertable): Renderable;
+};
 
-    const push = <T extends Insertable | Insertable<Text>>(el: T, updateFn: (el: T) => any): T  => {
-        updateFns.push(() => updateFn(el));
-        return el;
+export function newRenderGroup(): RenderGroup {
+    const renderables: Renderable[] =  [];
+
+    const push = <T extends Insertable>(el: T, updateFn: (el: T) => any): Renderable  => {
+        const c = newComponent(el, () => updateFn(el));
+        renderables.push(c);
+        return c;
     }
 
-    return Object.assign(push, {
+    const rg: RenderGroup = Object.assign(push, {
         render () {
-            for (const fn of updateFns) {
-               fn();
+            for (const r of renderables) {
+                r.render(undefined);
             }
         },
-        text: (fn: () => string): Insertable<Text> => {
-            return push(text(""), (el) => setText(el, fn()));
+        text: (fn: () => string): Renderable => {
+            const spanEl = el<HTMLSpanElement>("SPAN");
+            return push(spanEl, () => setText(spanEl, fn()));
         },
-        component: (renderable: Renderable<undefined>) => {
-            return push(renderable, (r) => r.render(undefined));
+        c: (renderable: Renderable<undefined>) => {
+            renderables.push(renderable);
+            return renderable;
         },
-        /** NOTE: only renders the component if argsFn isn't undefined */
-        componentArgs: <T>(renderable: Renderable<T>, argsFn: () => T | undefined) => {
-            return push(renderable, (r) => {
+        /** 
+         * only renders the component if argsFn doesn't return undefined. 
+         * For components that take in a single `undefined` argument, just use RenderGroup.c 
+         */
+        cArgs: <T>(renderable: Renderable<T>, argsFn: () => T | undefined) => {
+            return push(renderable, () => {
                 const args = argsFn();
                 if (args !== undefined) {
-                    r.render(args);
+                    renderable.render(args);
                 }
             });
         },
         list: <T extends Insertable>(root: Insertable, Component: () => T, renderFn: (getNext: () => T) => void) => {
-            return push(newListRenderer(root, Component), (list) => list.render(renderFn));
+            const list = newListRenderer(root, Component);
+            return push(list, () => list.render(renderFn));
         },
-        if: (fn: () => boolean, ins: Insertable) => {
-            return push(ins, (r) => setVisible(r, fn()));
+        /** {@link insFn} is a function that gets it's own render group as an input, which will only render if fn() returned true.  */
+        if: (fn: () => boolean, insFn: (rg: RenderGroup) => Insertable) => {
+            const c = inlineComponent(insFn);
+            return push(c, () => {
+                if (setVisible(c, fn())) {
+                    c.render(undefined);
+                }
+            });
+        },
+        inline: (insFunction: (rg: RenderGroup) => Insertable): Renderable => {
+            return rg.c(inlineComponent(insFunction));
         }
     });
+
+    return rg;
 }
 
-export function newInsertable<T extends HTMLElement | Text>(el: T): Insertable<T> {
+export function inlineComponent(insFunction: (rg: RenderGroup) => Insertable) {
+    const rg = newRenderGroup();
+    const c = newComponent(insFunction(rg), rg.render);
+    return c;
+}
+
+export function newInsertable<T extends HTMLElement>(el: T): Insertable<T> {
     return  {
         el,
         _isHidden: false,
     };
 }
 
-export function text(str: string): Insertable<Text> {
-    return newInsertable<Text>(document.createTextNode(str));
-}
-
 export type Renderable<T = undefined> = Insertable & {
     /**
      * A renderable's arguments will be null until during or after the first render
-     * .args is actually a getter that will throw an error if accessed before then.
+     * .args is actually a getter that will throw an error if they are null (but not if they are undefined, which is currently the only way to do stateless components)
      *
      * ```
      *
@@ -642,7 +658,7 @@ export type Renderable<T = undefined> = Insertable & {
      */
     args: T;
     argsOrNull: T | null;
-    render(args: T, noErrorBoundary?: boolean):void;
+    render(args: T):void;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
