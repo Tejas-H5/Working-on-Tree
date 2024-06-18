@@ -1,7 +1,7 @@
 import { Insertable, Renderable, div, newComponent, on } from "src/utils/dom-utils";
 import { makeButton } from "./button";
 
-type ModalArgs = { onClose(): void };
+export type ModalArgs = { onClose(): void };
 
 export function Modal(content: Insertable): Renderable<ModalArgs> {
     const closeButton = makeButton("X");

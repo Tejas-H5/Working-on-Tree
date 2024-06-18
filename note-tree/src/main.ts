@@ -3,7 +3,7 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
-import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
+import { Checkbox, DateTimeInput, Modal, ModalArgs, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
@@ -12,6 +12,7 @@ import {
     ChildList,
     Insertable,
     Renderable,
+    __experimental__inlineComponent,
     addChildren,
     appendChild,
     div,
@@ -108,6 +109,7 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
+import { InteractiveGraph } from "./Graph";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -1660,6 +1662,28 @@ function LoadBackupModal() {
     return component;
 }
 
+const modalArgs: ModalArgs = {
+    onClose() {
+        setCurrentModal(null);
+    }
+};
+
+function InteractiveGraphModal() {
+    type Args = {
+    };
+
+    return __experimental__inlineComponent<Args>((rg) =>  {
+        return rg.cArgs(
+            Modal(
+                div({ style: modalPaddingStyles(10) }, [
+                    rg.cArgs(InteractiveGraph(), () => ({ }))
+                ])
+            ),
+            () => modalArgs
+        );
+    });
+}
+
 function AsciiCanvasModal() {
     const asciiCanvas = AsciiCanvas();
     const modalComponent = Modal(
@@ -2726,11 +2750,14 @@ export function App() {
     ]);
 
     const asciiCanvasModal = AsciiCanvasModal();
+    const interactiveGraphModal = InteractiveGraphModal();
     const fuzzyFindModal = FuzzyFindModal();
     const deleteModal = DeleteModal();
     const loadBackupModal = LoadBackupModal();
     const linkNavModal = LinkNavModal();
     const exportModal = ExportModal();
+
+    currentModal = interactiveGraphModal;
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
@@ -2753,6 +2780,11 @@ export function App() {
         div({ class: "row align-items-end" }, [
             makeButtonWithCallback("Scratch Pad", () => {
                 setCurrentModal(asciiCanvasModal);
+            }),
+        ]),
+        div({ class: "row align-items-end" }, [
+            makeButtonWithCallback("Graph", () => {
+                setCurrentModal(interactiveGraphModal);
             }),
         ]),
         div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
@@ -2822,6 +2854,7 @@ export function App() {
             filterEditorRow,
         ]),
         asciiCanvasModal,
+        interactiveGraphModal,
         fuzzyFindModal,
         deleteModal,
         loadBackupModal,
@@ -3237,6 +3270,11 @@ export function App() {
             });
         }
 
+        if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
+            interactiveGraphModal.render({
+            })
+        }
+
         let error = "";
         if (state.criticalSavingError) {
             error = state.criticalSavingError;
@@ -3368,7 +3406,7 @@ initState(() => {
     // Components should just be designed to work despite excessive re-renders anyway.
     setInterval(() => {
         rerenderApp(false, true);
-    }, 100);
+    }, 1000 / 3);
 
     rerenderApp();
 });
