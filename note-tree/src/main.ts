@@ -2239,7 +2239,7 @@ function makeUnorderedList(text: (string | Insertable)[]) {
 function CheatSheet(): Renderable {
     function keymapDivs(keymap: string, desc: string) {
         return div({ class: "row" }, [
-            div({ style: "width: 500px" }, [keymap]),
+            div({ style: "width: 500px; padding-right: 50px;" }, [keymap]),
             div({ class: "flex-1" }, [desc]),
         ])
     }
@@ -2268,10 +2268,10 @@ function CheatSheet(): Renderable {
         el("H4", {}, ["Basic functionality, and shortcut keys"]),
         div({}),
         makeUnorderedList([
-            keymapDivs(`[Enter], while not editing`, `start editing the current note`),
-            keymapDivs(`[Enter], while editing`, `create a new note after the current note`),
-            keymapDivs(`[Ctrl] + [Enter]`, `create a new note 1 level below the current note`),
-            keymapDivs(`[Shift] + [Enter], while editing`, `insert new lines in the note text. Unless the note starts with --- in which case [Shift] + [Enter] adds a new note after this one, and [Enter] adds new lines.`),
+            keymapDivs(`[Enter], while not editing`, `Start editing the current note`),
+            keymapDivs(`[Enter], while editing`, `Create a new note after the current note. Unless the note starts with \`\`\` in which case [Enter] will just create new lines`),
+            keymapDivs(`[Shift] + [Enter], while editing`, `Insert new lines in the note text. Unless the note starts with \`\`\` in which case [Shift] + [Enter] adds a new note after this one`),
+            keymapDivs(`[Ctrl] + [Enter]`, `Create a new note 1 level below the current note`),
             keymapDivs(`[Esc], when editing`, `Stop editing`),
             keymapDivs(`[Up]/[PageUp]/[Home]/[Ctrl+Up], not editing`, `Move upwards various amounts`),
             keymapDivs(`[Down]/[PageDown]/[Home]/[Ctrl+Down], not editing`, `Move downwards various amounts`),
@@ -2285,10 +2285,13 @@ function CheatSheet(): Renderable {
             keymapDivs(`[Ctrl] + [Shift] + [Space]`, `Toggle the dock on/off`),
             keymapDivs(`[Ctrl] + [Shift] + [F]`, `Open the search modal`),
             keymapDivs(`[Ctrl] + [Shift] + [S]`, `Open the scratch pad`),
+            keymapDivs(`[Ctrl] + [Shift] + [D]`, `Enter 'duration mode'`),
             keymapDivs(`[Ctrl] + [/]`, `Find and open URLs above or below a note`),
             keymapDivs(`[Ctrl] + [Shift] + [1]`, `Make this note sticky. It will still be visible when youve scrolled down a lot.`),
-            keymapDivs(`[Ctrl] + [Shift] + [Left/Right]`, `Move back and forth between sequences of notes in the activity list, i.e if you wrote several notes one after the other, the previous notes in the sequence get skipped and you're taken straight to the end of the previous sequence. Some actions will save the previous note, which will be used before looking in the activity list.`),
-            keymapDivs(`[Ctrl] + [Shift] + [Up/Down]`, `Move up and down the TODO list. PageUp/PageDown won't work here due to web/browser reasons...`),
+            keymapDivs(`[Ctrl] + [Shift] + [Left/Right], when not in the TODO list`, `Move up and down the activity list 1 activity at a time`),
+            keymapDivs(`[Ctrl] + [Shift] + [Up/Down], when not in the TODO list`, `Enter the TODO List`),
+            keymapDivs(`[Ctrl] + [Shift] + [Up/Down], when in the TODO list`, `Move up and down the TODO list`),
+            keymapDivs(`[Ctrl] + [Shift] + [Left/Right], when in the TODO list`, `Change the scope of the TODO list. There are three scopes: Rightmost = Everything in progress under a specific high level task, Center = Every note in progress, Leftmost = The first note from every high level task that is in progress. I've found these really useful to get a handle on and move between everything I'm working on, or every individual task underneath one higher level task`),
         ]),
         el("H4", {}, ["Note statuses"]),
         makeUnorderedList([
@@ -2296,16 +2299,11 @@ function CheatSheet(): Renderable {
             noteStatusToString(STATUS_ASSUMED_DONE) + ` - This note is assumed to be done`,
             noteStatusToString(STATUS_DONE) + ` - This note has been manually marked as done by you`,
         ]),
-        el("H4", {}, ["TODO notes"]),
-        el("P", {}, ["Using specific text at the very start of a note can affect it's status:"]),
+        el("H4", {}, ["The TODO List"]),
         makeUnorderedList([
-            `Starting a note with >, >> or >>> will create a 'TODO note', and place it into the Backlog, Todo and In-Progress list respectively`,
-            `If you are underneath a TODO note, you can only see other notes under that TODO note, and you can't see TODO notes under those notes. 
-                This is a deliberate design decision, which allows you to effectively have >, >> ,>>> tasks within each other, while avoiding
-                flooding the TODO list with hundreds of tasks.`,
-            `Starting a note with DONE, Done, done, will mark a particular note and every note above it under the same note as DONE. 
-             A note can also be marked as DONE if every note under it has been marked as DONE.`,
-            `Move between TODO notes with [Ctrl] + [Shift] + [Up/Down]`,
+            `Every note without sub-notes that is in progress will appear in the TODO list, which can be entered with [Ctrl+Shift+Up/Down] and then traversed with Up/Down/Left/Right (more details above).`,
+            `Starting a note with > will keep it in progress even after moving on from it.`,
+            `Starting a note with >> will turn it into a 'higher level task'. Every in-progress note will be grouped under the higher level task that is any number of levels above it. This will become more obvious when you're traversing the TODO list, or when you are looking at the table of note durations.`,
         ]),
         el("H4", {}, ["The Activity List"]),
         makeUnorderedList([
@@ -2321,6 +2319,7 @@ function CheatSheet(): Renderable {
         makeUnorderedList([
             `Press [Ctrl + Shift + D] to toggle 'duration mode'. You can now see a bunch of solid bars below each activity that lets you see which tasks you worked on today.`,
             `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
+            `You should also see a table with rows for all the higher level tasks, and the time spent on them`,
         ]),
         el("H4", {}, ["Estimates"]),
         makeUnorderedList([
@@ -2552,10 +2551,9 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
     }
 
     const text = currentNote.data.text;
-    // Yeah, not sure why I didn't start with ``` tbh. That is what I'm used to in every other textfield
     // TODO: Not just starts with, but if this occurs anywhere before the current cursor position
     // TODO-TODO: not just anywhere after ```, but ignore if another ``` closes the previous ```
-    const shiftMakesNewNote = text.startsWith("---") || text.startsWith("```");
+    const shiftMakesNewNote = text.startsWith("```");
     if (shiftMakesNewNote === shiftPressed) {
         insertNoteAfterCurrent(state);
         return true;

@@ -64,8 +64,8 @@
 
 /** error handling and debugging */
 
-.catastrophic---error>* {
-    display: none;
+.catastrophic---error > * {
+    display: none !important;
 }
 
 .catastrophic---error::before {

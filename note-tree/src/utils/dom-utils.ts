@@ -121,8 +121,11 @@ export function isVisible(component: Renderable | Insertable): boolean {
         return false;
     }
 
-    const e = component.el;
-    return !!( e.offsetWidth || e.offsetHeight || e.getClientRects().length );
+    return isVisibleElement(component.el);
+}
+
+export function isVisibleElement(el: HTMLElement) {
+    return !!( el.offsetWidth || el.offsetHeight || el.getClientRects().length );
 }
 
 type ComponentPool<T extends Insertable> = {
@@ -258,6 +261,10 @@ export function div(attrs?: Attrs, children?: ChildList) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 
+export function span(attrs?: Attrs, children?: ChildList) {
+    return el<HTMLSpanElement>("SPAN", attrs, children);
+}
+
 export function divClass(className: string, attrs: Attrs = {}, children?: ChildList) {
     return setAttrs(div(attrs, children), { class: className }, true);
 }
@@ -319,7 +326,7 @@ export function newListRenderer<T extends Insertable>(root: Insertable, createFn
 
             renderFn = renderFnIn;
 
-            handleRenderingError(this, renderFnBinded);
+            renderFnBinded();
 
             while(this.components.length > this.lastIdx) {
                 const component = this.components.pop()!;
@@ -404,7 +411,7 @@ export function newKeyedListRenderer<K, T extends Insertable>(root: Insertable, 
                 block.del = true;
             }
 
-            handleRenderingError(this, renderFnBinded);
+            renderFnBinded();
 
             for (const [k, v] of this.components) {
                 if (v.del) {
@@ -483,11 +490,19 @@ export function setInputValue(component: InsertableInput, text: string) {
     inputElement.selectionEnd = selectionEnd;
 };
 
+
+type ComponentState<T> = {
+    argsOrNull: T | null;
+    args: T;
+}
+
 /** 
  * Makes a 'component'.
  * A component is exactly like a {@link el} return value in that it can be inserted into the dom with {@link el}, but
  * it also has a `rerender` function that can be used to hydrate itself, and possibly it's children.
  * You would need to do this yourself in renderFn, however.
+ * Consider using `const rg = newRenderGroup();` and then passing rg.render as the render function.
+ * {@link newRenderGroup}
  * 
  * @param root is a return-value from {@link el} that will be the root dom-node of this component
  * @param renderFn is called each time to rerender the comopnent.
@@ -496,29 +511,32 @@ export function setInputValue(component: InsertableInput, text: string) {
  * component re-renders.
  *
  */
-export function newComponent<T = undefined>(root: Insertable, renderFn: () => void) {
-    // We may be wrapping another component, i.e reusing it's root. So we should just do this
-    let args: T | null = null;
+export function newComponent<T = undefined>(root: Insertable, renderFn: () => void, state?: ComponentState<T>) {
+    if (!state) {
+        state = newComponentState<T>();
+    }
+
     const component : Renderable<T> = {
         el: root.el,
+        skipErrorBoundary: false,
         get _isHidden() { return root._isHidden; },
         set _isHidden(val: boolean) { root._isHidden = val; },
         get argsOrNull() {
-            return args;
+            return state.argsOrNull;
         },
         get args() {
-            if (args === null) {
-                throw new Error("Args will always be null before a component is rendered for the first time!");
-            }
-
-            return args;
+            return state.args;
         },
         render(argsIn) {
             checkForRenderMistake(this);
 
-            args = argsIn;
+            state.argsOrNull = argsIn;
 
-            handleRenderingError(this, renderFn);
+            if (component.skipErrorBoundary) {
+                renderFn();
+            } else {
+                handleRenderingError(this, renderFn);
+            }
         },
     };
 
@@ -527,20 +545,101 @@ export function newComponent<T = undefined>(root: Insertable, renderFn: () => vo
 
 export type RenderGroup = (<T extends Insertable>(el: T, updateFn: (el: T) => any) => Renderable) & {
     render(): void;
+    /** This is actually implemented with a SPAN and not a text node like you may have thought */
     text(fn: () => string): Renderable;
     c(renderable: Renderable<undefined>): Renderable;
     /** 
-     * NOTE: 
      * only renders the component if argsFn doesn't return undefined. 
-     * For components that take in a single `undefined` argument, just use RenderGroup.c 
+     * For components that take in a single `undefined` argument, just use {@link RenderGroup.c}
      */
     cArgs<T>(renderable: Renderable<T>, argsFn: () => T | undefined): Renderable;
     list<T extends Insertable>(root: Insertable, Component: () => T, renderFn: (getNext: () => T) => void): Renderable;
-    /** c is typically created with rg.inline */
+    /** {@link insFn} is a function that gets it's own render group as an input, which will only render if fn() returned true.  */
     if(fn: () => boolean, insFn: (rg: RenderGroup) => Insertable): Renderable;
-    inline(insFn: (rg: RenderGroup) => Insertable): Renderable;
 };
 
+/**
+ * This function allows you to declaratively define a component's behaviour, which can save a lot of time, and can work alongside a regular render function. 
+ *
+ * The following two components are identical in appearance and behaviour:
+ *
+ * ```
+ * function UserProfileBannerNoRendergroups() {
+ *      type Args = {
+ *          user: User;
+ *      }
+ *
+ *      const nameEl = div();
+ *      const infoList = newListRenderer(div(), UserProfileInfoPair);
+ *      const bioEl = div();
+ *
+ *      const root = div({}, [
+ *          nameEl,
+ *          bioEl,
+ *          infoList,
+ *      ]);
+ * 
+ *      function render() {
+ *          const { user } = c.args;
+ *
+ *          setText(nameEl, user.FirstName + " " + user.LastName;
+ *
+ *          setText(bioEl, user.ProfileInfo.Bio);
+ *
+ *          infoList.render((getNext) => {
+ *              // todo: display this info properly
+ *              for (const key in user.ProfileInfo) {
+ *                  if (key === "Bio") {
+ *                      continue;
+ *                  }
+ *
+ *                  getNext().render({ key: key, value: user.ProfileInfo[key] });
+ *              }
+ *          });
+ *      }
+ *
+ *      const c =  newComponent(root, render);
+ *      return c;
+ * }
+ *
+ * function UserProfileBannerRg() {
+ *      type Args = {
+ *          user: User;
+ *      }
+ *
+ *      const nameEl = div();
+ *      const infoList = newListRenderer(div(), UserProfileInfoPair);
+ *      const bioEl = div();
+ *
+ *      const rg = newRenderGroup();
+ *      const root = div({}, [
+ *          div({}, [ rg.text(() => c.args.user.FirstName + " " + c.args.user.LastName) ]),
+ *          div({}, [ rg.text(() => c.args.user.ProfileInfo.Bio) ],
+ *          rg.list(div(), UserProfileInfoPair, (getNext) => {
+ *              // todo: display this info properly
+ *              for (const key in user.ProfileInfo) {
+ *                  // We're already rendering this correctly
+ *                  if (key === "Bio") {
+ *                      continue;
+ *                  }
+ *
+ *                  getNext().render({ key: key, value: user.ProfileInfo[key] });
+ *              }
+ *          })
+ *      ]);
+ *
+ *      const c = newComponent<Args>(root, rg.render);
+ *      return c;
+ * }
+ * ```
+ *
+ * The render groups version is FAR easier to write (especially when you aren't 100% sure what data `User` actually contains and you're
+ * relying on autocomplete) and is fewer lines of code, and higher signal to noise ratio, at the expense of increased complexity.
+ * You will need to be awaire that each time you call `rg(el, fn)` or any of it's helpers, you're pushing a render function onto an array inside of `rg`, 
+ * and calling rg.render() will simply call each of these render methods one by one. 
+ * It's important that you only call these array-pushing functions only once when initializing the component, and not again inside of a render. 
+ *
+ */
 export function newRenderGroup(): RenderGroup {
     const renderables: Renderable[] =  [];
 
@@ -557,17 +656,13 @@ export function newRenderGroup(): RenderGroup {
             }
         },
         text: (fn: () => string): Renderable => {
-            const spanEl = el<HTMLSpanElement>("SPAN");
+            const spanEl = span();
             return push(spanEl, () => setText(spanEl, fn()));
         },
         c: (renderable: Renderable<undefined>) => {
             renderables.push(renderable);
             return renderable;
         },
-        /** 
-         * only renders the component if argsFn doesn't return undefined. 
-         * For components that take in a single `undefined` argument, just use RenderGroup.c 
-         */
         cArgs: <T>(renderable: Renderable<T>, argsFn: () => T | undefined) => {
             return push(renderable, () => {
                 const args = argsFn();
@@ -580,7 +675,6 @@ export function newRenderGroup(): RenderGroup {
             const list = newListRenderer(root, Component);
             return push(list, () => list.render(renderFn));
         },
-        /** {@link insFn} is a function that gets it's own render group as an input, which will only render if fn() returned true.  */
         if: (fn: () => boolean, insFn: (rg: RenderGroup) => Insertable) => {
             const c = inlineComponent(insFn);
             return push(c, () => {
@@ -589,18 +683,33 @@ export function newRenderGroup(): RenderGroup {
                 }
             });
         },
-        inline: (insFunction: (rg: RenderGroup) => Insertable): Renderable => {
-            return rg.c(inlineComponent(insFunction));
-        }
     });
 
     return rg;
 }
 
-export function inlineComponent(insFunction: (rg: RenderGroup) => Insertable) {
-    const rg = newRenderGroup();
-    return newComponent(insFunction(rg), rg.render);
+export function newComponentState<T = undefined>() {
+    const state: ComponentState<T> = {
+        argsOrNull: null,
+        get args() {
+            if (state.argsOrNull === null) {
+                throw new Error("Args will always be null before a component is rendered for the first time!");
+            }
+
+            return state.argsOrNull;
+        }
+    };
+
+    return state;
 }
+
+function inlineComponent<T = undefined>(insFunction: (rg: RenderGroup, state: ComponentState<T>) => Insertable) {
+    const rg = newRenderGroup();
+    const state = newComponentState<T>();
+    return newComponent<T>(insFunction(rg, state), rg.render, state);
+}
+
+export const __experimental__inlineComponent = inlineComponent;
 
 export function newInsertable<T extends HTMLElement>(el: T): Insertable<T> {
     return  {
@@ -656,6 +765,7 @@ export type Renderable<T = undefined> = Insertable & {
     args: T;
     argsOrNull: T | null;
     render(args: T):void;
+    skipErrorBoundary: boolean;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
@@ -700,18 +810,23 @@ export function setCssVars(vars: [string, string][]) {
     }
 };
 
+export type StyleGenerator = {
+    prefix: string;
+    makeClass(className: string, styles: string[]): string;
+};
+
 let lastClass = 0;
 /**
  * NOTE: this should always be called at a global scope on a *per-module* basis, and never on a per-component basis.
  * Otherwise you'll just have a tonne of duplicate styles lying around in the DOM. 
  */
-export function newStyleGenerator() {
+export function newStyleGenerator(): StyleGenerator {
     const root = el<HTMLStyleElement>("style", { type: "text/css" });
     document.body.appendChild(root.el);
 
     lastClass++;
 
-    const obj = {
+    const obj: StyleGenerator = {
         // css class names can't start with numbers, but uuids occasionally do. hence "s".
         // Also, I think the "-" is very important for preventing name collisions.
         prefix: "s" + lastClass + "-",

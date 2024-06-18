@@ -517,7 +517,6 @@ function Canvas() {
             const component = newComponent<CanvasCellArgs>(root, () => {
                 const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = component.args;
 
-
                 let [char, layer] = getChar(canvasState, i, j);
                 if (!layer) {
                     layer = getCurrentLayer(canvasState);
@@ -572,6 +571,9 @@ function Canvas() {
                 }
             });
 
+            // We want errors to be caught by the root canvas, not inside of this specific cell.
+            component.skipErrorBoundary = true;
+
             function handleMouseMovement() {
                 const mouseInputState = component.args.canvasState.mouseInputState;
                 mouseInputState.x = component.args.j;
@@ -595,6 +597,8 @@ function Canvas() {
                 }
             });
         });
+
+        component.skipErrorBoundary = true;
 
         on(component, "mouseleave", () => {
             canvasState.mouseInputState.x = -1;
