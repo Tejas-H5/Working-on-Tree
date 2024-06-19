@@ -4,6 +4,7 @@ import { logTrace } from "src/utils/log";
 import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
 import { assert } from "./utils/assert";
+import { countOccurances } from "./utils/array-utils";
 
 export type NoteId = string;
 export type TaskId = string;
@@ -486,7 +487,16 @@ export function recomputeState(state: State) {
                     || note.data._status === STATUS_ASSUMED_DONE;
             });
 
-            const isDone = everyChildNoteIsDone;
+            const lastNote = note.childIds.length === 0 ? undefined :
+                getNote(state, note.childIds[note.childIds.length - 1]);
+
+            // Make sure a note can only be closed out if all the notes under it are > 0
+            const lastChildNoteIsDoneLeafNote = lastNote && (
+                lastNote.childIds.length === 0 &&
+                isDoneNote(lastNote.data)
+            );
+
+            const isDone = everyChildNoteIsDone && lastChildNoteIsDoneLeafNote;
             note.data._status = isDone ? STATUS_DONE : STATUS_IN_PROGRESS;
         };
 
@@ -541,7 +551,6 @@ export function recomputeState(state: State) {
             }
 
             if (
-                note.childIds.length > 0 || 
                 note.data._status !== STATUS_IN_PROGRESS ||
                 note.data._isUnderCurrent
             ) {
@@ -672,16 +681,9 @@ export function isCurrentNoteOnOrInsideNote(state: State, note: TreeNote): boole
 
 export function isNoteUnderParent(state: State, parentId: NoteId, note: TreeNote): boolean {
     // one of the parents is the current note
-    let isParentCurrent = false;
-    tree.forEachParent(state.notes, note, (note) => {
-        if (note.id === parentId) {
-            isParentCurrent = true;
-            return true;
-        }
-        return false;
+    return tree.forEachParent(state.notes, note, (note) => {
+        return note.id === parentId;
     });
-
-    return isParentCurrent;
 }
 
 export function getActivityTextOrUndefined(state: State, activity: Activity): string | undefined {
@@ -1532,7 +1534,12 @@ export function findPreviousActiviyIndex(state: State, nId: NoteId, idx: number)
     const activities = state.activities;
     for (let i = idx - 1; i >= 0; i--) {
         const a = activities[i];
-        if (a.nId === nId) {
+        if (!a.nId) {
+            continue;
+        }
+
+        const aNote = getNote(state, a.nId);
+        if (isNoteUnderParent(state, nId, aNote)) {
             return i;
         }
     }
@@ -1541,11 +1548,15 @@ export function findPreviousActiviyIndex(state: State, nId: NoteId, idx: number)
 }
 
 export function findNextActiviyIndex(state: State, nId: NoteId, idx: number): number {
-    // Why couldn't they just have findLastIndex whyyyyyy??
     const activities = state.activities;
     for (let i = idx + 1; i < activities.length; i++) {
         const a = activities[i];
-        if (a.nId === nId) {
+        if (!a.nId) {
+            continue;
+        }
+
+        const aNote = getNote(state, a.nId);
+        if (isNoteUnderParent(state, nId, aNote)) {
             return i;
         }
     }

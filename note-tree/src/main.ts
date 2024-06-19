@@ -79,6 +79,7 @@ import {
     getNoteNUp,
     getNoteOneDownLocally,
     getNoteOneUpLocally,
+    getNoteOrUndefined,
     getNoteTextWithoutPriority,
     getRootNote,
     getSecondPartOfRow,
@@ -89,6 +90,7 @@ import {
     isCurrentlyTakingABreak,
     isDoneNoteWithExtraInfo,
     isEditableBreak,
+    isNoteUnderParent,
     loadState,
     loadStateFromBackup,
     newBreakActivity,
@@ -174,24 +176,11 @@ type TodoListInternalArgs = {
 };
 
 function scrollNavItem(children?: ChildList) {
-    // HACK: (only kind of a hack) the cursor isn't actually bg-color-focus, it is transparent, and it just pushes the row to the side. 
-    // The row has bg-color, whereas the root div behind it has --bg-color-focus
-    const cursor = div({ class: "pre", }, [" --> "]);
+    const cursor = div({ style: "background-color: var(--fg-color); min-width: 5px;" });
 
-    const root = div({
-        class: "row align-items-center",
-        style: "background-color: var(--bg-color-focus);"
-    }, [
+    const root = div({ class: "row align-items-stretch" }, [
         cursor,
-        div({
-            class: "hover-parent flex-1 handle-long-words",
-            style: "border-top: 1px solid var(--fg-color);" +
-                "border-left: 4px solid var(--fg-color);" +
-                "border-right: 1px solid var(--fg-color);" +
-                "border-bottom: 1px solid var(--fg-color);" +
-                "padding-left: 3px;" +
-                "background-color: var(--bg-color);"
-        }, children)
+        div({ class: "flex-1 handle-long-words" }, children)
     ]);
 
     return [root, cursor] as const;
@@ -223,26 +212,24 @@ function TodoListInternal() {
     function TodoListItem() {
         const rg = newRenderGroup();
         const [navRoot, cursor] = scrollNavItem([
-            div({ class: "flex-1 row align-items-center" }, [
-                div({ class: "flex-1" }, [
-                    rg(NoteLink(), (noteLink) => {
-                        const { text, focusAnyway, noteId } = c.args;
+            div({ class: "flex-1" }, [
+                rg(NoteLink(), (noteLink) => {
+                    const { text, focusAnyway, noteId } = c.args;
 
-                        noteLink.render({
-                            noteId,
-                            text,
-                            preventScroll: true,
-                            focusAnyway,
-                        });
-                    }),
-                ]),
+                    noteLink.render({
+                        noteId,
+                        text,
+                        preventScroll: true,
+                        focusAnyway,
+                    });
+                }),
             ]),
         ]);
-        rg(cursor, () => setVisible(cursor, c.args.hasCursor));
+    
         rg(navRoot, () => setClass(navRoot, "strikethrough", c.args.strikethrough));
 
-        const root = div({}, [
-            rg(el("H3", { style: "text-align: center" }), (heading) => {
+        const root = div({ class: "sb1b" }, [
+            rg(el("H3", { style: "text-align: center", class: "sb1b" }), (heading) => {
                 if (setVisible(heading, !!c.args.heading) && !!c.args.heading) {
                     setText(heading, c.args.heading)
                 }
@@ -250,11 +237,17 @@ function TodoListInternal() {
             navRoot, 
         ]);
 
+        rg(cursor, () => { 
+            if (setVisible(cursor, c.args.hasCursor)) {
+                setStyle(cursor, "backgroundColor", isInTodoList ? "var(--fg-color)" : "var(--bg-color-focus-2)");
+            }
+        });
+
         const c = newComponent<TodoItemArgs>(root, rg.render);
         return c;
     }
 
-    const root = div({ style: "padding: 0 5px" });
+    const root = div({});
     const todoItemsList = newListRenderer(root, TodoListItem);
 
     const c = newComponent<TodoListInternalArgs>(root, render);
@@ -283,13 +276,15 @@ function TodoListInternal() {
                     }
                 }
 
+                const progressCountText = getNoteProgressCountText(note);
+
                 const lc = getNext();
                 lc.render({
                     heading: hltHeading,
                     noteId: note.id,
-                    text: text,
+                    text:  (progressCountText ? getNoteProgressCountText(note) + " - " : "") + text,
                     strikethrough: note.data._status === STATUS_DONE,
-                    hasCursor: !!cursorNoteId && cursorNoteId === note.id,
+                    hasCursor: cursorNoteId === note.id,
                     focusAnyway,
                     cursorNoteId
                 });
@@ -420,7 +415,6 @@ function BreakInput() {
     return newComponent(root, renderBreakInput);
 }
 
-
 function ActivityListItem() {
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
@@ -433,13 +427,25 @@ function ActivityListItem() {
         div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
     ]);
 
+    let isInsertBreakRowOpen = false;
+    const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" });
+    on(breakInsertRowHitbox, "mouseenter", () => {
+        isInsertBreakRowOpen = true;
+        renderActivityListItem();
+    });
+    on(breakInsertRow, "mouseleave", () => {
+        isInsertBreakRowOpen = false;
+        renderActivityListItem();
+    });
+
     const deleteButton = makeButton("x");
     const noteLink = NoteLink();
     const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
     const timestamp = DateTimeInput();
     const timestampWrapper = div({ style: "" }, [timestamp]);
-    const visibleRow = div({ class: "hover-parent" }, [
-        div({ class: "row", style: "gap: 20px" }, [
+    const [visibleRow, cursor] = scrollNavItem([
+        breakInsertRowHitbox,
+        div({ class: "row", style: "gap: 20px; padding-bottom: 5px;" }, [
             div({ class: "flex-1" }, [
                 timestampWrapper,
                 div({ class: "row align-items-center", style: "padding-left: 20px" }, [
@@ -450,14 +456,9 @@ function ActivityListItem() {
             ]),
             durationEl,
         ])
-    ])
+    ]);
 
-    const root = div({}, [
-        div({ class: "hover-parent", style: "min-height: 10px" }, [
-            div({ class: "hover-target" }, [
-                breakInsertRow
-            ]),
-        ]),
+    const root = div({ class: "sb1b" }, [
         visibleRow,
     ]);
 
@@ -482,10 +483,10 @@ function ActivityListItem() {
     }
 
     function renderActivityListItem() {
-        const { activity, greyedOut, focus } = component.args;
+        const { activity, greyedOut, focus, hasCursor } = component.args;
 
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
-        setStyle(root, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
+        setStyle(visibleRow, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
 
         // I think all break text should just be editable...
         // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
@@ -504,7 +505,7 @@ function ActivityListItem() {
 
         if (setVisible(noteLink, !canEditBreakText)) {
             noteLink.render({
-                focusAnyway: false,
+                focusAnyway: focus,
                 noteId: activity.nId,
                 text: activityText,
             });
@@ -523,6 +524,20 @@ function ActivityListItem() {
         renderDuration();
 
         setVisible(deleteButton, isEditable());
+
+        if (!!breakInsertRow.el.parentNode && !breakInsertRow.el.matches(":hover")) {
+            isInsertBreakRowOpen = false;
+        }
+
+        if (isInsertBreakRowOpen && !breakInsertRow.el.parentNode) {
+            root.el.prepend(breakInsertRow.el);
+        } else if (!isInsertBreakRowOpen && !!breakInsertRow.el.parentNode) {
+            breakInsertRow.el.remove();
+        }
+
+        if (setVisible(cursor, hasCursor)) {
+            setStyle(cursor, "backgroundColor", isInHotlist ? "var(--fg-color)" : "var(--bg-color-focus-2)");
+        }
     }
 
     function updateActivityTime(date: Date | null) {
@@ -991,8 +1006,13 @@ function EditableActivityList() {
                         showDuration: true,
                         focus: false,
                         greyedOut: true,
+                        hasCursor: false,
                     });
                 }
+
+                const activityNote = getNoteOrUndefined(state, activity.nId);
+
+                const hasCursor = idx === state._currentlyViewingActivityIdx;
 
                 const c = getNext();
                 c.render({
@@ -1000,9 +1020,12 @@ function EditableActivityList() {
                     activity,
                     nextActivity,
                     showDuration: true,
-                    focus: activity.nId === state.currentNoteId,
+                    // focus: activity.nId === state.currentNoteId,
+                    focus: !!activityNote && isNoteUnderParent(state,  state.currentNoteId, activityNote),
+                    hasCursor,
                 });
-                if (idx === state._currentlyViewingActivityIdx) {
+
+                if (hasCursor) {
                     scrollEl = c;
                 }
 
@@ -1019,6 +1042,7 @@ function EditableActivityList() {
                         showDuration: true,
                         focus: false,
                         greyedOut: true,
+                        hasCursor: false,
                     });
                 }
             }
@@ -1237,6 +1261,7 @@ type ActivityListItemArgs = {
     showDuration: boolean;
     focus: boolean;
     greyedOut?: boolean;
+    hasCursor: boolean;
 };
 
 function ActivityFiltersEditor(): Renderable {
@@ -1447,6 +1472,7 @@ function FuzzyFinder(): Renderable {
         div({ class: "row align-items-center" }, [
             div({ style: "padding: 10px" }, ["Search:"]),
             searchInput,
+            div({ style: "width: 10px" }),
         ]),
         div({ style: "height: 10px" }),
         div({ class: "flex-1" }, [
@@ -1566,7 +1592,7 @@ function FuzzyFinder(): Renderable {
 function FuzzyFindModal(): Renderable {
     const fuzzyFind = FuzzyFinder();
     const modalComponent = Modal(
-        div({ class: "col h-100", style: modalPaddingStyles(10) }, [
+        div({ class: "col h-100", style: modalPaddingStyles(0) }, [
             fuzzyFind
         ])
     );
@@ -1582,7 +1608,7 @@ function FuzzyFindModal(): Renderable {
     return component;
 }
 
-function modalPaddingStyles(paddingPx: number, width = 94, height = 90) {
+function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
     return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
 }
 
@@ -1820,7 +1846,11 @@ function NoteRowInput() {
             if (isFocusedAndEditing) {
                 col = "#F00";
             } else if (isFocused) {
-                col = "var(--fg-color)";
+                if (!isInTodoList && !isInHotlist) {
+                    col = "var(--fg-color)";
+                } else {
+                    col = "var(--bg-color-focus-2)";
+                }
             } else if (isLastEditedNote) {
                 col = "#00F";
             }
@@ -2431,6 +2461,7 @@ function moveToLastNote(): boolean {
 
 function moveInDirectonOverHotlist(backwards: boolean) {
     if (backwards) {
+        // NOTE: there is currently no UI that says that we will go back to the previous note :(
         if (moveToLastNote()) {
             return;
         }
@@ -2473,6 +2504,7 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInTodoList = false;
+let todoListIndex = 0;
 function getCurrentTodoListIdx() {
     let currentIdx = -1;
     for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
@@ -2500,15 +2532,21 @@ function getCurrentTodoListIdx() {
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
-    let wantedIdx = getCurrentTodoListIdx();
     if (!isInTodoList) {
         isInTodoList = true;
+        
+        // moving down or up will start you off at the top or the current location respectively.
+        if (amount < 0) {
+            todoListIndex = getCurrentTodoListIdx();
+        } else {
+            todoListIndex = 0;
+        }
     } else {
-        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, wantedIdx + amount));
+        todoListIndex = Math.max(0, Math.min(todoNoteIds.length - 1, todoListIndex + amount));
     }
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._todoNoteIds[wantedIdx]);
+    setCurrentNote(state, state._todoNoteIds[todoListIndex]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -2612,7 +2650,20 @@ function HighLevelTaskDurations() {
     const list = newListRenderer(div(), Row);
     const renderBreaksCheckbox = Checkbox();
     const root = div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
-        el("H3", {}, [ "High level task durations" ]),
+        el("H3", {}, [ 
+            rg.text(() => {
+                if (state._activitiesFrom && state._activitiesTo) {
+                    return "Tasks from " + formatDate(state._activitiesFrom, undefined, true) + " to " + formatDate(state._activitiesTo, undefined, true);
+                }
+                if (state._activitiesFrom) {
+                    return "Tasks from " + formatDate(state._activitiesFrom, undefined, true);
+                }
+                if (state._activitiesTo) {
+                    return "Tasks to " + formatDate(state._activitiesTo, undefined, true);
+                }
+                return "High level task durations";
+            }) 
+        ]),
         div({ style: "padding-bottom: 10px" }, [
             renderBreaksCheckbox,
         ]),
@@ -2741,8 +2792,8 @@ export function App() {
     const notesList = NotesList();
     const todoList = TodoList();
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
-    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0 5px" });
-    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 5px;" })
+    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0" });
+    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 0" })
  
     const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
@@ -2757,7 +2808,7 @@ export function App() {
     const linkNavModal = LinkNavModal();
     const exportModal = ExportModal();
 
-    currentModal = interactiveGraphModal;
+    // currentModal = interactiveGraphModal;
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
@@ -3233,7 +3284,7 @@ export function App() {
             appendChild(rightPanelArea, todoListContainer);
         }
         todoList.render({ 
-            cursorNoteId: isInTodoList ? state._todoNoteIds[getCurrentTodoListIdx()] : undefined,
+            cursorNoteId: isInTodoList ? state._todoNoteIds[todoListIndex] : undefined,
         });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {

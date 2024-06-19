@@ -4,12 +4,7 @@ import { makeButton } from "./button";
 export type ModalArgs = { onClose(): void };
 
 export function Modal(content: Insertable): Renderable<ModalArgs> {
-    const closeButton = makeButton("X");
     const bgRect = div({ style: "background-color: var(--bg-color)" }, [
-        div({ class: "row", style: "z-index: 9999;" }, [ 
-            div({ class: "flex-1" }), 
-            closeButton
-        ]),
         content,
     ])
     const root = div({
@@ -18,8 +13,6 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
     }, [bgRect]);
 
     const component = newComponent<ModalArgs>(root, () => { });
-
-    on(closeButton, "click", () => component.args.onClose());
 
     // Clicking outside the modal should close it
     on(root, "click", () => component.args.onClose());
