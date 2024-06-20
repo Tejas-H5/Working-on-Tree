@@ -551,6 +551,7 @@ export function recomputeState(state: State) {
             }
 
             if (
+                note.parentId === null ||
                 note.data._status !== STATUS_IN_PROGRESS ||
                 note.data._isUnderCurrent
             ) {

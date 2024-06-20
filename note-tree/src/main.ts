@@ -111,7 +111,7 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
-import { InteractiveGraph } from "./Graph";
+import { InteractiveGraph } from "./graph";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -212,7 +212,7 @@ function TodoListInternal() {
     function TodoListItem() {
         const rg = newRenderGroup();
         const [navRoot, cursor] = scrollNavItem([
-            div({ class: "flex-1" }, [
+            div({ class: "flex-1", style: "padding-bottom: 10px" }, [
                 rg(NoteLink(), (noteLink) => {
                     const { text, focusAnyway, noteId } = c.args;
 
@@ -228,8 +228,8 @@ function TodoListInternal() {
     
         rg(navRoot, () => setClass(navRoot, "strikethrough", c.args.strikethrough));
 
-        const root = div({ class: "sb1b" }, [
-            rg(el("H3", { style: "text-align: center", class: "sb1b" }), (heading) => {
+        const root = div({}, [
+            rg(el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }), (heading) => {
                 if (setVisible(heading, !!c.args.heading) && !!c.args.heading) {
                     setText(heading, c.args.heading)
                 }
@@ -237,13 +237,18 @@ function TodoListInternal() {
             navRoot, 
         ]);
 
-        rg(cursor, () => { 
+        const c = newComponent<TodoItemArgs>(root, render);
+
+        function render() {
+            rg.render();
+
             if (setVisible(cursor, c.args.hasCursor)) {
                 setStyle(cursor, "backgroundColor", isInTodoList ? "var(--fg-color)" : "var(--bg-color-focus-2)");
             }
-        });
 
-        const c = newComponent<TodoItemArgs>(root, rg.render);
+            setStyle(navRoot, "backgroundColor", c.args.focusAnyway ? "var(--bg-color-focus)" : "");
+        }
+
         return c;
     }
 
@@ -319,6 +324,7 @@ function TodoList() {
     ]);
     const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }, true), [ 
         heading,
+        div({ class: "sb1b" }),
         empty,
         listInternal,
     ]);
@@ -445,7 +451,7 @@ function ActivityListItem() {
     const timestampWrapper = div({ style: "" }, [timestamp]);
     const [visibleRow, cursor] = scrollNavItem([
         breakInsertRowHitbox,
-        div({ class: "row", style: "gap: 20px; padding-bottom: 5px;" }, [
+        div({ class: "row", style: "gap: 20px; padding: 5px 0;" }, [
             div({ class: "flex-1" }, [
                 timestampWrapper,
                 div({ class: "row align-items-center", style: "padding-left: 20px" }, [
@@ -458,7 +464,7 @@ function ActivityListItem() {
         ])
     ]);
 
-    const root = div({ class: "sb1b" }, [
+    const root = div({}, [
         visibleRow,
     ]);
 
@@ -942,12 +948,12 @@ function EditableActivityList() {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
 
-    const listRoot = newListRenderer(div({ style: "border-bottom: 1px solid var(--fg-color);" }), ActivityListItem);
+    const listRoot = newListRenderer(div({ style: "" }), ActivityListItem);
     const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }, true), [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, [  ]);
-    const root = div({ class: "w-100 flex-1 col", style: "border-top: 1px solid var(--fg-color);" }, [
+    const root = div({ class: "w-100 flex-1 col", style: "" }, [
         statusTextEl,
         listScrollContainer,
         paginationControl,
@@ -1688,21 +1694,29 @@ function LoadBackupModal() {
     return component;
 }
 
-const modalArgs: ModalArgs = {
-    onClose() {
-        setCurrentModal(null);
-    }
-};
 
 function InteractiveGraphModal() {
     type Args = {
     };
 
+    const modalArgs: ModalArgs = {
+        onClose() {
+            // do nothing.
+        }
+    };
+
+    function onClose() {
+        setCurrentModal(null);
+    }
+
+
     return __experimental__inlineComponent<Args>((rg) =>  {
         return rg.cArgs(
             Modal(
                 div({ style: modalPaddingStyles(10) }, [
-                    rg.cArgs(InteractiveGraph(), () => ({ }))
+                    rg.cArgs(InteractiveGraph(), () => ({
+                        onClose,
+                    }))
                 ])
             ),
             () => modalArgs
@@ -2207,7 +2221,7 @@ function ActivityListContainer() {
     const breakInput = BreakInput();
     const root = div({ class: "flex-1 col" }, [
         div({ class: "flex row align-items-center", style: "user-select: none; padding-left: 10px;" }, [
-            el("H3", { style: "" }, ["Activity List"]),
+            el("H3", { style: "margin: 0; padding: 1em 0;", }, ["Activity List"]),
             div({ class: "flex-1" }),
             scrollActivitiesToTop,
             scrollActivitiesToMostRecent,
@@ -2215,6 +2229,7 @@ function ActivityListContainer() {
             div({ style: "width: 50px" }, [nextActivity]),
             div({ style: "width: 50px" }, [prevActivity]),
         ]),
+        div({ class: "sb1b" }),
         breakInput,
         activityList,
     ]);
@@ -2808,7 +2823,7 @@ export function App() {
     const linkNavModal = LinkNavModal();
     const exportModal = ExportModal();
 
-    // currentModal = interactiveGraphModal;
+    currentModal = interactiveGraphModal;
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
@@ -2945,8 +2960,13 @@ export function App() {
 
         if (currentModal !== null) {
             if (e.key === "Escape") {
-                e.preventDefault();
-                setCurrentModal(null);
+                // Somewhat hacky to make this kind of carve out for specific modals but not a big deal for now
+                if (
+                    currentModal !== interactiveGraphModal
+                ) {
+                    e.preventDefault();
+                    setCurrentModal(null);
+                }
             }
 
             // Don't need to do anything here if a modal is open.
