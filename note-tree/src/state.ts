@@ -4,7 +4,6 @@ import { logTrace } from "src/utils/log";
 import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
 import { assert } from "./utils/assert";
-import { countOccurances } from "./utils/array-utils";
 
 export type NoteId = string;
 export type TaskId = string;
@@ -1574,6 +1573,7 @@ export function resetState() {
     state = defaultState();
 }
 
+// TODO: rename to `globalState`
 export let state = defaultState();
 
 

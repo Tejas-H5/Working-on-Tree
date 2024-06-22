@@ -1,9 +1,10 @@
-import { Insertable, Renderable, div, newComponent, on } from "src/utils/dom-utils";
-import { makeButton } from "./button";
+import { Insertable, div, newComponent, newState, on } from "src/utils/dom-utils";
 
 export type ModalArgs = { onClose(): void };
 
-export function Modal(content: Insertable): Renderable<ModalArgs> {
+export function Modal(content: Insertable) {
+    const s = newState<ModalArgs>();
+
     const bgRect = div({ style: "background-color: var(--bg-color)" }, [
         content,
     ])
@@ -12,14 +13,13 @@ export function Modal(content: Insertable): Renderable<ModalArgs> {
         style: `top: 0vh; left: 0vw; right: 0vw; bottom: 0vh; z-index: 9999;`
     }, [bgRect]);
 
-    const component = newComponent<ModalArgs>(root, () => { });
 
     // Clicking outside the modal should close it
-    on(root, "click", () => component.args.onClose());
+    on(root, "click", () => s.args.onClose());
 
     // Clicking inside the modal shouldn't close it
     on(bgRect, "click", (e) => e.stopPropagation());
 
-    return component;
+    return newComponent(root, () => { }, s);
 }
 

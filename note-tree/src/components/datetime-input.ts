@@ -1,16 +1,16 @@
 import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
-import { Renderable, div, el, isEditingInput, newComponent, on, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { div, el, isEditingInput, newComponent, newState, on, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
-type DateTimeInputArgs = {
-    readOnly: boolean;
-    nullable: boolean;
-    value: Date | null;
-    label?: string;
-    onChange(val: Date | null):void;
-};
+export function DateTimeInput(initialLabel?: string) {
+    const s = newState<{
+        readOnly: boolean;
+        nullable: boolean;
+        value: Date | null;
+        label?: string;
+        onChange(val: Date | null): void;
+    }>();
 
-export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputArgs> {
     const show = div();
     const edit = el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
     const checkbox = Checkbox();
@@ -35,10 +35,10 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
 
     let lastDate: Date | null = null;
 
-    const component = newComponent<DateTimeInputArgs>(root, renderDateTimeInput);
+    const component = newComponent(root, renderDateTimeInput, s);
 
     function renderDateTimeInput() {
-        const { value, label, readOnly, nullable } = component.args;
+        const { value, label, readOnly, nullable } = s.args;
 
         const canEdit = readOnly && !!value;
 
@@ -68,7 +68,7 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
     }
     
     function onCheckOrUncheck(b: boolean) {
-        const { onChange } = component.args;
+        const { onChange } = s.args;
 
         if (b) {
             onChange(lastDate || new Date());
@@ -78,7 +78,7 @@ export function DateTimeInput(initialLabel?: string): Renderable<DateTimeInputAr
     }
 
     function handleTextfieldEdit() {
-        const { onChange } = component.args;
+        const { onChange } = s.args;
         const value = edit.el.value;
 
         const [date, err] = parseYMDTDateTime(value);

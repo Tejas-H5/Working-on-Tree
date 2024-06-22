@@ -11,7 +11,6 @@ import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestam
 import {
     ChildList,
     Insertable,
-    Renderable,
     __experimental__inlineComponent,
     addChildren,
     appendChild,
@@ -23,6 +22,7 @@ import {
     newInsertable,
     newListRenderer,
     newRenderGroup,
+    newState,
     newStyleGenerator,
     on,
     replaceChildren,
@@ -43,6 +43,7 @@ import * as tree from "src/utils/tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
+import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
     AppTheme,
@@ -111,26 +112,18 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
-import { InteractiveGraph } from "./graph";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.7";
+const VERSION_NUMBER = "v1.1.8";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
 
 const sg = newStyleGenerator();
-
-type NoteLinkArgs = {
-    text: string;
-    focusAnyway?: boolean;
-    noteId?: NoteId;
-    preventScroll?: boolean;
-};
 
 const cnHoverLink = sg.makeClass("hover-link", [
     `:hover{ cursor: pointer; }`,
@@ -138,10 +131,17 @@ const cnHoverLink = sg.makeClass("hover-link", [
 ]);
 
 function NoteLink() {
+    const s = newState<{
+        text: string;
+        focusAnyway?: boolean;
+        noteId?: NoteId;
+        preventScroll?: boolean;
+    }>();
+
     const root = div({ style: "padding:5px; ", class: "handle-long-words" })
 
     function renderNoteLink() {
-        const { text, noteId, focusAnyway } = component.args;
+        const { text, noteId, focusAnyway } = s.args;
 
         setClass(root, cnHoverLink, !!noteId);
         setText(root, truncate(text, 500));
@@ -153,7 +153,7 @@ function NoteLink() {
     }
 
     on(root, "click", () => {
-        const { noteId, preventScroll, } = component.args;
+        const { noteId, preventScroll, } = s.args;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
         // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
@@ -166,14 +166,9 @@ function NoteLink() {
         }, 1);
     });
 
-    const component = newComponent<NoteLinkArgs>(root, renderNoteLink);
+    const component = newComponent(root, renderNoteLink, s);
     return component;
 }
-
-type TodoListInternalArgs = {
-    setScrollEl?(c: Insertable): void;
-    cursorNoteId?: NoteId;
-};
 
 function scrollNavItem(children?: ChildList) {
     const cursor = div({ style: "background-color: var(--fg-color); min-width: 5px;" });
@@ -199,22 +194,22 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
 const NIL_HLT_HEADING = "<No higher level task>";
 
 function TodoListInternal() {
-    type TodoItemArgs = {
-        heading: string | undefined;
-        strikethrough: boolean;
-        hasCursor: boolean;
-        text: string;
-        noteId: string;
-        focusAnyway: boolean;
-        cursorNoteId: NoteId | undefined;
-    }
-
     function TodoListItem() {
+        const s = newState<{
+            heading: string | undefined;
+            strikethrough: boolean;
+            hasCursor: boolean;
+            text: string;
+            noteId: string;
+            focusAnyway: boolean;
+            cursorNoteId: NoteId | undefined;
+        }>();
+
         const rg = newRenderGroup();
         const [navRoot, cursor] = scrollNavItem([
             div({ class: "flex-1", style: "padding-bottom: 10px" }, [
                 rg(NoteLink(), (noteLink) => {
-                    const { text, focusAnyway, noteId } = c.args;
+                    const { text, focusAnyway, noteId } = s.args;
 
                     noteLink.render({
                         noteId,
@@ -225,40 +220,41 @@ function TodoListInternal() {
                 }),
             ]),
         ]);
-    
-        rg(navRoot, () => setClass(navRoot, "strikethrough", c.args.strikethrough));
+
+        rg(navRoot, () => setClass(navRoot, "strikethrough", s.args.strikethrough));
 
         const root = div({}, [
             rg(el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }), (heading) => {
-                if (setVisible(heading, !!c.args.heading) && !!c.args.heading) {
-                    setText(heading, c.args.heading)
+                if (setVisible(heading, !!s.args.heading) && !!s.args.heading) {
+                    setText(heading, s.args.heading)
                 }
             }),
-            navRoot, 
+            navRoot,
         ]);
-
-        const c = newComponent<TodoItemArgs>(root, render);
 
         function render() {
             rg.render();
 
-            if (setVisible(cursor, c.args.hasCursor)) {
+            if (setVisible(cursor, s.args.hasCursor)) {
                 setStyle(cursor, "backgroundColor", isInTodoList ? "var(--fg-color)" : "var(--bg-color-focus-2)");
             }
 
-            setStyle(navRoot, "backgroundColor", c.args.focusAnyway ? "var(--bg-color-focus)" : "");
+            setStyle(navRoot, "backgroundColor", s.args.focusAnyway ? "var(--bg-color-focus)" : "");
         }
 
-        return c;
+        return newComponent(root, render, s);
     }
+
+    const s = newState<{
+        setScrollEl?(c: Insertable): void;
+        cursorNoteId?: NoteId;
+    }>();
 
     const root = div({});
     const todoItemsList = newListRenderer(root, TodoListItem);
 
-    const c = newComponent<TodoListInternalArgs>(root, render);
-
     function render() {
-        const { setScrollEl, cursorNoteId } = c.args;
+        const { setScrollEl, cursorNoteId } = s.args;
         let alreadyScrolled = false;
 
         todoItemsList.render((getNext) => {
@@ -287,7 +283,7 @@ function TodoListInternal() {
                 lc.render({
                     heading: hltHeading,
                     noteId: note.id,
-                    text:  (progressCountText ? getNoteProgressCountText(note) + " - " : "") + text,
+                    text: (progressCountText ? getNoteProgressCountText(note) + " - " : "") + text,
                     strikethrough: note.data._status === STATUS_DONE,
                     hasCursor: cursorNoteId === note.id,
                     focusAnyway,
@@ -307,37 +303,37 @@ function TodoListInternal() {
         });
     }
 
-    return c;
-}
-
-type TodoListArgs = {
-    cursorNoteId?: NoteId;
+    return newComponent(root, render, s);
 }
 
 function TodoList() {
+    const s = newState<{
+        cursorNoteId?: NoteId;
+    }>();
+
     const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, ["TODO Lists"]);
     const listInternal = TodoListInternal();
     const empty = div({}, [
-       `Notes starting with '>' get put into the TODO list! 
+        `Notes starting with '>' get put into the TODO list! 
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }, true), [ 
+    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }, true), [
         heading,
-        div({ class: "sb1b" }),
+        div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
         empty,
         listInternal,
     ]);
 
-    const comopnent = newComponent<TodoListArgs>(root, renderTodoList);
+    const comopnent = newComponent(root, renderTodoList, s);
 
     function renderTodoList() {
-        const { cursorNoteId } = comopnent.args;
+        const { cursorNoteId } = s.args;
 
         setVisible(empty, state._todoNoteIds.length === 0);
 
-        const leftArrow = isInTodoList ? "<- "  : "";
-        const rightArrow = isInTodoList ? " ->"  : "";
+        const leftArrow = isInTodoList ? "<- " : "";
+        const rightArrow = isInTodoList ? " ->" : "";
 
         let headingText = leftArrow + "Everything in progress" + rightArrow;
         if (state._todoNoteFilters === -1) {
@@ -422,6 +418,17 @@ function BreakInput() {
 }
 
 function ActivityListItem() {
+    const s = newState<{
+        previousActivity: Activity | undefined;
+        activity: Activity;
+        nextActivity: Activity | undefined;
+        showDuration: boolean;
+        focus: boolean;
+        greyedOut?: boolean;
+        hasCursor: boolean;
+    }>();
+
+
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
     );
@@ -468,20 +475,20 @@ function ActivityListItem() {
         visibleRow,
     ]);
 
-    const component = newComponent<ActivityListItemArgs>(root, renderActivityListItem);
+    const component = newComponent(root, renderActivityListItem, s);
 
     function isEditable() {
-        const { activity, greyedOut } = component.args;
+        const { activity, greyedOut } = s.args;
         return !greyedOut && isEditableBreak(activity);
     }
 
     function renderDuration() {
-        const { activity, nextActivity, showDuration, } = component.args;
+        const { activity, nextActivity, showDuration, } = s.args;
 
         // The idea is that only breaks we insert ourselves retroactively are editable, as these times
         // did not come from the computer's sytem time but our own subjective memory
         const isAnApproximation = isEditable();
-        
+
         if (setVisible(durationEl, showDuration)) {
             const durationStr = (isAnApproximation ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
             setText(durationEl, durationStr);
@@ -489,7 +496,7 @@ function ActivityListItem() {
     }
 
     function renderActivityListItem() {
-        const { activity, greyedOut, focus, hasCursor } = component.args;
+        const { activity, greyedOut, focus, hasCursor } = s.args;
 
         setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
         setStyle(visibleRow, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
@@ -551,7 +558,7 @@ function ActivityListItem() {
             return;
         }
 
-        const { previousActivity, activity, nextActivity } = component.args;
+        const { previousActivity, activity, nextActivity } = s.args;
 
         if (previousActivity) {
             // don't update our date to be before the previous time
@@ -574,7 +581,7 @@ function ActivityListItem() {
     }
 
     on(insertBreakButton, "click", () => {
-        const { activity, nextActivity } = component.args;
+        const { activity, nextActivity } = s.args;
 
         const idx = state.activities.indexOf(activity);
         if (idx === -1) {
@@ -593,7 +600,7 @@ function ActivityListItem() {
     });
 
     on(deleteButton, "click", () => {
-        const { activity } = component.args;
+        const { activity } = s.args;
 
         if (!isEditableBreak(activity)) {
             // can only delete breaks
@@ -610,7 +617,7 @@ function ActivityListItem() {
     });
 
     on(noteLink, "click", () => {
-        const { activity } = component.args;
+        const { activity } = s.args;
         if (!activity.nId) {
             return;
         }
@@ -620,7 +627,7 @@ function ActivityListItem() {
     });
 
     function handleBreakTextEdit() {
-        const { activity } = component.args;
+        const { activity } = s.args;
 
         // 'prevent' clearing it out
         const val = breakEdit.el.value || activity.breakInfo;
@@ -682,25 +689,23 @@ function ExportModal() {
         }),
     ]));
 
-    const component = newComponent(root, renderExportModal)
-
     function renderExportModal() {
         root.render({
             onClose: () => setCurrentModal(null)
         });
     };
 
-    return component;
+    return newComponent(root, renderExportModal);
 }
 
-function DeleteModal(): Renderable {
-    const heading = el("H2", { style: "text-align: center" }, [ "Delete current note" ]);
+function DeleteModal() {
+    const heading = el("H2", { style: "text-align: center" }, ["Delete current note"]);
     const textEl = div();
     const countEl = div();
     const timeEl = div();
     const recentEl = div();
     const deleteButton = makeButton("Delete Note");
-    const cantDelete = div({}, [ "Can't delete notes that are still in progress..." ]);
+    const cantDelete = div({}, ["Can't delete notes that are still in progress..."]);
     const root = Modal(div({ style: modalPaddingStyles(10, 70, 50) }, [
         heading,
         textEl,
@@ -714,8 +719,8 @@ function DeleteModal(): Renderable {
             cantDelete,
         ]),
         div({ style: "height: 20px" }),
-        div({ style: "text-align: center" }, [ 
-            "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required." 
+        div({ style: "text-align: center" }, [
+            "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
         ])
     ]));
 
@@ -730,12 +735,10 @@ function DeleteModal(): Renderable {
         deleteDoneNote(state, currentNote);
         setCurrentModal(null);
         showStatusText(
-            "Deleted!" + 
+            "Deleted!" +
             (Math.random() < 0.05 ? " - Good riddance..." : "")
         );
     });
-
-    const component = newComponent(root, renderDeleteModal);
 
     function renderDeleteModal() {
         const currentNote = getCurrentNote(state);
@@ -765,30 +768,30 @@ function DeleteModal(): Renderable {
         setVisible(cantDelete, !canDelete);
     }
 
-    return component;
+    return newComponent(root, renderDeleteModal);
 }
 
-function LinkNavModal(): Renderable {
+function LinkNavModal() {
     function LinkItem() {
-        type LinkItemArgs = {
+        const s = newState<{
             noteId: NoteId;
             text: string;
             range: Range;
             url: string;
             isFocused: boolean;
-        };
-        
-        const textEl = HighlightedText();
-        const [root, cursor] = scrollNavItem([ textEl ]);
+        }>();
 
-        const component = newComponent<LinkItemArgs>(root, renderLinkItem);
+        const textEl = HighlightedText();
+        const [root, cursor] = scrollNavItem([textEl]);
+
+        const component = newComponent(root, renderLinkItem, s);
 
         function renderLinkItem() {
-            const { text, range, isFocused, noteId } = component.args;
+            const { text, range, isFocused, noteId } = s.args;
 
             textEl.render({
-                text, 
-                highlightedRanges: [ range ]
+                text,
+                highlightedRanges: [range]
             });
             setVisible(cursor, isFocused);
             setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
@@ -805,14 +808,13 @@ function LinkNavModal(): Renderable {
     const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
     const root = Modal(
         div({}, [
-            content, 
+            content,
             empty,
         ])
     );
 
     let idx = 0;
     let lastNote: TreeNote | undefined;
-    const component = newComponent(root, renderLinkNavModal);
 
     function renderLinkNavModal() {
         const currentNote = getCurrentNote(state);
@@ -893,10 +895,12 @@ function LinkNavModal(): Renderable {
 
     function rerenderItems() {
         for (let i = 0; i < linkList.components.length; i++) {
-            linkList.components[i].args.isFocused = i === idx;
-            linkList.components[i].render(linkList.components[i].args);
+            linkList.components[i].state.args.isFocused = i === idx;
+            linkList.components[i].render(linkList.components[i].state.args);
         }
     }
+
+    const component = newComponent(root, renderLinkNavModal, newState());
 
     document.addEventListener("keydown", (e) => {
         if (currentModal !== component) {
@@ -918,7 +922,7 @@ function LinkNavModal(): Renderable {
         } else if (e.key === "Enter") {
             e.preventDefault();
 
-            const { url, noteId } = linkList.components[idx].args;
+            const { url, noteId } = linkList.components[idx].state.args;
             e.stopImmediatePropagation();
 
             if (e.shiftKey) {
@@ -939,12 +943,12 @@ function LinkNavModal(): Renderable {
 }
 
 
-type EditableActivityListArgs = {
-    activityIndexes: number[] | undefined;
-    pageSize?: number;
-};
-
 function EditableActivityList() {
+    const s = newState<{
+        activityIndexes: number[] | undefined;
+        pageSize?: number;
+    }>();
+
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
     const paginationControl = PaginationControl();
 
@@ -952,7 +956,7 @@ function EditableActivityList() {
     const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }, true), [
         listRoot,
     ]);
-    const statusTextEl = div({ class: "text-align-center" }, [  ]);
+    const statusTextEl = div({ class: "text-align-center" }, []);
     const root = div({ class: "w-100 flex-1 col", style: "" }, [
         statusTextEl,
         listScrollContainer,
@@ -960,11 +964,10 @@ function EditableActivityList() {
     ]);
 
     let lastIdx = -1;
-    const component = newComponent<EditableActivityListArgs>(root, rerenderActivityList);
-
+    const component = newComponent(root, rerenderActivityList, s);
 
     function rerenderActivityList() {
-        const { pageSize, activityIndexes } = component.args;
+        const { pageSize, activityIndexes } = s.args;
 
         pagination.pageSize = pageSize || 10;
         if (lastIdx !== state._currentlyViewingActivityIdx) {
@@ -998,8 +1001,8 @@ function EditableActivityList() {
 
                 // If there was a discontinuity in the activities/indicies, we want to render the next activity.
                 // This gives us more peace of mind in terms of where the duration came from
-                const hasDiscontinuity = idx !== -1 && 
-                    idx + 1 < activities.length - 1 && 
+                const hasDiscontinuity = idx !== -1 &&
+                    idx + 1 < activities.length - 1 &&
                     lastRenderedIdx !== idx + 1;
                 lastRenderedIdx = idx;
 
@@ -1027,7 +1030,7 @@ function EditableActivityList() {
                     nextActivity,
                     showDuration: true,
                     // focus: activity.nId === state.currentNoteId,
-                    focus: !!activityNote && isNoteUnderParent(state,  state.currentNoteId, activityNote),
+                    focus: !!activityNote && isNoteUnderParent(state, state.currentNoteId, activityNote),
                     hasCursor,
                 });
 
@@ -1036,7 +1039,7 @@ function EditableActivityList() {
                 }
 
                 if (
-                    i + 1 === activitiesToRender && 
+                    i + 1 === activitiesToRender &&
                     idx - 2 >= 0
                 ) {
                     const previousPreviousActivity = activities[idx - 2];
@@ -1081,9 +1084,9 @@ function EditableActivityList() {
 }
 
 function TextArea(): Insertable<HTMLTextAreaElement> {
-    const textArea = el<HTMLTextAreaElement>("TEXTAREA", { 
-        class: "pre-wrap w-100 h-100", 
-        style: "border: 1px var(--fg-color) solid; padding: 0;" 
+    const textArea = el<HTMLTextAreaElement>("TEXTAREA", {
+        class: "pre-wrap w-100 h-100",
+        style: "border: 1px var(--fg-color) solid; padding: 0;"
     });
 
     on(textArea, "keydown", (e) => {
@@ -1094,6 +1097,7 @@ function TextArea(): Insertable<HTMLTextAreaElement> {
             // inserting a tab like this should also preserve undo, unlike value setting approaches
             // TODO: stop using deprecated API 
             //      (I doubt it will be a problem though - I bet most browsers will support this for a long while, else risk breaking a LOT of websites)
+            // @ts-ignore
             document.execCommand("insertText", false, "\t");
         }
     })
@@ -1141,9 +1145,11 @@ function getNoteProgressCountText(note: TreeNote): string {
     return progressText;
 }
 
-function NoteRowText(): Renderable<NoteRowArgs> {
+function NoteRowText() {
+    const s = newState<NoteRowArgs>();
+
     const indentWidthEl = div({ class: "pre", style: "padding-right: 5px" });
-    const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; "});
+    const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; " });
 
     const whenNotEditing = div({ class: "handle-long-words", style: "" });
     const whenEditing = TextArea();
@@ -1160,10 +1166,10 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     let lastNote: TreeNote | undefined = undefined;
     let isFocused = false;
     let isEditing = false;
-    const component = newComponent<NoteRowArgs>(root, renderNoteRow);
+    const component = newComponent(root, renderNoteRow, s);
 
     function updateTextContentAndSize() {
-        const { note } = component.args;
+        const { note } = s.args;
 
         setInputValue(whenEditing, note.data.text);
         lastNote = note;
@@ -1173,16 +1179,16 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     }
 
     function renderNoteRow() {
-        const { note } = component.args;
+        const { note } = s.args;
 
         const currentNote = getCurrentNote(state);
         const isOnSameLevel = currentNote.parentId === note.parentId;
 
         // This is mainly so that multi-line notes won't take up so much space as a parent note
-        setStyle(root, "whiteSpace", isOnSameLevel ? "pre-wrap" : "nowrap" );
+        setStyle(root, "whiteSpace", isOnSameLevel ? "pre-wrap" : "nowrap");
 
         const indentText = noteStatusToString(note.data._status);
-        setText(indentEl, indentText + getNoteProgressCountText(note) +  " - ");
+        setText(indentEl, indentText + getNoteProgressCountText(note) + " - ");
         const INDENT = 1;
         const INDENT2 = 4;
         const indent1 = INDENT * note.data._depth;
@@ -1216,7 +1222,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
     }
 
     on(whenEditing, "input", () => {
-        const { note } = component.args;
+        const { note } = s.args;
 
         // Perform a partial update on the state, to just the thing we're editing
 
@@ -1260,17 +1266,7 @@ function NoteRowText(): Renderable<NoteRowArgs> {
 }
 
 
-type ActivityListItemArgs = {
-    previousActivity: Activity | undefined;
-    activity: Activity;
-    nextActivity: Activity | undefined;
-    showDuration: boolean;
-    focus: boolean;
-    greyedOut?: boolean;
-    hasCursor: boolean;
-};
-
-function ActivityFiltersEditor(): Renderable {
+function ActivityFiltersEditor() {
     function onChange() {
         rerenderApp(false);
     }
@@ -1286,12 +1282,12 @@ function ActivityFiltersEditor(): Renderable {
 
         if (state._activitiesFrom) {
             updateFn(state._activitiesFrom);
-            updated=true;
+            updated = true;
         }
 
         if (state._activitiesTo) {
             updateFn(state._activitiesTo);
-            updated=true;
+            updated = true;
         }
 
         if (updated) {
@@ -1303,7 +1299,7 @@ function ActivityFiltersEditor(): Renderable {
         decrDay = makeButtonWithCallback("-1d", () => updateDate((d) => addDays(d, -1))),
         incrWeek = makeButtonWithCallback("+7d", () => updateDate((d) => addDays(d, 7))),
         decrWeek = makeButtonWithCallback("-7d", () => updateDate((d) => addDays(d, -7))),
-        incrMonth = makeButtonWithCallback("+30d",() => updateDate((d) => addDays(d, 30))),
+        incrMonth = makeButtonWithCallback("+30d", () => updateDate((d) => addDays(d, 30))),
         decrMonth = makeButtonWithCallback("-30d", () => updateDate((d) => addDays(d, -30)));
 
     const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
@@ -1327,7 +1323,7 @@ function ActivityFiltersEditor(): Renderable {
         onlyUnderCurrentNote,
     ]);
 
-    const component = newComponent(root, () => {
+    function render() {
         dateFrom.render({
             value: state._activitiesFrom,
             readOnly: false,
@@ -1355,9 +1351,9 @@ function ActivityFiltersEditor(): Renderable {
                 onChange();
             }
         });
-    });
+    }
 
-    return component;
+    return newComponent(root, render);
 }
 
 // yep, doesnt need any info about the matches, total count, etc.
@@ -1373,34 +1369,31 @@ function getMinFuzzyFindScore(query: string, strict = false) {
 
 function HighlightedText() {
     function Span() {
+        const s = newState<{
+            highlighted: boolean;
+            text: string;
+        }>();
+
         const root = el("SPAN", { class: "" })
 
-        type Args = { 
-            highlighted: boolean; 
-            text: string; 
-        };
-
-        const component = newComponent<Args>(root, renderSpan);
-
         function renderSpan() {
-            setText(root, component.args.text);
-            setClass(root, "unfocused-text-color", !component.args.highlighted);
+            setText(root, s.args.text);
+            setClass(root, "unfocused-text-color", !s.args.highlighted);
         }
 
-        return component;
+        return newComponent(root, renderSpan, s);
     }
+
+    const s = newState<{
+        text: string;
+        highlightedRanges: Range[];
+    }>();
 
     const root = div({});
     const list = newListRenderer(root, Span);
 
-    type Args = {
-        text: string;
-        highlightedRanges: Range[];
-    }
-    const component = newComponent<Args>(root, renderHighlightedText);
-
     function renderHighlightedText() {
-        const { highlightedRanges: ranges, text } = component.args;
+        const { highlightedRanges: ranges, text } = s.args;
 
         list.render((getNext) => {
             let last = 0;
@@ -1412,7 +1405,7 @@ function HighlightedText() {
 
                 const part2 = text.substring(start, end);
                 if (part2) {
-                    getNext().render({ text: part2, highlighted: true});
+                    getNext().render({ text: part2, highlighted: true });
                 }
 
                 last = end;
@@ -1425,25 +1418,23 @@ function HighlightedText() {
         });
     }
 
-    return component;
+    return newComponent(root, renderHighlightedText, s);
 }
 
-function FuzzyFinder(): Renderable {
-    type ResultArgs = {
-        text: string;
-        ranges: Range[];
-        hasFocus: boolean;
-    }
-
+function FuzzyFinder() {
     function FindResultItem() {
+        const s = newState<{
+            text: string;
+            ranges: Range[];
+            hasFocus: boolean;
+        }>();
+
         const textDiv = HighlightedText();
-        const [root, cursor] = scrollNavItem([ textDiv ]);
+        const [root, cursor] = scrollNavItem([textDiv]);
         let lastRanges: any = null;
 
-        const component = newComponent<ResultArgs>(root, renderFindResultItem);
-
         function renderFindResultItem() {
-            const { text, ranges, hasFocus } = component.args;
+            const { text, ranges, hasFocus } = s.args;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
             if (ranges !== lastRanges) {
@@ -1460,7 +1451,7 @@ function FuzzyFinder(): Renderable {
             }
         }
 
-        return component;
+        return newComponent(root, renderFindResultItem, s);
     };
 
     const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), FindResultItem);
@@ -1547,16 +1538,15 @@ function FuzzyFinder(): Renderable {
     function rerenderList() {
         for (let i = 0; i < matches.length; i++) {
             const c = resultList.components[i];
-            c.args.hasFocus = i === currentSelectionIdx;
-            c.render(c.args);
+            c.state.args.hasFocus = i === currentSelectionIdx;
+            c.render(c.state.args);
         }
     }
 
-
-    const component = newComponent(root, () => {
+    function render() {
         searchInput.el.focus();
         rerenderSearch();
-    });
+    }
 
     on(searchInput, "keydown", (e) => {
         if (e.key === "Enter") {
@@ -1590,12 +1580,13 @@ function FuzzyFinder(): Renderable {
             rerenderList();
         }
     });
+
     on(searchInput, "input", rerenderSearch);
 
-    return component;
+    return newComponent(root, render);
 }
 
-function FuzzyFindModal(): Renderable {
+function FuzzyFindModal() {
     const fuzzyFind = FuzzyFinder();
     const modalComponent = Modal(
         div({ class: "col h-100", style: modalPaddingStyles(0) }, [
@@ -1603,15 +1594,15 @@ function FuzzyFindModal(): Renderable {
         ])
     );
 
-    const component = newComponent(modalComponent, () => {
+    function render() {
         modalComponent.render({
             onClose: () => setCurrentModal(null)
         });
 
         fuzzyFind.render(undefined);
-    });
+    }
 
-    return component;
+    return newComponent(modalComponent, render);
 }
 
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
@@ -1619,6 +1610,11 @@ function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
 }
 
 function LoadBackupModal() {
+    const s = newState<{
+        fileName: string;
+        text: string;
+    }>();
+    
     const fileNameDiv = el("H3");
     const infoDiv = div();
     const loadBackupButton = makeButton("Load this backup");
@@ -1631,17 +1627,14 @@ function LoadBackupModal() {
     );
 
     let canLoad = false;
-    
-    type LoadBackupModalArgs = {
-        fileName: string;
-        text: string;
-    };
-    const component = newComponent<LoadBackupModalArgs>(modal, () => {
+
+
+    function render() {
         modal.render({
             onClose: () => setCurrentModal(null)
         });
 
-        const { text, fileName } = component.args;
+        const { text, fileName } = s.args;
 
         setText(fileNameDiv, "Load backup - " + fileName);
         setVisible(loadBackupButton, false);
@@ -1671,15 +1664,15 @@ function LoadBackupModal() {
                 div({}, ["This JSON cannot be loaded"])
             ]);
         }
-    });
+    }
 
     on(loadBackupButton, "click", () => {
-        if (!canLoad || !component.args.text) {
+        if (!canLoad || !s.args.text) {
             return;
         }
 
         if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
-            const { text } = component.args;
+            const { text } = s.args;
 
             setStateFromJSON(text);
 
@@ -1691,14 +1684,11 @@ function LoadBackupModal() {
         }
     });
 
-    return component;
+    return newComponent(modal, render, s);
 }
 
 
 function InteractiveGraphModal() {
-    type Args = {
-    };
-
     const modalArgs: ModalArgs = {
         onClose() {
             // do nothing.
@@ -1709,8 +1699,7 @@ function InteractiveGraphModal() {
         setCurrentModal(null);
     }
 
-
-    return __experimental__inlineComponent<Args>((rg) =>  {
+    return __experimental__inlineComponent((rg) => {
         return rg.cArgs(
             Modal(
                 div({ style: modalPaddingStyles(10) }, [
@@ -1732,20 +1721,22 @@ function AsciiCanvasModal() {
         ])
     );
 
-    const component = newComponent<AsciiCanvasArgs>(modalComponent, () => {
+    function render() {
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
             }
         });
 
-        asciiCanvas.render(component.args);
-    });
+        asciiCanvas.render(asciiCanvas.state.args);
+    }
 
-    return component;
+    return newComponent(modalComponent, render, asciiCanvas.state);
 }
 
 function NoteRowDurationInfo() {
+    const s = newState<{ note: TreeNote; duration: number; }>();
+
     const durationEl = div();
     const estimateEl = div();
     const root = div({ style: "text-align: right;" }, [
@@ -1753,10 +1744,9 @@ function NoteRowDurationInfo() {
         estimateEl,
     ]);
 
-    const component = newComponent<{ note: TreeNote; duration: number; }>(root, renderNoteRowDurationInfo);
 
     function renderNoteRowDurationInfo() {
-        const { note, duration } = component.args;
+        const { note, duration } = s.args;
 
         // render task duration/estimate info right here itself.
         const estimate = getNoteEstimate(state, note);
@@ -1775,10 +1765,12 @@ function NoteRowDurationInfo() {
         }
     }
 
-    return component;
+    return newComponent(root, renderNoteRowDurationInfo, s);
 }
 
 function NoteRowInput() {
+    const s = newState<NoteRowArgs>();
+
     const noteRowText = NoteRowText();
 
     const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
@@ -1794,22 +1786,22 @@ function NoteRowInput() {
         div({ class: "flex-1" }, [
             div({ class: "row align-items-stretch", style: "" }, [
                 cursorEl,
-                noteRowText, 
+                noteRowText,
                 sticky,
-                inProgressBar, 
+                inProgressBar,
             ]),
             progressBar,
         ]),
     ]);
 
     function setStickyOffset() {
-        const { stickyOffset } = component.args;
+        const { stickyOffset } = s.args;
 
         if (stickyOffset !== undefined) {
             root.el.style.position = "sticky";
             root.el.style.top = stickyOffset + "px";
             return;
-        } 
+        }
 
         clearStickyOffset();
     }
@@ -1820,14 +1812,14 @@ function NoteRowInput() {
     }
 
     function scrollComponentToView() {
-        const { scrollParent } = component.args;
+        const { scrollParent } = s.args;
 
         if (!scrollParent) {
             return;
         }
 
         // Clearing and setting the sticky style allows for scrolling to work.
-        
+
         clearStickyOffset();
 
         // We can completely obscure the activity and todo lists, now that we have the right-dock
@@ -1839,17 +1831,15 @@ function NoteRowInput() {
     let isFocused = false;
     let isShowingDurations = false;
 
-    const component = newComponent<NoteRowArgs>(root, renderNoteRowInput);
-
     function renderNoteRowInput() {
-        const { note, duration, totalDuration, hasDivider } = component.args;
+        const { note, duration, totalDuration, hasDivider } = s.args;
         const currentNote = getCurrentNote(state);
 
         const wasFocused = isFocused;
         isFocused = state.currentNoteId === note.id;
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
-        
+
         // render cursor 
         {
             const lastActivity = getLastActivityWithNote(state);
@@ -1871,7 +1861,7 @@ function NoteRowInput() {
 
             setStyle(cursorEl, "backgroundColor", col);
         }
-        
+
 
         // render progress text
         {
@@ -1887,7 +1877,7 @@ function NoteRowInput() {
 
         // add some root styling
         {
-            root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ? 
+            root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ?
                 "var(--fg-color)" : "var(--unfocus-text-color)";
 
             // Dividing line between different levels
@@ -1904,9 +1894,9 @@ function NoteRowInput() {
             setStyle(progressBar, "width", percent + "%")
             setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
         }
-        
+
         // render the text input
-        noteRowText.render(component.args);
+        noteRowText.render(s.args);
 
         // do auto-scrolling
         {
@@ -1921,32 +1911,30 @@ function NoteRowInput() {
         }
     }
 
-
     on(root, "click", () => {
-        const { note } = component.args;
+        const { note } = s.args;
 
         setCurrentNote(state, note.id);
         rerenderApp();
     });
 
-    return component;
+    return newComponent(root, renderNoteRowInput, s);
 }
 
 function NoteListInternal() {
+    const s = newState<{
+        flatNotes: NoteId[];
+        scrollParent: HTMLElement | null;
+    }>();
+
     const root = div({
         class: "w-100 sb1b sb1t",
     });
     const noteList = newListRenderer(root, NoteRowInput);
     const durations = new Map<NoteId, number>();
 
-    type Args = {
-        flatNotes: NoteId[];
-        scrollParent: HTMLElement | null;
-    }
-    const component = newComponent<Args>(root, renderNoteListInteral);
-
     function renderNoteListInteral() {
-        const { flatNotes, scrollParent } = component.args;
+        const { flatNotes, scrollParent } = s.args;
 
         noteList.render((getNext) => {
             let stickyOffset = 0;
@@ -1962,10 +1950,10 @@ function NoteListInternal() {
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
                 let isSticky = note.data._isSelected ||
                     (isOnCurrentLevel && (
-                        note.data.isSticky || 
+                        note.data.isSticky ||
                         getLastActivityWithNote(state)?.nId === note.id
                     ));
-                    
+
                 const durationMs = getNoteDuration(state, note, true);
                 durations.set(note.id, durationMs);
 
@@ -1992,23 +1980,23 @@ function NoteListInternal() {
         });
     }
 
-    return component;
+    return newComponent(root, renderNoteListInteral, s);
 }
 
-function NotesList(): Renderable {
-    const list1 = NoteListInternal(); 
+function NotesList() {
+    const list1 = NoteListInternal();
     const root = div({}, [
         list1,
     ]);
 
-    const component = newComponent(root, () => {
-        list1.render({ 
-            flatNotes: state._flatNoteIds, 
+    function render() {
+        list1.render({
+            flatNotes: state._flatNoteIds,
             scrollParent: root.el.parentElement,
         });
-    });
+    }
 
-    return component;
+    return newComponent(root, render);
 }
 
 const renderOptions: RenderOptions = {
@@ -2052,7 +2040,9 @@ function setTheme(theme: AppTheme) {
 };
 
 
-function AsciiIcon(): Renderable<AsciiIconData> {
+function AsciiIcon() {
+    const s = newState<AsciiIconData>();
+
     const icon = div();
 
     icon.el.style.userSelect = "none";
@@ -2062,12 +2052,12 @@ function AsciiIcon(): Renderable<AsciiIconData> {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    const component = newComponent<AsciiIconData>(icon, () => {
-        const { data } = component.args;
+    function render() {
+        const { data } = s.args;
         setText(icon, data);
-    });
+    }
 
-    return component;
+    return newComponent(icon, render, s);
 }
 
 function DarkModeToggle() {
@@ -2076,8 +2066,6 @@ function DarkModeToggle() {
     replaceChildren(button, [
         iconEl,
     ]);
-
-    const component = newComponent(button, renderButton);
 
     function getIcon(theme: AppTheme) {
         if (theme === "Light") return ASCII_SUN;
@@ -2101,7 +2089,7 @@ function DarkModeToggle() {
         rerenderApp();
     });
 
-    return component;
+    return newComponent(button, renderButton);
 };
 
 
@@ -2213,6 +2201,8 @@ function setCurrentDockedMenu(menu: DockableMenu | null) {
 }
 
 function ActivityListContainer() {
+    const s = newState<{ docked: boolean }>();
+
     const scrollActivitiesToTop = makeButton("Top");
     const scrollActivitiesToMostRecent = makeButton("Most Recent");
     const nextActivity = makeButton("<-");
@@ -2229,12 +2219,10 @@ function ActivityListContainer() {
             div({ style: "width: 50px" }, [nextActivity]),
             div({ style: "width: 50px" }, [prevActivity]),
         ]),
-        div({ class: "sb1b" }),
+        div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
         breakInput,
         activityList,
     ]);
-
-    const component = newComponent<{ docked: boolean }>(root, render);
 
     function getNextIdx() {
         return findNextActiviyIndex(state, state.currentNoteId, state._currentlyViewingActivityIdx);
@@ -2252,7 +2240,7 @@ function ActivityListContainer() {
     function render() {
         breakInput.render(undefined);
 
-        if (component.args.docked) {
+        if (s.args.docked) {
             activityList.render({
                 pageSize: 20,
                 activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
@@ -2298,26 +2286,27 @@ function ActivityListContainer() {
     });
 
 
-    return component;
+    return newComponent(root, render, s);
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
     return el("UL", {}, text.map(s => el("LI", {}, [s])));
 }
 
-function CheatSheet(): Renderable {
+function CheatSheet() {
     function keymapDivs(keymap: string, desc: string) {
         return div({ class: "row" }, [
             div({ style: "width: 500px; padding-right: 50px;" }, [keymap]),
             div({ class: "flex-1" }, [desc]),
         ])
     }
-    return newComponent(div({ style: "padding: 10px" }, [
+
+    const root = div({ style: "padding: 10px" }, [
         el("H3", {}, ["Cheatsheet"]),
         el("H4", {}, ["Offline use"]),
         isRunningFromFile() ? (
-            div({}, [ 
-                "The 'Download this page!' button is gone, now that you've downloaded the page." ,
+            div({}, [
+                "The 'Download this page!' button is gone, now that you've downloaded the page.",
                 ` Moving or renaming this file will result in all your data being lost, so make sure you download a copy of your JSON before you do that.`,
                 ` The same is true if I or my hosting provider decided to change the URL of this page - not something you need to worry about anymore, now that you've downloaded this page.`,
             ])
@@ -2412,7 +2401,9 @@ function CheatSheet(): Renderable {
             `Your stuff is auto-saved 1 second after you finish typing. 
             You can download a copy of your data, and then reload it later/elsewhere with the "Download JSON" and "Load JSON" buttons.`,
         ]),
-    ]), () => { });
+    ])
+
+    return newComponent(root, () => { });
 }
 
 function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean): number {
@@ -2444,7 +2435,7 @@ function getNextHotlistActivityInDirection(state: State, idx: number, backwards:
 
 function moveToLastNote(): boolean {
     const lastNoteId = state._lastNoteId;
-    
+
     if (!lastNoteId) {
         return false;
     }
@@ -2464,7 +2455,7 @@ function moveToLastNote(): boolean {
     if (currentNote.parentId === note.parentId) {
         const siblings = getNote(state, currentNote.parentId!).childIds;
         const currentIdx = siblings.indexOf(currentNote.id);
-        if (siblings[currentIdx-1] === lastNoteId || siblings[currentIdx+1] === lastNoteId) {
+        if (siblings[currentIdx - 1] === lastNoteId || siblings[currentIdx + 1] === lastNoteId) {
             return false;
         }
     }
@@ -2549,7 +2540,7 @@ function moveInDirectionOverTodoList(amount: number) {
 
     if (!isInTodoList) {
         isInTodoList = true;
-        
+
         // moving down or up will start you off at the top or the current location respectively.
         if (amount < 0) {
             todoListIndex = getCurrentTodoListIdx();
@@ -2641,31 +2632,35 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 
 function HighLevelTaskDurations() {
     function Row() {
+        const s = newState<{ 
+            name: string; 
+            durationMs: number, nId: NoteId | undefined 
+        }>();
+
         const rg = newRenderGroup();
         const root = div({ class: "row sb1b" }, [
-            div({}, [ 
+            div({}, [
                 rg(NoteLink(), (nl) => {
                     nl.render({
                         preventScroll: true,
-                        text: c.args.name,
+                        text: s.args.name,
                         focusAnyway: false,
-                        noteId: c.args.nId,
+                        noteId: s.args.nId,
                     });
                 })
             ]),
             div({ class: "flex-1", style: "min-width: 100px" }),
-            div({}, [ rg.text(() => formatDuration(c.args.durationMs)) ]),
+            div({}, [rg.text(() => formatDuration(s.args.durationMs))]),
         ]);
 
-        const c = newComponent<{ name: string; durationMs: number, nId: NoteId | undefined }>(root, rg.render);
-        return c;
+        return newComponent(root, rg.render, s);
     }
 
     const rg = newRenderGroup();
     const list = newListRenderer(div(), Row);
     const renderBreaksCheckbox = Checkbox();
     const root = div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
-        el("H3", {}, [ 
+        el("H3", {}, [
             rg.text(() => {
                 if (state._activitiesFrom && state._activitiesTo) {
                     return "Tasks from " + formatDate(state._activitiesFrom, undefined, true) + " to " + formatDate(state._activitiesTo, undefined, true);
@@ -2677,7 +2672,7 @@ function HighLevelTaskDurations() {
                     return "Tasks to " + formatDate(state._activitiesTo, undefined, true);
                 }
                 return "High level task durations";
-            }) 
+            })
         ]),
         div({ style: "padding-bottom: 10px" }, [
             renderBreaksCheckbox,
@@ -2690,7 +2685,7 @@ function HighLevelTaskDurations() {
 
     function renderHltList() {
         // recompute hlt map less frequently
-        if (!renderOptions.isTimer) { 
+        if (!renderOptions.isTimer) {
             hltMap.clear();
 
             const [hasRange, start, end] = getActivityRange(state);
@@ -2765,14 +2760,14 @@ function HighLevelTaskDurations() {
             }
         });
 
-        renderHltList(); 
+        renderHltList();
     }
 
     return c;
 
 }
 
-const cnInfoButton = sg.makeClass("info-button", [ ` { 
+const cnInfoButton = sg.makeClass("info-button", [` { 
     display: inline-block;
     text-align: center;
     font-style: italic;
@@ -2809,7 +2804,7 @@ export function App() {
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
     const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0" });
     const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 0" })
- 
+
     const activityListContainer = ActivityListContainer();
     const todoListContainer = div({ class: "flex-1 col" }, [
         todoList
@@ -2853,11 +2848,11 @@ export function App() {
                 setCurrentModal(interactiveGraphModal);
             }),
         ]),
-        div({ class: "flex-1 text-align-center"}, [statusTextIndicator]),
+        div({ class: "flex-1 text-align-center" }, [statusTextIndicator]),
         div({ style: "width: 100px" }, [VERSION_NUMBER]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
-                div() 
+                div()
             ) : (
                 makeDownloadThisPageButton()
             ),
@@ -2895,7 +2890,7 @@ export function App() {
 
     const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
-            div({ class: "row flex-1" } , [
+            div({ class: "row flex-1" }, [
                 div({ class: "col flex-1 overflow-y-auto" }, [
                     rg.if(() => currentHelpInfo === 2, (rg) => rg.c(CheatSheet())),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
@@ -2910,7 +2905,7 @@ export function App() {
                     notesList,
                     rg.if(() => state._isShowingDurations, (rg) => rg.c(HighLevelTaskDurations())),
                     div({ class: "row ", style: "" }, [
-                        bottomLeftArea, 
+                        bottomLeftArea,
                         bottomRightArea,
                     ]),
                 ]),
@@ -2940,10 +2935,10 @@ export function App() {
 
         // returns true if we need a rerender
         if (
-            e.key !== "ArrowUp" && 
-            e.key !== "ArrowDown" && 
-            e.key !== "ArrowLeft" && 
-            e.key !== "ArrowRight" && 
+            e.key !== "ArrowUp" &&
+            e.key !== "ArrowDown" &&
+            e.key !== "ArrowLeft" &&
+            e.key !== "ArrowRight" &&
             isInTodoList
         ) {
             isInTodoList = false;
@@ -2951,7 +2946,7 @@ export function App() {
             rerenderApp();
         }
     });
-    
+
     document.addEventListener("keydown", (e) => {
         // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
@@ -3013,7 +3008,7 @@ export function App() {
             e.preventDefault();
             if (state.dockedMenu !== "activities") {
                 setCurrentDockedMenu("activities")
-            } else  {
+            } else {
                 setCurrentDockedMenu("todoLists")
             }
             return;
@@ -3026,7 +3021,7 @@ export function App() {
             state.showDockedMenu = !state.showDockedMenu;
             rerenderApp();
             return;
-        }  else if (
+        } else if (
             e.key === "D" &&
             ctrlPressed &&
             shiftPressed
@@ -3037,7 +3032,7 @@ export function App() {
             return;
         } else if (
             (e.key === "?" || e.key === "/") &&
-            ctrlPressed 
+            ctrlPressed
         ) {
             e.preventDefault();
             setCurrentModal(linkNavModal);
@@ -3234,11 +3229,11 @@ export function App() {
     // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
     // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
     // closes the tab, which is what we want here
-    const worker = newWebWorker([ CHECK_INTERVAL_MS ], (checkIntervalMs: number) => {
+    const worker = newWebWorker([CHECK_INTERVAL_MS], (checkIntervalMs: number) => {
         let started = false;
-        setInterval(() => { 
+        setInterval(() => {
             postMessage("is-open-check");
-            
+
             if (!started) {
                 started = true;
                 // logTrace isn't dfined inside of web workers, so using console.log instead
@@ -3250,7 +3245,7 @@ export function App() {
         autoInsertBreakIfRequired();
     };
     worker.onerror = (e) => {
-        console.error("Webworker error: " , e);
+        console.error("Webworker error: ", e);
     }
 
     const appComponent = newComponent(appRoot, rerenderAppComponent);
@@ -3271,7 +3266,7 @@ export function App() {
         }
 
         let currentDockedMenu: DockableMenu | null = state.dockedMenu;
-         
+
         if (isInHotlist) {
             currentDockedMenu = "activities";
         } else if (isInTodoList) {
@@ -3303,7 +3298,7 @@ export function App() {
             // Render todo list in the right panel
             appendChild(rightPanelArea, todoListContainer);
         }
-        todoList.render({ 
+        todoList.render({
             cursorNoteId: isInTodoList ? state._todoNoteIds[todoListIndex] : undefined,
         });
 
@@ -3342,8 +3337,7 @@ export function App() {
         }
 
         if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
-            interactiveGraphModal.render({
-            })
+            interactiveGraphModal.render(undefined)
         }
 
         let error = "";
@@ -3407,8 +3401,8 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
                 const estimatedMbUsage = bytesToMegabytes(data.usage ?? 0);
                 showStatusText("Saved (" + mb.toFixed(2) + "mb / " + estimatedMbUsage.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
 
-                const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " + 
-                            estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
+                const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " +
+                    estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
 
                 const COMPACTION_THRESHOLD = 10;
                 const CRITICAL_ERROR_THRESHOLD = 20;
@@ -3456,7 +3450,7 @@ const debouncedSave = () => {
 
 const app = App();
 appendChild(
-    newInsertable(document.body), 
+    newInsertable(document.body),
     app
 );
 
@@ -3476,7 +3470,7 @@ initState(() => {
     // I have decided that this is a viable approach, and is probably the easiest and simplest way to handle this for now.
     // Components should just be designed to work despite excessive re-renders anyway.
     setInterval(() => {
-        rerenderApp(false, true);
+        // rerenderApp(false, true);
     }, 1000 / 3);
 
     rerenderApp();

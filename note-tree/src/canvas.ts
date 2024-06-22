@@ -1,8 +1,8 @@
+import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
+import { makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Renderable, div, el, isVisible, newComponent, newListRenderer, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
-import { makeButton } from "src/components";
-import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
+import { div, el, isVisible, newComponent, newListRenderer, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 type CanvasArgs = {
     onInput(): void;
@@ -503,9 +503,9 @@ function Canvas() {
 
     const rowList = newListRenderer(root, () => {
         const root = div({ class: "row justify-content-center" });
-        const charList = newListRenderer(root, () => {
-            const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
 
+        const charList = newListRenderer(root, () => {
+            const s = newState<CanvasCellArgs>();
             // Memoizing for peformance. 
             let lastState = -1;
             let blLast = false; 
@@ -514,8 +514,10 @@ function Canvas() {
             let bbLast = false;
             let lastChar = "";
 
-            const component = newComponent<CanvasCellArgs>(root, () => {
-                const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = component.args;
+            const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
+
+            function render() {
+                const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = s.args;
 
                 let [char, layer] = getChar(canvasState, i, j);
                 if (!layer) {
@@ -569,26 +571,27 @@ function Canvas() {
                             ""
                     );
                 }
-            });
+            }
 
             // We want errors to be caught by the root canvas, not inside of this specific cell.
             component.skipErrorBoundary = true;
 
             function handleMouseMovement() {
-                const mouseInputState = component.args.canvasState.mouseInputState;
-                mouseInputState.x = component.args.j;
-                mouseInputState.y = component.args.i;
-
+                const mouseInputState = s.args.canvasState.mouseInputState;
+                mouseInputState.x = s.args.j;
+                mouseInputState.y = s.args.i;
                 onMouseInputStateChange();
             }
 
             on(root, "mousemove", handleMouseMovement);
 
-            return component;
+            return newComponent(root, render, s);
         });
 
-        const component = newComponent<RowArgs>(root, () => {
-            const { charList: rowList } = component.args;
+        const s = newState<RowArgs>();
+
+        function render() {
+            const { charList: rowList } = s.args;
 
             charList.render((getNext) => {
                 for (let i = 0; i < rowList.length; i++) {
@@ -596,15 +599,16 @@ function Canvas() {
                     c.render(rowList[i]);
                 }
             });
-        });
+        }
 
-        component.skipErrorBoundary = true;
-
-        on(component, "mouseleave", () => {
+        on(root, "mouseleave", () => {
             canvasState.mouseInputState.x = -1;
             canvasState.mouseInputState.y = -1;
             onMouseInputStateChange();
         });
+
+        const component = newComponent(root, render, s);
+        component.skipErrorBoundary = true;
 
         return component;
     });
@@ -842,7 +846,7 @@ function Canvas() {
         mouseInputState._prevY = mouseInputState.y;
         mouseInputState._lbWasDown = mouseInputState.lbDown;
 
-        component.args.onInput();
+        s.args.onInput();
     }
 
     const mouseInputState: MouseInputState = {
@@ -867,9 +871,10 @@ function Canvas() {
         tempLayer: newLayer(),
     };
 
+    const s = newState<CanvasArgs>();
 
-    const component = newComponent<CanvasArgs>(root, () => {
-        const { outputLayers } = component.args;
+    function render() {
+        const { outputLayers } = s.args;
 
         if (outputLayers) {
             // Allows writing to an array that lives outside of this component
@@ -935,7 +940,9 @@ function Canvas() {
                 getNext().render(rows[i]);
             }
         });
-    });
+    }
+
+    const component = newComponent(root, render, s);
 
     document.addEventListener("mousedown", () => {
         if (!isVisible(component)) {
@@ -962,7 +969,7 @@ function Canvas() {
             return;
         }
 
-        component.args.onInput();
+        s.args.onInput();
     });
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -1121,7 +1128,7 @@ function Canvas() {
 
         handleKeyDown(e);
 
-        component.args.onInput();
+        s.args.onInput();
     });
 
 
@@ -1152,42 +1159,35 @@ export type AsciiCanvasArgs = {
     onInput(): void;
 }
 
-export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
-    type ToolbarButtonArgs = {
-        name: string;
-        onClick(e: MouseEvent): void;
-        tool?: ToolType;
-        selected?: boolean;
-    };
-
-    function changeTool(tool?: ToolType) {
-        if (!tool) {
-            return;
-        }
-
-        canvasState.currentTool = tool;
-        rerenderLocal();
-    }
-
+export function AsciiCanvas() {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
-    function ToolbarButton(): Renderable<ToolbarButtonArgs> {
+    function ToolbarButton() {
+        const s = newState<{
+            name: string;
+            onClick(e: MouseEvent): void;
+            tool?: ToolType;
+            selected?: boolean;
+        }>();
+
         const textEl = div();
         const button = setAttrs(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" }, true);
         replaceChildren(button, [
             textEl, 
         ]);
 
-        const c = newComponent<ToolbarButtonArgs>(button, () => {
-            setText(button, c.args.name);
+        function render() {
+            setText(button, s.args.name);
 
-            if (c.args.tool || c.args.selected !== undefined) {
+            if (s.args.tool || s.args.selected !== undefined) {
                 const tool = getTool(canvasState);
-                setClass(button, "inverted", c.args.selected || tool === c.args.tool);
+                setClass(button, "inverted", s.args.selected || tool === s.args.tool);
             }
-        });
+        }
+
+        const c = newComponent(button, render, s);
 
         on(button, "click", (e) => { 
-            const { onClick, tool } = c.args;
+            const { onClick, tool } = s.args;
 
             if (tool) {
                 changeTool(tool);
@@ -1197,6 +1197,17 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         });
 
         return c;
+    }
+
+    const s = newState<AsciiCanvasArgs>();
+
+    function changeTool(tool?: ToolType) {
+        if (!tool) {
+            return;
+        }
+
+        canvasState.currentTool = tool;
+        rerenderLocal();
     }
 
     const [canvasComponent, canvasState] = Canvas();
@@ -1239,50 +1250,47 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         "!! Warning: A large number of rows/columns will currently be bad for performance !!"
     ]);
 
-    let toolbar;
+    const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+        buttons.moreRows,
+        buttons.lessRows,
+        buttons.moreCols,
+        buttons.lessCols,
+        spacer(),
+        buttons.freeformSelect,
+        buttons.lineSelect,
+        buttons.rectOutlineSelect,
+        buttons.rectSelect,
+        buttons.bucketFillSelect,
+        buttons.bucketFillSelectOutline,
+        buttons.moveSelection,
+        spacer(),
+        buttons.clearSelection,
+        buttons.invertSelection,
+        spacer(),
+        buttons.copyToClipboard,
+        buttons.pasteFromClipboard,
+        buttons.pasteFromClipboardTransparent,
+        spacer(),
+        buttons.pipes1FromSelection,
+        buttons.pipes2FromSelection,
+        buttons.pipes3FromSelection,
+        buttons.pipes4FromSelection,
+        buttons.linesFromSelection,
+    ]);
+
     function spacer() {
         return div({ class: "inline-block", style: "width: 30px" } );
     }
+
     const root = div({ class: "relative h-100 row" }, [
         div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
             canvasComponent,
             statusText,
             performanceWarning,
-            toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
-                buttons.moreRows,
-                buttons.lessRows,
-                buttons.moreCols,
-                buttons.lessCols,
-                spacer(),
-                buttons.freeformSelect,
-                buttons.lineSelect,
-                buttons.rectOutlineSelect,
-                buttons.rectSelect,
-                buttons.bucketFillSelect,
-                buttons.bucketFillSelectOutline,
-                buttons.moveSelection,
-                spacer(),
-                buttons.clearSelection,
-                buttons.invertSelection,
-                spacer(),
-                buttons.copyToClipboard,
-                buttons.pasteFromClipboard,
-                buttons.pasteFromClipboardTransparent,
-                spacer(),
-                buttons.pipes1FromSelection,
-                buttons.pipes2FromSelection,
-                buttons.pipes3FromSelection,
-                buttons.pipes4FromSelection,
-                buttons.linesFromSelection,
-            ]),
+            toolbar,
         ]),
         div({ style: "width: 20px" }),
     ]);
-
-    function rerenderLocal() {
-        component.render(component.args);
-        component.args.onInput();
-    }
 
     function updateCanvasStausText(canvas: CanvasState) {
         const stringBuilder = [
@@ -1364,9 +1372,14 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         }
     }
 
-    const component = newComponent<AsciiCanvasArgs>(root, () => {
+    function rerenderLocal() {
+        component.render(s.args);
+        s.args.onInput();
+    }
+
+    function render() {
         // This single line of code allows us to write to an array that lives outside of this component
-        canvasArgs.outputLayers = component.args.outputLayers;
+        canvasArgs.outputLayers = s.args.outputLayers;
 
         canvasComponent.render(canvasArgs);
 
@@ -1545,11 +1558,11 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         });
 
         updateCanvasStausText(canvasState);
-    });
+    }
 
     function prevTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.args.tool === canvasState.currentTool;
+            return button.state.args.tool === canvasState.currentTool;
         });
 
         if (idx > 0) {
@@ -1558,12 +1571,12 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             idx = mouseScrollList.length - 1;
         }
 
-        changeTool(mouseScrollList[idx].args.tool);
+        changeTool(mouseScrollList[idx].state.args.tool);
     }
 
     function nextTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.args.tool === canvasState.currentTool;
+            return button.state.args.tool === canvasState.currentTool;
         });
 
         if (idx < mouseScrollList.length - 1) {
@@ -1572,7 +1585,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
             idx = 0;
         }
 
-        changeTool(mouseScrollList[idx].args.tool);
+        changeTool(mouseScrollList[idx].state.args.tool);
     }
 
     document.addEventListener("keydown", (e) => {
@@ -1603,6 +1616,7 @@ export function AsciiCanvas(): Renderable<AsciiCanvasArgs> {
         }
     });
 
+    const component = newComponent(root, render, s);
     return component;
 }
 

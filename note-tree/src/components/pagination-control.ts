@@ -1,4 +1,4 @@
-import { Renderable, div, newComponent, on, setText, setVisible } from "src/utils/dom-utils";
+import { div, newComponent, newState, on, setText, setVisible } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
 import { makeButton } from "./button";
 
@@ -9,7 +9,9 @@ type PaginationControlArgs = {
 };
 
 
-export function PaginationControl(): Renderable<PaginationControlArgs> {
+export function PaginationControl() {
+    const s = newState<PaginationControlArgs>();
+
     const leftButton = makeButton("<");
     const leftLeftButton = makeButton("<<");
     const rightButton = makeButton(">");
@@ -29,8 +31,8 @@ export function PaginationControl(): Renderable<PaginationControlArgs> {
         ]),
     ])
 
-    const component = newComponent<PaginationControlArgs>(root, () => {
-        const { pagination, totalCount } = component.args;
+    function render() {
+        const { pagination, totalCount } = s.args;
 
         setTotalCount(pagination, totalCount);
         const page = getPage(pagination);
@@ -42,33 +44,32 @@ export function PaginationControl(): Renderable<PaginationControlArgs> {
         setVisible(leftLeftButton, page !== 0);
         setVisible(rightButton, page !== getMaxPages(pagination));
         setVisible(rightRightButton, page !== getMaxPages(pagination));
-    });
-
+    }
 
     on(leftButton, "click", () => {
-        const { pagination, rerender } = component.args;
+        const { pagination, rerender } = s.args;
         setPage(pagination, getPage(pagination) - 1);
         rerender();
     });
 
     on(leftLeftButton, "click", () => {
-        const { pagination, rerender } = component.args;
+        const { pagination, rerender } = s.args;
         pagination.start = 0;
         rerender();
     });
 
     on(rightRightButton, "click", () => {
-        const { pagination, rerender } = component.args;
+        const { pagination, rerender } = s.args;
         pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
         rerender();
     });
 
 
     on(rightButton, "click", () => {
-        const { pagination, rerender } = component.args;
+        const { pagination, rerender } = s.args;
         setPage(pagination, getPage(pagination) + 1);
         rerender();
     });
 
-    return component;
+    return newComponent(root, render, s);
 }
