@@ -110,10 +110,11 @@ export type Activity = {
 
 const donePrefixes = [
     "DONE",
-    "Done",
-    "done",
-    "DECLINED",
+    "RESOLVED",
+    "FIXED",
     "MERGED",
+    "DECLINED",
+    "REJECTED",
 ];
 
 function getDoneNotePrefix(note: Note): string | undefined {

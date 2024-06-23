@@ -1,17 +1,21 @@
-// The classic: https://www.w3schools.com/howto/howto_js_draggable.asp
+export type DragHandlers = {
+    onDragStart(e: MouseEvent): void;
+    onDragEnd(e: MouseEvent): void;
+    onDrag(dx: number, dy: number, e: MouseEvent): void;
+};
 
-import { Insertable } from "./dom-utils";
-
-// This is a little different.
-export function addDragHandlers(root: Insertable<HTMLElement>, {
+/** 
+ * The classic: https://www.w3schools.com/howto/howto_js_draggable.asp
+ * This is a little different.
+ *
+ * NOTE: ideally you should only have 1 drag handler at the root level of a component instead of multiple smaller compoonents - 
+ *      this setup doesn't really work if you don't recieve mouse input over the whole backdrop of the drag interaction
+ */      
+export function newDragManager({
     onDragStart,
     onDrag,
     onDragEnd,
-}: {
-    onDragStart(): void;
-    onDragEnd(): void;
-    onDrag(dx: number, dy: number): void;
-}) {
+}: DragHandlers) {
     // NOTE: We don't actually care about the real position of the mouse, we only work in deltas.
     // (Because I couldn't actually find a way to get the pageX but relative the component)
 
@@ -22,52 +26,61 @@ export function addDragHandlers(root: Insertable<HTMLElement>, {
         isDragging: false,
     };
 
-    root.el.addEventListener("mousedown", (e) => {
-        e.stopImmediatePropagation();
-
-        dragState.startX = e.pageX;
-        dragState.startY = e.pageY;
-    });
-
-    root.el.addEventListener("mousemove", (e) => {
-        e.stopImmediatePropagation();
-
-        const dx = e.pageX - dragState.startX;
-        const dy = e.pageY - dragState.startY;
+    let mouseDown = false;
 
 
-        if (Math.sqrt(dx*dx + dy*dy) > dragState.dragThreshold) {
-            if (!dragState.isDragging) {
+    return {
+        onMouseDown(e: MouseEvent) {
+            e.stopImmediatePropagation();
+
+            dragState.startX = e.pageX;
+            dragState.startY = e.pageY;
+            mouseDown = true;
+        },
+        onMouseMove(e: MouseEvent) {
+            const dx = e.pageX - dragState.startX;
+            const dy = e.pageY - dragState.startY;
+            mouseDown = e.buttons !== 0;
+
+            if (
+                !dragState.isDragging && mouseDown &&
+                Math.sqrt(dx * dx + dy * dy) > dragState.dragThreshold
+            ) {
                 dragState.isDragging = true;
-                onDragStart();
+                e.stopImmediatePropagation();
+                onDragStart(e);
+                console.log("start");
             }
-        }
 
-        if (dragState.isDragging && e.buttons !== 0) {
-            onDrag(dx, dy);
-        }
 
-        if (dragState.isDragging && e.buttons === 0) {
-            dragState.isDragging = false;
-            onDragEnd();
-        }
+            if (dragState.isDragging) {
+                e.stopImmediatePropagation();
 
-    });
-
-    root.el.addEventListener("mouseup", (e) => {
-        e.stopImmediatePropagation();
-
-        // The isDragging flag should be able to block the "click" event when required -
-        // this can only happen if it gets unset _after_ "click" is fired.
-
-        setTimeout(() => {
-            if (e.buttons === 0) {
-                dragState.isDragging = false;
-                onDragEnd();
+                if (mouseDown) {
+                    onDrag(dx, dy, e);
+                    console.log("doing");
+                } else {
+                    dragState.isDragging = false;
+                    e.stopImmediatePropagation();
+                    onDragEnd(e);
+                    console.log("end");
+                }
             }
-        }, 1)
-    });
+        },
+        onMouseUp(e: MouseEvent) {
+            e.stopImmediatePropagation();
 
-    return dragState;
+            // The isDragging flag should be able to block the "click" event when required -
+            // this can only happen if it gets unset _after_ "click" is fired.
+
+            setTimeout(() => {
+                if (e.buttons === 0) {
+                    dragState.isDragging = false;
+                    mouseDown = false;
+                    onDragEnd(e);
+                }
+            }, 1)
+        }
+    };
 }
 

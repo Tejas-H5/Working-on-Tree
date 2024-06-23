@@ -1691,7 +1691,8 @@ function LoadBackupModal() {
 function InteractiveGraphModal() {
     const modalArgs: ModalArgs = {
         onClose() {
-            // do nothing.
+            // not so good for the graph
+            // setCurrentModal(null);
         }
     };
 

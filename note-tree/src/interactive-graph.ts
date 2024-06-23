@@ -1,8 +1,46 @@
 import { makeButton } from "./components";
-import { div, el, elSvg, isVisible, newComponent, newRenderGroup, newState, newStyleGenerator, on, setAttr, setInputValue, setStyle, setText, setVisible } from "./utils/dom-utils";
-import { addDragHandlers } from "./utils/drag-handlers";
+import { Insertable, addChildren, div, el, elSvg, isVisible, newComponent, newRenderGroup, newState, newStyleGenerator, on, setAttr, setClass, setInputValue, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { newDragManager } from "./utils/drag-handlers";
 
 const sg = newStyleGenerator();
+
+type GraphArgs = {
+    onClose(): void;
+};
+
+const Z_INDICES = {
+    NODE_SELECTED: "10",
+    NODE_UNSELECTED: "9",
+    EDGE: "8",
+    EDGE_CREATE_HANDLES: "7",
+};
+
+type GraphNodeUIArgs = {
+    node: GraphNode;
+
+    idx: number;
+    graphState: GraphState;
+    isEditing: boolean;
+    isSelected: boolean;
+
+    onMouseMove(e: MouseEvent): void;
+    onMouseDown(e: MouseEvent): void;
+    onMouseUp(e: MouseEvent): void;
+
+    relativeContainer: Insertable<HTMLElement>;
+    renderGraph(): void;
+};
+
+type GraphEdgeUIArgs = {
+    edge: GraphEdge;
+    srcNode: GraphNode | undefined;
+    dstNode: GraphNode | undefined;
+    graphState: GraphState;
+
+    relativeContainer: Insertable<HTMLElement>;
+};
+
+
 
 // NOTE: this is the data that will actually be serialized.
 // UI vars should go into GraphNodeArgs
@@ -16,10 +54,11 @@ type GraphState = {
     viewX: number;
     viewY: number;
     isDragging: boolean;
+    isClickBlocked: boolean;
     isEditing: boolean;
-    blockClick: boolean;
+
     currentSelectedNode: number;
-    currentSelectedEdge: number;
+    currentEdgeDragStartNode: number;
 }
 
 export type GraphEdge = {
@@ -34,9 +73,7 @@ const graphNodes: GraphNode[] = [];
 const graphEdges: GraphEdge[] = [];
 
 export function InteractiveGraph() {
-    const s = newState<{
-        onClose(): void;
-    }>();
+    const s = newState<GraphArgs>();
 
     const rg = newRenderGroup();
 
@@ -45,18 +82,38 @@ export function InteractiveGraph() {
         style: "border: 2px solid var(--fg-color); overflow: hidden; cursor: move;", 
     });
 
-    const svgRoot = elSvg("svg", { 
-        class: "absolute-fill",
-        style: "position: absolute; left: 50%; top: 50%; padding: 5px; border: 1px var(--fg-color) solid; ",
-        xmlns: "http://www.w3.org/2000/svg",
-    }, [
-    ]);
+    // const testEdgeEl = GraphEdge();
+    // const testEdge: GraphEdge = {
+    //     srcX: 0, srcY: 0,
+    //     dstX: 0, dstY: 0,
+    //     srcNodeIdx: -1,
+    //     dstNodeIdx: -1,
+    // }
 
-    const root = div({
-        class: "flex-1 w-100 h-100 col",
-    }, [
-        div({ class: "col relative flex-1" }, [
-            rg.list(svgRoot, GraphEdge, (getNext) => {
+    const svgRoot = elSvg("svg", { 
+            class: "absolute-fill",
+        }, [
+            // rg.cArgs(testEdgeEl, () => {
+            //     testEdge.srcY = 0;
+            //     testEdge.srcX = 0;
+            //
+            //     const realX = realXToGraphX(graphState, relativeContainer.el, mouseX);
+            //     const graphX = graphXToRealX(graphState, relativeContainer.el, realX);
+            //     testEdge.dstX = realXToGraphX(graphState, relativeContainer.el, graphX);
+            //
+            //     const realY = realYToGraphY(graphState, relativeContainer.el, mouseY);
+            //     const graphY = graphYToRealY(graphState, relativeContainer.el, realY);
+            //     testEdge.dstY = realYToGraphY(graphState, relativeContainer.el, graphY);
+            //
+            //     return {
+            //         srcNode: undefined,
+            //         dstNode: undefined,
+            //         edge: testEdge,
+            //         graphState,
+            //         relativeContainer,
+            //     }
+            // }),
+            rg.list(elSvg("g"), GraphEdge, (getNext) => {
                 const svgRootRect = graphRoot.el.getBoundingClientRect();
                 setAttr(svgRoot, "width", "" + Math.floor(svgRootRect.width));
                 setAttr(svgRoot, "height", "" + Math.floor(svgRootRect.height));
@@ -71,6 +128,7 @@ export function InteractiveGraph() {
                             dstNode: graphNodes[edge.dstNodeIdx],
                             graphState: graphState,
                             edge,
+                            relativeContainer,
                         };
                     }
 
@@ -82,6 +140,15 @@ export function InteractiveGraph() {
                     c.render(c.state.args);
                 }
             }),
+        ]
+    );
+
+    const relativeContainer = div({ class: "col relative flex-1" });
+
+    const root = div({
+        class: "flex-1 w-100 h-100 col",
+    }, [
+        addChildren(relativeContainer, [
             rg.list(graphRoot, GraphNode, (getNext) => {
                 for (let i = 0; i < graphNodes.length; i++) {
                     const c = getNext();
@@ -94,11 +161,12 @@ export function InteractiveGraph() {
                             isSelected: false,
                             graphState,
 
-                            onSelect,
-                            onClick,
+                            onMouseDown,
+                            onMouseUp,
+                            onMouseMove,
+
+                            relativeContainer,
                             renderGraph,
-                            startNewEdgeDrag,
-                            finishNewEdgeDrag,
                         })
                     }
 
@@ -111,8 +179,9 @@ export function InteractiveGraph() {
                     c.render(c.state.args);
                 }
             }),
+            svgRoot,
         ]),
-        div({class: "row"}, [
+        div({class: "row align-items-center"}, [
             on(makeButton("Recenter"), "click", () => {
                 recenter();
                 renderGraph();
@@ -129,13 +198,15 @@ export function InteractiveGraph() {
         viewX: 0,
         viewY: 0,
         isDragging: false,
+        isClickBlocked: false, 
         isEditing: false,
-        blockClick: false,
         currentSelectedNode: -1,
-        currentSelectedEdge: -1,
+        currentEdgeDragStartNode: -1,
     };
 
     let viewDxStart = 0, viewDyStart = 0;
+    let nodeDxStart = 0, nodeDyStart = 0;
+    let edgeDragDxStart = 0, edgeDragDyStart = 0;
 
     function moveGraph(x: number, y: number) {
         graphState.viewY = x;
@@ -168,15 +239,26 @@ export function InteractiveGraph() {
         return idx;
     }
 
-    function startNewEdgeDrag(
-        srcNodeIdx: number,
-        srcX: number,
-        srcY: number,
-    ) {
+    let domRect = root.el.getBoundingClientRect();
+
+
+    function renderGraph() {
+        domRect = root.el.getBoundingClientRect();
+        rg.render();
+    }
+
+    function startEdgeDrag(e: MouseEvent) {
+        const srcNodeIdx = graphState.currentEdgeDragStartNode;
+        const srcX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, e));
+        const srcY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, e));
+
         const node = graphNodes[srcNodeIdx];
         if (!node) {
             return;
         }
+
+        edgeDragDxStart = 0;
+        edgeDragDyStart = 0;
 
         const newEdgeIdx = graphEdges.length;
         graphEdges.push({
@@ -184,91 +266,126 @@ export function InteractiveGraph() {
             srcX, srcY,
 
             dstNodeIdx: -1,
-            dstX: 0,
-            dstY: 0,
+            dstX: srcX,
+            dstY: srcY,
         });
+
+        graphState.currentSelectedNode = -1;
+        graphState.currentEdgeDragStartNode = newEdgeIdx;
     }
 
-    function finishNewEdgeDrag(
+    function finishEdgeDrag(
         dstNodeIdx: number,
         dstX: number,
         dstY: number,
     ) {
-    }
+        const currentEdge = graphEdges[graphState.currentEdgeDragStartNode];
+        const dstNode = graphNodes[dstNodeIdx];
 
-    function renderGraph() {
-        rg.render();
-    }
-
-    function onDragStart() {
-        graphState.blockClick = true;
-        if (graphState.currentSelectedNode === -1) {
-            viewDxStart = graphState.viewX;
-            viewDyStart = graphState.viewY;
-        } else {
-            const currentNode = graphNodes[graphState.currentSelectedNode];
-            viewDxStart = currentNode.x;
-            viewDyStart = currentNode.y;
-        }
-    }
-    function onDrag(dx: number, dy: number) {
-        if (graphState.isEditing) {
+        if (!currentEdge || !dstNode) {
             return;
         }
 
-        if (graphState.currentSelectedNode === -1) {
-            graphState.viewX = viewDxStart + dx;
-            graphState.viewY = viewDyStart + dy;
-            return;
-        } 
+        const dstNodeToX = dstX - dstNode.x;
+        const dstNodeToY = dstY - dstNode.y;
 
+        currentEdge.dstNodeIdx = dstNodeIdx;
+        currentEdge.dstX = dstNodeToX;
+        currentEdge.dstY = dstNodeToY;
 
-        const currentNode = graphNodes[graphState.currentSelectedNode];
-        currentNode.x = viewDxStart + dx;
-        currentNode.y = viewDyStart + dy;
-    }
-
-    function onDragEnd() {
-        graphState.blockClick = false;
-    }
-
-
-    function onSelect(graphNodeIdx: number) {
-        if (graphState.currentSelectedNode !== graphNodeIdx) {
-            graphState.currentSelectedNode = graphNodeIdx;
-            if (graphState.isDragging) {
-                onDragStart();
-            }
-        }         
         renderGraph();
     }
 
-    function onClick(graphNodeIdx: number) {
-        if (graphState.currentSelectedNode === graphNodeIdx && !graphState.isEditing) {
-            graphState.isEditing = true;
-            renderGraph();
+    const dragManager = newDragManager({
+        onDragStart(e) {
+            graphState.isDragging = true;
+            if (graphState.currentEdgeDragStartNode !== -1) {
+                startEdgeDrag(e);
+            } else if (graphState.currentSelectedNode !== -1) {
+                const currentNode = graphNodes[graphState.currentSelectedNode];
+                nodeDxStart = currentNode.x;
+                nodeDyStart = currentNode.y;
+            } else {
+                viewDxStart = graphState.viewX;
+                viewDyStart = graphState.viewY;
+            }
+        },
+        onDrag(dx: number, dy: number) {
+            if (graphState.isEditing) {
+                return;
+            }
+
+            if (graphState.currentSelectedNode !== -1) {
+                const currentNode = graphNodes[graphState.currentSelectedNode];
+                currentNode.x = nodeDxStart + dx;
+                currentNode.y = nodeDyStart + dy;
+                return;
+            }
+
+            if (graphState.currentEdgeDragStartNode !== -1) {
+                const currentEdge = graphEdges[graphState.currentEdgeDragStartNode];
+                currentEdge.dstX = edgeDragDxStart + dx;
+                currentEdge.dstY = edgeDragDyStart + dy;
+                return;
+            }
+
+            graphState.viewX = viewDxStart + dx;
+            graphState.viewY = viewDyStart + dy;
+            return;
+        },
+        onDragEnd() {
+            graphState.isDragging = false;
+            graphState.currentEdgeDragStartNode = -1;
+        }, 
+    });
+
+    let mouseX = 0, mouseY = 0;
+    function onMouseMove(e: MouseEvent) {
+        dragManager.onMouseMove(e);
+
+        mouseX = getMouseX(relativeContainer.el, e);
+        mouseY = getMouseY(relativeContainer.el, e);
+
+        if (!graphState.isDragging) {
+            // reset a bunch of things that were set in drag operations
+            graphState.isClickBlocked = false;
+            graphState.currentEdgeDragStartNode = -1;
         }
     }
 
-    on(graphRoot, "mousedown", () => {
+    function onMouseUp(e: MouseEvent) {
+        dragManager.onMouseUp(e);
+    }
+
+    function onMouseDown(e: MouseEvent) {
+        dragManager.onMouseDown(e);
+
         setTimeout(() => {
-            if (graphState.blockClick) {
+            if (graphState.isClickBlocked) {
                 return;
             }
 
             graphState.currentSelectedNode = -1;
+            graphState.currentEdgeDragStartNode = -1;
             graphState.isEditing = false;
+
             renderGraph();
         }, 1);
-    });
+        
+        renderGraph();
+    }
 
-    addDragHandlers(graphRoot, { 
-        onDragStart, 
-        onDragEnd, 
-        onDrag(dx, dy) {
-            onDrag(dx, dy);
-            renderGraph();
-        }
+    on(relativeContainer, "mousemove", (e) => {
+        onMouseMove(e);
+        renderGraph();
+    });
+    on(relativeContainer, "mouseup", (e) => {
+        onMouseUp(e);
+        renderGraph();
+    });
+    on(relativeContainer, "mousedown", (e) => {
+        onMouseDown(e);
+        renderGraph();
     });
 
     document.addEventListener("keydown", (e) => {
@@ -314,27 +431,8 @@ export function InteractiveGraph() {
     return newComponent(root, renderGraph, s);
 }
 
-const cnGraphNodeDragRect = sg.makeClass("graphNodeDragRect", [
-    ` { position: absolute; }`,
-    `:hover { background-color: rgba(255, 0, 0, 0.5); cursor: crosshair; }`,
-]);
-
 function GraphNode() {
-    const s = newState<{
-        node: GraphNode;
-
-        idx: number;
-        graphState: GraphState;
-        isEditing: boolean;
-        isSelected: boolean;
-
-        onSelect(idx: number): void;
-        onClick(idx: number): void;
-        startNewEdgeDrag(srcNodeIndex: number, srcX: number, srcY: number): void;
-        finishNewEdgeDrag(dstNodeIndex: number, dstX: number, dstY: number): void;
-
-        renderGraph(): void;
-    }>();
+    const s = newState<GraphNodeUIArgs>();
 
     const className = "pre-wrap w-100 h-100";
     const styles = "padding: 0; position: absolute;";
@@ -349,39 +447,45 @@ function GraphNode() {
         style: styles + "user-select: none; cursor: pointer;",
     });
 
-    const dragRects = [
-        div({ class: cnGraphNodeDragRect }),
-        div({ class: cnGraphNodeDragRect }),
-        div({ class: cnGraphNodeDragRect }),
-        div({ class: cnGraphNodeDragRect }),
-    ];
+    const [edgeDragStartRegions, updateDragRegionStyles] = makeDragRects((regionDiv) => {
+        on(regionDiv, "mousemove", (e) => {
+            const { graphState, idx, onMouseMove, renderGraph } = s.args;
 
-    const directions = [
-        "top", "right", "bottom", "left"
-    ] as const;
-    const axes = [
-        "height", "width", "height", "width"
-    ] as const;
+            e.stopImmediatePropagation();
 
-    function setDragRectDimensions() {
-        const outsetWidth = 40;
-        for(let i = 0; i < dragRects.length; i++) {
-            const divEl = dragRects[i];
-            setStyle(divEl, directions[i - 1] || "left", "-" + outsetWidth + "px");
-            setStyle(divEl, directions[i] || "top", "-" + outsetWidth + "px");
-            setStyle(divEl, directions[i + 1] || "top", "0");
-            setStyle(divEl, axes[i], outsetWidth + "px");
-        }
-    }
+            onMouseMove(e);
+
+            graphState.currentEdgeDragStartNode = idx;
+
+            renderGraph();
+        });
+        on(regionDiv, "mouseup", (e) => {
+            const { onMouseUp, renderGraph } = s.args;
+
+            e.stopImmediatePropagation();
+
+            onMouseUp(e);
+            renderGraph();
+        });
+        on(regionDiv, "mousedown", (e) => {
+            const { onMouseDown, renderGraph } = s.args;
+
+            e.stopImmediatePropagation();
+
+            onMouseDown(e);
+
+            renderGraph();
+        });
+    });
 
     const rg = newRenderGroup();
     const root = div({
-        style: "position: absolute; left: 50%; top: 50%; padding: 5px; border: 1px var(--fg-color) solid; "
+        style: "position: absolute; padding: 5px; border: 1px var(--fg-color) solid; "
     }, [
         div({ style: "position: relative;" }, [
             textArea,
             textDiv,
-            ...dragRects,
+            ...edgeDragStartRegions,
         ]),
     ]);
 
@@ -390,9 +494,11 @@ function GraphNode() {
     let lastIsEditing = false;
 
     function render() {
-        const { node, isSelected, isEditing, graphState: graphSate } = s.args;
+        const { node, isSelected, isEditing, graphState, relativeContainer } = s.args;
 
-        setDragRectDimensions();
+        if (setVisibleGroup(!graphState.isDragging, edgeDragStartRegions)) {
+            updateDragRegionStyles(s.args);
+        }
 
         rg.render();
 
@@ -415,14 +521,14 @@ function GraphNode() {
             updateTextAreaSize();
         }
 
-        const xPos = (node.x + graphSate.viewX).toFixed();
-        const yPos = (node.y + graphSate.viewY).toFixed();
+        const xPos = graphXToRealX(graphState, relativeContainer.el, node.x);
+        const yPos = graphYToRealY(graphState, relativeContainer.el, node.y);
 
         setStyle(root, "transform", `translate(${xPos}px, ${yPos}px)`);
-        setStyle(root, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "");
-        setStyle(root, "zIndex", isSelected ? "1" : "0");
-        setStyle(textDiv, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "");
-        setStyle(textArea, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "");
+        setStyle(root, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
+        setStyle(root, "zIndex", isSelected ? Z_INDICES.NODE_SELECTED : Z_INDICES.NODE_UNSELECTED);
+        setStyle(textDiv, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
+        setStyle(textArea, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
     }
 
     function updateTextAreaSize() {
@@ -453,6 +559,8 @@ function GraphNode() {
     }
 
     root.el.addEventListener("click", (e) => {
+        const { graphState, renderGraph, idx } = s.args;
+
         if (s.args.graphState.isDragging) {
             return;
         }
@@ -460,19 +568,28 @@ function GraphNode() {
         // TODO: fix. it clicks instantly after it selects.  lmao.
         e.stopPropagation();
 
-        if (s.args.graphState.blockClick) {
-            s.args.graphState.blockClick = false;
+        if (s.args.graphState.isDragging) {
+            s.args.graphState.isDragging = false;
             return;
         }
 
-        s.args.onClick(s.args.idx);
+        if (graphState.currentSelectedNode === idx && !graphState.isEditing) {
+            graphState.isEditing = true;
+            renderGraph();
+        }
     });
 
-    root.el.addEventListener("mousedown", (e) => {
-        const { idx, onSelect } = s.args;
+    root.el.addEventListener("mousedown", () => {
+        const { idx, graphState, renderGraph, } = s.args;
 
-        s.args.graphState.blockClick = true;
-        onSelect(idx);
+        // block clicking, so we don't instantly de-select this thing.
+        graphState.isClickBlocked = true;
+        if (graphState.currentSelectedNode !== idx) {
+            graphState.currentEdgeDragStartNode = -1;
+            graphState.currentSelectedNode = idx;
+        }         
+
+        renderGraph();
     });
 
     on(textArea, "input", () => {
@@ -484,29 +601,31 @@ function GraphNode() {
     return newComponent(root, render, s);
 }
 
-function GraphEdge() {
-    const s = newState<{
-        edge: GraphEdge;
-        srcNode: GraphNode;
-        dstNode: GraphNode;
-        graphState: GraphState;
-    }>();
+const cnGraphEdge = sg.makeClass("graphEdge", [
+    ` > .path   { fill: none; stroke: var(--fg-color); stroke-width: 5; }`,
+    ` > .hitbox { fill: none; stroke: none; stroke-width: 30; }`,
+    ` > .hitbox:hover { stroke: rgba(255, 0, 0, 0.5); }`,
+]);
 
-    const pathEl = elSvg("path", { style: "left: 50%; top: 50%" });
-    const c = newComponent(pathEl, render, s);
+function GraphEdge() {
+    const s = newState<GraphEdgeUIArgs>();
+
+    const pathEl = elSvg("path", { class: "path" });
+    const hitboxEl = elSvg("path", { class: "hitbox" });
+    const root = elSvg("g", { class: cnGraphEdge }, [
+        pathEl,
+        hitboxEl,
+    ]);
+
+    const c = newComponent(root, render, s);
 
     function render() {
-        const { edge, srcNode, dstNode, graphState } = s.args;
+        const { edge, srcNode, dstNode, graphState, relativeContainer } = s.args;
 
-        let x0 = srcNode.x + edge.srcX;
-        let y0 = srcNode.y + edge.srcY;
-        let x1 = dstNode.x + edge.dstX;
-        let y1 = dstNode.y + edge.dstY;
-
-        x0 = Math.floor(x0 + graphState.viewX);
-        y0 = Math.floor(y0 + graphState.viewY);
-        x1 = Math.floor(x1 + graphState.viewX);
-        y1 = Math.floor(y1 + graphState.viewY);
+        let x0 = edgeSrcX(graphState, relativeContainer.el, edge, srcNode);
+        let y0 = edgeSrcY(graphState, relativeContainer.el, edge, srcNode);
+        let x1 = edgeDstX(graphState, relativeContainer.el, edge, dstNode);
+        let y1 = edgeDstY(graphState, relativeContainer.el, edge, dstNode);
 
         /**
          * Very helpful: https://www.w3schools.com/graphics/svg_path.asp
@@ -526,10 +645,128 @@ function GraphEdge() {
          */
 
         setAttr(pathEl, "d", `M${x0} ${y0} L${x1} ${y1} L`);
-        setStyle(pathEl, "fill", "none");
-        setStyle(pathEl, "stroke", "var(--fg-color)");
-        setStyle(pathEl, "strokeWidth", "2");
+        setAttr(hitboxEl, "d", `M${x0} ${y0} L${x1} ${y1} L`);
     }
 
     return c;
+}
+
+
+const cnEdgeCreateDragRect = sg.makeClass("graphNodeDragRect", [
+    ` { position: absolute; z-index: ${Z_INDICES.EDGE_CREATE_HANDLES} }`,
+    `.hover { background-color: rgba(255, 0, 0, 0.5); cursor: crosshair; }`,
+]);
+
+function makeDragRects(setupfn: (dragRect: Insertable<HTMLDivElement>) => void) {
+    const dragRects = [
+        div({ class: cnEdgeCreateDragRect }),
+        div({ class: cnEdgeCreateDragRect }),
+        div({ class: cnEdgeCreateDragRect }),
+        div({ class: cnEdgeCreateDragRect }),
+    ];
+
+    const directions = [
+        "top", "right", "bottom", "left"
+    ] as const;
+    const axes = [
+        "height", "width", "height", "width"
+    ] as const;
+
+    function updateDragRectStyles(args: GraphNodeUIArgs) {
+        const { graphState, idx } = args;
+
+        const outsetWidth = 40;
+        for(let i = 0; i < dragRects.length; i++) {
+            const divEl = dragRects[i];
+
+            setStyle(divEl, directions[i - 1] || "left", "-" + outsetWidth + "px");
+            setStyle(divEl, directions[i] || "top", "-" + outsetWidth + "px");
+            setStyle(divEl, directions[i + 1] || "top", "0");
+            setStyle(divEl, axes[i], outsetWidth + "px");
+            setClass(divEl, "hover", idx === graphState.currentEdgeDragStartNode);
+        }
+    }
+
+    for (const dr of dragRects) {
+        setupfn(dr);
+    }
+
+    return [dragRects, updateDragRectStyles] as const;
+}
+
+
+function edgeSrcX(graphState: GraphState, root: HTMLElement, edge: GraphEdge, srcNode: GraphNode | undefined) {
+    let x: number = 0;
+    if (srcNode) {
+        x = srcNode.x + edge.srcX;
+    } else {
+        x = edge.srcX;
+    }
+    return graphXToRealX(graphState, root, x);
+}
+
+function edgeSrcY(graphState: GraphState, root: HTMLElement, edge: GraphEdge, srcNode: GraphNode | undefined) {
+    let y: number = 0;
+    if (srcNode) {
+        y = srcNode.y + edge.srcY;
+    } else {
+        y = edge.srcY;
+    }
+    return graphYToRealY(graphState, root, y);
+}
+
+function edgeDstX(graphState: GraphState, root: HTMLElement, edge: GraphEdge, dstNode: GraphNode | undefined) {
+    let x: number = 0;
+    if (dstNode) {
+        x = dstNode.x + edge.dstX;
+    } else {
+        x = edge.dstX;
+    }
+    return graphXToRealX(graphState, root, x);
+}
+
+function edgeDstY(graphState: GraphState, root: HTMLElement, edge: GraphEdge, dstNode: GraphNode | undefined) {
+    let y: number = 0;
+    if (dstNode) {
+        y = dstNode.y + edge.dstY;
+    } else {
+        y = edge.dstY;
+    }
+    return graphYToRealY(graphState, root, y);
+}
+
+function graphXToRealX(graphState: GraphState, root: HTMLElement, x: number) {
+    const rect = root.getBoundingClientRect();
+    return Math.floor(
+        graphState.viewX + (rect.width / 2) + x
+    );
+}
+
+function realXToGraphX(graphState: GraphState, root: HTMLElement, x: number) {
+    const rect = root.getBoundingClientRect();
+    return Math.floor(
+        x - graphState.viewX - (rect.width / 2)
+    );
+}
+
+function graphYToRealY(graphState: GraphState, root: HTMLElement, y: number) {
+    const rect = root.getBoundingClientRect();
+    return Math.floor(
+        graphState.viewY + rect.height / 2 + y
+    );
+}
+
+function realYToGraphY(graphState: GraphState, root: HTMLElement, y: number) {
+    const rect = root.getBoundingClientRect();
+    return Math.floor(
+        y - graphState.viewY - (rect.height / 2)
+    );
+}
+
+function getMouseX(parent: HTMLDivElement, e: MouseEvent) {
+    return e.pageX - parent.offsetLeft;
+}
+
+function getMouseY(parent: HTMLDivElement, e: MouseEvent) {
+    return e.pageY - parent.offsetTop;
 }

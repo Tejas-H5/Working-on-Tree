@@ -45,7 +45,11 @@ export function clearChildren(mountPoint: Insertable) {
  * A little more performant than setting the style directly.
  * Not as fast as memoizing the variables that effect the style, and then setting this directly only when those vars have changed
  */
-export function setStyle<U extends HTMLElement | SVGElement, K extends (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"])>(
+export function setStyle<
+    U extends HTMLElement | SVGElement, 
+    // Apparently I can't just do `K extends keyof CSSStyleDeclaration` without type errors. lmao
+    K extends (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"])
+>(
     root: Insertable<U>, 
     val: K, style: U["style"][K]
 ) {
@@ -92,6 +96,8 @@ export function setVisibleGroup(state: boolean, groupIf: Insertable<HTMLElement 
             setVisible(i, !state);
         }
     }
+
+    return state;
 }
 
 export function setVisible<U extends HTMLElement | SVGElement>(component: Insertable<U>, state: boolean | null | undefined): boolean {
@@ -233,6 +239,9 @@ export function addChildren<T extends Insertable>(ins: T, children: ChildList): 
 /**
  * Used to create svg elements, since {@link el} won't work for those.
  * {@link type} needs to be lowercase for this to work as well.
+ *
+ * Hint: the `g` element can be used to group SVG elements under 1 DOM node. It's basically the `div` of the SVG world, and
+ * defers me from having to implement something like React fragments for 1 more day...
  */
 export function elSvg<T extends SVGElement>(
     type: string,
@@ -241,10 +250,19 @@ export function elSvg<T extends SVGElement>(
 ) {
     const xmlNamespace = "http://www.w3.org/2000/svg";
     const svgEl = document.createElementNS(xmlNamespace, type) as T;
-    svgEl.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
+    if (type === "svg") {
+        // Took this from https://stackoverflow.com/questions/8215021/create-svg-tag-with-javascript
+        // Not sure if actually needed
+        svgEl.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
+        svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
     return elInternal<T>(svgEl, attrs, children);
 }
 
+/**
+ * Creates an HTML element with the given attributes, and adds chldren.
+ * NOTE: For svg elements, you'll need to use `elSvg`
+ */
 export function el<T extends HTMLElement>(
     type: string, 
     attrs?: Attrs,
@@ -277,7 +295,11 @@ export type ChildList = ChildListElement | ChildListElement[];
 
 /**
  * Creates a div, gives it some attributes, and then appends some children. 
+ * It was so common to use el("div", ... that I've just made this it's own method.
+ *
  * I use this instead of {@link el} 90% of the time
+ *
+ * NOTE: For svg elements, you'll need to use `elSvg`
  */
 export function div(attrs?: Attrs, children?: ChildList) {
     return el<HTMLDivElement>("DIV", attrs, children);
