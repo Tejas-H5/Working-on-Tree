@@ -38,6 +38,7 @@
 .inline-block { display: inline-block; }
 .inline { display: inline; }
 .flex{ display: flex; }
+.pointer-events-none { pointer-events: none; }
 
 /** text and text layouting */
 

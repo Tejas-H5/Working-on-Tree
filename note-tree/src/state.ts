@@ -73,6 +73,7 @@ export type Note = {
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
+    _everyChildNoteDone: boolean;
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
     _depth: number; // used to visually indent the notes
@@ -334,6 +335,7 @@ export function defaultNote(state: State | null): Note {
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
+        _everyChildNoteDone: false,
         _isSelected: false,
         _isUnderCurrent: false,
         _depth: 0,
@@ -455,6 +457,7 @@ export function recomputeState(state: State) {
             }
 
             let foundDoneNote = false;
+            let hasInProgressNoteWithoutChildren = false;
             for (let i = note.childIds.length - 1; i >= 0; i--) {
                 const childId = note.childIds[i];
                 const child = getNote(state, childId);
@@ -465,6 +468,7 @@ export function recomputeState(state: State) {
 
                 if (isTodoNote(child.data)) {
                     child.data._status = STATUS_IN_PROGRESS;
+                    hasInProgressNoteWithoutChildren = true;
                     continue;
                 }
 
@@ -476,6 +480,7 @@ export function recomputeState(state: State) {
 
                 if (i === note.childIds.length - 1) {
                     child.data._status = STATUS_IN_PROGRESS;
+                    hasInProgressNoteWithoutChildren = true;
                 } else {
                     child.data._status = STATUS_ASSUMED_DONE;
                 }
@@ -498,6 +503,7 @@ export function recomputeState(state: State) {
 
             const isDone = everyChildNoteIsDone && lastChildNoteIsDoneLeafNote;
             note.data._status = isDone ? STATUS_DONE : STATUS_IN_PROGRESS;
+            note.data._everyChildNoteDone = everyChildNoteIsDone;
         };
 
         dfs(getRootNote(state));
@@ -553,6 +559,7 @@ export function recomputeState(state: State) {
             if (
                 note.parentId === null ||
                 note.data._status !== STATUS_IN_PROGRESS ||
+                (note.data._status === STATUS_IN_PROGRESS && !note.data._everyChildNoteDone) ||
                 note.data._isUnderCurrent
             ) {
                 continue;
