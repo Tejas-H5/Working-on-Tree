@@ -49,7 +49,6 @@ export function newDragManager({
                 dragState.isDragging = true;
                 e.stopImmediatePropagation();
                 onDragStart(e);
-                console.log("start");
             }
 
 
@@ -58,12 +57,10 @@ export function newDragManager({
 
                 if (mouseDown) {
                     onDrag(dx, dy, e);
-                    console.log("doing");
                 } else {
                     dragState.isDragging = false;
                     e.stopImmediatePropagation();
                     onDragEnd(e);
-                    console.log("end");
                 }
             }
         },
@@ -74,7 +71,7 @@ export function newDragManager({
             // this can only happen if it gets unset _after_ "click" is fired.
 
             setTimeout(() => {
-                if (e.buttons === 0) {
+                if (e.buttons === 0 && dragState.isDragging) {
                     dragState.isDragging = false;
                     mouseDown = false;
                     onDragEnd(e);
