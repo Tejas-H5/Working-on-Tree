@@ -39,6 +39,7 @@
 .inline { display: inline; }
 .flex{ display: flex; }
 .pointer-events-none { pointer-events: none; }
+.pointer-events-all { pointer-events: all; }
 
 /** text and text layouting */
 

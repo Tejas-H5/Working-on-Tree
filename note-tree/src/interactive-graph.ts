@@ -117,33 +117,33 @@ export function InteractiveGraph() {
             //         relativeContainer,
             //     }
             // }),
-            rg.list(elSvg("g"), GraphEdge, (getNext) => {
-                const svgRootRect = graphRoot.el.getBoundingClientRect();
-                setAttr(svgRoot, "width", "" + Math.floor(svgRootRect.width));
-                setAttr(svgRoot, "height", "" + Math.floor(svgRootRect.height));
-
-                for (let i = 0; i < graphEdges.length; i++) {
-                    const edge = graphEdges[i];
-                    const c = getNext();
-
-                    if (!c.state.hasArgs()) {
-                        c.state.args = {
-                            srcNode: graphNodes[edge.srcNodeIdx],
-                            dstNode: graphNodes[edge.dstNodeIdx],
-                            graphState: graphState,
-                            edge,
-                            relativeContainer,
-                        };
-                    }
-
-                    c.state.args.edge = graphEdges[i];
-                    c.state.args.srcNode = graphNodes[edge.srcNodeIdx];
-                    c.state.args.dstNode = graphNodes[edge.dstNodeIdx];
-                    c.state.args.graphState = graphState;
-
-                    c.render(c.state.args);
-                }
-            }),
+            // rg.list(elSvg("g"), GraphEdge, (getNext) => {
+            //     const svgRootRect = graphRoot.el.getBoundingClientRect();
+            //     setAttr(svgRoot, "width", "" + Math.floor(svgRootRect.width));
+            //     setAttr(svgRoot, "height", "" + Math.floor(svgRootRect.height));
+            //
+            //     for (let i = 0; i < graphEdges.length; i++) {
+            //         const edge = graphEdges[i];
+            //         const c = getNext();
+            //
+            //         if (!c.state.hasArgs()) {
+            //             c.state.args = {
+            //                 srcNode: graphNodes[edge.srcNodeIdx],
+            //                 dstNode: graphNodes[edge.dstNodeIdx],
+            //                 graphState: graphState,
+            //                 edge,
+            //                 relativeContainer,
+            //             };
+            //         }
+            //
+            //         c.state.args.edge = graphEdges[i];
+            //         c.state.args.srcNode = graphNodes[edge.srcNodeIdx];
+            //         c.state.args.dstNode = graphNodes[edge.dstNodeIdx];
+            //         c.state.args.graphState = graphState;
+            //
+            //         c.render(c.state.args);
+            //     }
+            // }),
         ]
     );
 
@@ -153,38 +153,67 @@ export function InteractiveGraph() {
         class: "flex-1 w-100 h-100 col",
     }, [
         addChildren(relativeContainer, [
-        // NOTE: not quite right to use graphRoot as the root of the list...
-            rg.list(graphRoot, GraphNode, (getNext) => {
-                for (let i = 0; i < graphNodes.length; i++) {
-                    const c = getNext();
-                    if (!c.state.hasArgs()) {
-                        c.render({
-                            node: graphNodes[i],
+            addChildren(graphRoot, [
+                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdge2, (getNext) => {
+                    const svgRootRect = graphRoot.el.getBoundingClientRect();
+                    setAttr(svgRoot, "width", "" + Math.floor(svgRootRect.width));
+                    setAttr(svgRoot, "height", "" + Math.floor(svgRootRect.height));
 
-                            idx: 0,
-                            isEditing: false,
-                            isSelected: false,
-                            graphState,
+                    for (let i = 0; i < graphEdges.length; i++) {
+                        const edge = graphEdges[i];
+                        const c = getNext();
 
-                            onMouseDown,
-                            onMouseUp,
-                            onMouseMove,
+                        if (!c.state.hasArgs()) {
+                            c.state.args = {
+                                srcNode: graphNodes[edge.srcNodeIdx],
+                                dstNode: graphNodes[edge.dstNodeIdx],
+                                graphState: graphState,
+                                edge,
+                                relativeContainer,
+                            };
+                        }
 
-                            relativeContainer,
-                            renderGraph,
-                        })
+                        c.state.args.edge = graphEdges[i];
+                        c.state.args.srcNode = graphNodes[edge.srcNodeIdx];
+                        c.state.args.dstNode = graphNodes[edge.dstNodeIdx];
+                        c.state.args.graphState = graphState;
+
+                        c.render(c.state.args);
                     }
+                }),
+                // NOTE: not quite right to use graphRoot as the root of the list...
+                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNode, (getNext) => {
+                    for (let i = 0; i < graphNodes.length; i++) {
+                        const c = getNext();
+                        if (!c.state.hasArgs()) {
+                            c.render({
+                                node: graphNodes[i],
 
-                    c.state.args.node = graphNodes[i];
-                    c.state.args.idx = i;
-                    c.state.args.graphState = graphState;
-                    c.state.args.isSelected = graphState.currentSelectedNode === i;
-                    c.state.args.isEditing = graphState.isEditing && c.state.args.isSelected;
+                                idx: 0,
+                                isEditing: false,
+                                isSelected: false,
+                                graphState,
 
-                    c.render(c.state.args);
-                }
-            }),
-            svgRoot,
+                                onMouseDown,
+                                onMouseUp,
+                                onMouseMove,
+
+                                relativeContainer,
+                                renderGraph,
+                            })
+                        }
+
+                        c.state.args.node = graphNodes[i];
+                        c.state.args.idx = i;
+                        c.state.args.graphState = graphState;
+                        c.state.args.isSelected = graphState.currentSelectedNode === i;
+                        c.state.args.isEditing = graphState.isEditing && c.state.args.isSelected;
+
+                        c.render(c.state.args);
+                    }
+                }),
+            ]),
+            // svgRoot,
         ]),
         div({class: "row align-items-center"}, [
             on(makeButton("Recenter"), "click", () => {
@@ -408,8 +437,8 @@ export function InteractiveGraph() {
     let lastX = 0, lastY = 0;
     on(relativeContainer, "mousemove", (e) => {
         // only run mousemove if we've moved by a large enough distance;
-        const x = Math.floor(e.pageX / 2);
-        const y = Math.floor(e.pageY / 2);
+        const x = Math.floor(e.pageX);
+        const y = Math.floor(e.pageY);
         if (lastX === x && lastY === y) {
             return
         }
@@ -460,14 +489,36 @@ export function InteractiveGraph() {
 
     // Testing code. TODO: remove
     setTimeout(() => {
-        const srcNodeIdx = addNewNode();
-        const dstNodeIdx = addNewNode();
-        graphEdges.push({
-            srcNodeIdx,
-            srcX: 0, srcY: 0,
-            dstNodeIdx,
-            dstX: 0, dstY: 0
-        });
+        function setupTest(
+            name: string,
+            x0: number, y0: number,
+            x1: number, y1: number,
+        ) {
+            const srcNodeIdx = addNewNode();
+            graphNodes[srcNodeIdx].text = name + " src";
+            graphNodes[srcNodeIdx].x = x0;
+            graphNodes[srcNodeIdx].y = y0;
+
+            const dstNodeIdx = addNewNode();
+            graphNodes[dstNodeIdx].text = name + " dst";
+            graphNodes[dstNodeIdx].x = x1;
+            graphNodes[dstNodeIdx].y = y1;
+
+            graphEdges.push({
+                srcNodeIdx,
+                srcX: 0, srcY: 0,
+                dstNodeIdx,
+                dstX: 0, dstY: 0
+            });
+        }
+
+        setupTest("A", -200, 0, 200, 0);
+        setupTest("B", 0, -200, 0, 200);
+        setupTest("C", 300, 300, -300, -300);
+        setupTest("D", -300, 300, 300, -300);
+
+        recenter();
+
         renderGraph();
     }, 1);
 
@@ -501,7 +552,12 @@ function GraphNode() {
             if (!graphState.isDragging) {
                 graphState.currentEdgeDragSrcNodeIdx = idx;
             } else {
-                graphState.currentEdgeDragDstNodeIdx = idx;
+                if (
+                    graphState.currentEdgeDragSrcNodeIdx !== -1 &&
+                    graphState.currentEdgeDragSrcNodeIdx !== idx
+                ) {
+                    graphState.currentEdgeDragDstNodeIdx = idx;
+                }
             }
 
             renderGraph();
@@ -528,6 +584,7 @@ function GraphNode() {
     const rg = newRenderGroup();
     const root = div({
         style: "position: absolute; padding: 5px; border: 1px var(--fg-color) solid; ",
+        class: "pointer-events-all",
     }, [
         div({ style: "position: relative;" }, [
             textArea,
@@ -703,11 +760,63 @@ function GraphEdge() {
     return c;
 }
 
+const cnGraphEdge2 = sg.makeClass(`graph-edge-second`, [
+    ` { position: absolute; top: 0; left: 0; width: 1px; height: 1px; background-color: var(--fg-color); }`,
+    `:hover { background-color: red; }`
+]);
+
+function GraphEdge2() {
+    const s = newState<GraphEdgeUIArgs>();
+
+    const contentRoot = div({ style: "position: absolute; white-space: nowrap;" }, [
+        div({}, "Hello there")
+    ]);
+
+    const root = div({
+        class: cnGraphEdge2 + " pointer-events-all",
+    }, [
+        contentRoot
+    ]);
+
+    function render() {
+        const { edge, srcNode, dstNode, graphState, relativeContainer } = s.args;
+
+        setClass(root, "block-mouse", true || graphState.isDragging);
+
+        let x0 = edgeSrcX(graphState, relativeContainer.el, edge, srcNode);
+        let y0 = edgeSrcY(graphState, relativeContainer.el, edge, srcNode);
+        let x1 = edgeDstX(graphState, relativeContainer.el, edge, dstNode);
+        let y1 = edgeDstY(graphState, relativeContainer.el, edge, dstNode);
+
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+        const shouldNotFlip = (-Math.PI / 2 <= angle && angle <= Math.PI / 2);
+
+        setStyle(root, "width", "1px");
+        setStyle(root, "height", "1px");
+        const edgeHeight = 10;
+        setStyle(root, `transform`, `translate(${x0}px, ${y0}px) rotate(${angle}rad) translate(${length / 2}px, ${0}px) scale(${length}, ${edgeHeight})`);
+
+        if (shouldNotFlip) {
+            setStyle(contentRoot, `transform`, `translate(-50%, -50%) scale(${1 / length}, ${1 / edgeHeight}) translate(0, 50%) translate(${length / 2}px, -24px)`);
+        } else {
+            setStyle(contentRoot, `transform`, `translate(-50%, -50%) scale(${-1 / length}, ${-1 / edgeHeight}) translate(0, 50%) translate(${-length / 2}px, -34px)`);
+        }
+
+        setText(contentRoot, angle.toFixed(3) + "rad");
+    }
+
+    return newComponent(root, render, s);
+}
+
 
 const cnEdgeCreateDragRect = sg.makeClass("graphNodeDragRect", [
     // https://stackoverflow.com/questions/704564/disable-drag-and-drop-on-html-elements
     // So many fkn opinions on this thread - user-select: none; was the only thing that worked.
-    ` { position: absolute; z-index: ${Z_INDICES.EDGE_CREATE_HANDLES}; background-color: transparent; cursor: crosshair; border: 1px black solid; user-select: none; }`,
+    ` { position: absolute; z-index: ${Z_INDICES.EDGE_CREATE_HANDLES}; background-color: transparent; cursor: crosshair; user-select: none; }`,
+        // + "border: 1px black solid; "
     `.src-edge-drag { background-color: rgba(255, 0, 0, 0.5); }`,
     `.dst-edge-drag { background-color: rgba(0, 0, 255, 0.5); }`,
 ]);
@@ -739,8 +848,8 @@ function makeDragRects(setupfn: (dragRect: Insertable<HTMLDivElement>) => void) 
             setStyle(divEl, directions[i + 1] || "top", "0");
             setStyle(divEl, axes[i], outsetWidth + "px");
 
-            // setClass(divEl, "src-edge-drag", graphState.currentEdgeDragSrcNodeIdx === idx);
-            // setClass(divEl, "dst-edge-drag", graphState.currentEdgeDragDstNodeIdx === idx);
+            setClass(divEl, "src-edge-drag", graphState.currentEdgeDragSrcNodeIdx === idx);
+            setClass(divEl, "dst-edge-drag", graphState.currentEdgeDragDstNodeIdx === idx);
         }
     }
 
