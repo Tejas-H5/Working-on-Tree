@@ -28,8 +28,8 @@ export function newDragManager({
 
     let mouseDown = false;
 
-
     return {
+        dragState,
         onMouseDown(e: MouseEvent) {
             e.stopImmediatePropagation();
 
