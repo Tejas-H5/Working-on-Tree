@@ -13,13 +13,11 @@
     background-color: var(--fg-color);
 }
 
-.unfocused-text-color {
-    color: var(--unfocus-text-color);
-}
+.unfocused-text-color { color: var(--unfocus-text-color); }
 
-.bg-color-focus {
-    background-color: var(--bg-color-focus);
-}
+.bg-color-focus { background-color: var(--bg-color-focus); }
+.bg-color { background-color: var(--bg-color); }
+.transparent { background-color: transparent; color: transparent; }
 
 .danger {
     background-color: red;
@@ -32,30 +30,13 @@
     pointer-events: all;
 }
 
-.solid-border {
-    outline: 2px solid var(--fg-color);
-}
+.solid-border { outline: 2px solid var(--fg-color); }
 
-.sb1l {
-    border-left: 1px solid var(--fg-color);
-}
-
-.sb1r {
-    border-right: 1px solid var(--fg-color);
-}
-
-.sb1t {
-    border-top: 1px solid var(--fg-color);
-}
-
-.sb1b {
-    border-bottom: 1px solid var(--fg-color);
-}
-
-.solid-border-sm {
-    border: 1px solid var(--fg-color);
-}
-
+.sb1l { border-left: 1px solid var(--fg-color); }
+.sb1r { border-right: 1px solid var(--fg-color); }
+.sb1t { border-top: 1px solid var(--fg-color); }
+.sb1b { border-bottom: 1px solid var(--fg-color); }
+.solid-border-sm { border: 1px solid var(--fg-color); }
 .solid-border-sm-rounded {
     border: 1px solid var(--fg-color);
     border-radius: 3px;

@@ -47,6 +47,7 @@
 .text-align-right { text-align: right; }
 .text-align-left { text-align: left; }
 .pre-wrap { white-space: pre-wrap; }
+.nowrap { white-space: nowrap; }
 .pre { white-space: pre; }
 .handle-long-words {
     overflow-wrap: anywhere;

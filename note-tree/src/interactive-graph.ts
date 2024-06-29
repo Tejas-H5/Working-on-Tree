@@ -1,7 +1,8 @@
 import { makeButton } from "./components";
 import { TextArea } from "./components/text-area";
 import { filterInPlace } from "./utils/array-utils";
-import { Insertable, addChildren, div, el, elSvg, isVisible, newComponent, newRenderGroup, newState, newStyleGenerator, on, setAttr, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { addDays } from "./utils/datetime";
+import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, newStyleGenerator, on, setAttr, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 
 const sg = newStyleGenerator();
@@ -11,6 +12,7 @@ type GraphArgs = {
 };
 
 const Z_INDICES = {
+    CONTEXT_MENU: "20",
     NODE_SELECTED: "10",
     NODE_UNSELECTED: "9",
     EDGE: "8",
@@ -28,6 +30,7 @@ type GraphNodeUIArgs = {
     onMouseMove(e: MouseEvent): void;
     onMouseDown(e: MouseEvent): void;
     onMouseUp(e: MouseEvent): void;
+    onContextMenu(e: MouseEvent): void;
 
     relativeContainer: Insertable<HTMLDivElement>;
     renderGraph(): void;
@@ -44,6 +47,7 @@ type GraphEdgeUIArgs = {
     onMouseMove(e: MouseEvent): void;
     onMouseDown(e: MouseEvent): void;
     onMouseUp(e: MouseEvent): void;
+    onContextMenu(e: MouseEvent): void;
 
     relativeContainer: Insertable<HTMLDivElement>;
     renderGraph(): void;
@@ -66,6 +70,11 @@ type GraphState = {
     isClickBlocked: boolean;
     isMouseDown: boolean;
     isEditing: boolean;
+
+    contextMenuItems: ContextMenuItem[];
+    isContextMenuOpen: boolean;
+    contextMenuX: number;
+    contextMenuY: number;
 
     currentSelectedNode: number;
     currentEdgeDragStartNodeIdx: number;
@@ -104,13 +113,14 @@ export function InteractiveGraph() {
     });
 
     const relativeContainer = div({ class: "col relative flex-1" });
+    const contextMenu = RadialContextMenu();
 
     const root = div({
         class: "flex-1 w-100 h-100 col",
     }, [
         addChildren(relativeContainer, [
             addChildren(graphRoot, [
-                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdge2, (getNext) => {
+                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI, (getNext) => {
                     for (let i = 0; i < graphEdges.length; i++) {
                         const edge = graphEdges[i];
                         const c = getNext();
@@ -126,6 +136,7 @@ export function InteractiveGraph() {
                                 onMouseUp,
                                 onMouseDown,
                                 onMouseMove,
+                                onContextMenu,
 
                                 relativeContainer,
                                 renderGraph,
@@ -143,7 +154,7 @@ export function InteractiveGraph() {
                     }
                 }),
                 // NOTE: not quite right to use graphRoot as the root of the list...
-                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNode, (getNext) => {
+                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI, (getNext) => {
                     for (let i = 0; i < graphNodes.length; i++) {
                         const c = getNext();
                         if (!c.state.hasArgs()) {
@@ -158,6 +169,7 @@ export function InteractiveGraph() {
                                 onMouseDown,
                                 onMouseUp,
                                 onMouseMove,
+                                onContextMenu,
 
                                 relativeContainer,
                                 renderGraph,
@@ -175,6 +187,7 @@ export function InteractiveGraph() {
                 }),
             ]),
             // svgRoot,
+            contextMenu,
         ]),
         div({class: "row align-items-center"}, [
             on(makeButton("Recenter"), "click", () => {
@@ -189,6 +202,21 @@ export function InteractiveGraph() {
         ]),
     ]);
 
+    function contextMenuItem(item: ContextMenuItem) {
+        return item;
+    }
+
+    const contextMenuItems = {
+        newNode: contextMenuItem({
+            text: "New Node",
+            onClick() {
+                const x = realXToGraphX(graphState, relativeContainer.el, graphState.contextMenuX);
+                const y = realYToGraphY(graphState, relativeContainer.el, graphState.contextMenuY)
+                addNewNode(x, y);
+            }
+        })
+    };
+
     const graphState: GraphState = {
         viewX: 0,
         viewY: 0,
@@ -196,6 +224,14 @@ export function InteractiveGraph() {
         isClickBlocked: false, 
         isMouseDown: false,
         isEditing: false,
+
+        contextMenuItems: [
+            contextMenuItems.newNode,
+        ],
+        isContextMenuOpen: false,
+        contextMenuX: 0,
+        contextMenuY: 0,
+
         currentSelectedNode: -1,
         currentEdgeDragStartNodeIdx: -1,
         currentEdgeDragEndNodeIdx: -1,
@@ -227,18 +263,16 @@ export function InteractiveGraph() {
         moveGraph(0, 0);
     }
 
-    function addNewNode() {
+    function addNewNode(x = 0, y = 0) {
         const idx = graphNodes.length;
         graphNodes.push({ 
             text: "New node " + graphNodes.length, 
-            x: 0,
-            y: 0,
+            x, y,
         });
         return idx;
     }
 
     let domRect = root.el.getBoundingClientRect();
-
 
     function renderGraph() {
         domRect = root.el.getBoundingClientRect();
@@ -251,9 +285,22 @@ export function InteractiveGraph() {
         });
 
         rg.render();
+
+        if (setVisible(contextMenu, graphState.isContextMenuOpen)) {
+            contextMenu.render({
+                x: graphState.contextMenuX,
+                y: graphState.contextMenuY,
+                items: graphState.contextMenuItems,
+                centerText: "+New",
+                onClose: closeContextMenu,
+            });
+        }
     }
 
     function startEdgeDrag(e: MouseEvent) {
+        // Specifically for edges, we want the endpoint to be exactly on the mouse cursor.
+        // For most things, we want the point where we started dragging something to be the point that we are 'grabbing', and for 
+        // the current position of that thing to be offset by the offset which was present at the start.
         const startX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, dragManager.dragState.startX));
         const startY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, dragManager.dragState.startY));
 
@@ -388,14 +435,10 @@ export function InteractiveGraph() {
         }, 
     });
 
-    let mouseX = 0, mouseY = 0;
     function onMouseMove(e: MouseEvent) {
         graphState.isMouseDown = e.buttons !== 0;
 
         dragManager.onMouseMove(e);
-
-        mouseX = getMouseX(relativeContainer.el, e.pageX);
-        mouseY = getMouseY(relativeContainer.el, e.pageY);
 
         if (!graphState.isDragging) {
             // reset a bunch of things that were set in drag operations
@@ -405,6 +448,8 @@ export function InteractiveGraph() {
         } else {
             graphState.currentEdgeDragEndNodeIdx = -1;
         }
+
+        graphState.isContextMenuOpen = false;
     }
 
     function onMouseUp(e: MouseEvent) {
@@ -426,19 +471,29 @@ export function InteractiveGraph() {
             graphState.currentSelectedNode = -1;
             graphState.isEditing = false;
 
-            renderGraph();
         }, 1);
-        
+    }
+
+    function onContextMenu(e: MouseEvent) {
+        e.preventDefault();
+
+        // NOTE: other code might want to call this function, then add it's own stuff to the context menu and disable other stuff, possibly
+        graphState.isContextMenuOpen = true;
+        graphState.contextMenuX = getMouseX(relativeContainer.el, e.pageX);
+        graphState.contextMenuY = getMouseY(relativeContainer.el, e.pageY);
+    }
+    function closeContextMenu() {
+        graphState.isContextMenuOpen = false;
         renderGraph();
     }
 
     let lastX = 0, lastY = 0;
     on(relativeContainer, "mousemove", (e) => {
-        // only run mousemove if we've moved by a large enough distance;
+        // only run mousemove if we've moved by a large enough distance, since this event gets sent a LOT
         const x = Math.floor(e.pageX);
         const y = Math.floor(e.pageY);
         if (lastX === x && lastY === y) {
-            return
+            return;
         }
 
         lastX = x;
@@ -454,6 +509,10 @@ export function InteractiveGraph() {
     });
     on(relativeContainer, "mousedown", (e) => {
         onMouseDown(e);
+        renderGraph();
+    });
+    on(relativeContainer, "contextmenu", (e) => {
+        onContextMenu(e);
         renderGraph();
     });
 
@@ -492,7 +551,7 @@ export function InteractiveGraph() {
             x0: number, y0: number,
             x1: number, y1: number,
         ) {
-            const srcNodeIdx = addNewNode();
+            const srcNodeIdx = addNewNode(x0, y0);
             graphNodes[srcNodeIdx].text = name + " src";
             graphNodes[srcNodeIdx].x = x0;
             graphNodes[srcNodeIdx].y = y0;
@@ -543,7 +602,7 @@ export function InteractiveGraph() {
     return newComponent(root, renderGraph, s);
 }
 
-function GraphNode() {
+function GraphNodeUI() {
     const s = newState<GraphNodeUIArgs>();
 
     const className = "pre w-100 h-100";
@@ -591,13 +650,16 @@ function GraphNode() {
         });
         on(regionDiv, "mousedown", (e) => {
             const { onMouseDown, renderGraph } = s.args;
-
             e.stopImmediatePropagation();
-
             onMouseDown(e);
-
             renderGraph();
         });
+        on(regionDiv, "contextmenu", (e) => {
+            const { onContextMenu, renderGraph } = s.args;
+            e.stopImmediatePropagation();
+            onContextMenu(e);
+            renderGraph();
+        })
     });
 
     const rg = newRenderGroup();
@@ -650,7 +712,10 @@ function GraphNode() {
         const xPos = graphXToRealX(graphState, relativeContainer.el, node.x);
         const yPos = graphYToRealY(graphState, relativeContainer.el, node.y);
 
-        setStyle(root, "transform", `translate(${xPos}px, ${yPos}px)`);
+        const w = root.el.clientWidth;
+        const h = root.el.clientHeight;
+
+        setStyle(root, "transform", `translate(${xPos - w / 2}px, ${yPos - h / 2}px)`);
         setStyle(root, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
         setStyle(root, "zIndex", isSelected ? Z_INDICES.NODE_SELECTED : Z_INDICES.NODE_UNSELECTED);
         setStyle(textDiv, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
@@ -720,7 +785,7 @@ function GraphNode() {
     on(textArea, "input", () => {
         const { node } = s.args;
         node.text = textArea.el.value;
-        updateTextAreaSize();
+        render();
     });
 
     return newComponent(root, render, s);
@@ -732,8 +797,7 @@ const cnGraphEdgeRoot = sg.makeClass(`graph-edge-root`, [
     `.redrag .line { background-color: red; }`
 ]);
 
-// TODO: rename to just GraphEdge. we used to have an svg version that lagged a whole bunch (yes, this one is more performant)
-function GraphEdge2() {
+function GraphEdgeUI() {
     const s = newState<GraphEdgeUIArgs>();
 
     const arrowHitbox = div({ 
@@ -798,6 +862,12 @@ function GraphEdge2() {
 
             e.stopImmediatePropagation();
             onMouseDown(e);
+            renderGraph();
+        });
+        on(seg, "contextmenu", (e) => {
+            const { onContextMenu, renderGraph } = s.args;
+            e.stopImmediatePropagation();
+            onContextMenu(e);
             renderGraph();
         });
     }
@@ -919,6 +989,233 @@ function makeDragRects(setupfn: (dragRect: Insertable<HTMLDivElement>) => void) 
 
     return [dragRects, updateDragRectStyles] as const;
 }
+
+
+type ContextMenuItem = {
+    text: string;
+    hidden?: boolean;
+    onClick(): void;
+};
+
+const cnContextMenu = sg.makeClass(`context-menu`, [
+    ` .item:hover { background-color: var(--bg-color-focus); cursor: pointer; }`
+])
+
+function RadialContextMenu() {
+    const s = newState<{
+        x: number;
+        y: number;
+        centerText: string;
+        items: ContextMenuItem[];
+        onClose(): void;
+    }>();
+
+    function RadialContextMenuItem() {
+        const s = newState<{
+            x: number;
+            y: number;
+            item: ContextMenuItem;
+            onClose(): void;
+        }>();
+
+        const rg = newRenderGroup();
+        const root = div({ 
+            class: "absolute nowrap item bg-color",
+            style: `z-index: ${Z_INDICES.CONTEXT_MENU}; padding: 10px; border-radius: 5px; border: 2px solid var(--fg-color);`,
+        }, [
+            rg.text(() => s.args.item.text)
+        ]);
+
+        function render() {
+            const { x, y } = s.args;
+
+            rg.render();
+
+            setStyle(root, "left", x + "px");
+            setStyle(root, "top", y + "px");
+        }
+
+        on(root, "mousedown", (e) => {
+            if (e.button !== 0) {
+                return
+            }
+
+            e.stopImmediatePropagation();
+            s.args.item.onClick();
+            s.args.onClose();
+        });
+
+        return newComponent(root, render, s);
+    }
+
+    const contextMenuItemList = newListRenderer(div({ class: "relative" }), RadialContextMenuItem);
+    const centerTextEl = div();
+    const centerTextContainerPadding = 10;
+    const centerTextContainer = div({ 
+        class: "bg-color nowrap col align-items-center justify-content-center", 
+        style: `padding: ${centerTextContainerPadding}px; border-radius: 500px;` 
+    }, [
+        centerTextEl
+    ]);
+
+    const root = div({
+        style: `position: absolute; background-color: transparent; z-index: ${Z_INDICES.CONTEXT_MENU}`,
+        class: cnContextMenu + " col align-items-center justify-content-center",
+    }, [
+        div({ class: "relative" }, [
+                div({ class: "absolute-fill col align-items-center justify-content-center" }, [
+                    // 0x0 div in th center
+                    contextMenuItemList,
+                ]),
+                centerTextContainer,
+        ]),
+    ]);
+
+    function render() {
+        const { x, y, items, centerText } = s.args;
+
+        setText(centerTextEl, centerText);
+        const centerTextWidth = centerTextEl.el.clientWidth;
+        setStyle(centerTextContainer, "height", (centerTextContainer.el.clientWidth - centerTextContainerPadding * 2) + "px");
+        
+        let rootWidth = 0;
+        let rootHeight = 0;
+        contextMenuItemList.render((getNext) => {
+            // first render
+            for(const item of items) {
+                if (item.hidden) {
+                    continue;
+                }
+
+                getNext().render({
+                    item,
+                    // set later
+                    x: 0, y: 0,
+                    onClose: s.args.onClose,
+                });
+            }
+
+
+            // now measure their sizes, and place them in a circle accordingly
+
+            let maxWidth = 0;
+            for (const c of contextMenuItemList.components) {
+                maxWidth = Math.max(maxWidth, c.el.clientWidth);
+            }
+
+            ;
+            let i = 0; 
+            let delta = Math.PI / 120;
+            const lastRect = { x: -99999, y: -99999, w: -99999, h: -99999 };
+            const boundingRect = { t: 0, l: 0, b: 0, r: 0 };
+            const verticalRect = { x: -centerTextWidth / 2, y: -5000, w: centerTextWidth, h: 10000  };
+            let radiusMultiplierX = 1;
+            let radiusMultiplierY = 1;
+            for (let angle = 0; i < items.length; angle += delta) {
+                if (angle > 2 * Math.PI) {
+                    radiusMultiplierX += 1.3;
+                    radiusMultiplierY += 0.5;
+                    angle = 0;
+                }
+
+                const cirlceAngle = angle + Math.PI / 2;
+                const centerX = Math.cos(cirlceAngle) * radiusMultiplierX * (maxWidth * 0.5 + centerTextWidth);
+                const centerY = Math.sin(cirlceAngle) * maxWidth * radiusMultiplierY;
+
+                const c = contextMenuItemList.components[i];
+                const w = c.el.clientWidth;
+                const h = c.el.clientHeight;
+
+                const x = centerX - w / 2;
+                const y = centerY - h / 2;
+
+                if (
+                    rectIntersect(x, y, w, h, lastRect.x, lastRect.y, lastRect.w, lastRect.h) ||
+                    rectIntersect(x, y, w, h, verticalRect.x, verticalRect.y, verticalRect.w, verticalRect.h)
+                ) {
+                    continue;
+                }
+
+                c.state.args.x = x;
+                c.state.args.y = y;
+
+                const spacing = 10;
+                lastRect.x = x - spacing;
+                lastRect.y = y - spacing;
+                lastRect.w = w + spacing * 2;
+                lastRect.h = h + spacing * 2;
+
+                const r = lastRect.x + lastRect.w;
+                const b = lastRect.y + lastRect.h;
+
+                boundingRect.l = Math.min(boundingRect.l, lastRect.x);
+                boundingRect.r = Math.max(boundingRect.r, r);
+                boundingRect.t = Math.min(boundingRect.t, lastRect.y);
+                boundingRect.b = Math.max(boundingRect.b, b);
+
+                i++;
+            }
+
+            rootWidth = boundingRect.r - boundingRect.l;
+            rootHeight = boundingRect.b - boundingRect.t;
+
+            for (let i = 0; i < items.length; i++) {
+                const c = contextMenuItemList.components[i];
+                c.render(c.state.args);
+            }
+        });
+
+        setStyle(root, "left", (x - rootWidth / 2) + "px");
+        setStyle(root, "top", (y - rootHeight / 2) + "px");
+        setStyle(root, "width", rootWidth + "px");
+        setStyle(root, "height", rootHeight + "px");
+
+    }
+
+    function closeSelf(e: MouseEvent) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        s.args.onClose();
+    }
+
+    on(root, "contextmenu", closeSelf);
+    on(root, "mousedown", (e) => {
+        if (e.button === 0) {
+            closeSelf(e);
+        }
+    });
+    on(root, "mousemove", (e) => {
+        e.stopImmediatePropagation();
+    });
+
+    return newComponent(root, render, s);
+}
+
+function rectIntersect(
+    r0x0: number, r0y0: number, r0w: number, r0h: number,
+    r1x0: number, r1y0: number, r1w: number, r1h: number,
+): boolean {
+    return (
+        rangeIntersect(
+            r0x0, r0x0 + r0w, 
+            r1x0, r1x0 + r1w,
+        ) && rangeIntersect(
+            r0y0, r0y0 + r0h, 
+            r1y0, r1y0 + r1h,
+        ) 
+    );
+}
+
+function rangeIntersect(
+    a0: number, a1: number,
+    b0: number, b1: number,
+): boolean {
+    return (
+        (a0 <= b0 && b0 <= a1) ||
+        (a0 <= b1 && b1 <= a1) ||
+        (b0 <= a0 && a1 <= b1)
+    );
+};
 
 function edgeSrcX(edge: GraphEdge, srcNode: GraphNode | undefined) {
     let x: number = 0;

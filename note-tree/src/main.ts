@@ -2,7 +2,7 @@ import "src/css/colours.css";
 import "src/css/layout.css";
 import "src/css/ui.css";
 
-import { AsciiCanvas, AsciiCanvasArgs } from "src/canvas";
+import { AsciiCanvas, } from "src/canvas";
 import { Checkbox, DateTimeInput, Modal, ModalArgs, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace } from "src/utils/array-utils";
