@@ -1667,34 +1667,54 @@ function LoadBackupModal() {
 
 
 function InteractiveGraphModal() {
-    const modalArgs: ModalArgs = {
-        onClose() {
-            // not so good for the graph
-            // setCurrentModal(null);
-        }
-    };
-
     function onClose() {
         setCurrentModal(null);
         debouncedSave();
     }
 
-    return __experimental__inlineComponent((rg) => {
-        return rg.cArgs(
-            Modal(
-                div({ style: modalPaddingStyles(10) }, [
-                    rg.cArgs(InteractiveGraph(), () => ({
-                        onClose,
-                        graphData: state.mainGraphData,
-                        onInput() {
-                            debouncedSave();
-                        }
-                    }))
-                ])
-            ),
-            () => modalArgs
-        );
-    });
+    const rg = newRenderGroup();
+    const root = Modal(
+        div({ style: modalPaddingStyles(10) }, [
+            rg.cArgs(InteractiveGraph(), () => ({
+                onClose,
+                graphData: state.mainGraphData,
+                onInput() {
+                    debouncedSave();
+                }
+            }))
+        ])
+    );
+
+    return newComponent(root, rg.render);
+}
+
+function SettingsModal() {
+    function onClose() {
+        setCurrentModal(null);
+        debouncedSave();
+    }
+
+    const rg = newRenderGroup();
+    const root = Modal(div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
+        el("H3", { class: "text-align-center" }, "Settings"),
+        div({ class: "row" }, [
+            rg.cArgs(Checkbox(), () => ({
+                label: "Always show estimates",
+                value: state.settings.alwaysShowEstimates,
+                onChange(val) {
+                    state.settings.alwaysShowEstimates = val;
+                    rerenderApp();
+                }
+            }))
+        ])
+    ]));
+
+    function render() {
+        root.render({ onClose });
+        rg.render();
+    }
+
+    return newComponent(root, render);
 }
 
 function AsciiCanvasModal() {
@@ -1728,7 +1748,6 @@ function NoteRowDurationInfo() {
         estimateEl,
     ]);
 
-
     function renderNoteRowDurationInfo() {
         const { note, duration } = s.args;
 
@@ -1742,10 +1761,11 @@ function NoteRowDurationInfo() {
             setText(durationEl, formatDurationAsHours(duration));
         }
 
-        if (setVisible(estimateEl, hasEstimate)) {
+        if (setVisible(estimateEl, state.settings.alwaysShowEstimates || hasEstimate)) {
             const durationNoRange = getNoteDuration(state, note, false);
             setStyle(estimateEl, "color", durationNoRange < estimate ? "" : "#F00");
-            setText(estimateEl, formatDurationAsHours(durationNoRange) + "/" + formatDurationAsHours(estimate));
+            const estimateStr = estimate === 0 ? "?" : formatDurationAsHours(estimate);
+            setText(estimateEl, formatDurationAsHours(durationNoRange) + "/" + estimateStr);
         }
     }
 
@@ -2796,6 +2816,7 @@ export function App() {
 
     const asciiCanvasModal = AsciiCanvasModal();
     const interactiveGraphModal = InteractiveGraphModal();
+    const settingsModal = SettingsModal();
     const fuzzyFindModal = FuzzyFindModal();
     const deleteModal = DeleteModal();
     const loadBackupModal = LoadBackupModal();
@@ -2840,6 +2861,9 @@ export function App() {
             ),
             makeButtonWithCallback("Delete current", () => {
                 setCurrentModal(deleteModal);
+            }),
+            makeButtonWithCallback("Settings", () => {
+                setCurrentModal(settingsModal);
             }),
             todoNotesButton,
             activitiesButton,
@@ -2899,6 +2923,7 @@ export function App() {
         asciiCanvasModal,
         interactiveGraphModal,
         fuzzyFindModal,
+        settingsModal,
         deleteModal,
         loadBackupModal,
         linkNavModal,
@@ -2989,6 +3014,13 @@ export function App() {
         ) {
             e.preventDefault();
             setCurrentModal(interactiveGraphModal);
+            return;
+        } else if (
+            e.key === "," &&
+            ctrlPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal(settingsModal);
             return;
         } else if (
             e.key === "A" &&
@@ -3307,6 +3339,10 @@ export function App() {
 
         if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
             fuzzyFindModal.render(undefined);
+        }
+
+        if (setVisible(settingsModal, currentModal === settingsModal)) {
+            settingsModal.render(undefined);
         }
 
         if (setVisible(deleteModal, currentModal === deleteModal)) {

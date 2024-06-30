@@ -561,8 +561,8 @@ type ComponentState<T> = {
  * Typically used to store and get the last arguments a component got.
  * Stateless by default.
  */
-export function newState<T = undefined>() {
-    let argsOrNull: T | null = null;
+export function newState<T = undefined>(initialValue: T | null = null) {
+    let argsOrNull: T | null = initialValue;
     const state: ComponentState<T> = {
         hasArgs() { return argsOrNull !== null },
         set args(val: T) {
@@ -799,9 +799,11 @@ export function newRenderGroup(): RenderGroup {
 }
 
 
-// I find that while this is very concise, it's very hard to reason about. 
-// Render groups seem to give the best bang for buck in terms of simplicity and 
-// ease of use.
+/**
+ * I find that while this is very concise, it's very hard to reason about. 
+ * Render groups seem to give the best bang for buck in terms of simplicity and 
+ * ease of use. (So I would avoid using this for now)
+ */
 function inlineComponent<T = undefined, U extends Element = Element>(
     insFunction: (rg: RenderGroup, state: ComponentState<T>) => Insertable<U>
 ) {

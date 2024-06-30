@@ -3,7 +3,9 @@ import { Insertable, div, newComponent, newState, on } from "src/utils/dom-utils
 export type ModalArgs = { onClose(): void };
 
 export function Modal(content: Insertable) {
-    const s = newState<ModalArgs>();
+    const s = newState<ModalArgs>({
+        onClose() { }
+    });
 
     const bgRect = div({ style: "background-color: var(--bg-color)" }, [
         content,

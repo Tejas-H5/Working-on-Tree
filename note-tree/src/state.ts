@@ -39,6 +39,8 @@ export type State = {
 
     mainGraphData: GraphData;
 
+    settings: AppSettings;
+
     // non-serializable fields start with _
     
     _todoNoteIds: NoteId[];
@@ -55,6 +57,10 @@ export type State = {
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
 };
+
+type AppSettings = {
+    alwaysShowEstimates: boolean;
+}
 
 
 type JsonBoolean = true | undefined;
@@ -231,6 +237,9 @@ export function defaultState(): State {
         activities: [],
         scratchPadCanvasLayers: [],
         mainGraphData: newGraphData(),
+        settings: {
+            alwaysShowEstimates: false,
+        },
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
