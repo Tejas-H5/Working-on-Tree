@@ -4,6 +4,7 @@ import { logTrace } from "src/utils/log";
 import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
 import { assert } from "./utils/assert";
+import { GraphData, newGraphData } from "./interactive-graph";
 
 export type NoteId = string;
 export type TaskId = string;
@@ -35,6 +36,8 @@ export type State = {
     activities: Activity[];
 
     scratchPadCanvasLayers: AsciiCanvasLayer[];
+
+    mainGraphData: GraphData;
 
     // non-serializable fields start with _
     
@@ -227,6 +230,7 @@ export function defaultState(): State {
         showDockedMenu: false,
         activities: [],
         scratchPadCanvasLayers: [],
+        mainGraphData: newGraphData(),
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",

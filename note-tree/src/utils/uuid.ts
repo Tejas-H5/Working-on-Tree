@@ -6,3 +6,11 @@ export function uuid() {
     }
     return S4() + S4() + "-" + S4() + "-" + S4() + "-" + S4() + "-" + S4() + S4() + S4();
 }
+
+export function newUuid(collideFn: (id: string) => boolean) {
+    let id = uuid();
+    while(collideFn(id)) {
+        id = uuid();
+    }
+    return id;
+}

@@ -27,10 +27,20 @@ export function newDragManager({
     };
 
     let mouseDown = false;
+    let blockDrag = false;
 
     return {
         dragState,
         onMouseDown(e: MouseEvent) {
+            if (blockDrag) {
+                return;
+            }
+
+            if(e.button !== 0) {
+                // don't care if it isn't the primary button
+                return;
+            }
+
             e.stopImmediatePropagation();
 
             dragState.startX = e.pageX;
@@ -38,8 +48,19 @@ export function newDragManager({
             mouseDown = true;
         },
         onMouseMove(e: MouseEvent) {
+            if (blockDrag) {
+                return;
+            }
+
+            if (!mouseDown) {
+                return;
+            }
+
             const dx = e.pageX - dragState.startX;
             const dy = e.pageY - dragState.startY;
+
+
+            // NOTE: e.button and e.buttons are somewhat different
             mouseDown = e.buttons !== 0;
 
             if (
@@ -50,7 +71,6 @@ export function newDragManager({
                 e.stopImmediatePropagation();
                 onDragStart(e);
             }
-
 
             if (dragState.isDragging) {
                 e.stopImmediatePropagation();
@@ -65,6 +85,10 @@ export function newDragManager({
             }
         },
         onMouseUp(e: MouseEvent) {
+            if (blockDrag) {
+                return;
+            }
+
             e.stopImmediatePropagation();
 
             // The isDragging flag should be able to block the "click" event when required -
@@ -77,6 +101,13 @@ export function newDragManager({
                     onDragEnd(e);
                 }
             }, 1)
+        },
+        cancelDrag() {
+            mouseDown = false;
+            blockDrag = true;
+            setTimeout(() => {
+                blockDrag = false;
+            }, 1);
         }
     };
 }

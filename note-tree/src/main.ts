@@ -1676,6 +1676,7 @@ function InteractiveGraphModal() {
 
     function onClose() {
         setCurrentModal(null);
+        debouncedSave();
     }
 
     return __experimental__inlineComponent((rg) => {
@@ -1684,6 +1685,10 @@ function InteractiveGraphModal() {
                 div({ style: modalPaddingStyles(10) }, [
                     rg.cArgs(InteractiveGraph(), () => ({
                         onClose,
+                        graphData: state.mainGraphData,
+                        onInput() {
+                            debouncedSave();
+                        }
                     }))
                 ])
             ),
@@ -2797,8 +2802,6 @@ export function App() {
     const linkNavModal = LinkNavModal();
     const exportModal = ExportModal();
 
-    currentModal = interactiveGraphModal;
-
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
     }
@@ -2978,6 +2981,14 @@ export function App() {
         ) {
             e.preventDefault();
             setCurrentModal(asciiCanvasModal);
+            return;
+        } else if (
+            e.key === "G" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            e.preventDefault();
+            setCurrentModal(interactiveGraphModal);
             return;
         } else if (
             e.key === "A" &&
