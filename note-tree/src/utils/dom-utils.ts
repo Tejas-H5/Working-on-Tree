@@ -331,7 +331,7 @@ function handleRenderingError<T>(root: Insertable, renderFn: () => T | undefined
     } 
 }
 
-export type ComponentList<
+export type ListRenderer<
     R extends Element, 
     U extends Element, T extends Insertable<U>,
 > = Insertable<R> & ComponentPool<U, T>;
@@ -341,7 +341,7 @@ export type KeyedComponentList<K, T extends Insertable<HTMLElement>> = Insertabl
 export function newListRenderer<
     R extends Element, 
     U extends Element, T extends Insertable<U>,
->(root: Insertable<R>, createFn: () => T): ComponentList<R, U, T> {
+>(root: Insertable<R>, createFn: () => T): ListRenderer<R, U, T> {
     function getNext() {
         if (renderer.lastIdx > renderer.components.length) {
             throw new Error("Something strange happened when resizing the component pool");
@@ -361,7 +361,7 @@ export function newListRenderer<
         renderFn?.(getNext);
     }
 
-    const renderer: ComponentList<R, U, T> = {
+    const renderer: ListRenderer<R, U, T> = {
         el: root.el,
         get _isHidden() { return root._isHidden; },
         set _isHidden(val: boolean) { root._isHidden = val; },
@@ -418,7 +418,9 @@ export function off<K extends keyof HTMLElementEventMap>(
 
 /**
  * This seems to be a lot slower than the normal list render in a lot of situations, and
- * I can't figure out why. So I would suggest not using this for now
+ * I can't figure out why. So I would suggest not using this for now.
+ * I expect that it would be faster in very specific situations though. 
+ * Can't think of any off the top of my head
  */
 export function newKeyedListRenderer<K, T extends Insertable<HTMLElement>>(root: Insertable, createFn: () => T): KeyedComponentList<K, T> {
     function getNext(key: K) {
@@ -657,7 +659,7 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
         root: Insertable<R>,
         Component: () => Renderable<T, U>,
         renderFn: (getNext: () => Renderable<T, U>) => void,
-    ) => Renderable<unknown, R>;
+    ) => ListRenderer<R, Element, Renderable<T, U>>;
 };
 
 /**
@@ -778,9 +780,10 @@ export function newRenderGroup(): RenderGroup {
             root: Insertable<R>, 
             Component: () => Renderable<T, U>, 
             renderFn: (getNext: () => Renderable<T, U>) => void,
-        ): Renderable<unknown, R> => {
+        ): ListRenderer<R, Element, Renderable<T, U>> => {
             const list = newListRenderer(root, Component);
-            return push(list, () => list.render(renderFn));
+            push(list, () => list.render(renderFn));
+            return list;
         },
         if: <U extends HTMLElement | SVGElement>(fn: () => boolean, insFn: (rg: RenderGroup) => Insertable<U>): Renderable<unknown, U> => {
             const c = inlineComponent(insFn);

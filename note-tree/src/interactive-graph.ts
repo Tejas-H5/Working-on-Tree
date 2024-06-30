@@ -1,8 +1,7 @@
 import { makeButton } from "./components";
 import { TextArea } from "./components/text-area";
 import { filterInPlace } from "./utils/array-utils";
-import { addDays } from "./utils/datetime";
-import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, newStyleGenerator, on, setAttr, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, newStyleGenerator, on, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 
 const sg = newStyleGenerator();
@@ -41,7 +40,9 @@ type GraphEdgeUIArgs = {
 
     edge: GraphEdge;
     srcNode: GraphNode | undefined;
+    srcNodeEl: HTMLElement | undefined;
     dstNode: GraphNode | undefined;
+    dstNodeEl: HTMLElement | undefined;
     graphState: GraphState;
 
     onMouseMove(e: MouseEvent): void;
@@ -84,10 +85,12 @@ type GraphState = {
 }
 
 export type GraphEdge = {
+    // If srcNodeIdx is not -1, then srcXSliced etc. are sliced-normal offsets relative to the source node.
+    // else, they are just normal x-y offsets. same with Y.
     srcNodeIdx: number;
-    srcX: number; srcY: number;
+    srcXSliced: number; srcYSliced: number;
     dstNodeIdx: number;
-    dstX: number; dstY: number;
+    dstXSliced: number; dstYSliced: number;
 };
 
 // TODO: inject these
@@ -115,76 +118,84 @@ export function InteractiveGraph() {
     const relativeContainer = div({ class: "col relative flex-1" });
     const contextMenu = RadialContextMenu();
 
+    const nodeListRenderer = rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI, (getNext) => {
+        for (let i = 0; i < graphNodes.length; i++) {
+            const c = getNext();
+            if (!c.state.hasArgs()) {
+                c.render({
+                    node: graphNodes[i],
+
+                    idx: 0,
+                    isEditing: false,
+                    isSelected: false,
+                    graphState,
+
+                    onMouseDown,
+                    onMouseUp,
+                    onMouseMove,
+                    onContextMenu,
+
+                    relativeContainer,
+                    renderGraph,
+                })
+            }
+
+            c.state.args.node = graphNodes[i];
+            c.state.args.idx = i;
+            c.state.args.graphState = graphState;
+            c.state.args.isSelected = graphState.currentSelectedNode === i;
+            c.state.args.isEditing = graphState.isEditing && c.state.args.isSelected;
+
+            c.render(c.state.args);
+        }
+    })
+
+    // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
+    const edgeListRenderer = rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI, (getNext) => {
+        for (let i = 0; i < graphEdges.length; i++) {
+            const edge = graphEdges[i];
+            const c = getNext();
+
+            if (!c.state.hasArgs()) {
+                c.state.args = {
+                    srcNode: undefined,
+                    srcNodeEl: undefined,
+                    dstNode: undefined,
+                    dstNodeEl: undefined,
+                    graphState: graphState,
+                    edge,
+                    idx: 0,
+
+                    onMouseUp,
+                    onMouseDown,
+                    onMouseMove,
+                    onContextMenu,
+
+                    relativeContainer,
+                    renderGraph,
+                };
+            }
+
+            c.state.args.edge = graphEdges[i];
+            c.state.args.srcNode = graphNodes[edge.srcNodeIdx];
+            c.state.args.srcNodeEl = nodeListRenderer.components[edge.srcNodeIdx]?.el;
+            c.state.args.dstNode = graphNodes[edge.dstNodeIdx];
+            c.state.args.dstNodeEl = nodeListRenderer.components[edge.dstNodeIdx]?.el;
+            c.state.args.graphState = graphState;
+            c.state.args.relativeContainer = relativeContainer;
+            c.state.args.idx = i;
+
+            c.render(c.state.args);
+        }
+    });
+
     const root = div({
         class: "flex-1 w-100 h-100 col",
     }, [
         addChildren(relativeContainer, [
             addChildren(graphRoot, [
-                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI, (getNext) => {
-                    for (let i = 0; i < graphEdges.length; i++) {
-                        const edge = graphEdges[i];
-                        const c = getNext();
-
-                        if (!c.state.hasArgs()) {
-                            c.state.args = {
-                                srcNode: graphNodes[edge.srcNodeIdx],
-                                dstNode: graphNodes[edge.dstNodeIdx],
-                                graphState: graphState,
-                                edge,
-                                idx: 0,
-
-                                onMouseUp,
-                                onMouseDown,
-                                onMouseMove,
-                                onContextMenu,
-
-                                relativeContainer,
-                                renderGraph,
-                            };
-                        }
-
-                        c.state.args.edge = graphEdges[i];
-                        c.state.args.srcNode = graphNodes[edge.srcNodeIdx];
-                        c.state.args.dstNode = graphNodes[edge.dstNodeIdx];
-                        c.state.args.graphState = graphState;
-                        c.state.args.relativeContainer = relativeContainer;
-                        c.state.args.idx = i;
-
-                        c.render(c.state.args);
-                    }
-                }),
-                // NOTE: not quite right to use graphRoot as the root of the list...
-                rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI, (getNext) => {
-                    for (let i = 0; i < graphNodes.length; i++) {
-                        const c = getNext();
-                        if (!c.state.hasArgs()) {
-                            c.render({
-                                node: graphNodes[i],
-
-                                idx: 0,
-                                isEditing: false,
-                                isSelected: false,
-                                graphState,
-
-                                onMouseDown,
-                                onMouseUp,
-                                onMouseMove,
-                                onContextMenu,
-
-                                relativeContainer,
-                                renderGraph,
-                            })
-                        }
-
-                        c.state.args.node = graphNodes[i];
-                        c.state.args.idx = i;
-                        c.state.args.graphState = graphState;
-                        c.state.args.isSelected = graphState.currentSelectedNode === i;
-                        c.state.args.isEditing = graphState.isEditing && c.state.args.isSelected;
-
-                        c.render(c.state.args);
-                    }
-                }),
+                nodeListRenderer,
+                edgeListRenderer,
             ]),
             // svgRoot,
             contextMenu,
@@ -301,46 +312,49 @@ export function InteractiveGraph() {
         // Specifically for edges, we want the endpoint to be exactly on the mouse cursor.
         // For most things, we want the point where we started dragging something to be the point that we are 'grabbing', and for 
         // the current position of that thing to be offset by the offset which was present at the start.
-        const startX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, dragManager.dragState.startX));
-        const startY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, dragManager.dragState.startY));
+        const startX = getRelativeX(relativeContainer.el, dragManager.dragState.startX);
+        const startY = getRelativeY(relativeContainer.el, dragManager.dragState.startY);
 
         const startNode = graphNodes[graphState.currentEdgeDragStartNodeIdx];
-        if (!startNode) {
+        const startNodeEl = nodeListRenderer.components[graphState.currentEdgeDragStartNodeIdx];
+        if (!startNode || !startNodeEl) {
             return;
         }
 
         if (graphState.currentEdgeDragEdgeIdx === -1) {
             graphState.currentEdgeDragStartIsSrc = true;
             graphState.currentEdgeDragEdgeIdx = graphEdges.length;
-            graphEdges.push({
-                srcNodeIdx: -1,
-                srcX: startX, srcY: startY,
-                dstNodeIdx: -1,
-                dstX: startX, dstY: startY,
-            });
+            const edge: GraphEdge = {
+                srcNodeIdx: -1, srcXSliced: 0, srcYSliced: 0, 
+                dstNodeIdx: -1, dstXSliced: 0, dstYSliced: 0,
+            };
+            graphEdges.push(edge);
+
+            // NOTE: When we introduce zooming, sliced coordinates need to be scaled to graph coordinates in a specific way.
+            const slicedX = realXToSlicedNormEl(relativeContainer.el, startNodeEl.el, startX)
+            const slicedY = realYToSlicedNormEl(relativeContainer.el, startNodeEl.el, startY)
+            if (graphState.currentEdgeDragStartIsSrc) {
+                edge.srcNodeIdx = graphState.currentEdgeDragStartNodeIdx;
+                edge.srcXSliced = slicedX;
+                edge.srcYSliced = slicedY;
+            } else { 
+                edge.dstNodeIdx = graphState.currentEdgeDragStartNodeIdx;
+                edge.dstXSliced = slicedX;
+                edge.dstYSliced = slicedY;
+            }
         }
 
         const currentEdge = graphEdges[graphState.currentEdgeDragEdgeIdx];
+        const startXGraph = realXToGraphX(graphState, relativeContainer.el, startX);
+        const startYGraph = realYToGraphY(graphState, relativeContainer.el, startY);
         if (graphState.currentEdgeDragStartIsSrc) {
-            if (currentEdge.srcNodeIdx === -1) {
-                currentEdge.srcNodeIdx = graphState.currentEdgeDragStartNodeIdx;
-                currentEdge.srcX = startX - startNode.x;
-                currentEdge.srcY = startY - startNode.y;
-            }
-
             currentEdge.dstNodeIdx = -1;
-            currentEdge.dstX = startX;
-            currentEdge.dstY = startY;
+            currentEdge.dstXSliced = startXGraph;
+            currentEdge.dstYSliced = startYGraph;
         } else {
-            if (currentEdge.dstNodeIdx === -1) {
-                currentEdge.dstNodeIdx = graphState.currentEdgeDragStartNodeIdx;
-                currentEdge.dstX = startX - startNode.x;
-                currentEdge.dstY = startY - startNode.y;
-            }
-
             currentEdge.srcNodeIdx = -1;
-            currentEdge.srcX = startX;
-            currentEdge.srcY = startY;
+            currentEdge.srcXSliced = startXGraph;
+            currentEdge.srcYSliced = startYGraph;
         }
 
         graphState.currentSelectedNode = -1;
@@ -351,30 +365,31 @@ export function InteractiveGraph() {
         const currentEdgeDragEdgeIdx = graphState.currentEdgeDragEdgeIdx;
 
         const endNode = graphNodes[currentEdgeDragEndNodeIdx];
+        const endNodeEl = nodeListRenderer.components[currentEdgeDragEndNodeIdx];
         const currentEdge = graphEdges[currentEdgeDragEdgeIdx];
 
         graphState.currentEdgeDragEndNodeIdx = -1;
         graphState.currentEdgeDragEdgeIdx = -1;
         graphState.currentEdgeDragStartNodeIdx = -1;
 
-        if (!currentEdge || !endNode) {
+        if (!currentEdge || !endNode || !endNodeEl) {
             return;
         }
 
-        const endX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, e.pageX));
-        const endY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, e.pageY));
+        const endX = getRelativeX(relativeContainer.el, e.pageX);
+        const endY = getRelativeY(relativeContainer.el, e.pageY);
 
-        const endNodeToX = endX - endNode.x;
-        const endNodeToY = endY - endNode.y;
+        const slicedX = realXToSlicedNormEl(relativeContainer.el, endNodeEl.el, endX);
+        const slicedY = realYToSlicedNormEl(relativeContainer.el, endNodeEl.el, endY);
 
         if (graphState.currentEdgeDragStartIsSrc) {
             currentEdge.dstNodeIdx = currentEdgeDragEndNodeIdx;
-            currentEdge.dstX = endNodeToX;
-            currentEdge.dstY = endNodeToY;
+            currentEdge.dstXSliced = slicedX;
+            currentEdge.dstYSliced = slicedY;
         } else {
             currentEdge.srcNodeIdx = currentEdgeDragEndNodeIdx;
-            currentEdge.srcX = endNodeToX;
-            currentEdge.srcY = endNodeToY;
+            currentEdge.srcXSliced = slicedX;
+            currentEdge.srcYSliced = slicedY;
         }
 
         renderGraph();
@@ -410,15 +425,15 @@ export function InteractiveGraph() {
             if (graphState.currentEdgeDragEdgeIdx !== -1) {
                 const currentEdge = graphEdges[graphState.currentEdgeDragEdgeIdx];
 
-                const mouseX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, e.pageX));
-                const mouseY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, e.pageY));
+                const mouseX = realXToGraphX(graphState, relativeContainer.el, getRelativeX(relativeContainer.el, e.pageX));
+                const mouseY = realYToGraphY(graphState, relativeContainer.el, getRelativeY(relativeContainer.el, e.pageY));
 
                 if (graphState.currentEdgeDragStartIsSrc) {
-                    currentEdge.dstX = mouseX;
-                    currentEdge.dstY = mouseY;
+                    currentEdge.dstXSliced = mouseX;
+                    currentEdge.dstYSliced = mouseY;
                 } else {
-                    currentEdge.srcX = mouseX;
-                    currentEdge.srcY = mouseY;
+                    currentEdge.srcXSliced = mouseX;
+                    currentEdge.srcYSliced = mouseY;
                 }
 
                 return;
@@ -479,8 +494,8 @@ export function InteractiveGraph() {
 
         // NOTE: other code might want to call this function, then add it's own stuff to the context menu and disable other stuff, possibly
         graphState.isContextMenuOpen = true;
-        graphState.contextMenuX = getMouseX(relativeContainer.el, e.pageX);
-        graphState.contextMenuY = getMouseY(relativeContainer.el, e.pageY);
+        graphState.contextMenuX = getRelativeX(relativeContainer.el, e.pageX);
+        graphState.contextMenuY = getRelativeY(relativeContainer.el, e.pageY);
     }
     function closeContextMenu() {
         graphState.isContextMenuOpen = false;
@@ -563,9 +578,9 @@ export function InteractiveGraph() {
 
             graphEdges.push({
                 srcNodeIdx,
-                srcX: 0, srcY: 0,
+                srcXSliced: 0, srcYSliced: 0,
                 dstNodeIdx,
-                dstX: 0, dstY: 0
+                dstXSliced: 0, dstYSliced: 0
             });
         }
 
@@ -579,17 +594,25 @@ export function InteractiveGraph() {
         graphNodes[srcNodeIdx].text = name + " src";
         graphNodes[srcNodeIdx].x = 0;
         graphNodes[srcNodeIdx].y = 0;
-        for (let i = 0 ; i < 20; i++) {
+        const n = 20;
+        for (let i = 0 ; i < n; i++) {
             const dstNodeIdx = addNewNode();
             graphNodes[dstNodeIdx].text = name + " dst " + i;
-            graphNodes[dstNodeIdx].x = 1000 * (0.5 - Math.random());
-            graphNodes[dstNodeIdx].y = 1000 * (0.5 - Math.random());
+            graphNodes[dstNodeIdx].x = 500 * Math.cos((i / n) * Math.PI * 2);
+            graphNodes[dstNodeIdx].y = 500 * Math.sin((i / n) * Math.PI * 2);
 
             graphEdges.push({
                 srcNodeIdx,
-                srcX: 0, srcY: 0,
+                srcXSliced: -0.25, srcYSliced: 1,
                 dstNodeIdx,
-                dstX: 0, dstY: 0
+                dstXSliced: 1, dstYSliced: 1
+            });
+
+            graphEdges.push({
+                srcNodeIdx,
+                srcXSliced: 0.25, srcYSliced: 1,
+                dstNodeIdx,
+                dstXSliced: 0, dstYSliced: 0
             });
         }
         
@@ -783,9 +806,9 @@ function GraphNodeUI() {
     });
 
     on(textArea, "input", () => {
-        const { node } = s.args;
+        const { node, renderGraph } = s.args;
         node.text = textArea.el.value;
-        render();
+        renderGraph();
     });
 
     return newComponent(root, render, s);
@@ -815,9 +838,26 @@ function GraphEdgeUI() {
         arrowHead2
     ];
 
+    function getX0() {
+        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s.args;
+        return edgeSrcX(graphState, relativeContainer.el, edge, srcNode, srcNodeEl);
+    }
+    function getY0() {
+        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s.args;
+        return edgeSrcY(graphState, relativeContainer.el, edge, srcNode, srcNodeEl);
+    }
+    function getX1() {
+        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s.args;
+        return edgeDstX(graphState, relativeContainer.el, edge, dstNode, dstNodeEl);
+    }
+    function getY1() {
+        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s.args;
+        return edgeDstY(graphState, relativeContainer.el, edge, dstNode, dstNodeEl);
+    }
+
     for (const seg of arrowSegments) {
         on(seg, "mousemove", (e) => {
-            const { graphState, idx, onMouseMove, renderGraph, relativeContainer, edge, srcNode, dstNode } = s.args;
+            const { graphState, idx, onMouseMove, renderGraph, relativeContainer, srcNode, dstNode } = s.args;
 
             e.stopImmediatePropagation();
             onMouseMove(e);
@@ -827,13 +867,11 @@ function GraphEdgeUI() {
                 dstNode &&
                 !graphState.isDragging
             ) {
-                const mouseX = realXToGraphX(graphState, relativeContainer.el, getMouseX(relativeContainer.el, e.pageX));
-                const mouseY = realYToGraphY(graphState, relativeContainer.el, getMouseY(relativeContainer.el, e.pageY));
+                const mouseX = getRelativeX(relativeContainer.el, e.pageX);
+                const mouseY = getRelativeY(relativeContainer.el, e.pageY);
 
-                let x0 = edgeSrcX(edge, srcNode);
-                let y0 = edgeSrcY(edge, srcNode);
-                let x1 = edgeDstX(edge, dstNode);
-                let y1 = edgeDstY(edge, dstNode);
+                let x0 = getX0(); let y0 = getY0();
+                let x1 = getX1(); let y1 = getY1();
 
                 const lengthToSrc = magnitude(mouseX - x0, mouseY - y0);
                 const lengthToDst = magnitude(mouseX - x1, mouseY - y1);
@@ -872,6 +910,7 @@ function GraphEdgeUI() {
         });
     }
 
+    const rg = newRenderGroup();
     const labelInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const label = div({ style: "position: absolute; white-space: nowrap;" }, [
         labelInput
@@ -888,15 +927,15 @@ function GraphEdgeUI() {
     setInputValueAndResize(labelInput, "Hiii");
 
     function render() {
-        const { edge, srcNode, dstNode, graphState, relativeContainer, idx } = s.args;
+        const { graphState, idx } = s.args;
+
+        rg.render();
 
         setClass(root, "block-mouse", true || graphState.isDragging);
         setClass(root, "redrag", graphState.currentEdgeDragEdgeIdx === idx);
 
-        let x0 = graphXToRealX(graphState, relativeContainer.el, edgeSrcX(edge, srcNode));
-        let y0 = graphYToRealY(graphState, relativeContainer.el, edgeSrcY(edge, srcNode));
-        let x1 = graphXToRealX(graphState, relativeContainer.el, edgeDstX(edge, dstNode));
-        let y1 = graphYToRealY(graphState, relativeContainer.el, edgeDstY(edge, dstNode));
+        let x0 = getX0(); let y0 = getY0();
+        let x1 = getX1(); let y1 = getY1();
 
         const dx = x1 - x0;
         const dy = y1 - y0;
@@ -906,7 +945,7 @@ function GraphEdgeUI() {
 
         setStyle(root, "width", "1px");
         setStyle(root, "height", "1px");
-        const edgeHeight = 10;
+        const edgeHeight = 7;
         const hitboxHeight = 50;
         setStyle(root, `transform`, `translate(${x0}px, ${y0}px) rotate(${angle}rad)`);
 
@@ -916,12 +955,11 @@ function GraphEdgeUI() {
             setStyle(label, `transform`, `translate(${length / 2 -  label.el.clientWidth / 2}px, 8px) scale(-1, -1)`);
         }
 
-
         const deg2Rad = Math.PI / 180;
         const arrowAngle = 140 * deg2Rad;
         const arrowHeadSegmentVOfffset = Math.sin(arrowAngle) * edgeHeight * 0.5;
 
-        setStyle(arrowLine, `transform`, `translate(${length / 2 - 10}px, 1px) scale(${length - edgeHeight}, ${edgeHeight})`);
+        setStyle(arrowLine, `transform`, `translate(${length / 2 - edgeHeight / 2}px, 1px) scale(${length - edgeHeight}, ${edgeHeight})`);
         setStyle(arrowHitbox, `transform`, `translate(${length / 2 - 5}px, 1px) scale(${length - edgeHeight}, ${hitboxHeight})`);
 
         setStyle(arrowHead1, `transform`, `translate(${length - edgeHeight / 2}px, ${arrowHeadSegmentVOfffset}px) rotate(-${arrowAngle}rad) scale(30, ${edgeHeight}) translate(50%)`);
@@ -1217,44 +1255,100 @@ function rangeIntersect(
     );
 };
 
-function edgeSrcX(edge: GraphEdge, srcNode: GraphNode | undefined) {
-    let x: number = 0;
-    if (srcNode) {
-        x = srcNode.x + edge.srcX;
-    } else {
-        x = edge.srcX;
-    }
-    return x;
+function lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
 }
 
-function edgeSrcY(edge: GraphEdge, srcNode: GraphNode | undefined) {
-    let y: number = 0;
-    if (srcNode) {
-        y = srcNode.y + edge.srcY;
-    } else {
-        y = edge.srcY;
-    }
-    return y;
+function inverseLerp(a: number, b: number, t: number): number {
+    return (t - a) / (b - a);
 }
 
-function edgeDstX(edge: GraphEdge, dstNode: GraphNode | undefined) {
-    let x: number = 0;
-    if (dstNode) {
-        x = dstNode.x + edge.dstX;
-    } else {
-        x = edge.dstX;
-    }
-    return x;
+function realXToSlicedNormEl(relativeEl: HTMLElement, el: HTMLElement, real: number): number {
+    const rect = el.getBoundingClientRect();
+    const low = getRelativeX(relativeEl, rect.left);
+    const hi = getRelativeX(relativeEl, rect.left + rect.width);
+    return realToSlicedNorm(low, hi, real);
 }
 
-function edgeDstY(edge: GraphEdge, dstNode: GraphNode | undefined) {
-    let y: number = 0;
-    if (dstNode) {
-        y = dstNode.y + edge.dstY;
-    } else {
-        y = edge.dstY;
+function slicedNormXToRealEl(relativeEl: HTMLElement, el: HTMLElement, slicedNorm: number): number {
+    const rect = el.getBoundingClientRect();
+    const low = getRelativeX(relativeEl, rect.left);
+    const hi = getRelativeX(relativeEl, rect.left + rect.width);
+    return slicedNormToReal(low, hi, slicedNorm);
+}
+
+function realYToSlicedNormEl(relativeEl: HTMLElement, el: HTMLElement, real: number): number {
+    const rect = el.getBoundingClientRect();
+    const low = getRelativeY(relativeEl, rect.top);
+    const hi = getRelativeY(relativeEl, rect.top + rect.height);
+    return realToSlicedNorm(low, hi, real);
+}
+
+function slicedNormYToRealEl(relativeEl: HTMLElement, el: HTMLElement, slicedNorm: number): number {
+    const rect = el.getBoundingClientRect();
+    const low = getRelativeY(relativeEl, rect.top);
+    const hi = getRelativeY(relativeEl, rect.top + rect.height);
+    return slicedNormToReal(low, hi, slicedNorm);
+}
+
+function realToSlicedNorm(low: number, hi: number, real: number) {
+    if (real < low) {
+        // map all numbers below `low` to < 0
+        return real - low - 0.5;
     }
-    return y;
+
+    if (real > hi) {
+        // map all numbers above `hi` to > 1
+        return real - hi + 0.5;
+    }
+
+    // map all numbers between low and hi to be between -0.5 to 0.5 (we're centering around 0 so that scaling is easier)
+    return lerp(-0.5, 0.5, inverseLerp(low, hi, real));
+}
+
+
+function slicedNormToReal(low: number, hi: number, norm: number) {
+    if (norm < -0.5) {
+        return norm + low + 0.5;
+    }
+
+    if (norm > 0.5) {
+        return hi + norm - 0.5;
+    }
+
+    return lerp(low, hi, inverseLerp(-0.5, 0.5, norm));
+}
+
+function edgeSrcX(graphState: GraphState, relativeEl: HTMLElement, edge: GraphEdge, srcNode: GraphNode | undefined, nodeEl: HTMLElement | undefined) {
+    if (!srcNode || !nodeEl) {
+        return graphXToRealX(graphState, relativeEl, edge.srcXSliced);
+    }
+
+    return slicedNormXToRealEl(relativeEl, nodeEl, edge.srcXSliced);
+}
+
+function edgeSrcY(graphState: GraphState, relativeEl: HTMLElement, edge: GraphEdge, srcNode: GraphNode | undefined, nodeEl: HTMLElement | undefined) {
+    if (!srcNode || !nodeEl) {
+        return graphYToRealY(graphState, relativeEl, edge.srcYSliced);
+    }
+
+    return slicedNormYToRealEl(relativeEl, nodeEl, edge.srcYSliced);
+}
+
+function edgeDstX(graphState: GraphState, relativeEl: HTMLElement, edge: GraphEdge, dstNode: GraphNode | undefined, nodeEl: HTMLElement | undefined) {
+    if (!dstNode || !nodeEl) {
+        return graphXToRealX(graphState, relativeEl, edge.dstXSliced);
+    }
+
+    return slicedNormXToRealEl(relativeEl, nodeEl, edge.dstXSliced);
+}
+
+function edgeDstY(graphState: GraphState, relativeEl: HTMLElement, edge: GraphEdge, dstNode: GraphNode | undefined, nodeEl: HTMLElement | undefined) {
+    if (!dstNode || !nodeEl) {
+        return graphYToRealY(graphState, relativeEl, edge.dstYSliced);
+    }
+
+    return slicedNormYToRealEl(relativeEl, nodeEl, edge.dstYSliced);
 }
 
 function graphXToRealX(graphState: GraphState, root: HTMLElement, x: number) {
@@ -1285,11 +1379,11 @@ function realYToGraphY(graphState: GraphState, root: HTMLElement, y: number) {
     );
 }
 
-function getMouseX(parent: HTMLDivElement, pageX: number) {
+function getRelativeX(parent: HTMLElement, pageX: number) {
     return pageX - parent.offsetLeft;
 }
 
-function getMouseY(parent: HTMLDivElement, pageY: number) {
+function getRelativeY(parent: HTMLElement, pageY: number) {
     return pageY - parent.offsetTop;
 }
 
