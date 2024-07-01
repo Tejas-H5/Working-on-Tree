@@ -119,7 +119,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.8";
+const VERSION_NUMBER = "v1.1.9";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -249,13 +249,14 @@ function TodoListInternal() {
     const s = newState<{
         setScrollEl?(c: Insertable): void;
         cursorNoteId?: NoteId;
+        disableHeaders: boolean;
     }>();
 
     const root = div({});
     const todoItemsList = newListRenderer(root, TodoListItem);
 
     function render() {
-        const { setScrollEl, cursorNoteId } = s.args;
+        const { setScrollEl, cursorNoteId, disableHeaders } = s.args;
         let alreadyScrolled = false;
 
         todoItemsList.render((getNext) => {
@@ -268,7 +269,7 @@ function TodoListInternal() {
                 let text = note.data.text;
                 const higherLevelTask = getHigherLevelTask(state, note);
                 let hltHeading: string | undefined;
-                if (lastHlt !== higherLevelTask) {
+                if (lastHlt !== higherLevelTask && !disableHeaders) {
                     lastHlt = higherLevelTask;
 
                     if (higherLevelTask) {
@@ -319,11 +320,14 @@ function TodoList() {
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const root = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1 col" }, true), [
+    const scrollContainer = ScrollContainerV();
+    const root = div({ class: "flex-1 col" }, [
         heading,
         div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
-        empty,
-        listInternal,
+        addChildren(setAttrs(scrollContainer, { class: "flex-1 col" }, true), [
+            empty,
+            listInternal,
+        ])
     ]);
 
     const comopnent = newComponent(root, renderTodoList, s);
@@ -336,14 +340,18 @@ function TodoList() {
         const leftArrow = isInTodoList ? "<- " : "";
         const rightArrow = isInTodoList ? " ->" : "";
 
-        let headingText = leftArrow + "Everything in progress" + rightArrow;
+        let count = " (" + state._todoNoteIds.length + ") ";
+
+        let headingText;
         if (state._todoNoteFilters === -1) {
             const note = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, note);
             const hltText = hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
-            headingText = "Everything in progress under [" + hltText + "]" + rightArrow;
+            headingText = "Everything in progress for specific task [" + hltText + "]" + count + rightArrow;
         } else if (state._todoNoteFilters === 1) {
-            headingText = leftArrow + "Most recent In-progress items from everything";
+            headingText = leftArrow + "Most recent thing in progress for every task" + count;
+        } else {
+            headingText = leftArrow + "Everything in progress for every task" + count + rightArrow;
         }
         setText(heading, headingText);
 
@@ -354,12 +362,14 @@ function TodoList() {
                 scrollEl = el;
             }
         }
+
         listInternal.render({
             setScrollEl,
             cursorNoteId,
+            disableHeaders: state._todoNoteFilters === -1,
         });
 
-        root.render({
+        scrollContainer.render({
             scrollEl,
             rescrollMs: 5000,
         });

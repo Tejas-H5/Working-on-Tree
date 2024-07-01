@@ -571,9 +571,9 @@ export function recomputeState(state: State) {
 
             if (
                 note.parentId === null ||
-                note.data._status !== STATUS_IN_PROGRESS ||
-                (note.data._status === STATUS_IN_PROGRESS && !note.data._everyChildNoteDone) ||
-                note.data._isUnderCurrent
+                note.data._isUnderCurrent ||
+                (note.data._status !== STATUS_IN_PROGRESS) ||
+                (note.data._status === STATUS_IN_PROGRESS && note.childIds.length > 0 && !note.data._everyChildNoteDone)
             ) {
                 continue;
             }
