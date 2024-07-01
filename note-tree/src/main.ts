@@ -2525,30 +2525,6 @@ let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInTodoList = false;
 let todoListIndex = 0;
-function getCurrentTodoListIdx() {
-    let currentIdx = -1;
-    for (let i = state._todoNoteIds.length - 1; i >= 0; i--) {
-        const id = state._todoNoteIds[i];
-        const note = getNote(state, id);
-        if (note.data._isSelected) {
-            currentIdx = i;
-            break;
-        }
-    }
-
-    if (currentIdx === -1) {
-        currentIdx = state._todoNoteIds.findIndex(id => {
-            const note = getNote(state, id);
-            return isNoteInSameGroupForTodoList(getCurrentNote(state), note);
-        });
-    }
-
-    if (currentIdx === -1) {
-        currentIdx = 0;
-    }
-
-    return currentIdx;
-}
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
@@ -2557,7 +2533,14 @@ function moveInDirectionOverTodoList(amount: number) {
 
         // moving down or up will start you off at the top or the current location respectively.
         if (amount < 0) {
-            todoListIndex = getCurrentTodoListIdx();
+            todoListIndex = state._todoNoteIds.indexOf(state.currentNoteId);
+            if (todoListIndex === -1) {
+                // Would rather just not move into the todo list than 
+                // try to do something 'smart' like finding the closest TODO note
+                showStatusText("Couldn't find this note isn't in the TODO list");
+                isInTodoList = false;
+                return;
+            }
         } else {
             todoListIndex = 0;
         }
