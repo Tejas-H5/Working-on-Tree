@@ -502,6 +502,8 @@ function Canvas() {
     const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap;"});
 
     const rowList = newListRenderer(root, () => {
+        const s = newState<RowArgs>();
+
         const root = div({ class: "row justify-content-center" });
 
         const charList = newListRenderer(root, () => {
@@ -516,7 +518,7 @@ function Canvas() {
 
             const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
 
-            function render() {
+            function renderCanvasCell() {
                 const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = s.args;
 
                 let [char, layer] = getChar(canvasState, i, j);
@@ -585,12 +587,10 @@ function Canvas() {
 
             on(root, "mousemove", handleMouseMovement);
 
-            return newComponent(root, render, s);
+            return newComponent(root, renderCanvasCell, s);
         });
 
-        const s = newState<RowArgs>();
-
-        function render() {
+        function renderCanvasRow() {
             const { charList: rowList } = s.args;
 
             charList.render((getNext) => {
@@ -607,7 +607,7 @@ function Canvas() {
             onMouseInputStateChange();
         });
 
-        const component = newComponent(root, render, s);
+        const component = newComponent(root, renderCanvasRow, s);
         component.skipErrorBoundary = true;
 
         return component;
@@ -873,7 +873,7 @@ function Canvas() {
 
     const s = newState<CanvasArgs>();
 
-    function render() {
+    function renderCanvas() {
         const { outputLayers } = s.args;
 
         if (outputLayers) {
@@ -942,7 +942,7 @@ function Canvas() {
         });
     }
 
-    const component = newComponent(root, render, s);
+    const component = newComponent(root, renderCanvas, s);
 
     document.addEventListener("mousedown", () => {
         if (!isVisible(component)) {
@@ -1175,7 +1175,7 @@ export function AsciiCanvas() {
             textEl, 
         ]);
 
-        function render() {
+        function renderAsciiCanvasToolbarButton() {
             setText(button, s.args.name);
 
             if (s.args.tool || s.args.selected !== undefined) {
@@ -1184,7 +1184,7 @@ export function AsciiCanvas() {
             }
         }
 
-        const c = newComponent(button, render, s);
+        const c = newComponent(button, renderAsciiCanvasToolbarButton, s);
 
         on(button, "click", (e) => { 
             const { onClick, tool } = s.args;
@@ -1377,7 +1377,7 @@ export function AsciiCanvas() {
         s.args.onInput();
     }
 
-    function render() {
+    function renderAsciiCanvas() {
         // This single line of code allows us to write to an array that lives outside of this component
         canvasArgs.outputLayers = s.args.outputLayers;
 
@@ -1616,7 +1616,7 @@ export function AsciiCanvas() {
         }
     });
 
-    const component = newComponent(root, render, s);
+    const component = newComponent(root, renderAsciiCanvas, s);
     return component;
 }
 

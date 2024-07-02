@@ -233,7 +233,7 @@ function TodoListInternal() {
             navRoot,
         ]);
 
-        function render() {
+        function renderTodoListItem() {
             rg.render();
 
             if (setVisible(cursor, s.args.hasCursor)) {
@@ -243,7 +243,7 @@ function TodoListInternal() {
             setStyle(navRoot, "backgroundColor", s.args.focusAnyway ? "var(--bg-color-focus)" : "");
         }
 
-        return newComponent(root, render, s);
+        return newComponent(root, renderTodoListItem, s);
     }
 
     const s = newState<{
@@ -255,7 +255,7 @@ function TodoListInternal() {
     const root = div({});
     const todoItemsList = newListRenderer(root, TodoListItem);
 
-    function render() {
+    function renderTodoListInternal() {
         const { setScrollEl, cursorNoteId, disableHeaders } = s.args;
         let alreadyScrolled = false;
 
@@ -305,7 +305,7 @@ function TodoListInternal() {
         });
     }
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderTodoListInternal, s);
 }
 
 function TodoList() {
@@ -1154,7 +1154,7 @@ function NoteRowText() {
     let lastNote: TreeNote | undefined = undefined;
     let isFocused = false;
     let isEditing = false;
-    const component = newComponent(root, renderNoteRow, s);
+    const component = newComponent(root, renderNoteRowText, s);
 
     function updateTextContentAndSize() {
         const { note } = s.args;
@@ -1166,7 +1166,7 @@ function NoteRowText() {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    function renderNoteRow() {
+    function renderNoteRowText() {
         const { note } = s.args;
 
         const currentNote = getCurrentNote(state);
@@ -1311,7 +1311,7 @@ function ActivityFiltersEditor() {
         onlyUnderCurrentNote,
     ]);
 
-    function render() {
+    function renderActivityFiltersEditor() {
         dateFrom.render({
             value: state._activitiesFrom,
             readOnly: false,
@@ -1341,7 +1341,7 @@ function ActivityFiltersEditor() {
         });
     }
 
-    return newComponent(root, render);
+    return newComponent(root, renderActivityFiltersEditor);
 }
 
 // yep, doesnt need any info about the matches, total count, etc.
@@ -1531,7 +1531,7 @@ function FuzzyFinder() {
         }
     }
 
-    function render() {
+    function renderFuzzyFinder() {
         searchInput.el.focus();
         rerenderSearch();
     }
@@ -1571,7 +1571,7 @@ function FuzzyFinder() {
 
     on(searchInput, "input", rerenderSearch);
 
-    return newComponent(root, render);
+    return newComponent(root, renderFuzzyFinder);
 }
 
 function FuzzyFindModal() {
@@ -1582,7 +1582,7 @@ function FuzzyFindModal() {
         ])
     );
 
-    function render() {
+    function renderFuzzyFindModal() {
         modalComponent.render({
             onClose: () => setCurrentModal(null)
         });
@@ -1590,7 +1590,7 @@ function FuzzyFindModal() {
         fuzzyFind.render(undefined);
     }
 
-    return newComponent(modalComponent, render);
+    return newComponent(modalComponent, renderFuzzyFindModal);
 }
 
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
@@ -1617,7 +1617,7 @@ function LoadBackupModal() {
     let canLoad = false;
 
 
-    function render() {
+    function renderBackupModal() {
         modal.render({
             onClose: () => setCurrentModal(null)
         });
@@ -1672,7 +1672,7 @@ function LoadBackupModal() {
         }
     });
 
-    return newComponent(modal, render, s);
+    return newComponent(modal, renderBackupModal, s);
 }
 
 
@@ -1719,12 +1719,12 @@ function SettingsModal() {
         ])
     ]));
 
-    function render() {
+    function renderSettingsModal() {
         root.render({ onClose });
         rg.render();
     }
 
-    return newComponent(root, render);
+    return newComponent(root, renderSettingsModal);
 }
 
 function AsciiCanvasModal() {
@@ -1735,7 +1735,7 @@ function AsciiCanvasModal() {
         ])
     );
 
-    function render() {
+    function renderAsciiCanvasModal() {
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
@@ -1745,7 +1745,7 @@ function AsciiCanvasModal() {
         asciiCanvas.render(asciiCanvas.state.args);
     }
 
-    return newComponent(modalComponent, render, asciiCanvas.state);
+    return newComponent(modalComponent, renderAsciiCanvasModal, asciiCanvas.state);
 }
 
 function NoteRowDurationInfo() {
@@ -2003,14 +2003,14 @@ function NotesList() {
         list1,
     ]);
 
-    function render() {
+    function renderNotesList() {
         list1.render({
             flatNotes: state._flatNoteIds,
             scrollParent: root.el.parentElement,
         });
     }
 
-    return newComponent(root, render);
+    return newComponent(root, renderNotesList);
 }
 
 const renderOptions: RenderOptions = {
@@ -2066,12 +2066,12 @@ function AsciiIcon() {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    function render() {
+    function renderAsciiIcon() {
         const { data } = s.args;
         setText(icon, data);
     }
 
-    return newComponent(icon, render, s);
+    return newComponent(icon, renderAsciiIcon, s);
 }
 
 function DarkModeToggle() {
@@ -2251,7 +2251,7 @@ function ActivityListContainer() {
     }
 
 
-    function render() {
+    function renderActivityListContainer() {
         breakInput.render(undefined);
 
         if (s.args.docked) {
@@ -2300,7 +2300,7 @@ function ActivityListContainer() {
     });
 
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderActivityListContainer, s);
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
@@ -2743,9 +2743,9 @@ function HighLevelTaskDurations() {
         }
     }
 
-    const c = newComponent(root, render);
+    const c = newComponent(root, renderHighlevelTaskDurations);
 
-    function render() {
+    function renderHighlevelTaskDurations() {
         rg.render();
 
         renderBreaksCheckbox.render({
@@ -2753,7 +2753,7 @@ function HighLevelTaskDurations() {
             value: hideBreaks,
             onChange: (val) => {
                 hideBreaks = val;
-                render();
+                renderHighlevelTaskDurations();
             }
         });
 
@@ -3488,9 +3488,12 @@ initState(() => {
     // In order for this UI to always be up-to-date, I'm just re-rendering the entire application somewhat frequently.
     // I have decided that this is a viable approach, and is probably the easiest and simplest way to handle this for now.
     // Components should just be designed to work despite excessive re-renders anyway.
+    // I'm still not convinced that rerendering the ENTIRE page is a good solution.
+    // I'm also not convinced that this problem is unsolveable without using create() and dispose() methods. 
+    // For now I'll just limit this to once every 2 seconds.
     setInterval(() => {
-        // rerenderApp(false, true);
-    }, 1000 / 3);
+        rerenderApp(false, true);
+    }, 2000);
 
     rerenderApp();
 });

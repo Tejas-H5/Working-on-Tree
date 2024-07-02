@@ -31,7 +31,7 @@ export function PaginationControl() {
         ]),
     ])
 
-    function render() {
+    function renderPaginationControl() {
         const { pagination, totalCount } = s.args;
 
         setTotalCount(pagination, totalCount);
@@ -71,5 +71,5 @@ export function PaginationControl() {
         rerender();
     });
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderPaginationControl, s);
 }

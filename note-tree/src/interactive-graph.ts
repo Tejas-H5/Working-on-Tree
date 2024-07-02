@@ -798,7 +798,7 @@ function GraphNodeUI() {
     let lastText: string | undefined;
     let lastIsEditing = false;
 
-    function render() {
+    function renderGraphNodeUI() {
         const { node, isSelected, isEditing, graphState, relativeContainer } = s.args;
 
         if (setVisibleGroup(
@@ -908,7 +908,7 @@ function GraphNodeUI() {
         renderGraph();
     });
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderGraphNodeUI, s);
 }
 
 const cnGraphEdgeRoot = sg.makeClass(`graph-edge-root`, [
@@ -1019,7 +1019,7 @@ function GraphEdgeUI() {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    function render() {
+    function renderGraphEdgeUI() {
         const { graphState, edge } = s.args;
 
         rg.render();
@@ -1066,10 +1066,10 @@ function GraphEdgeUI() {
     }
 
     on(labelInput, "input", () => {
-        render();
+        renderGraphEdgeUI();
     });
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderGraphEdgeUI, s);
 }
 
 
@@ -1158,7 +1158,7 @@ function RadialContextMenu() {
             rg.text(() => s.args.item.text)
         ]);
 
-        function render() {
+        function renderRadialContextMenuItem() {
             const { x, y, item } = s.args;
 
             rg.render();
@@ -1177,7 +1177,7 @@ function RadialContextMenu() {
             closeSelf(e);
         });
 
-        return newComponent(root, render, s);
+        return newComponent(root, renderRadialContextMenuItem, s);
     }
 
     const contextMenuItemList = newListRenderer(div({ class: "relative" }), RadialContextMenuItem);
@@ -1203,7 +1203,7 @@ function RadialContextMenu() {
         ]),
     ]);
 
-    function render() {
+    function renderRadialContextMenu() {
         const { x, y, items, centerText } = s.args;
 
         setText(centerTextEl, centerText);
@@ -1312,7 +1312,7 @@ function RadialContextMenu() {
         e.stopImmediatePropagation();
     });
 
-    return newComponent(root, render, s);
+    return newComponent(root, renderRadialContextMenu, s);
 }
 
 function rectIntersect(
