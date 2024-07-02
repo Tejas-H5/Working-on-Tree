@@ -496,7 +496,7 @@ function wasHiddenOrUninserted(ins: Insertable) {
 
 function checkForRenderMistake(ins: Insertable) {
     if (!ins.el.parentElement) {
-        console.warn("A component hasn't been inserted into the DOM, but we're trying to do things with it anyway. aborting.");
+        console.warn("A component hasn't been inserted into the DOM, but we're trying to do things with it anyway.");
     }
 }
 

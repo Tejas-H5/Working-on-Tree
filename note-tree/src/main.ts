@@ -3,7 +3,7 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, } from "src/canvas";
-import { Checkbox, DateTimeInput, Modal, ModalArgs, PaginationControl, ScrollContainerV, makeButton } from "src/components";
+import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
@@ -75,6 +75,7 @@ import {
     getMostRecentlyWorkedOnChildActivityIdx,
     getNote,
     getNoteDuration,
+    getNoteDurationUsingCurrentRangeCached,
     getNoteEstimate,
     getNoteNDown,
     getNoteNUp,
@@ -1945,7 +1946,6 @@ function NoteListInternal() {
         class: "w-100 sb1b sb1t",
     });
     const noteList = newListRenderer(root, NoteRowInput);
-    const durations = new Map<NoteId, number>();
 
     function renderNoteListInteral() {
         const { flatNotes, scrollParent } = s.args;
@@ -1953,7 +1953,6 @@ function NoteListInternal() {
         noteList.render((getNext) => {
             let stickyOffset = 0;
 
-            durations.clear();
             const currentNote = getCurrentNote(state);
 
             for (let i = 0; i < flatNotes.length; i++) {
@@ -1962,19 +1961,17 @@ function NoteListInternal() {
                 const component = getNext();
 
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
-                let isSticky = note.data._isSelected ||
-                    (isOnCurrentLevel && (
+                let isSticky = note.data._isSelected || (
+                    isOnCurrentLevel && (
                         note.data.isSticky ||
                         getLastActivityWithNote(state)?.nId === note.id
-                    ));
+                    )
+                );
 
-                const durationMs = getNoteDuration(state, note, true);
-                durations.set(note.id, durationMs);
+                const durationMs = getNoteDurationUsingCurrentRangeCached(state, id);
 
-                assert(note.parentId);
-                const parentNote = getNote(state, note.parentId);
-                const parentDurationMs = durations.get(parentNote.id) || getNoteDuration(state, parentNote, true);
-                durations.set(parentNote.id, parentDurationMs);
+                assert(note.parentId, "Note didn't have a parent!");
+                const parentDurationMs = getNoteDurationUsingCurrentRangeCached(state, note.parentId);
 
                 component.render({
                     note,
@@ -1988,7 +1985,7 @@ function NoteListInternal() {
                 // I have no idea how I would do this in React, tbh.
                 // But it was really damn easy here lol.
                 if (isSticky) {
-                    stickyOffset += component.el.getBoundingClientRect().height;
+                    stickyOffset += component.el.clientHeight;
                 }
             }
         });
@@ -3490,10 +3487,11 @@ initState(() => {
     // Components should just be designed to work despite excessive re-renders anyway.
     // I'm still not convinced that rerendering the ENTIRE page is a good solution.
     // I'm also not convinced that this problem is unsolveable without using create() and dispose() methods. 
-    // For now I'll just limit this to once every 2 seconds.
+    // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
+    // (which is apparently very easy to do here)
     setInterval(() => {
         rerenderApp(false, true);
-    }, 2000);
+    }, 500);
 
     rerenderApp();
 });

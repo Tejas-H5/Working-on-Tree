@@ -14,6 +14,39 @@ export type TreeNote = tree.TreeNode<Note>;
 export type DockableMenu = "activities" | "todoLists";
 export type AppTheme = "Light" | "Dark";
 
+// NOTE: can't be JSON-serialized.
+type Cache<T> = {
+    map: Map<string, T>;
+    timeSet: number;
+    options: CacheOptions;
+}
+type CacheOptions = {
+    maxAgeMs: number;
+}
+
+function newCache<T>(options: CacheOptions): Cache<T> {
+    return {
+        map: new Map(),
+        timeSet: 0,
+        options,
+    };
+}
+
+function getCachedValue<T>(cache: Cache<T>, key: string, computeFn: (key: string) => T): T {
+    if (Date.now() - cache.timeSet > cache.options.maxAgeMs) {
+        cache.map.clear();
+    }
+
+    if (!cache.map.has(key)) {
+        cache.map.set(key, computeFn(key));
+        cache.timeSet = Date.now();
+    }
+
+    return cache.map.get(key)!;
+}
+
+
+
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
 export type State = {
@@ -53,6 +86,7 @@ export type State = {
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
     _durationsOnlyUnderSelected: boolean;
+    _durationsCache: Cache<number>;
     _useActivityIndices: boolean;
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
@@ -251,6 +285,7 @@ export function defaultState(): State {
         _todoNoteFilters: 0,
         _currentlyViewingActivityIdx: 0,
         _isShowingDurations: false,
+        _durationsCache: newCache({ maxAgeMs: 1000 }),
         _activitiesFrom: null,
         _activitiesTo: null,
         _durationsOnlyUnderSelected: true,
@@ -1200,6 +1235,16 @@ export function getIndentStr(note: Note) {
     return "    ".repeat(repeats);
 }
 
+function getNoteDurationUsingCurrentRange(state: State, noteId: NoteId) {
+    const note = getNote(state, noteId);
+    return getNoteDuration(state, note, true);
+}
+
+export function getNoteDurationUsingCurrentRangeCached(state: State, noteId: NoteId) {
+    return getCachedValue(state._durationsCache, noteId, (noteId) => {
+        return getNoteDurationUsingCurrentRange(state, noteId);
+    });
+}
 
 /** 
  * This is the sum of all activities with this note, or any descendant 
@@ -1266,8 +1311,6 @@ function parseNoteEstimate(text: string): number {
 }
 
 export function getNoteEstimate(state: State, note: TreeNote): number {
-    recomputeNoteIsUnderFlag(state, note);
-
     if (!hasEstimate(note.data.text)) {
         // if this note doesn't have any parent notes with estimates, we shouldn't recurse down all children to find estimates.
         // In this way, we can prevent 'estimates' from leaking all the way up the tree - only subtrees with E= can have estimates for now.
