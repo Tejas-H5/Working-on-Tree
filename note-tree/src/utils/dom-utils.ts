@@ -596,9 +596,9 @@ export function newState<T = undefined>(initialValue: T | null = null) {
  * component re-renders.
  *
  * NOTE: The template types will be inferred by arguments if you're using this thing right.
- * If you are setting them manually, you're using this method in a suboptimal way that wasn't inteded.
+ * If you are setting them manually, you're using this method in a suboptimal way that wasn't intended.
  *
- * An example of a correct usage::
+ * An example of a correct usage:
  *
  * ```
  * function UserProfile() {
@@ -669,9 +669,9 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
  *
  * ```
  * function UserProfileBannerNoRendergroups() {
- *      type Args = {
+ *      const s = newState<{
  *          user: User;
- *      }
+ *      }>();
  *
  *      const nameEl = div();
  *      const infoList = newListRenderer(div(), UserProfileInfoPair);
@@ -684,7 +684,7 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
  *      ]);
  * 
  *      function render() {
- *          const { user } = c.args;
+ *          const { user } = s.args;
  *
  *          setText(nameEl, user.FirstName + " " + user.LastName;
  *
@@ -702,14 +702,13 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
  *          });
  *      }
  *
- *      const c =  newComponent(root, render);
- *      return c;
+ *      return newComponent(root, render, s);
  * }
  *
  * function UserProfileBannerRg() {
- *      type Args = {
+ *      const s = newState<{
  *          user: User;
- *      }
+ *      }>();
  *
  *      const nameEl = div();
  *      const infoList = newListRenderer(div(), UserProfileInfoPair);
@@ -717,8 +716,8 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
  *
  *      const rg = newRenderGroup();
  *      const root = div({}, [
- *          div({}, [ rg.text(() => c.args.user.FirstName + " " + c.args.user.LastName) ]),
- *          div({}, [ rg.text(() => c.args.user.ProfileInfo.Bio) ],
+ *          div({}, [ rg.text(() => s.args.user.FirstName + " " + s.args.user.LastName) ]),
+ *          div({}, [ rg.text(() => s.args.user.ProfileInfo.Bio) ],
  *          rg.list(div(), UserProfileInfoPair, (getNext) => {
  *              // todo: display this info properly
  *              for (const key in user.ProfileInfo) {
@@ -732,8 +731,7 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
  *          })
  *      ]);
  *
- *      const c = newComponent<Args>(root, rg.render);
- *      return c;
+ *      return newComponent(root, rg.render, s);
  * }
  * ```
  *
@@ -832,12 +830,12 @@ export type Renderable<T = unknown, U extends Element = Element> = Insertable<U>
      * ```
      *
      * function Component() {
-     *      type Args = { count: number; }
+     *      const s = newState<{ count: number; }>();
      *      const rg = newRenderGroup();
      *      const div2 = div();
      *
      *      // this works, provider rg.render is only called during or after the first render
-     *      const button = el("button", {}, ["Clicked ", rg.text(() => c.args.count), " time(s)"]);
+     *      const button = el("button", {}, ["Clicked ", rg.text(() => s.args.count), " time(s)"]);
      *
      *      const root = div({}, [
      *          button, 
@@ -845,24 +843,26 @@ export type Renderable<T = unknown, U extends Element = Element> = Insertable<U>
      *      ]);
      *
      *      // Runtime error: Args were null!
-     *      setText(div2, "" + c.args.count);   
+     *      setText(div2, "" + s.args.count);   
      *
-     *      const c = newComponent<Args>(root, () => {
-     *          // this works, c.args being called during (at least) the first render.
-     *          const { count } = c.args;
-     *      });
+     *      function render() {
+     *          // this works, s.args being called during (at least) the first render.
+     *          const { count } = s.args;
+     *      }
      *
      *      on(button, "click", () => {
      *          // this works, assuming the component is rendered immediately before the user is able to click the button in the first place.
-     *          const { count } = c.args;
+     *          const { count } = s.args;
      *      });
      *
      *      document.on("keydown", () => {
      *          // this will mostly work, but if a user is holding down keys before the site loads, this will error!
-     *          // You'll etiher have to use c.argsOrNull and check for null, or only add the handler once during the first render 
+     *          // You'll etiher have to use s.argsOrNull and check for null, or only add the handler once during the first render 
      *          // (or something more applicable to your project)
-     *          const { count } = c.args;
+     *          const { count } = s.args;
      *      });
+     *
+     *      return newComponent<Args>(root, render, s);
      * }
      * ```
      */
