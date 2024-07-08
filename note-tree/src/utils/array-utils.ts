@@ -105,3 +105,17 @@ export function findInSortedArray<T, K>(arr: T[], val: K, key: (a: T) => K, comp
 
     return arr[idx];
 }
+
+export function findLastIndex<T>(arr: T[], fn: (val: T) => boolean, start = -1): number {
+    if (start < 0) {
+        start = arr.length + start;
+    }
+
+    for (let i = start; i >= 0; i--) {
+        if (fn(arr[i])) {
+            return i;
+        }
+    }
+
+    return -1;
+}

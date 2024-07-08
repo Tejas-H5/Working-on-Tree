@@ -119,6 +119,7 @@ export type Note = {
     _everyChildNoteDone: boolean;
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
+    _higherLevelTaskId: NoteId; // the note's higher level task, as per the TODO list calculation. This is only valid if it's in the TODO list.
     _depth: number; // used to visually indent the notes
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
 };
@@ -384,6 +385,7 @@ export function defaultNote(state: State | null): Note {
 
         _status: STATUS_IN_PROGRESS,
         _everyChildNoteDone: false,
+        _higherLevelTaskId: "",
         _isSelected: false,
         _isUnderCurrent: false,
         _depth: 0,
@@ -613,15 +615,15 @@ export function recomputeState(state: State) {
                 continue;
             }
 
+            const hlt = getHigherLevelTask(state, note);
+            note.data._higherLevelTaskId = hlt?.id || "";
             if (state._todoNoteFilters === -1) {
                 // only show other todo notes with the same higher level task as this one
-                const hlt = getHigherLevelTask(state, note);
                 if (hlt !== currentHLT) {
                     continue;
                 }
             } else if (state._todoNoteFilters === 1) {
                 // only show the most recent of each higher level task.
-                const hlt = getHigherLevelTask(state, note);
                 if (hlt) {
                     if (hlt.data._isUnderCurrent) {
                         continue;
@@ -1744,7 +1746,7 @@ function loadStateFromLocalStorage(): boolean {
     return false;
 }
 
-export function getHigherLevelTask(state: State, note: TreeNote) {
+export function getHigherLevelTask(state: State, note: TreeNote): TreeNote | undefined {
     let higherLevelNote: TreeNote | undefined;
 
     tree.forEachParent(state.notes, note, (parent) => {

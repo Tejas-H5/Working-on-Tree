@@ -5,7 +5,7 @@ import "src/css/ui.css";
 import { AsciiCanvas, } from "src/canvas";
 import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, filterInPlace } from "src/utils/array-utils";
+import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -120,7 +120,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9";
+const VERSION_NUMBER = "v1.1.91";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -799,14 +799,14 @@ function LinkNavModal() {
         const component = newComponent(root, renderLinkItem, s);
 
         function renderLinkItem() {
-            const { text, range, isFocused, noteId } = s.args;
+            const { text, range, isFocused } = s.args;
 
             textEl.render({
                 text,
                 highlightedRanges: [range]
             });
             setVisible(cursor, isFocused);
-            setStyle(root, "backgroundColor", noteId === state.currentNoteId ? "var(--bg-color-focus)" : "");
+            setStyle(root, "backgroundColor", isFocused ? "var(--bg-color-focus)" : "");
         }
 
         return component;
@@ -2522,28 +2522,77 @@ let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInTodoList = false;
 let todoListIndex = 0;
+
+function getCurrentTodoNoteIdx(fromTheTop = true): number {
+    // Get the index of the current note, if it's in the TODO list
+    const todoNoteIds = state._todoNoteIds;
+    let idx = todoNoteIds.indexOf(state.currentNoteId);
+    if (idx !== -1) {
+        return idx
+    }
+
+    // If not, get the first (or last) note in the todo list under the current higher level task.
+    // This really helps for the use-case where I just want to quickly review everything under a particcular task.
+    // Might not be very useful, considering we can just filter by ever note under the current HLT...
+    const currentNote = getCurrentNote(state);
+    const currentHlt = getHigherLevelTask(state, currentNote);
+    if (currentHlt) {
+        const predicate = (id: NoteId) => {
+            const todoNote = getNote(state, id);
+            return todoNote.data._higherLevelTaskId === currentHlt.id;
+        }
+        if (fromTheTop) {
+            idx = todoNoteIds.findIndex(predicate);
+        } else {
+            idx = findLastIndex(todoNoteIds, predicate);
+        }
+        if (idx !== -1) {
+            return idx
+        }
+    }
+
+    // If not, get the first (or last) ntoe in the todo list.
+
+    if (fromTheTop) {
+        return 0;
+    }
+
+    return todoNoteIds.length - 1;
+}
+
 function moveInDirectionOverTodoList(amount: number) {
     const todoNoteIds = state._todoNoteIds;
 
+    let wantedIdx = -1;
     if (!isInTodoList) {
         isInTodoList = true;
-
-        // moving down or up will start you off at the top or the current location respectively.
-        if (amount < 0) {
-            todoListIndex = state._todoNoteIds.indexOf(state.currentNoteId);
-            if (todoListIndex === -1) {
-                // Would rather just not move into the todo list than 
-                // try to do something 'smart' like finding the closest TODO note
-                showStatusText("Couldn't find this note isn't in the TODO list");
-                isInTodoList = false;
-                return;
-            }
-        } else {
-            todoListIndex = 0;
-        }
+        wantedIdx = getCurrentTodoNoteIdx(
+            amount === 1
+        );
     } else {
-        todoListIndex = Math.max(0, Math.min(todoNoteIds.length - 1, todoListIndex + amount));
+        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, todoListIndex + amount));
     }
+
+    if (
+        wantedIdx === -1 ||
+        wantedIdx >= todoNoteIds.length
+    ) {
+        // Would rather just not move into the todo list than 
+        // try to do something 'smart' like finding the closest TODO note
+        showStatusText("Couldn't find this note in the TODO list");
+        isInTodoList = false;
+        return;
+    }
+
+    setTodoListIndex(wantedIdx);
+}
+
+function setTodoListIndex(idx: number) {
+    if (idx === -1) {
+        return;
+    }
+
+    todoListIndex = idx;
 
     // Move to the most recent note in this subtree.
     setCurrentNote(state, state._todoNoteIds[todoListIndex]);
@@ -2936,6 +2985,8 @@ export function App() {
             e.key !== "ArrowDown" &&
             e.key !== "ArrowLeft" &&
             e.key !== "ArrowRight" &&
+            e.key !== "Home" &&
+            e.key !== "End" &&
             isInTodoList
         ) {
             isInTodoList = false;
@@ -3171,13 +3222,29 @@ export function App() {
                 shouldPreventDefault = true;
                 handleUpDownMovement(getNoteNDown(state, currentNote, true, 10));
             } else if (currentNote.parentId && e.key === "End") {
-                const parent = getNote(state, currentNote.parentId);
-                const siblings = parent.childIds;
-                handleUpDownMovement(siblings[siblings.length - 1] || undefined);
+                if (
+                    isInTodoList &&
+                    e.ctrlKey &&
+                    e.shiftKey
+                ) {
+                    setTodoListIndex(state._todoNoteIds.length - 1);
+                } else {
+                    const parent = getNote(state, currentNote.parentId);
+                    const siblings = parent.childIds;
+                    handleUpDownMovement(siblings[siblings.length - 1] || undefined);
+                }
             } else if (currentNote.parentId && e.key === "Home") {
-                const parent = getNote(state, currentNote.parentId);
-                const siblings = parent.childIds;
-                handleUpDownMovement(siblings[0] || undefined);
+                if (
+                    isInTodoList &&
+                    e.ctrlKey &&
+                    e.shiftKey
+                ) {
+                    setTodoListIndex(0);
+                } else {
+                    const parent = getNote(state, currentNote.parentId);
+                    const siblings = parent.childIds;
+                    handleUpDownMovement(siblings[0] || undefined);
+                }
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
@@ -3311,7 +3378,7 @@ export function App() {
             appendChild(rightPanelArea, todoListContainer);
         }
         todoList.render({
-            cursorNoteId: isInTodoList ? state._todoNoteIds[todoListIndex] : undefined,
+            cursorNoteId: state._todoNoteIds[getCurrentTodoNoteIdx()],
         });
 
         if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {

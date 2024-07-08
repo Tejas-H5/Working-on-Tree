@@ -304,7 +304,6 @@ export function InteractiveGraph() {
         canAddNewLabel: (edge: GraphEdge | undefined): edge is GraphEdge => !!edge && ["", " "].includes(edge.text),
         newLabel: contextMenuItem("New Label", () => {
             const edge = getCurrentEdge();
-            console.log("bruH", edge, edge?.text)
             if (!contextMenuItemsDict.canAddNewLabel(edge)) {
                 return;
             }
