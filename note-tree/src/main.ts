@@ -1985,7 +1985,7 @@ function NoteListInternal() {
                 // I have no idea how I would do this in React, tbh.
                 // But it was really damn easy here lol.
                 if (isSticky) {
-                    stickyOffset += component.el.clientHeight;
+                    stickyOffset += component.el.getBoundingClientRect().height;
                 }
             }
         });
