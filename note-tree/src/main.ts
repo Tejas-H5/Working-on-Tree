@@ -2661,7 +2661,7 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
         return true;
     }
 
-    const text = currentNote.data.text;
+    const text = getNoteTextWithoutPriority(currentNote.data);
     // TODO: Not just starts with, but if this occurs anywhere before the current cursor position
     // TODO-TODO: not just anywhere after ```, but ignore if another ``` closes the previous ```
     const shiftMakesNewNote = text.startsWith("```");
