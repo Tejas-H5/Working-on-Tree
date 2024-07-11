@@ -2,7 +2,7 @@ import "src/css/colours.css";
 import "src/css/layout.css";
 import "src/css/ui.css";
 
-import { AsciiCanvas, } from "src/canvas";
+import { AsciiCanvas, AsciiCanvasArgs, getLayersString, pasteTextToCanvas, resetCanvas, } from "src/canvas";
 import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
@@ -11,7 +11,6 @@ import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestam
 import {
     ChildList,
     Insertable,
-    __experimental__inlineComponent,
     addChildren,
     appendChild,
     div,
@@ -43,6 +42,7 @@ import * as tree from "src/utils/tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
+import { TextArea } from "./components/text-area";
 import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
@@ -113,14 +113,13 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
-import { TextArea } from "./components/text-area";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.91";
+const VERSION_NUMBER = "v1.1.92";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1729,24 +1728,68 @@ function SettingsModal() {
 }
 
 function AsciiCanvasModal() {
-    const asciiCanvas = AsciiCanvas();
+    const s = newState<{ 
+        open: boolean; 
+        canvasArgs: AsciiCanvasArgs;
+    }>();
+
+    const [asciiCanvas, canvasState] = AsciiCanvas();
     const modalComponent = Modal(
         div({ style: modalPaddingStyles(10) }, [
             asciiCanvas
         ])
     );
 
+    let wasVisible = false;
+    function renderCanvas() {
+        const { open } = s.args;
+        setVisible(modalComponent, open);
+        if (!wasVisible && open) {
+            if (!state._isEditingFocusedNote) {
+                setIsEditingCurrentNote(state, true);
+                rerenderApp();
+                return;
+            }
+
+            wasVisible = true;
+
+            const note = getCurrentNote(state);
+            asciiCanvas.render(s.args.canvasArgs);
+
+            // needs to happen after we render the canvas, since we will be swapping out the output buffer
+            resetCanvas(canvasState, false);
+            pasteTextToCanvas(canvasState, note.data.text, 0, 0, false, false);
+        } else if (wasVisible && !open) {
+            wasVisible = false;
+
+            // if this modal is closed, try applying the current canvas state to the current note.
+            // Hopefully this should handle both the cases:
+            // - Finished editing and I've closed the scratch pad
+            // - Refreshed the browser while in the scratch pad, so we only have the last debounce-saved layers
+            if (state.scratchPadCanvasLayers.length > 0) {
+                const text = getLayersString(state.scratchPadCanvasLayers);
+                const currentNote = getNoteOrUndefined(state, state.currentNoteId);
+                if (currentNote && !!text.trim()) {
+                    currentNote.data.text = text;
+                }
+
+                // Either way, we have to clear it so that we don't overwrite some other note
+                state.scratchPadCanvasLayers = [];
+            }
+        }
+    }
+
     function renderAsciiCanvasModal() {
+        renderCanvas();
+
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
             }
         });
-
-        asciiCanvas.render(asciiCanvas.state.args);
     }
 
-    return newComponent(modalComponent, renderAsciiCanvasModal, asciiCanvas.state);
+    return newComponent(modalComponent, renderAsciiCanvasModal, s);
 }
 
 function NoteRowDurationInfo() {
@@ -2181,8 +2224,6 @@ const setCurrentModal = (modal: Insertable | null) => {
     if (currentModal === modal) {
         return;
     }
-
-    setIsEditingCurrentNote(state, false);
 
     currentModal = modal;
 
@@ -3330,9 +3371,55 @@ export function App() {
     const appComponent = newComponent(appRoot, rerenderAppComponent);
 
     function rerenderAppComponent() {
+        recomputeState(state);
+
         rg.render();
 
-        recomputeState(state);
+        // render modals
+        {
+            if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
+                loadBackupModal.render({
+                    text: backupText,
+                    fileName: backupFilename,
+                });
+            } else {
+                backupText = "";
+            }
+
+            if (setVisible(linkNavModal, currentModal === linkNavModal)) {
+                linkNavModal.render(undefined);
+            }
+
+            if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
+                fuzzyFindModal.render(undefined);
+            }
+
+            if (setVisible(settingsModal, currentModal === settingsModal)) {
+                settingsModal.render(undefined);
+            }
+
+            if (setVisible(deleteModal, currentModal === deleteModal)) {
+                deleteModal.render(undefined);
+            }
+
+            if (setVisible(exportModal, currentModal === exportModal)) {
+                exportModal.render(undefined);
+            }
+
+            asciiCanvasModal.render({
+                canvasArgs: {
+                    outputLayers: state.scratchPadCanvasLayers,
+                    onInput: () => {
+                        debouncedSave();
+                    }
+                },
+                open: currentModal === asciiCanvasModal
+            });
+
+            if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
+                interactiveGraphModal.render(undefined)
+            }
+        }
 
         // Rerender interactive components _after_ recomputing the state above
 
@@ -3380,48 +3467,6 @@ export function App() {
         todoList.render({
             cursorNoteId: state._todoNoteIds[getCurrentTodoNoteIdx()],
         });
-
-        if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
-            loadBackupModal.render({
-                text: backupText,
-                fileName: backupFilename,
-            });
-        } else {
-            backupText = "";
-        }
-
-        if (setVisible(linkNavModal, currentModal === linkNavModal)) {
-            linkNavModal.render(undefined);
-        }
-
-        if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
-            fuzzyFindModal.render(undefined);
-        }
-
-        if (setVisible(settingsModal, currentModal === settingsModal)) {
-            settingsModal.render(undefined);
-        }
-
-        if (setVisible(deleteModal, currentModal === deleteModal)) {
-            deleteModal.render(undefined);
-        }
-
-        if (setVisible(exportModal, currentModal === exportModal)) {
-            exportModal.render(undefined);
-        }
-
-        if (setVisible(asciiCanvasModal, currentModal === asciiCanvasModal)) {
-            asciiCanvasModal.render({
-                outputLayers: state.scratchPadCanvasLayers,
-                onInput: () => {
-                    debouncedSave();
-                }
-            });
-        }
-
-        if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
-            interactiveGraphModal.render(undefined)
-        }
 
         let error = "";
         if (state.criticalSavingError) {

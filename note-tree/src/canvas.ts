@@ -4,6 +4,8 @@ import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { div, el, isVisible, newComponent, newListRenderer, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
+const TAB_SIZE = 4;
+
 type CanvasArgs = {
     onInput(): void;
     outputLayers: AsciiCanvasLayer[] | undefined;
@@ -298,8 +300,8 @@ function resizeLayer(layer: AsciiCanvasLayer, rows: number, cols: number) {
 }
 
 function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
-    rows = Math.max(rows, NUM_ROWS_INCR_AMOUNT);
-    cols = Math.max(cols, 16);
+    rows = Math.max(rows, 1);
+    cols = Math.max(cols, 3);
 
     for (let layerIdx = 0; layerIdx < canvas.layers.length; layerIdx++) {
         resizeLayer(canvas.layers[layerIdx], rows, cols);
@@ -410,6 +412,147 @@ function lerp(a: number, b: number, t: number) : number {
     return a + (b - a) * t;
 }
 
+export function resetCanvas(canvas: CanvasState, resetSize = true) {
+    if (resetSize) {
+        resizeLayers(canvas, NUM_ROWS_INCR_AMOUNT, MIN_NUM_COLS)
+    }
+
+    forEachCell(canvas, (char) => {
+        char.isSelected = false;
+        char.isSelectedTemp = false;
+        char.isSelectedPreview = false;
+        setCharOnCurrentLayer(canvas, char.i, char.j, ' ');
+    });
+
+    const first = getCell(canvas, 0, 0);
+    if (first) {
+        first.isSelected = true;
+    }
+}
+
+function lineLength(line: string) {
+    let len = 0;
+    for(const c of line) {
+        if (c === "\t") {
+            len += TAB_SIZE;
+        } else {
+            len += 1;
+        }
+    }
+    return len;
+}
+
+export function pasteTextToCanvas(
+    canvas: CanvasState, 
+    text: string, 
+    row: number, 
+    col: number, 
+    whitespaceIsTransparent: boolean,
+    selectPasted = true,
+) {
+    text.replace(/\r/g, "");
+    const lines = text.split("\n");
+
+    // There's even some text wrapping logic in there, so we can use it later if we want.
+
+    let safetyCounter = 0;
+    let wantedRows = lines.length;
+    let wantedCols = Math.max(...lines.map(lineLength), MIN_NUM_COLS);
+    resizeLayers(canvas, wantedRows, wantedCols);
+
+    let rowOffset = 0;
+    for (let i = 0; i < lines.length; i++) {
+        let currentLinePos = 0;
+        let colOffset = 0;
+        for (let j = 0; j + currentLinePos < lines[i].length; j++) { 
+            safetyCounter++;
+            if (safetyCounter > 100000) {
+                throw new Error("Safety counter breached!");
+            }
+
+            let numRows = getNumRows(canvas);
+            const numCols = getNumCols(canvas);
+
+            let canvasCol = col + j + colOffset;
+            if (canvasCol >= numCols) {
+                currentLinePos += j;
+                colOffset = 0;
+                j = 0;
+                canvasCol = col;
+                rowOffset++;
+            }
+
+            let canvasRow = row + i + rowOffset;
+            if (canvasRow >= numRows) {
+                numRows = canvasRow + 1;
+                resizeLayers(canvas, numRows, numCols);
+            }
+
+            let char = lines[i][j + currentLinePos];
+            let isTab = false;
+            if (char === "\t") {
+                isTab = true;
+                char = ' ';
+            }
+
+            if (whitespaceIsTransparent && char.trim() === "") {
+                continue;
+            }
+
+            setCharOnCurrentLayer(canvas, canvasRow, canvasCol, char);
+
+            if (selectPasted) {
+                const selected = whitespaceIsTransparent ? char !== ' ' : true;
+                getCell(canvas, canvasRow, canvasCol).isSelected = selected;
+            }
+
+            if (isTab) {
+                // -1 because the loop will do that for us
+                colOffset += TAB_SIZE - 1;
+            }
+        }
+    }
+}
+
+export function getLayersString(layers: AsciiCanvasLayer[]): string {
+    if (layers.length === 0) {
+        // (Hint: you should have checked this was empty beforehand)
+        throw Error("Can't serialize empty layers. ");
+    }
+
+    const rows = layers[0].data.length;
+    const cols = layers[0].data[0].length;
+    const lines: string[] = [];
+    for (let i = 0; i < rows; i++) {
+        const rowStringBuilder: string[] = [];
+        for (let j = 0; j < cols; j++) {
+            let c = ' ';
+            for (let lIdx = layers.length - 1; lIdx >= 0; lIdx--) {
+                const l = layers[lIdx];
+                const lc = l.data[i][j];
+                if (lc !== ' ') {
+                    c = lc;
+                    break;
+                }
+            }
+
+            rowStringBuilder.push(c);
+        }
+        lines.push(rowStringBuilder.join("").trimEnd());
+    }
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (line.trim() !== "") {
+            break;
+        }
+
+        lines.pop();
+    }
+
+    return lines.join("\n");
+}
+
 function getCanvasSelectionAsString(canvas: CanvasState) {
     let minX = getNumCols(canvas);
     let maxX = 0;
@@ -504,7 +647,7 @@ function Canvas() {
     const rowList = newListRenderer(root, () => {
         const s = newState<RowArgs>();
 
-        const root = div({ class: "row justify-content-center" });
+        const root = div({ class: "row justify-content-center", style: "width: fit-content" });
 
         const charList = newListRenderer(root, () => {
             const s = newState<CanvasCellArgs>();
@@ -885,7 +1028,7 @@ function Canvas() {
         }
 
         if (getNumRows(canvasState) === 0) {
-            resizeLayers(canvasState, NUM_ROWS_INCR_AMOUNT, 130);
+            resetCanvas(canvasState);
         }
 
         const height = getNumRows(canvasState);
@@ -1077,7 +1220,7 @@ function Canvas() {
             } else if (e.key === "Enter") {
                 newLine(cursorCell);
             } else if (e.key === "Tab") {
-                moveCursor(cursorCell, cursorCell.i, 4 + Math.floor(cursorCell.j / 4) * 4);
+                moveCursor(cursorCell, cursorCell.i, TAB_SIZE + Math.floor(cursorCell.j / TAB_SIZE) * TAB_SIZE);
             } else if (e.key === "Backspace") {
                 if (ctrlPressed) {
                     cursorCell = moveHorizontallyToNonWhitespace(cursorCell, true, true, true);
@@ -1150,6 +1293,7 @@ function isAsciiCanvasKeybind(e: KeyboardEvent) {
 const NUM_ROWS_INCR_AMOUNT = 32;
 // However, I don't expect the width I need to change very much at all. 
 const NUM_COLUMNS_INCR_AMOUNT = 8;
+const MIN_NUM_COLS = 130;
 
 export type AsciiCanvasArgs = {
     outputLayers: AsciiCanvasLayer[];
@@ -1324,7 +1468,7 @@ export function AsciiCanvas() {
         }
 
         setText(statusText, stringBuilder.join(" | "));
-        setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > 130 * 128);
+        setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > MIN_NUM_COLS * 128);
     }
 
     const canvasArgs : CanvasArgs = {
@@ -1344,32 +1488,7 @@ export function AsciiCanvas() {
             return;
         }
 
-        text.replace(/\r/g, "");
-        const lines = text.split("\n");
-
-        const numRows = getNumRows(canvasState);
-        const numCols = getNumCols(canvasState);
-        outer: for (let i = 0; i < lines.length; i++) {
-            for (let j = 0; j < lines[i].length; j++) {
-                let canvasRow = row + i;
-                let canvasCol = col + j;
-
-                if (canvasRow >= numRows) {
-                    break outer;
-                }
-
-                if (canvasCol >= numCols) {
-                    break;
-                }
-
-                if (whitespaceIsTransparent && lines[i][j].trim() === "") {
-                    continue;
-                }
-
-                setCharOnCurrentLayer(canvasState, canvasRow, canvasCol, lines[i][j]);
-                getCell(canvasState, canvasRow, canvasCol).isSelected = lines[i][j] !== ' ';
-            }
-        }
+        pasteTextToCanvas(canvasState, text, row, col, whitespaceIsTransparent);
     }
 
     function rerenderLocal() {
@@ -1402,7 +1521,11 @@ export function AsciiCanvas() {
         buttons.moreCols.render({
             name: "+ Columns",
             onClick: () => {
-                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT);
+                const wantedCols = Math.max(
+                    getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
+                    MIN_NUM_COLS,
+                );
+                resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
                 rerenderLocal();
             },
         });
@@ -1617,6 +1740,6 @@ export function AsciiCanvas() {
     });
 
     const component = newComponent(root, renderAsciiCanvas, s);
-    return component;
+    return [component, canvasState] as const;
 }
 
