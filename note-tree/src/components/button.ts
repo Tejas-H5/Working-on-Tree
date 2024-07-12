@@ -2,7 +2,7 @@ import { ChildList, el } from "src/utils/dom-utils";
 
 // NOTE: don't use this button in future projects. It's shite
 export function makeButton(text: ChildList, classes: string = "", styles: string = "") {
-    return el(
+    return el<HTMLButtonElement>(
         "BUTTON",
         {
             type: "button",

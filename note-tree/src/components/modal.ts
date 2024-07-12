@@ -15,12 +15,21 @@ export function Modal(content: Insertable) {
         style: `top: 0vh; left: 0vw; right: 0vw; bottom: 0vh; z-index: 9999;`
     }, [bgRect]);
 
+    let blockMouseDown = false;
 
     // Clicking outside the modal should close it
-    on(root, "click", () => s.args.onClose());
+    on(root, "mousedown", () => {
+        if (!blockMouseDown) {
+            s.args.onClose()
+        }
+        blockMouseDown = false;
+    });
 
-    // Clicking inside the modal shouldn't close it
-    on(bgRect, "click", (e) => e.stopPropagation());
+    // Clicking inside the modal shouldn't close it.
+    // We can't simply stop propagation of this event to the nodes inside though, so we're doing it like this.
+    on(bgRect, "mousedown", () => {
+        blockMouseDown = true;
+    });
 
     return newComponent(root, () => { }, s);
 }

@@ -176,7 +176,9 @@ export function InteractiveGraph() {
 
     const nodeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
     const edgeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
-    const nodeListRenderer = rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI, (getNext) => {
+
+    const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI);
+    rg(nodeListRenderer, (list) => list.render((getNext) => {
         for (const id of nodeComponentMap.keys()) {
             if (!(id in graphData.nodes)) {
                 nodeComponentMap.delete(id);
@@ -213,10 +215,11 @@ export function InteractiveGraph() {
             c.render(c.state.args);
             nodeComponentMap.set(id, c);
         }
-    })
+    }));
 
     // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
-    const edgeListRenderer = rg.list(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI, (getNext) => {
+    const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI)
+    rg(edgeListRenderer, (c) => c.render((getNext) => {
         for (const id of edgeComponentMap.keys()) {
             if (!(id in graphData.edges)) {
                 edgeComponentMap.delete(id);
@@ -259,7 +262,7 @@ export function InteractiveGraph() {
             c.render(c.state.args);
             edgeComponentMap.set(id, c);
         }
-    });
+    }));
 
     const root = div({
         class: "flex-1 w-100 h-100 col",

@@ -2,7 +2,7 @@ import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./ke
 import { makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { div, el, isVisible, newComponent, newListRenderer, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 const TAB_SIZE = 4;
 
@@ -74,74 +74,6 @@ function newLayer(): AsciiCanvasLayer {
         iOffset: 0,
         jOffset: 0,
     }
-}
-
-// "[up][right][down][left]" - a string representing 0s and 1s corresponding to the sides of a cell with another cell.
-// the pipe map needs to cover every combination of 1s and zeroes... (and not permutations. hence we only have 11 and not 16)
-// I suppose I should have called them boxes or walls instead of pipes, but I'm too lazy to change it rn
-
-// Taken some from here:
-// https://stackoverflow.com/questions/28413489/using-box-drawing-unicode-characters-in-batch-files
-
-const PIPE_MAP_IV = generatePipeMap(`
-╒═╤═╕
-│ │ │
-╞═╪═╡
-│ │ │
-╘═╧═╛
-`);
-
-const PIPE_MAP_III = generatePipeMap(`
-╓─╥─╖
-║ ║ ║
-╟─╫─╢
-║ ║ ║
-╙─╨─╜
-`);
-
-const PIPE_MAP_II = generatePipeMap(`
-╔═╦═╗
-║ ║ ║
-╠═╬═╣
-║ ║ ║
-╚═╩═╝
-`);
-
-const PIPE_MAP_I = generatePipeMap(`
-┌─┬─┐
-│ │ │
-├─┼─┤
-│ │ │
-└─┴─┘
-`);
-
-function generatePipeMap(str: string) : Record<string, string> {
-    str = str.trim();
-    
-    return {
-        "1100" : str[24],// "╚",
-        "0110" : str[0], //"╔",
-        "0011" : str[4], // "╗",
-        "1001" : str[28],// "╝",
-
-        "1110" : str[12],// "╠",
-        "0111" : str[2], // "╦",
-        "1011" : str[16], //"╣",
-        "1101" : str[26], //"╩",
-
-        "1010" : str[6], // "║",
-        "0010" : str[6], // "║",
-        "1000" : str[6], // "║",
-
-        "0101" : str[1], // "═",
-        "0100" : str[1], // "═",
-        "0001" : str[1], // "═",
-
-        "1111" : str[14], // "╬",
-
-        // edge case
-        "0000" : " ",
-    };
 }
 
 function generateLines(canvas: CanvasState) {
@@ -228,42 +160,6 @@ function generateLines(canvas: CanvasState) {
 
         setCharOnCurrentLayer(canvas, c.i, c.j, char);
 
-    });
-}
-
-// Yeah I know I've been calling it an "ascii editor" and these are actually unicode code points. Whatever. Dont care. 
-// I thought they weren't at first, cause I remember seeing them in BIOSes and dwarf fortress, but looks like they are actually unicode and not ascii...
-function generatePipes(canvas: CanvasState, pipeMap: Record<string, string>) {
-
-    forEachCell(canvas, (c) => {
-        if (!c.isSelected) {
-            return;
-        }
-
-        // const char = getCharOnCurrentLayer(canvas, c.i, c.j);
-        // if (char !== ' ') {
-        //     return;
-        // }
-
-        let hasUp = isSelected(canvas, c.i - 1, c.j);
-        let hasRight = isSelected(canvas, c.i, c.j + 1);
-        let hasDown = isSelected(canvas, c.i + 1, c.j);
-        let hasLeft = isSelected(canvas, c.i, c.j - 1);
-
-        // wonder if JS has a way of just using integers here?
-        let hash = (
-            (hasUp ? "1" : "0") + 
-            (hasRight ? "1" : "0") + 
-            (hasDown ? "1" : "0") + 
-            (hasLeft? "1" : "0")
-        );
-
-        const pipeChar = pipeMap[hash];
-        if (!pipeChar) {
-            return;
-        }
-
-        setCharOnCurrentLayer(canvas, c.i, c.j, pipeChar);
     });
 }
 
@@ -461,10 +357,10 @@ export function pasteTextToCanvas(
     resizeLayers(canvas, wantedRows, wantedCols);
 
     let rowOffset = 0;
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = 0; i < canvas.rows.length; i++) {
         let currentLinePos = 0;
         let colOffset = 0;
-        for (let j = 0; j + currentLinePos < lines[i].length; j++) { 
+        for (let j = 0; j + currentLinePos < canvas.rows[i].charList.length; j++) { 
             safetyCounter++;
             if (safetyCounter > 100000) {
                 throw new Error("Safety counter breached!");
@@ -605,6 +501,12 @@ function getTextInputCursorCell(canvas: CanvasState) {
     for (let i = 0; i < getNumRows(canvas); i++) {
         for (let j = 0; j < getNumCols(canvas); j++) {
             const cellIJ = getCell(canvas, i, j);
+            
+            if (!cellIJ) {
+                // NOTE: this should never happen, but for some reason it does. 
+                // TODO: replace getNumRows with getNumCells.
+                return undefined;
+            }
 
             if (found && cellIJ.isSelected) {
                 // multiple selected cells. we shouldn't be typing
@@ -1002,7 +904,7 @@ function Canvas() {
     const canvasState: CanvasState = {
         mouseInputState,
         rows,
-        currentTool: "freeform-select",
+        currentTool: "rect-select",
 
         layers: [
             // main layer. right now it's the only layer
@@ -1328,8 +1230,6 @@ export function AsciiCanvas() {
             }
         }
 
-        const c = newComponent(button, renderAsciiCanvasToolbarButton, s);
-
         on(button, "click", (e) => { 
             const { onClick, tool } = s.args;
 
@@ -1340,7 +1240,7 @@ export function AsciiCanvas() {
             onClick(e);
         });
 
-        return c;
+        return newComponent(button, renderAsciiCanvasToolbarButton, s);
     }
 
     const s = newState<AsciiCanvasArgs>();
@@ -1366,71 +1266,164 @@ export function AsciiCanvas() {
         rectSelect: ToolbarButton(),
         bucketFillSelect: ToolbarButton(),
         bucketFillSelectOutline: ToolbarButton(),
-        moveSelection: ToolbarButton(),
-        clearSelection: ToolbarButton(),
         invertSelection: ToolbarButton(),
         copyToClipboard: ToolbarButton(),
         pasteFromClipboard: ToolbarButton(),
         pasteFromClipboardTransparent: ToolbarButton(),
-        pipes1FromSelection: ToolbarButton(),
-        pipes2FromSelection: ToolbarButton(),
-        pipes3FromSelection: ToolbarButton(),
-        pipes4FromSelection: ToolbarButton(),
         linesFromSelection: ToolbarButton(),
     };
-
-    const mouseScrollList = [
-        buttons.freeformSelect,
-        buttons.lineSelect,
-        buttons.rectOutlineSelect,
-        buttons.rectSelect,
-        buttons.bucketFillSelect,
-        buttons.bucketFillSelectOutline,
-        buttons.moveSelection,
-    ];
 
     const statusText = div({ style: "text-align: center" });
     const performanceWarning = div({ style: "text-align: center" }, [
         "!! Warning: A large number of rows/columns will currently be bad for performance !!"
     ]);
 
+    let cursorCell: CanvasCellArgs | undefined;
+    let canPaste = false;
+
+    const rg = newRenderGroup();
+
+    const mouseScrollList = [
+        rg(buttons.rectSelect, (c) => c.render({
+                name: "Rect",
+                onClick: rerenderLocal,
+                tool: "rect-select",
+        })),
+        rg(buttons.freeformSelect, (c) => c.render({
+            name: "Draw",
+            onClick: rerenderLocal,
+            tool: "freeform-select" satisfies ToolType,
+        })),
+        rg(buttons.lineSelect, (c) => c.render({
+            name: "Line",
+            onClick: rerenderLocal,
+            tool: "line-select",
+        })),
+        rg(buttons.rectOutlineSelect, (c) => c.render({
+            name: "Rect Outline",
+            onClick: rerenderLocal,
+            tool: "rect-outline-select",
+        })),
+        rg(buttons.bucketFillSelect, (c) => c.render({
+            name: "Fill",
+            onClick: rerenderLocal,
+            tool: "fill-select",
+        })),
+        rg(buttons.bucketFillSelectOutline, (c) => c.render({
+            name: "Fill Outline",
+            onClick: rerenderLocal,
+            tool: "fill-select-outline",
+        })),
+    ];
+
     const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
-        buttons.moreRows,
-        buttons.lessRows,
-        buttons.moreCols,
-        buttons.lessCols,
-        spacer(),
-        buttons.freeformSelect,
-        buttons.lineSelect,
-        buttons.rectOutlineSelect,
-        buttons.rectSelect,
-        buttons.bucketFillSelect,
-        buttons.bucketFillSelectOutline,
-        buttons.moveSelection,
-        spacer(),
-        buttons.clearSelection,
-        buttons.invertSelection,
-        spacer(),
-        buttons.copyToClipboard,
-        buttons.pasteFromClipboard,
-        buttons.pasteFromClipboardTransparent,
-        spacer(),
-        buttons.pipes1FromSelection,
-        buttons.pipes2FromSelection,
-        buttons.pipes3FromSelection,
-        buttons.pipes4FromSelection,
-        buttons.linesFromSelection,
+        div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+            rg(buttons.moreRows, (c) => c.render({
+                name: "+",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                    rerenderLocal();
+                },
+            })),
+            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+                rg.text(() => "" + getNumRows(canvasState)),
+            ]),
+            rg(buttons.lessRows, (c) => c.render({
+                name: "-",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                    rerenderLocal();
+                },
+            })),
+            rg.text(() => " rows "),
+            rg(buttons.moreCols, (c) => c.render({
+                name: "+",
+                onClick: () => {
+                    const wantedCols = Math.max(
+                        getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
+                        MIN_NUM_COLS,
+                    );
+                    resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
+                    rerenderLocal();
+                },
+            })),
+            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+                rg.text(() => "" + getNumCols(canvasState)),
+            ]),
+            rg(buttons.lessCols, (c) => c.render({
+                name: "-",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                    rerenderLocal();
+                },
+            })),
+            rg.text(() => " cols"),
+            spacer(),
+            rg.text(() => "Selection (Ctrl + [Q/E]): "),
+            ...mouseScrollList,
+            spacer(),
+            rg(buttons.copyToClipboard, (button) => {
+                button.render({
+                    name: "Copy",
+                    onClick: copyCanvasToClipboard,
+                    selected: isCtrlPressed() && (
+                        isLastKey("c") ||
+                        isLastKey("C")
+                    )
+                })
+            }),
+            rg(buttons.pasteFromClipboard, (button) => {
+                button.render({
+                    name: "Paste",
+                    onClick: () => {
+                        pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    },
+                    selected: isCtrlPressed() && !isShiftPressed() && (
+                        isLastKey("V") || isLastKey("v")
+                    )
+                });
+            }),
+            rg(buttons.pasteFromClipboardTransparent, (button) => {
+                button.render({
+                    name: "Paste (with transparency)",
+                    onClick: () => {
+                        pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    },
+                    selected: isCtrlPressed() && isShiftPressed() && (
+                        isLastKey("v") || isLastKey("V")
+                    ),
+                });
+            }),
+        ]),
+        div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+            rg(buttons.linesFromSelection, (c) => c.render({
+                name: "Draw Lines",
+                onClick: () => {
+                    generateLines(canvasState);
+                    rerenderLocal();
+                }
+            })),
+            rg(buttons.invertSelection, (c) => c.render({
+                name: "Invert Selection",
+                onClick: () => {
+                    forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
+                    rerenderLocal();
+                },
+            })),
+        ]),
     ]);
 
     function spacer() {
-        return div({ class: "inline-block", style: "width: 30px" } );
+        return div({ class: "inline-block", style: "width: 30px" });
     }
 
     const root = div({ class: "relative h-100 row" }, [
         div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
+            div({ class: "flex-1" }),
             canvasComponent,
             statusText,
             performanceWarning,
+            div({ class: "flex-1" }),
             toolbar,
         ]),
         div({ style: "width: 20px" }),
@@ -1500,186 +1493,13 @@ export function AsciiCanvas() {
         // This single line of code allows us to write to an array that lives outside of this component
         canvasArgs.outputLayers = s.args.outputLayers;
 
+        cursorCell = getTextInputCursorCell(canvasState);
+        canPaste = !!cursorCell;
+
+        rg.render();
+
         canvasComponent.render(canvasArgs);
-
-        buttons.moreRows.render({
-            name: "+ Rows",
-            onClick: () => {
-                resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                rerenderLocal();
-            },
-        });
-
-        buttons.lessRows.render({
-            name: "- Rows",
-            onClick: () => {
-                resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                rerenderLocal();
-            },
-        });
-
-        buttons.moreCols.render({
-            name: "+ Columns",
-            onClick: () => {
-                const wantedCols = Math.max(
-                    getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
-                    MIN_NUM_COLS,
-                );
-                resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
-                rerenderLocal();
-            },
-        });
-
-        buttons.lessCols.render({
-            name: "- Columns",
-            onClick: () => {
-                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
-                rerenderLocal();
-            },
-        });
-
-
-        buttons.freeformSelect.render({
-            name: "Free Select",
-            onClick: rerenderLocal,
-            tool: "freeform-select",
-        });
-
-        buttons.lineSelect.render({
-            name: "Line Select",
-            onClick: rerenderLocal,
-            tool: "line-select",
-        });
-
-        buttons.rectSelect.render({
-            name: "Rect Select",
-            onClick: rerenderLocal,
-            tool: "rect-select",
-        });
         
-        buttons.rectOutlineSelect.render({
-            name: "Rect Outline Select",
-            onClick: rerenderLocal,
-            tool: "rect-outline-select",
-        });
-
-        buttons.bucketFillSelect.render({
-            name: "Fill Select",
-            onClick: rerenderLocal,
-            tool: "fill-select",
-        });
-        
-        buttons.bucketFillSelectOutline.render({
-            name: "Fill Select Outline",
-            onClick: rerenderLocal,
-            tool: "fill-select-outline",
-        });
-
-        buttons.moveSelection.render({
-            name: "Move Selection",
-            onClick: rerenderLocal,
-            tool: "move-selection",
-        });
-
-        buttons.clearSelection.render({
-            name: "Clear Selection",
-            onClick: () => {
-                forEachCell(canvasState, (c) => c.isSelected = false);
-                rerenderLocal();
-            },
-        });
-
-        buttons.invertSelection.render({
-            name: "Invert Selection",
-            onClick: () => {
-                forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
-                rerenderLocal();
-            },
-        });
-
-        buttons.copyToClipboard.render({
-            name: "Copy",
-            onClick: copyCanvasToClipboard,
-            selected: isCtrlPressed() && (
-                isLastKey("c") ||
-                isLastKey("C")
-            )
-        });
-
-        const cursorCell = getTextInputCursorCell(canvasState);
-        const canPaste = !!cursorCell;
-
-        if (setVisible(buttons.pasteFromClipboard, canPaste)) {
-            buttons.pasteFromClipboard.render({
-                name: "Paste",
-                onClick: () => {
-                    const whitespaceIsTransparent = false;
-                    if (cursorCell) {
-                        pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
-                    }
-                },
-                selected: isCtrlPressed() && 
-                    !isShiftPressed() && (
-                    isLastKey("V") || isLastKey("v")
-                )
-            });
-        }
-
-        if (setVisible(buttons.pasteFromClipboardTransparent, canPaste)) {
-            buttons.pasteFromClipboardTransparent.render({
-                name: "Paste (with transparency)",
-                onClick: () => {
-                    const whitespaceIsTransparent = true;
-                    if (cursorCell) {
-                        pasteClipboardToCanvas(cursorCell.i, cursorCell.j, whitespaceIsTransparent);
-                    }
-                },
-                selected: isCtrlPressed() && isShiftPressed() && (
-                    isLastKey("v") || isLastKey("V")
-                ),
-            });
-        }
-        
-        buttons.pipes1FromSelection.render({
-            name: "Pipes I",
-            onClick: () => {
-                generatePipes(canvasState, PIPE_MAP_I);
-                rerenderLocal();
-            },
-        });
-
-        buttons.pipes2FromSelection.render({
-            name: "Pipes II",
-            onClick: () => {
-                generatePipes(canvasState, PIPE_MAP_II);
-                rerenderLocal();
-            },
-        });
-
-        buttons.pipes3FromSelection.render({
-            name: "Pipes III",
-            onClick: () => {
-                generatePipes(canvasState, PIPE_MAP_III);
-                rerenderLocal();
-            },
-        });
-
-        buttons.pipes4FromSelection.render({
-            name: "Pipes IV",
-            onClick: () => {
-                generatePipes(canvasState, PIPE_MAP_IV);
-                rerenderLocal();
-            },
-        });
-
-        buttons.linesFromSelection.render({
-            name: "Lines",
-            onClick: () => {
-                generateLines(canvasState);
-                rerenderLocal();
-            }
-        });
-
         updateCanvasStausText(canvasState);
     }
 

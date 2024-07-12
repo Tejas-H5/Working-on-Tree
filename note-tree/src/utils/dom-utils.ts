@@ -643,23 +643,14 @@ export function newComponent<T, U extends Element>(root: Insertable<U>, renderFn
     return component;
 }
 
-export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, updateFn: (el: T) => any) => Renderable<unknown, U>) & {
+export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, updateFn: (el: T) => any) => T) & {
     render: () => void;
     /** This is actually implemented with a SPAN and not a text node like you may have thought */
-    text: (fn: () => string) => Renderable<unknown, HTMLSpanElement>;
+    text: (fn: () => string) => Insertable<HTMLSpanElement>;
+    /** This is just a shortcut for code like `rg(Renderable(), (c) => c.render(undefined))`. */
     c: <U extends Element>(renderable: Renderable<unknown, U>) => Renderable<unknown, U>;
     /** {@link insFn} is a function that gets it's own render group as an input, which will only render if fn() returned true.  */
     if: <U extends HTMLElement | SVGElement>(fn: () => boolean, insFn: (rg: RenderGroup) => Insertable<U>) => Renderable<unknown, U>;
-    /** 
-     * only renders the component if argsFn doesn't return undefined. 
-     * For components that take in a single `undefined` argument, just use {@link RenderGroup.c}
-     */
-    cArgs: <T, U extends Element>(renderable: Renderable<T, U>, argsFn: () => T | undefined) => Renderable<T, U>;
-    list: <R extends Element, T, U extends Element>(
-        root: Insertable<R>,
-        Component: () => Renderable<T, U>,
-        renderFn: (getNext: () => Renderable<T, U>) => void,
-    ) => ListRenderer<R, Element, Renderable<T, U>>;
 };
 
 /**
@@ -745,10 +736,10 @@ export type RenderGroup = (<U extends Element, T extends Insertable<U>>(el: T, u
 export function newRenderGroup(): RenderGroup {
     const renderables: Renderable[] =  [];
 
-    const push = <U extends Element, T extends Insertable<U>>(el: T, updateFn: (el: T) => any): Renderable<unknown, U> => {
+    const push = <U extends Element, T extends Insertable<U>>(el: T, updateFn: (el: T) => void): T => {
         const c = newComponent(el, () => updateFn(el));
         renderables.push(c);
-        return c;
+        return el;
     }
 
     const rg: RenderGroup = Object.assign(push, {
@@ -757,31 +748,13 @@ export function newRenderGroup(): RenderGroup {
                 r.render(undefined);
             }
         },
-        text: (fn: () => string): Renderable<unknown, HTMLSpanElement> => {
+        text: (fn: () => string): Insertable<HTMLSpanElement> => {
             const spanEl = span();
             return push(spanEl, () => setText(spanEl, fn()));
         },
         c: <U extends Element>(renderable: Renderable<unknown, U>): Renderable<unknown, U> => {
             renderables.push(renderable);
             return renderable;
-        },
-        cArgs: <T, U extends Element>(renderable: Renderable<T, U>, argsFn: () => T | undefined) => {
-            push(renderable, () => {
-                const args = argsFn();
-                if (args !== undefined) {
-                    renderable.render(args);
-                }
-            });
-            return renderable;
-        },
-        list: <R extends Element, T, U extends Element>(
-            root: Insertable<R>, 
-            Component: () => Renderable<T, U>, 
-            renderFn: (getNext: () => Renderable<T, U>) => void,
-        ): ListRenderer<R, Element, Renderable<T, U>> => {
-            const list = newListRenderer(root, Component);
-            push(list, () => list.render(renderFn));
-            return list;
         },
         if: <U extends HTMLElement | SVGElement>(fn: () => boolean, insFn: (rg: RenderGroup) => Insertable<U>): Renderable<unknown, U> => {
             const c = inlineComponent(insFn);

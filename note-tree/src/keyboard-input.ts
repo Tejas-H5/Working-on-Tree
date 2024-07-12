@@ -8,32 +8,70 @@ const state = {
     lastKey: "",
 };
 
-document.addEventListener("keydown", (e) => {
-    state.lastKey = e.key;
-    if (!state.keys.includes(e.key)) {
-        state.keys.push(e.key);
+let init = false;
+
+export function initKeyboardListeners(renderFn: () => void) {
+    if (init) {
+        throw new Error("Can't initialize this thing twice, ever!");
     }
 
-    switch(e.key) {
-        case "Shift": return state.isShiftPressed = true;
-        case "Control": return state.isCtrlPressed = true;
-        case "Meta": return state.isCtrlPressed = true;
-        case "Alt": return state.isAltPressed = true;
-    }
-});
+    init = true;
 
-document.addEventListener("keyup", (e) => {
-    state.lastKey = "";
-    filterInPlace(state.keys, (k) => k !== e.key);
+    document.addEventListener("keydown", (e) => {
+        state.lastKey = e.key;
+        if (!state.keys.includes(e.key)) {
+            state.keys.push(e.key);
+        }
 
+        switch (e.key) {
+            case "Shift": 
+                state.isShiftPressed = true;
+                break;
+            case "Control": 
+                state.isCtrlPressed = true;
+                break;
+            case "Meta": 
+                state.isCtrlPressed = true;
+                break;
+            case "Alt": 
+                state.isAltPressed = true;
+                break;
+        }
 
-    switch(e.key) {
-        case "Shift": return state.isShiftPressed = false;
-        case "Control": return state.isCtrlPressed = false;
-        case "Meta": return state.isCtrlPressed = false;
-        case "Alt": return state.isAltPressed = false;
-    }
-});
+        renderFn();
+    });
+
+    document.addEventListener("keyup", (e) => {
+        state.lastKey = "";
+        filterInPlace(state.keys, (k) => k !== e.key);
+
+        switch (e.key) {
+            case "Shift": 
+                state.isShiftPressed = false;
+                break;
+            case "Control": 
+                state.isCtrlPressed = false;
+                break;
+            case "Meta": 
+                state.isCtrlPressed = false;
+                break;
+            case "Alt": 
+                state.isAltPressed = false;
+                break;
+        }
+
+        renderFn();
+    });
+
+    document.addEventListener("blur", () => {
+        state.isShiftPressed = false;
+        state.isCtrlPressed = false;
+        state.isCtrlPressed = false;
+        state.isAltPressed = false;
+
+        renderFn();
+    });
+}
 
 export function isShiftPressed() {
     return state.isShiftPressed;

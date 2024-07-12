@@ -113,6 +113,7 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
+import { initKeyboardListeners } from "./keyboard-input";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -1187,7 +1188,8 @@ function NoteRowText() {
         ) : indent1;
         setStyle(indentWidthEl, "minWidth", depth + "ch");
 
-        isFocused = state.currentNoteId === note.id;
+        isFocused = state.currentNoteId === note.id && currentModal === null;
+
         const wasEditing = isEditing;
         isEditing = isFocused && state._isEditingFocusedNote;
         if (lastNote !== note || !isEditing) {
@@ -1685,7 +1687,7 @@ function InteractiveGraphModal() {
     const rg = newRenderGroup();
     const root = Modal(
         div({ style: modalPaddingStyles(10) }, [
-            rg.cArgs(InteractiveGraph(), () => ({
+            rg(InteractiveGraph(), (c) => c.render({
                 onClose,
                 graphData: state.mainGraphData,
                 onInput() {
@@ -1708,7 +1710,7 @@ function SettingsModal() {
     const root = Modal(div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
         el("H3", { class: "text-align-center" }, "Settings"),
         div({ class: "row" }, [
-            rg.cArgs(Checkbox(), () => ({
+            rg(Checkbox(), (c) => c.render({
                 label: "Always show estimates",
                 value: state.settings.alwaysShowEstimates,
                 onChange(val) {
@@ -2005,10 +2007,8 @@ function NoteListInternal() {
 
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
                 let isSticky = note.data._isSelected || (
-                    isOnCurrentLevel && (
-                        note.data.isSticky ||
-                        getLastActivityWithNote(state)?.nId === note.id
-                    )
+                    isOnCurrentLevel && 
+                    note.data.isSticky 
                 );
 
                 const durationMs = getNoteDurationUsingCurrentRangeCached(state, id);
@@ -3604,6 +3604,8 @@ initState(() => {
     setInterval(() => {
         rerenderApp(false, true);
     }, 500);
+
+    initKeyboardListeners(rerenderApp);
 
     rerenderApp();
 });
