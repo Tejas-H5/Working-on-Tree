@@ -1,4 +1,4 @@
-import { isAltPressed, isCtrlPressed, isLastKey, isShiftPressed } from "src/./keyboard-input";
+import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-input";
 import { makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
@@ -21,6 +21,18 @@ type MouseInputState = {
     _prevY: number;
 }
 
+type UndoLogEntryData = {
+    layerIdx: number;
+    row: number;
+    col: number;
+    prevValue: string;
+    newVal: string;
+}
+type UndoLogEntry = {
+    timestampMs: number;
+    data: UndoLogEntryData;
+}
+
 type CanvasState = {
     mouseInputState: MouseInputState;
     rows: RowArgs[];
@@ -28,6 +40,9 @@ type CanvasState = {
     layers: AsciiCanvasLayer[];
     currentLayer: number;
     tempLayer: AsciiCanvasLayer;
+    undoLog: UndoLogEntry[];
+    // This will always point to the last change that was _applied_. Should default to -1 if nothing in the undo log
+    undoLogPosition: number; 
 }
 
 type ToolType = "freeform-select" | 
@@ -204,6 +219,39 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
     }
 
     resizeLayer(canvas.tempLayer, rows, cols);
+
+    // Maintain row/col pool
+    // NOTE: The rowList and charList are already doing a similar pooling mechanism.
+    // Should this data just be created within there itself? For now I have decided "no" but I might change my mind on this one...
+    while (canvas.rows.length < rows) {
+        canvas.rows.push({ charList: [] });
+    }
+    while (canvas.rows.length > rows) {
+        canvas.rows.pop();
+    }
+
+    for (let i = 0; i < canvas.rows.length; i++) {
+        const chars = canvas.rows[i].charList;
+
+        while (chars.length < cols) {
+            chars.push({
+                br: false, bl: false, bb: false, bt: false,
+
+                j: chars.length,
+                i: i,
+
+                isSelected: false,
+                isSelectedTemp: false,
+                isSelectedPreview: false,
+                isVisited: false,
+
+                canvasState: canvas,
+            });
+        }
+        while (chars.length > cols) {
+            chars.pop();
+        }
+    }
 }
 
 // This gets the cell for the corresponding coordinate on a layer, taking the layer offset into account
@@ -226,13 +274,39 @@ function getCharOnLayer(i: number, j: number, layer: AsciiCanvasLayer): string {
     return ' ';
 }
 
-function setCharOnLayer(i: number, j: number, char: string, layer: AsciiCanvasLayer, useOffsets = true) {
+function getLayerIdx(canvas: CanvasState, layer: AsciiCanvasLayer): number {
+    return canvas.layers.indexOf(layer);
+}
+
+function setCharOnLayer(
+    canvas: CanvasState, 
+    i: number, j: number, 
+    char: string, 
+    layer: AsciiCanvasLayer, 
+    useOffsets = true, 
+    beingCalledInsideUndoFunction = false,
+) {
     const iFinal =  !useOffsets ? i : i - layer.iOffset;
     const jFinal =  !useOffsets ? j : j - layer.jOffset;
     if (
         boundsCheck(layer.data, iFinal) && 
         boundsCheck(layer.data[iFinal], jFinal)
     ) {
+        const layerIdx = getLayerIdx(canvas, layer);
+        if (
+            !beingCalledInsideUndoFunction &&
+            // Writes to the 'temp' layer are inconsequental and shouldn't be undoable
+            layerIdx !== -1
+        ) {
+            logUndoableChange(canvas, {
+                layerIdx: layerIdx,
+                row: iFinal,
+                col: jFinal,
+                prevValue: layer.data[iFinal][jFinal],
+                newVal: char,
+            });
+        }
+
         layer.data[iFinal][jFinal] = char;
         return;
     } 
@@ -249,8 +323,8 @@ function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: AsciiCanvasL
         }
 
         const char = getCharOnLayer(c.i, c.j, layerSrc);
-        setCharOnLayer(c.i, c.j, ' ', layerSrc);
-        setCharOnLayer(c.i, c.j, char, layerDst);
+        setCharOnLayer(canvas, c.i, c.j, ' ', layerSrc);
+        setCharOnLayer(canvas, c.i, c.j, char, layerDst);
     });
 }
 
@@ -259,7 +333,7 @@ function getCharOnCurrentLayer(canvas: CanvasState, i: number, j: number): strin
 }
 
 function setCharOnCurrentLayer(canvas: CanvasState, i: number, j: number, char: string) {
-    setCharOnLayer(i, j, char, getCurrentLayer(canvas));
+    setCharOnLayer(canvas, i, j, char, getCurrentLayer(canvas));
 }
 
 function getCurrentLayer(canvas: CanvasState): AsciiCanvasLayer {
@@ -297,6 +371,10 @@ function getCell(canvas: CanvasState, i: number, j: number): CanvasCellArgs {
 }
 
 function getNumCols(canvas: CanvasState) {
+    if (canvas.layers[0].data.length === 0) {
+        return 0;
+    }
+
     return canvas.layers[0].data[0].length;
 }
 
@@ -308,7 +386,9 @@ function lerp(a: number, b: number, t: number) : number {
     return a + (b - a) * t;
 }
 
-export function resetCanvas(canvas: CanvasState, resetSize = true) {
+export function resetCanvas(canvas: CanvasState, resetSize = true, initialText: string | undefined = undefined) {
+    resetUndoLog(canvas);
+
     if (resetSize) {
         resizeLayers(canvas, NUM_ROWS_INCR_AMOUNT, MIN_NUM_COLS)
     }
@@ -324,6 +404,16 @@ export function resetCanvas(canvas: CanvasState, resetSize = true) {
     if (first) {
         first.isSelected = true;
     }
+
+    if (initialText) {
+        pasteTextToCanvas(canvas, initialText, {
+            whitespaceIsTransparent: false,
+            selectPasted: false,
+            resizeLayersToPasted: true,
+        });
+
+        resetUndoLog(canvas);
+    }
 }
 
 function lineLength(line: string) {
@@ -338,73 +428,55 @@ function lineLength(line: string) {
     return len;
 }
 
-export function pasteTextToCanvas(
-    canvas: CanvasState, 
-    text: string, 
-    row: number, 
-    col: number, 
-    whitespaceIsTransparent: boolean,
+export function pasteTextToCanvas(canvas: CanvasState, text: string, {
+    row = 0,
+    col = 0,
+    whitespaceIsTransparent = false,
     selectPasted = true,
-) {
+    resizeLayersToPasted = false,
+}: {
+    row?: number;
+    col?: number;
+    whitespaceIsTransparent?: boolean;
+    selectPasted?: boolean;
+    resizeLayersToPasted?: boolean;
+    autoExpand?: boolean;
+} = {}) {
     text.replace(/\r/g, "");
     const lines = text.split("\n");
 
-    // There's even some text wrapping logic in there, so we can use it later if we want.
+    if (resizeLayersToPasted) {
+        row = 0;
+        col = 0;
+        let wantedRows = lines.length;
+        let wantedCols = Math.max(...lines.map(lineLength), MIN_NUM_COLS);
+        resizeLayers(canvas, wantedRows, wantedCols);
+    }
 
-    let safetyCounter = 0;
-    let wantedRows = lines.length;
-    let wantedCols = Math.max(...lines.map(lineLength), MIN_NUM_COLS);
-    resizeLayers(canvas, wantedRows, wantedCols);
+    for (let i = 0; i < lines.length; i++) {
+        const pasteRow = row + i;
+        if (pasteRow >= getNumRows(canvas)) {
+            resizeLayers(canvas, pasteRow + 1, getNumCols(canvas));
+        }
 
-    let rowOffset = 0;
-    for (let i = 0; i < canvas.rows.length; i++) {
-        let currentLinePos = 0;
-        let colOffset = 0;
-        for (let j = 0; j + currentLinePos < canvas.rows[i].charList.length; j++) { 
-            safetyCounter++;
-            if (safetyCounter > 100000) {
-                throw new Error("Safety counter breached!");
+        const line = lines[i];
+        for (let j = 0; j < line.length; j++) {
+            const pasteCol = col + j;
+            if (pasteCol >= getNumCols(canvas)) {
+                resizeLayers(canvas, getNumRows(canvas), pasteCol + 1);
             }
 
-            let numRows = getNumRows(canvas);
-            const numCols = getNumCols(canvas);
+            const c = line[j];
 
-            let canvasCol = col + j + colOffset;
-            if (canvasCol >= numCols) {
-                currentLinePos += j;
-                colOffset = 0;
-                j = 0;
-                canvasCol = col;
-                rowOffset++;
-            }
-
-            let canvasRow = row + i + rowOffset;
-            if (canvasRow >= numRows) {
-                numRows = canvasRow + 1;
-                resizeLayers(canvas, numRows, numCols);
-            }
-
-            let char = lines[i][j + currentLinePos];
-            let isTab = false;
-            if (char === "\t") {
-                isTab = true;
-                char = ' ';
-            }
-
-            if (whitespaceIsTransparent && char.trim() === "") {
+            if (whitespaceIsTransparent && c === ' ') {
                 continue;
             }
 
-            setCharOnCurrentLayer(canvas, canvasRow, canvasCol, char);
+            setCharOnCurrentLayer(canvas, pasteRow, pasteCol, c);
 
             if (selectPasted) {
-                const selected = whitespaceIsTransparent ? char !== ' ' : true;
-                getCell(canvas, canvasRow, canvasCol).isSelected = selected;
-            }
-
-            if (isTab) {
-                // -1 because the loop will do that for us
-                colOffset += TAB_SIZE - 1;
+                const cell = getCell(canvas, pasteRow, pasteCol);
+                cell.isSelected = true;
             }
         }
     }
@@ -471,27 +543,23 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
         maxY = getNumRows(canvas);
     }
 
-    let stringBuilder = [];
+    const lines: string[] = [];
     for(let i = minY; i <= maxY; i++) {
+        const row: string[] = [];
         for(let j = minX; j <= maxX; j++) {
             const cell = getCell(canvas, i, j);
             if (cell.isSelected) {
                 const [char] = getChar(canvas, i, j);
-                stringBuilder.push(char);
+                row.push(char);
             } else {
-                stringBuilder.push(' ');
+                row.push(' ');
             }
         }
 
-        // Remove trailing whitespace. its annoying
-        while (stringBuilder[stringBuilder.length - 1] === ' ') {
-            stringBuilder.pop();
-        }
-
-        stringBuilder.push('\n');
+        lines.push(row.join("").trimEnd());
     }
 
-    return stringBuilder.join("");
+    return lines.join("\n");
 }
 
 // Returns the selected cell, if only 1 cell is selected
@@ -501,12 +569,6 @@ function getTextInputCursorCell(canvas: CanvasState) {
     for (let i = 0; i < getNumRows(canvas); i++) {
         for (let j = 0; j < getNumCols(canvas); j++) {
             const cellIJ = getCell(canvas, i, j);
-            
-            if (!cellIJ) {
-                // NOTE: this should never happen, but for some reason it does. 
-                // TODO: replace getNumRows with getNumCells.
-                return undefined;
-            }
 
             if (found && cellIJ.isSelected) {
                 // multiple selected cells. we shouldn't be typing
@@ -523,21 +585,122 @@ function getTextInputCursorCell(canvas: CanvasState) {
     return cell;
 }
 
+const WHITESPACE_GAP = 2;
 function getCurrentLineStart(canvas: CanvasState, row: number, col: number) {
-    for (let i = row; i >= 0; i--) {
-        // Could be more sophisticated, but for now, the start of the line is just the first non-whitespace on that row
-        for (let j = 0; j <= col; j++) {
-            const char = getCharOnCurrentLayer(canvas, i, j);
-            if (char !== ' ') {
-                return j;
-            }
+    // the first whitespace large enough will be the start of the row
+    let lastNonWhitespaceCol = -1;
+    let whitespaceChain = 0;
+    for (let i = col; i >= 0; i--) {
+        const char = getCharOnCurrentLayer(canvas, row, i);
+        if (char === ' ') {
+            whitespaceChain++;
+        } else {
+            whitespaceChain = 0;
+            lastNonWhitespaceCol = i;
+        }
+
+        if (lastNonWhitespaceCol !== -1 && whitespaceChain === WHITESPACE_GAP) {
+            return lastNonWhitespaceCol;
         }
     }
 
-    return col;
+    return 0;
 }
 
+function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
+    while(canvas.undoLog.length - 1 > canvas.undoLogPosition) {
+        canvas.undoLog.pop();
+    }
 
+    canvas.undoLog.push({
+        timestampMs: Date.now(),
+        data: entryData
+    });
+
+    canvas.undoLogPosition += 1;
+}
+
+function getCurrentChange(canvas: CanvasState): UndoLogEntry | undefined {
+    return canvas.undoLog[canvas.undoLogPosition];
+}
+function getNextChange(canvas: CanvasState): UndoLogEntry | undefined {
+    return canvas.undoLog[canvas.undoLogPosition + 1];
+}
+function canUndo(canvas: CanvasState): boolean {
+    return !!getCurrentChange(canvas);
+}
+
+function resetUndoLog(canvas: CanvasState) {
+    canvas.undoLog.splice(0, canvas.undoLog.length);
+    canvas.undoLogPosition = -1;
+}
+
+function moveThroughUndoLog(canvas: CanvasState, {
+    timeWithinMs = 100,
+    backwards = true,
+} = {}) {
+    let currentChange = backwards ? getCurrentChange(canvas) : getNextChange(canvas);
+    if (!currentChange) {
+        return;
+    }
+
+    const t0 = currentChange.timestampMs;
+
+    let safetyCounter = 0;
+
+    while (
+        !!currentChange &&
+        Math.abs(currentChange.timestampMs - t0) < timeWithinMs
+    ) {
+        safetyCounter++;
+        if (safetyCounter > 100000) {
+            throw new Error("BRUH what u doin");
+        }
+
+        // The current undo position is always on the last change that was applied. 
+        // Undoing a change needs to undo the change at the current cursor, and redoing a change needs to 
+        // apply the next change and increment the postion up to that
+        
+        if (!currentChange) {
+            break;
+        }
+
+        const { layerIdx, row, col, prevValue, newVal } = currentChange.data;
+
+        const layer = canvas.layers[layerIdx];
+        if (!layer) {
+            throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+        }
+
+        if (backwards) {
+            setCharOnLayer(canvas, row, col, prevValue, layer, false, true);
+            canvas.undoLogPosition--;
+        } else {
+            setCharOnLayer(canvas, row, col, newVal, layer, false, true);
+            canvas.undoLogPosition++;
+        }
+
+        currentChange = backwards ? getCurrentChange(canvas) : getNextChange(canvas);
+    }
+}
+
+const UNDO_REDO_THERSHOLD_MS = 10;
+function undoWithinTime(canvas: CanvasState) {
+    moveThroughUndoLog(canvas, {
+        timeWithinMs: UNDO_REDO_THERSHOLD_MS,
+        backwards: true,
+    });
+}
+
+function canRedo(canvas: CanvasState): boolean {
+    return !!getNextChange(canvas);
+}
+function redoWithinTime(canvas: CanvasState) {
+    moveThroughUndoLog(canvas, {
+        timeWithinMs: UNDO_REDO_THERSHOLD_MS,
+        backwards: false,
+    });
+}
 
 function getTool(canvas: CanvasState): ToolType {
     return isAltPressed() ?  "move-selection" : canvas.currentTool;
@@ -658,8 +821,6 @@ function Canvas() {
         return component;
     });
 
-    const rows: RowArgs[] = [];
-
     const toolState: {
         selectionStartX: number;
         selectionStartY: number;
@@ -683,7 +844,7 @@ function Canvas() {
         for (let i = 0; i < mag + 2; i++) {
             const x = Math.round(lerp(x1, x2, i / (mag + 1)));
             const y = Math.round(lerp(y1, y2, i / (mag + 1)));
-            rows[y].charList[x].isSelectedPreview = true;
+            canvasState.rows[y].charList[x].isSelectedPreview = true;
         }
     }
 
@@ -769,7 +930,7 @@ function Canvas() {
 
             // clear the temp buffer
             const useOffsets = false;
-            forEachCell(canvasState, (c) => setCharOnLayer(c.i, c.j, ' ', canvasState.tempLayer, useOffsets));
+            forEachCell(canvasState, (c) => setCharOnLayer(canvasState, c.i, c.j, ' ', canvasState.tempLayer, useOffsets));
 
             return;
         } 
@@ -903,8 +1064,11 @@ function Canvas() {
 
     const canvasState: CanvasState = {
         mouseInputState,
-        rows,
+        rows: [],
         currentTool: "rect-select",
+
+        undoLog: [],
+        undoLogPosition: -1,
 
         layers: [
             // main layer. right now it's the only layer
@@ -937,52 +1101,20 @@ function Canvas() {
         const width = getNumCols(canvasState);
         resizeLayers(canvasState, height, width);
 
-        // Maintain row/col pool
-        // NOTE: The rowList and charList are already doing a similar pooling mechanism.
-        // Should this data just be created within there itself? For now I have decided "no" but I might change my mind on this one...
-        while(rows.length < height) {
-            rows.push({ charList: [] });
-        }
-        while(rows.length > height) {
-            rows.pop();
-        }
-
-        for (let i = 0; i < rows.length; i++) {
-            const chars = rows[i].charList;
-
-            while(chars.length < width) {
-                chars.push({ 
-                    br: false, bl: false, bb: false, bt: false,
-
-                    j: chars.length,
-                    i: i,
-
-                    isSelected: false,
-                    isSelectedTemp: false,
-                    isSelectedPreview: false,
-                    isVisited: false,
-
-                    canvasState,
-                });
-            }
-            while(chars.length > width) {
-                chars.pop();
-            }
-        }
-
+        // Update border styling
         for (let i = 0; i < width; i++) {
             for (let j = 0; j < height; j++) {
                 getCell(canvasState, i, j)
-                rows[j].charList[i].bt = j === 0;
-                rows[j].charList[i].bb = j === height - 1;
-                rows[j].charList[i].bl = i === 0;
-                rows[j].charList[i].br = i === width - 1;
+                canvasState.rows[j].charList[i].bt = j === 0;
+                canvasState.rows[j].charList[i].bb = j === height - 1;
+                canvasState.rows[j].charList[i].bl = i === 0;
+                canvasState.rows[j].charList[i].br = i === width - 1;
             }
         }
 
         rowList.render((getNext) => {
-            for (let i = 0; i < rows.length; i++) {
-                getNext().render(rows[i]);
+            for (let i = 0; i < canvasState.rows.length; i++) {
+                getNext().render(canvasState.rows[i]);
             }
         });
     }
@@ -1180,13 +1312,16 @@ function Canvas() {
     return [component, canvasState] as const;
 }
 
+// TODO: figure out hwo to delete this fn. lol.
 function isAsciiCanvasKeybind(e: KeyboardEvent) {
     const ctrlPressed = e.ctrlKey || e.metaKey;
     return (
-        (ctrlPressed && (e.key === "E" || e.key === "e")) ||
-        (ctrlPressed && (e.key === "Q" || e.key === "q")) ||
-        (ctrlPressed && (e.key === "C" || e.key === "c")) ||
-        (ctrlPressed && (e.key === "V" || e.key === "v")) 
+       (ctrlPressed && (e.key === "E" || e.key === "e")) 
+        || (ctrlPressed && (e.key === "Q" || e.key === "q")) 
+        || (ctrlPressed && (e.key === "C" || e.key === "c")) 
+        || (ctrlPressed && (e.key === "V" || e.key === "v")) 
+        || (ctrlPressed && (e.key === "Z" || e.key === "z")) 
+        || (ctrlPressed && (e.key === "Y" || e.key === "y"))
     );
 }
 
@@ -1213,6 +1348,7 @@ export function AsciiCanvas() {
             onClick(e: MouseEvent): void;
             tool?: ToolType;
             selected?: boolean;
+            disabled?: boolean;
         }>();
 
         const textEl = div();
@@ -1222,12 +1358,13 @@ export function AsciiCanvas() {
         ]);
 
         function renderAsciiCanvasToolbarButton() {
+            const { tool, selected, disabled } = s.args;
+
             setText(button, s.args.name);
 
-            if (s.args.tool || s.args.selected !== undefined) {
-                const tool = getTool(canvasState);
-                setClass(button, "inverted", s.args.selected || tool === s.args.tool);
-            }
+            const isCurrentTool = getTool(canvasState) === tool;
+            setClass(button, "inverted", !!selected || isCurrentTool);
+            setClass(button, "unfocused-text-color", !!disabled);
         }
 
         on(button, "click", (e) => { 
@@ -1271,6 +1408,8 @@ export function AsciiCanvas() {
         pasteFromClipboard: ToolbarButton(),
         pasteFromClipboardTransparent: ToolbarButton(),
         linesFromSelection: ToolbarButton(),
+        undoButton: ToolbarButton(),
+        redoButton: ToolbarButton(),
     };
 
     const statusText = div({ style: "text-align: center" });
@@ -1317,17 +1456,7 @@ export function AsciiCanvas() {
     ];
 
     const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
-        div({ class: "", style: "justify-content: center; gap: 5px;" }, [
-            rg(buttons.moreRows, (c) => c.render({
-                name: "+",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                    rerenderLocal();
-                },
-            })),
-            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
-                rg.text(() => "" + getNumRows(canvasState)),
-            ]),
+        div({ class: "inline-block"}, [
             rg(buttons.lessRows, (c) => c.render({
                 name: "-",
                 onClick: () => {
@@ -1335,7 +1464,26 @@ export function AsciiCanvas() {
                     rerenderLocal();
                 },
             })),
-            rg.text(() => " rows "),
+            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+                rg.text(() => "rows: " + getNumRows(canvasState)),
+            ]),
+            rg(buttons.moreRows, (c) => c.render({
+                name: "+",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                    rerenderLocal();
+                },
+            })),
+            rg(buttons.lessCols, (c) => c.render({
+                name: "-",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                    rerenderLocal();
+                },
+            })),
+            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+                rg.text(() => "cols: " + getNumCols(canvasState)),
+            ]),
             rg(buttons.moreCols, (c) => c.render({
                 name: "+",
                 onClick: () => {
@@ -1347,29 +1495,29 @@ export function AsciiCanvas() {
                     rerenderLocal();
                 },
             })),
-            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
-                rg.text(() => "" + getNumCols(canvasState)),
-            ]),
-            rg(buttons.lessCols, (c) => c.render({
-                name: "-",
+        ]),
+        spacer(),
+        div({ class: "inline-block"}, [
+            rg.text(() => "Selection (Ctrl + [Q/E]): "),
+            ...mouseScrollList,
+        ]),
+        spacer(),
+        div({ class: "inline-block"}, [
+            rg(buttons.invertSelection, (c) => c.render({
+                name: "Invert Selection",
                 onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                    forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
                     rerenderLocal();
                 },
             })),
-            rg.text(() => " cols"),
-            spacer(),
-            rg.text(() => "Selection (Ctrl + [Q/E]): "),
-            ...mouseScrollList,
-            spacer(),
+        ]),
+        spacer(),
+        div({ class: "inline-block"}, [
             rg(buttons.copyToClipboard, (button) => {
                 button.render({
                     name: "Copy",
                     onClick: copyCanvasToClipboard,
-                    selected: isCtrlPressed() && (
-                        isLastKey("c") ||
-                        isLastKey("C")
-                    )
+                    selected: copied,
                 })
             }),
             rg(buttons.pasteFromClipboard, (button) => {
@@ -1377,25 +1525,26 @@ export function AsciiCanvas() {
                     name: "Paste",
                     onClick: () => {
                         pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                        rerenderLocal();
                     },
-                    selected: isCtrlPressed() && !isShiftPressed() && (
-                        isLastKey("V") || isLastKey("v")
-                    )
+                    selected: pastedNoTransparency,
+                    disabled: !canPaste,
                 });
             }),
             rg(buttons.pasteFromClipboardTransparent, (button) => {
                 button.render({
-                    name: "Paste (with transparency)",
+                    name: "Paste (transparent)",
                     onClick: () => {
                         pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                        rerenderLocal();
                     },
-                    selected: isCtrlPressed() && isShiftPressed() && (
-                        isLastKey("v") || isLastKey("V")
-                    ),
+                    selected: pastedWithTransparency,
+                    disabled: !canPaste,
                 });
             }),
         ]),
-        div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+        spacer(),
+        div({ class: "inline-block"}, [
             rg(buttons.linesFromSelection, (c) => c.render({
                 name: "Draw Lines",
                 onClick: () => {
@@ -1403,12 +1552,20 @@ export function AsciiCanvas() {
                     rerenderLocal();
                 }
             })),
-            rg(buttons.invertSelection, (c) => c.render({
-                name: "Invert Selection",
-                onClick: () => {
-                    forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
-                    rerenderLocal();
-                },
+        ]),
+        div({ class: "inline-block"}, [
+            rg(buttons.undoButton, (c) => c.render({
+                name: "Undo",
+                selected: undoDone,
+                disabled: !canUndo(canvasState),
+                onClick: undo,
+            })),
+            rg.text(() => canvasState.undoLogPosition + " / " + canvasState.undoLog.length),
+            rg(buttons.redoButton, (c) => c.render({
+                name: "Redo",
+                selected: redoDone,
+                disabled: !canRedo(canvasState),
+                onClick: redo,
             })),
         ]),
     ]);
@@ -1452,8 +1609,8 @@ export function AsciiCanvas() {
         if (selPreviewCount > 0) {
             stringBuilder.push(
                 (
-                    isCtrlPressed() ? "adding" : 
-                    isShiftPressed() ? "subtracting" :
+                    isCtrlPressed() ? "adding " : 
+                    isShiftPressed() ? "subtracting " :
                     "replacing "
                 ) + 
                 selPreviewCount 
@@ -1469,19 +1626,55 @@ export function AsciiCanvas() {
         outputLayers: [],
     };
 
+    let copied = false;
+    let pastedNoTransparency = false;
+    let pastedWithTransparency = false;
+    let undoDone = false;
+    let redoDone = false;
+    function unhighlightKeyPressButtons() {
+        // Some of these actions only complete on key-up, so we ned to delay resetting these.
+        setTimeout(() => {
+            copied = false;
+            pastedNoTransparency = false;
+            pastedWithTransparency = false;
+            redoDone = false;
+            undoDone = false;
+
+            rerenderLocal();
+        }, 100);
+    }
+
     function copyCanvasToClipboard() {
         const text = getCanvasSelectionAsString(canvasState);
         copyToClipboard(text);
+        copied = true;
+        unhighlightKeyPressButtons();
     }
 
     async function pasteClipboardToCanvas(row: number, col: number, whitespaceIsTransparent: boolean) {
         const text = await readFromClipboard();
+
         if (!text || typeof text !== "string") {
             console.warn("failed to read from clipboard - ", text);
             return;
         }
 
-        pasteTextToCanvas(canvasState, text, row, col, whitespaceIsTransparent);
+        pasteTextToCanvas(canvasState, text, {
+            row, col,
+            whitespaceIsTransparent,
+            selectPasted: true,
+            resizeLayersToPasted: false,
+        });
+
+        if (whitespaceIsTransparent) {
+            pastedWithTransparency = true;
+            unhighlightKeyPressButtons();
+        } else {
+            pastedNoTransparency = true;
+            unhighlightKeyPressButtons();
+        }
+
+        rerenderLocal();
     }
 
     function rerenderLocal() {
@@ -1531,6 +1724,30 @@ export function AsciiCanvas() {
         changeTool(mouseScrollList[idx].state.args.tool);
     }
 
+    function undo() {
+        if (!canUndo(canvasState)) {
+            return;
+        }
+
+        undoWithinTime(canvasState);
+        undoDone = true;
+        unhighlightKeyPressButtons();
+
+        rerenderLocal();
+    }
+
+    function redo() {
+        if (!canRedo(canvasState)) {
+            return;
+        }
+
+        redoWithinTime(canvasState);
+        redoDone = true;
+        unhighlightKeyPressButtons();
+
+        rerenderLocal();
+    }
+
     document.addEventListener("keydown", (e) => {
         if (!isVisible(component)) {
             return;
@@ -1542,20 +1759,39 @@ export function AsciiCanvas() {
 
         e.preventDefault();
 
+        console.log(e.key);
+
+        let render = false;
         if (e.ctrlKey || e.metaKey) {
             if (e.key === "e" || e.key === "E") {
                 nextTool();
+                render = true;
             } else if (e.key === "q" || e.key === "Q") {
                 prevTool();
+                render = true;
             } else if (e.key === "c" || e.key === "C") {
                 copyCanvasToClipboard();
+                render = true;
             } else if (e.key === "v" || e.key === "V") {
                 const pasteCell = getTextInputCursorCell(canvasState);
                 if (pasteCell) {
                     const whitespaceIsTransparent = e.shiftKey;
                     pasteClipboardToCanvas(pasteCell.i, pasteCell.j, whitespaceIsTransparent);
+                    render = true;
                 }
+            } else if (e.key === "z" || e.key === "Z") {
+                if (e.shiftKey) {
+                    redo();
+                } else {
+                    undo();
+                }
+            } else if (e.key === "y" || e.key === "Y" && !e.shiftKey) {
+                redo();
             }
+        }
+
+        if (render) {
+            rerenderLocal();
         }
     });
 
