@@ -3408,7 +3408,8 @@ export function App() {
             asciiCanvasModal.render({
                 canvasArgs: {
                     outputLayers: state.scratchPadCanvasLayers,
-                    onInput: () => {
+                    onInput() { },
+                    onWrite() {
                         debouncedSave();
                     }
                 },
