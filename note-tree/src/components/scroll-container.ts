@@ -1,41 +1,87 @@
-import { Insertable, div, newComponent, newState, on, scrollIntoViewV } from "src/utils/dom-utils";
+import { Insertable, div, newComponent, newState, on, scrollIntoView } from "src/utils/dom-utils";
 
-export function ScrollContainerV() {
+export function ScrollContainer() {
     const s = newState<{ 
-        rescrollMs?: number, 
-        scrollEl: Insertable<HTMLElement> | null 
+        rescrollMs?: number;
+        axes?: "h" | "v" | "hv";
+        scrollEl: Insertable<HTMLElement> | null;
     }>();
 
     const scrollContainer = div({ class: "flex-1", style: "overflow-y: auto;" });
 
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;
+    let lastWidth = 0;
     let lastHeight = 0;
+
+    function isH() {
+        return s.args.axes === "h" || s.args.axes === "hv";
+    }
+
+    function isV() {
+        // default to vertical
+        return s.args.axes === "v" || s.args.axes === "hv" || !s.args.axes;
+    }
 
     function scrollToLastElement() {
         clearTimeout(scrollTimeout);
         setTimeout(() => {
             const scrollParent = scrollContainer.el;
             if (lastScrollEl) {
-                scrollIntoViewV(scrollParent, lastScrollEl, 0.5);
+                // The same scroll container can be used for both or either axis!
+
+                if (isH()) {
+                    scrollIntoView(scrollParent, lastScrollEl, 0.5, true);
+                }
+
+                if (isV()) {
+                    scrollIntoView(scrollParent, lastScrollEl, 0.5, false);
+                }
             } else {
                 scrollParent.scrollTop = 0;
             }
         }, 1);
     }
 
-    function renderScrollContainer() {
-        const { scrollEl } = s.args;
-        let height = scrollContainer.el.clientHeight;
+    function shouldRerender() {
+        let shouldRerender = false;
 
-        if (
-            lastScrollEl !== scrollEl ||
-            lastHeight !== height
-        ) {
+        const { scrollEl } = s.args;
+
+        if (scrollEl !== lastScrollEl) {
             lastScrollEl = scrollEl;
-            lastHeight = height;
-            scrollToLastElement();
+            shouldRerender = true;
         }
+
+        if (isH()) {
+            const width = scrollContainer.el.clientWidth;
+            if (width !== lastWidth) {
+                lastWidth = width;
+                shouldRerender = true;
+            }
+        }
+
+        if (isV()) {
+            const height = scrollContainer.el.clientHeight;
+            if (height !== lastHeight) {
+                lastHeight = height;
+                shouldRerender = true;
+            }
+        }
+
+        return shouldRerender;
+    }
+
+    function renderScrollContainer() {
+        if (!shouldRerender()) {
+            return;
+        }
+
+        const { scrollEl } = s.args;
+
+        lastScrollEl = scrollEl;
+        lastWidth = length;
+        scrollToLastElement();
     }
 
     on(scrollContainer, "scroll", () => {

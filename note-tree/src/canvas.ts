@@ -1,8 +1,10 @@
 import { isAltPressed } from "src/./keyboard-input";
-import { makeButton } from "src/components";
+import { ScrollContainer, makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { scoreFuzzyFind } from "./utils/fuzzyfind";
+import { shouldFilterOutNote } from "./state";
 
 const TAB_SIZE = 8;
 
@@ -73,6 +75,7 @@ type ToolType = "freeform-select" |
     "rect-outline-select" |
     "rect-select" |
     "fill-select" |
+    "fill-select-connected" |
     "fill-select-outline" |
     "move-selection";
 
@@ -901,6 +904,7 @@ function isSelectionTool(tool: ToolType) {
         || tool === "rect-outline-select"
         || tool === "rect-select"
         || tool === "fill-select"
+        || tool === "fill-select-connected"
         || tool === "fill-select-outline"
         || tool === "move-selection";
 }
@@ -916,9 +920,14 @@ function getNumSelected(canvas: CanvasState) {
 function Canvas() {
     const s = newState<CanvasArgs>();
 
-    let scrollIntoViewTimeout = 0;
+    let currentCursorEl: Insertable | null = null;
+    let shouldScroll = false;
 
-    const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap; border: 1px solid var(--fg-color);"});
+    const scrollContainer = ScrollContainer();
+    const root = setAttrs(scrollContainer, { 
+        class: "flex-1",
+        style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; border: 1px solid var(--fg-color);"
+    }, true);
 
     const rowList = newListRenderer(root, () => {
         const s = newState<RowArgs>();
@@ -959,11 +968,10 @@ function Canvas() {
 
                     setStyle(root, "outline", !isCursor ? "" : "2px solid var(--fg-color)");
                     setStyle(root, "zIndex", !isCursor ? "0" : "1");
+                }
 
-                    clearTimeout(scrollIntoViewTimeout);
-                    scrollIntoViewTimeout = setTimeout(() => {
-                        root.el.scrollIntoView({ behavior: "instant" });
-                    }, 200);
+                if (isCursor) {
+                    currentCursorEl = root;
                 }
 
                 let state = 0;
@@ -1071,7 +1079,7 @@ function Canvas() {
     }
 
     // NOTE: keepOutlineOnly not quite working as intended yet :(
-    function propagateSelection(x: number, y: number, corners: boolean, keepOutlineOnly: boolean) {
+    function propagateSelection(x: number, y: number, corners: boolean, keepOutlineOnly: boolean, whiteSpace = false) {
         clearSelectionPreview();
         forEachCell(canvasState, (c) => c.isVisited = false);
 
@@ -1083,7 +1091,7 @@ function Canvas() {
         while(coords = queue.pop()) {
             const [i, j, iPrev, jPrev] = coords;
 
-            const cell = getCell(canvasState, i, j);
+            const cell = getCellOrUndefined(canvasState, i, j);
             if (!cell || cell.isVisited) {
                 if (keepOutlineOnly) {
                     getCell(canvasState, iPrev, jPrev).isSelectedPreview = true;
@@ -1095,7 +1103,12 @@ function Canvas() {
             const cellChar = getCharOnCurrentLayer(canvasState, i, j);;
             if (!fillChar) {
                 fillChar = cellChar;
-            } else if (cellChar !== fillChar) {
+            } else if (!whiteSpace && cellChar !== fillChar) {
+                continue;
+            } else if (
+                whiteSpace &&
+                ((cellChar === ' ') !== (fillChar === ' '))
+            ) {
                 continue;
             }
 
@@ -1232,10 +1245,10 @@ function Canvas() {
             selectLine(toolState.jSelectStart, toolState.iSelectStart, jInput, iInput);
         } else if (tool === "rect-outline-select") {
             clearSelectionPreview();
-            selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, jInput, canvasState.cursorRowCol.i);
-            selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, canvasState.cursorRowCol.j, iInput);
-            selectLine(jInput, canvasState.cursorRowCol.i, jInput, iInput);
-            selectLine(canvasState.cursorRowCol.j, iInput, jInput, iInput);
+            selectLine(toolState.jSelectStart, toolState.iSelectStart, jInput, toolState.iSelectStart);
+            selectLine(toolState.jSelectStart, toolState.iSelectStart, toolState.jSelectStart, iInput);
+            selectLine(jInput, toolState.iSelectStart, jInput, iInput);
+            selectLine(toolState.jSelectStart, iInput, jInput, iInput);
         } else if (tool === "rect-select") {
             clearSelectionPreview();
             let minX = Math.min(toolState.jSelectStart, jInput);
@@ -1247,18 +1260,21 @@ function Canvas() {
                     getCell(canvasState, i, j).isSelectedPreview = true;
                 }
             }
-        } else if (tool === "fill-select") {
-            if (started) {
-                const keepOutlineOnly = false;
+        } else if (started && (
+            tool === "fill-select"
+            || tool === "fill-select-outline"
+            || tool === "fill-select-connected"
+        )) {
+            if (tool === "fill-select") {
                 const corners = false;
-                propagateSelection(jInput, iInput, corners, keepOutlineOnly);
-            }
-        } else if (tool === "fill-select-outline") {
-            if (started) {
+                propagateSelection(jInput, iInput, corners, false);
+            } else if (tool === "fill-select-outline") {
                 // I want mouseInputState.to just select the fringe of the propagation, but it isn't working :(
-                const keepOutlineOnly = true;
                 const corners = true;
-                propagateSelection(jInput, iInput, corners, keepOutlineOnly);
+                propagateSelection(jInput, iInput, corners, true);
+            } else if (tool === "fill-select-connected") {
+                const corners = true;
+                propagateSelection(jInput, iInput, corners, false, true);
             }
         } else if (tool === "move-selection") {
             const tempLayer = canvasState.tempLayer;
@@ -1363,11 +1379,26 @@ function Canvas() {
         const cols = getNumCols(canvasState);
         resizeLayers(canvasState, rows, cols);
 
+        currentCursorEl = null;
+
         rowList.render((getNext) => {
             for (let i = 0; i < canvasState.rows.length; i++) {
                 getNext().render(canvasState.rows[i]);
             }
         });
+
+        if (!scrollContainer.state.hasArgs()) {
+            scrollContainer.state.args = { 
+                scrollEl: null,
+                axes: "hv",
+            };
+        }
+
+        if (shouldScroll) {
+            shouldScroll = false;
+            scrollContainer.state.args.scrollEl = currentCursorEl;
+            scrollContainer.render(scrollContainer.state.args);
+        }
     }
 
     const component = newComponent(root, renderCanvas, s);
@@ -1514,6 +1545,8 @@ function Canvas() {
             || e.key === "Home"
             || e.key === "End"
         ) {
+            shouldScroll = true;
+
             let isSelectingOrMoving = false;
             if (e.shiftKey || e.altKey) {
                 isSelectingOrMoving = true;
@@ -1746,6 +1779,7 @@ export function AsciiCanvas() {
         rectSelect: ToolbarButton(),
         bucketFillSelect: ToolbarButton(),
         bucketFillSelectOutline: ToolbarButton(),
+        bucketFillSelectConnected: ToolbarButton(),
         invertSelection: ToolbarButton(),
         copyToClipboard: ToolbarButton(),
         pasteFromClipboard: ToolbarButton(),
@@ -1795,6 +1829,11 @@ export function AsciiCanvas() {
             name: "Fill Outline",
             onClick: rerenderLocal,
             tool: "fill-select-outline",
+        })),
+        rg(buttons.bucketFillSelectConnected, (c) => c.render({
+            name: "Fill Connected",
+            onClick: rerenderLocal,
+            tool: "fill-select-connected",
         })),
     ];
 

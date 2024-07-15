@@ -3,7 +3,7 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
-import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
+import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
@@ -25,7 +25,7 @@ import {
     newStyleGenerator,
     on,
     replaceChildren,
-    scrollIntoViewV,
+    scrollIntoView,
     setAttr,
     setAttrs,
     setClass,
@@ -321,7 +321,7 @@ function TodoList() {
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const scrollContainer = ScrollContainerV();
+    const scrollContainer = ScrollContainer();
     const root = div({ class: "flex-1 col" }, [
         heading,
         div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
@@ -965,7 +965,7 @@ function EditableActivityList() {
     const paginationControl = PaginationControl();
 
     const listRoot = newListRenderer(div({ style: "" }), ActivityListItem);
-    const listScrollContainer = addChildren(setAttrs(ScrollContainerV(), { class: "flex-1" }, true), [
+    const listScrollContainer = addChildren(setAttrs(ScrollContainer(), { class: "flex-1" }, true), [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, []);
@@ -1437,7 +1437,7 @@ function FuzzyFinder() {
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
-                scrollIntoViewV(scrollParent, root, 0.5);
+                scrollIntoView(scrollParent, root, 0.5);
             }
         }
 
@@ -1882,7 +1882,7 @@ function NoteRowInput() {
         clearStickyOffset();
 
         // We can completely obscure the activity and todo lists, now that we have the right-dock
-        scrollIntoViewV(scrollParent, root, 0.5);
+        scrollIntoView(scrollParent, root, 0.5);
 
         setStickyOffset();
     }
