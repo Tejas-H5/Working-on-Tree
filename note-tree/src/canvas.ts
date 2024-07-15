@@ -4,7 +4,7 @@ import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
-const TAB_SIZE = 4;
+const TAB_SIZE = 8;
 
 type CanvasArgs = {
     onInput(): void;
@@ -23,11 +23,17 @@ type MouseInputState = {
 }
 
 type UndoLogEntryData = {
-    layerIdx: number;
     row: number;
     col: number;
-    prevValue: string;
-    newVal: string;
+    char?: {
+        layerIdx: number;
+        prev: string;
+        new: string;
+    },
+    selection?: {
+        prev: boolean;
+        new: boolean;
+    }
 }
 type UndoLogEntry = {
     timestampMs: number;
@@ -100,6 +106,27 @@ function newLayer(): AsciiCanvasLayer {
         iOffset: 0,
         jOffset: 0,
     }
+}
+
+function selectCell(canvas: CanvasState, i: number, j: number, value: boolean, calledInUndoFn = false) {
+    const cell = getCellOrUndefined(canvas, i, j);
+    if (!cell) {
+        return;
+    }
+
+    if (cell.isSelected === value) {
+        return;
+    }
+
+    if (!calledInUndoFn) {
+        logUndoableChange(canvas, {
+            row: i,
+            col: j,
+            selection: { prev: cell.isSelected, new: value },
+        });
+    }
+
+    cell.isSelected = value;
 }
 
 function generateLines(canvas: CanvasState) {
@@ -267,7 +294,7 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
 function getCellForLayer(canvas: CanvasState, i: number, j: number, layer: AsciiCanvasLayer): CanvasCellArgs | undefined {
     const iFinal =  i - layer.iOffset;
     const jFinal =  j - layer.jOffset;
-    return getCell(canvas, iFinal, jFinal);
+    return getCellOrUndefined(canvas, iFinal, jFinal);
 }
 
 function getCharOnLayer(i: number, j: number, layer: AsciiCanvasLayer): string {
@@ -298,33 +325,37 @@ function setCharOnLayer(
     const iFinal =  !useOffsets ? i : i - layer.iOffset;
     const jFinal =  !useOffsets ? j : j - layer.jOffset;
     if (
-        boundsCheck(layer.data, iFinal) && 
-        boundsCheck(layer.data[iFinal], jFinal)
+        !boundsCheck(layer.data, iFinal) ||
+        !boundsCheck(layer.data[iFinal], jFinal)
     ) {
-        const layerIdx = getLayerIdx(canvas, layer);
-        if (
-            !beingCalledInsideUndoFunction &&
-            // Writes to the 'temp' layer are inconsequental and shouldn't be undoable
-            layerIdx !== -1
-        ) {
-            logUndoableChange(canvas, {
-                layerIdx: layerIdx,
-                row: iFinal,
-                col: jFinal,
-                prevValue: layer.data[iFinal][jFinal],
-                newVal: char,
-            });
-        }
-
-        if (layerIdx !== -1) {
-            canvas.args().onWrite();
-        }
-
-        layer.data[iFinal][jFinal] = char;
         return;
     } 
-}
 
+    const layerIdx = getLayerIdx(canvas, layer);
+    const prev = layer.data[iFinal][jFinal];
+    if (char === prev) {
+        return;
+    }
+
+    if (
+        !beingCalledInsideUndoFunction &&
+        // Writes to the 'temp' layer are inconsequental and shouldn't be undoable
+        layerIdx !== -1
+    ) {
+        logUndoableChange(canvas, {
+            row: iFinal,
+            col: jFinal,
+            char: { layerIdx, new: char, prev  },
+        });
+    }
+
+    if (layerIdx !== -1) {
+        canvas.args().onWrite();
+    }
+
+    layer.data[iFinal][jFinal] = char;
+    return;
+}
 
 // this currently deletes everything from the dst layer
 function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: AsciiCanvasLayer, layerDst: AsciiCanvasLayer) {
@@ -382,8 +413,16 @@ function forEachCell(canvas: CanvasState, fn: (char: CanvasCellArgs) => void) {
     }
 }
 
-function getCell(canvas: CanvasState, i: number, j: number): CanvasCellArgs {
+function getCellOrUndefined(canvas: CanvasState, i: number, j: number): CanvasCellArgs | undefined {
     return canvas.rows[i]?.charList[j];
+}
+function getCell(canvas: CanvasState, i: number, j: number): CanvasCellArgs {
+    const cell = getCellOrUndefined(canvas, i, j);
+    if (!cell) {
+        throw new Error("Cell wasn't present!");
+    }
+
+    return cell;
 }
 
 function getNumCols(canvas: CanvasState) {
@@ -410,9 +449,9 @@ export function resetCanvas(canvas: CanvasState, resetSize = true, initialText: 
     }
 
     forEachCell(canvas, (char) => {
-        char.isSelected = false;
         char.isSelectedTemp = false;
         char.isSelectedPreview = false;
+        selectCell(canvas, char.i, char.i, false);
         setCharOnCurrentLayer(canvas, char.i, char.j, ' ');
     });
 
@@ -487,7 +526,7 @@ export function pasteTextToCanvas(canvas: CanvasState, text: string, {
 
             if (selectPasted) {
                 const cell = getCell(canvas, pasteRow, pasteCol);
-                cell.isSelected = true;
+                selectCell(canvas, cell.i, cell.j, true);
             }
         }
     }
@@ -573,9 +612,16 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
     return lines.join("\n");
 }
 
-function getFirstNonWhitespace(canvas:CanvasState, row: number): number {
+function getFirstNonWhitespace(canvas:CanvasState, row: number, blockedBySelection = true): number {
     const cols = getNumCols(canvas);
     for (let i = 0; i < cols; i++) {
+        if (blockedBySelection) {
+            const cell = getCellOrUndefined(canvas, row, i + 1);
+            if (cell?.isSelected) {
+                break;
+            }
+        }
+
         const c = getCharOnCurrentLayer(canvas, row, i);
         if (c !== ' ') {
             return i;
@@ -586,9 +632,16 @@ function getFirstNonWhitespace(canvas:CanvasState, row: number): number {
 }
 
 
-function getLastNonWhitespace(canvas:CanvasState, row: number): number {
+function getLastNonWhitespace(canvas:CanvasState, row: number, blockedBySelection = true): number {
     const cols = getNumCols(canvas);
     for (let i = cols; i >= 0; i--) {
+        if (blockedBySelection) {
+            const cell = getCellOrUndefined(canvas, row, i - 1);
+            if (cell?.isSelected) {
+                break;
+            }
+        }
+
         const c = getCharOnCurrentLayer(canvas, row, i);
         if (c !== ' ') {
             return i;
@@ -631,11 +684,6 @@ function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number)
 }
 
 function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
-    // avoid logging changes that aren't really changes
-    if (entryData.prevValue === entryData.newVal) {
-        return;
-    }
-
     while(canvas.undoLog.length - 1 > canvas.undoLogPosition) {
         canvas.undoLog.pop();
     }
@@ -693,18 +741,43 @@ function moveThroughUndoLog(canvas: CanvasState, {
             break;
         }
 
-        const { layerIdx, row, col, prevValue, newVal } = currentChange.data;
+        const { row, col, char, selection } = currentChange.data;
 
-        const layer = canvas.layers[layerIdx];
-        if (!layer) {
-            throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+        const cell : CanvasCellArgs | undefined = getCellOrUndefined(canvas, row, col);
+        if (!cell) {
+            // We currently don't undo/redo resizing, so dont worry about handling cell being undefined
+            continue;
         }
 
         if (backwards) {
-            setCharOnLayer(canvas, row, col, prevValue, layer, false, true);
+            if (char) {
+                const layer = canvas.layers[char.layerIdx];
+                if (!layer) {
+                    throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+                }
+
+                setCharOnLayer(canvas, row, col, char.prev, layer, false, true);
+            }
+
+            if (selection) {
+                selectCell(canvas, row, col, selection.prev, true);
+            }
+
             canvas.undoLogPosition--;
         } else {
-            setCharOnLayer(canvas, row, col, newVal, layer, false, true);
+            if (char) {
+                const layer = canvas.layers[char.layerIdx];
+                if (!layer) {
+                    throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+                }
+
+                setCharOnLayer(canvas, row, col, char.new, layer, false, true);
+            }
+
+            if (selection) {
+                selectCell(canvas, row, col, selection.new, true);
+            }
+
             canvas.undoLogPosition++;
         }
 
@@ -735,7 +808,7 @@ function getTool(canvas: CanvasState): ToolType {
 }
 
 function getCursorCell(canvas: CanvasState): CanvasCellArgs | undefined {
-    return getCell(canvas, canvas.cursorRowCol.i, canvas.cursorRowCol.j);
+    return getCellOrUndefined(canvas, canvas.cursorRowCol.i, canvas.cursorRowCol.j);
 }
 
 function moveCursor(canvas: CanvasState, i: number, j: number) {
@@ -780,10 +853,11 @@ function typeChar(canvasState: CanvasState, key: string) {
     }
 }
 
-function moveToNonWhitespace(
+function moveToNonWhitespaceOrSelected(
     start: number, 
     len: number,
     getChar: (i: number) => string,
+    getSelected: (i: number) => boolean,
     isWhitespace = true, 
     backwards = true, 
     stopBefore = false,
@@ -792,21 +866,24 @@ function moveToNonWhitespace(
     const dir = backwards ? -1 : 1;
     const limitLower = stopBefore ? -1 : 0;
     const limitHigher = stopBefore ? len : len - 1;
+    const initialSelected = getSelected(start);
 
     pos += dir;
 
     while (
-        pos + dir >= limitLower &&
-        pos + dir <= limitHigher &&
-        (getChar(pos) === ' ') !== isWhitespace
+        pos + dir >= limitLower 
+        && pos + dir <= limitHigher 
+        && (getChar(pos) === ' ') !== isWhitespace 
+        && (initialSelected === getSelected(pos))
     ) {
         pos += dir;
     }
 
     while (
-        pos + dir >= limitLower &&
-        pos + dir <= limitHigher &&
-        (getChar(pos) === ' ') === isWhitespace
+        pos + dir >= limitLower 
+        && pos + dir <= limitHigher 
+        && (getChar(pos) === ' ') === isWhitespace 
+        && (initialSelected === getSelected(pos))
     ) {
         pos += dir;
     }
@@ -1070,7 +1147,7 @@ function Canvas() {
 
                     c.isSelectedTemp = cell.isSelected;
                 });
-                forEachCell(canvasState, (c) => c.isSelected = c.isSelectedTemp);
+                forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, c.isSelectedTemp));
             }
 
 
@@ -1102,12 +1179,23 @@ function Canvas() {
                 //     //     c.isSelected = c.isSelected || c.isSelectedPreview;
                 //     // });
                 // } else
-                {
-                    forEachCell(canvasState, (c) => {
-                        // replace selection
-                        c.isSelected = c.isSelectedPreview;
-                    });
-                }
+                // {
+                //     forEachCell(canvasState, (c) => {
+                //         // replace selection
+                //         c.isSelected = c.isSelectedPreview;
+                //     });
+                // }
+
+                // Might just use a toggle-based selection in order to get all the functionality of 100% additive, 
+                // subtractive and replace functionality.
+                // This wouldn't fly in an image editor because the pixels are way too small to toggle individually,
+                // but it should work in this pseudo-text editor
+                forEachCell(canvasState, (c) => {
+                    // replace selection
+                    if (c.isSelectedPreview) {
+                        selectCell(canvasState, c.i, c.j, !c.isSelected);
+                    }
+                });
             }
 
             forEachCell(canvasState, (c) => c.isSelectedPreview = false);
@@ -1333,7 +1421,7 @@ function Canvas() {
 
             const numSelected = getNumSelected(canvasState);
             if (numSelected > 0) {
-                forEachCell(canvasState, c => c.isSelected = false);
+                forEachCell(canvasState, c => selectCell(canvasState, c.i, c.j, false));
                 e.stopImmediatePropagation();
                 return;
             }
@@ -1378,7 +1466,7 @@ function Canvas() {
 
         const ctrlPressed = e.ctrlKey || e.metaKey;
 
-        function moveToToNonWhitespace(
+        function moveToToNonWhitespaceOrSelection(
             horizontal: boolean,
             backwards: boolean,
             stopBefore: boolean,
@@ -1389,13 +1477,27 @@ function Canvas() {
             let pos = horizontal ? cursorCell.j : cursorCell.i;
             const len = horizontal ? getNumCols(canvasState) : getNumRows(canvasState);
 
-            const iterFn = horizontal ? (
+            const iterFnChar = horizontal ? (
                 (pos: number) => getCharOnCurrentLayer(canvasState, cursorCell.i, pos)
             ) : (
                 (pos: number) => getCharOnCurrentLayer(canvasState, pos, cursorCell.j)
             );
 
-            pos = moveToNonWhitespace(pos, len, iterFn, false, backwards, stopBefore);
+            const iterFnSelect = horizontal ? (
+                (pos: number) => !!getCellOrUndefined(canvasState, cursorCell.i, pos)?.isSelected
+            ) : (
+                (pos: number) => !!getCellOrUndefined(canvasState, pos, cursorCell.j)?.isSelected
+            );
+
+            pos = moveToNonWhitespaceOrSelected(
+                pos, 
+                len, 
+                iterFnChar, 
+                iterFnSelect, 
+                false, 
+                backwards, 
+                stopBefore,
+            );
 
             if (horizontal) {
                 moveCursor(canvasState, cursorCell.i, pos);
@@ -1434,25 +1536,25 @@ function Canvas() {
 
             if (e.key === "ArrowUp") {
                 if (ctrlPressed) {
-                    moveToToNonWhitespace(false, true, true);
+                    moveToToNonWhitespaceOrSelection(false, true, true);
                 } else {
                     moveCursor(canvasState, cursorCell.i - 1, cursorCell.j);
                 }
             } else if (e.key === "ArrowDown") {
                 if (ctrlPressed) {
-                    moveToToNonWhitespace(false, false, true);
+                    moveToToNonWhitespaceOrSelection(false, false, true);
                 } else {
                     moveCursor(canvasState, cursorCell.i + 1, cursorCell.j);
                 }
             } else if (e.key === "ArrowLeft") {
                 if (ctrlPressed) {
-                    moveToToNonWhitespace(true, true, true);
+                    moveToToNonWhitespaceOrSelection(true, true, true);
                 } else {
                     moveCursor(canvasState, cursorCell.i, cursorCell.j - 1);
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed) {
-                    moveToToNonWhitespace(true, false, true);
+                    moveToToNonWhitespaceOrSelection(true, false, true);
                 } else {
                     moveCursor(canvasState, cursorCell.i, cursorCell.j + 1);
                 }
@@ -1495,7 +1597,7 @@ function Canvas() {
             }
         } else if (e.key === "Backspace") {
             if (ctrlPressed) {
-                moveToToNonWhitespace(true, true, true);
+                moveToToNonWhitespaceOrSelection(true, true, true);
                 let cursorCell;
                 while (
                     (cursorCell = getCursorCell(canvasState)) &&
@@ -1512,7 +1614,7 @@ function Canvas() {
                 return;
             }
 
-            forEachCell(canvasState, c => c.isSelected = false);
+            forEachCell(canvasState, c => selectCell(canvasState, c.i, c.j, false));
 
             typeChar(canvasState, key);
         }
@@ -1747,7 +1849,7 @@ export function AsciiCanvas() {
             rg(buttons.invertSelection, (c) => c.render({
                 name: "Invert Selection",
                 onClick: () => {
-                    forEachCell(canvasState, (c) => c.isSelected = !c.isSelected);
+                    forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
                     rerenderLocal();
                 },
             })),
@@ -1845,17 +1947,6 @@ export function AsciiCanvas() {
 
         if (selCount > 0) {
             stringBuilder.push(selCount + " selected");
-        }
-        
-        if (selPreviewCount > 0) {
-            // stringBuilder.push(
-            //     (
-            //         isCtrlPressed() ? "adding " : 
-            //         isShiftPressed() ? "subtracting " :
-            //         "replacing "
-            //     ) + 
-            //     selPreviewCount 
-            // );
         }
 
         setText(statusText, stringBuilder.join(" | "));
