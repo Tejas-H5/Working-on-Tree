@@ -1,4 +1,4 @@
-import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-input";
+import { isAltPressed } from "src/./keyboard-input";
 import { makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
@@ -48,6 +48,12 @@ type CanvasState = {
     tempLayer: AsciiCanvasLayer; // used for moving things around
     toolState: {
         startedAction: ToolType | undefined;
+        iSelectStart: number;
+        jSelectStart: number;
+        iPrev: number;
+        jPrev: number;
+        keyboardSelectStart: boolean;
+        keyboardMoveStart: boolean;
     };
 
     // Undo state
@@ -69,12 +75,6 @@ type RowArgs = {
 };
 
 type CanvasCellArgs = {
-    // CSS borders - bl = border left, etc. It was a pain to type...
-    bl: boolean;
-    br: boolean;
-    bt: boolean;
-    bb: boolean;
-
     j: number;
     i: number;
 
@@ -246,8 +246,6 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
 
         while (chars.length < cols) {
             chars.push({
-                br: false, bl: false, bb: false, bt: false,
-
                 j: chars.length,
                 i: i,
 
@@ -418,11 +416,6 @@ export function resetCanvas(canvas: CanvasState, resetSize = true, initialText: 
         setCharOnCurrentLayer(canvas, char.i, char.j, ' ');
     });
 
-    const first = getCell(canvas, 0, 0);
-    if (first) {
-        first.isSelected = true;
-    }
-
     if (initialText) {
         pasteTextToCanvas(canvas, initialText, {
             whitespaceIsTransparent: false,
@@ -580,8 +573,43 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
     return lines.join("\n");
 }
 
+function getFirstNonWhitespace(canvas:CanvasState, row: number): number {
+    const cols = getNumCols(canvas);
+    for (let i = 0; i < cols; i++) {
+        const c = getCharOnCurrentLayer(canvas, row, i);
+        if (c !== ' ') {
+            return i;
+        }
+    }
+
+    return cols - 1;
+}
+
+
+function getLastNonWhitespace(canvas:CanvasState, row: number): number {
+    const cols = getNumCols(canvas);
+    for (let i = cols; i >= 0; i--) {
+        const c = getCharOnCurrentLayer(canvas, row, i);
+        if (c !== ' ') {
+            return i;
+        }
+    }
+
+    return 0;
+}
+
 const WHITESPACE_GAP = 2;
-function getCurrentLineStart(canvas: CanvasState, row: number, col: number) {
+function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number) {
+    let row = rowStart;
+    for (let i = rowStart; i >= 0; i--) {
+        // if we can find a row above us with non-whitespace, we should use that. 
+        // I think this is somewhat error-prone actually, and may need to be revised later.
+        if (getCharOnCurrentLayer(canvas, i, col) !== ' ') {
+            row = i;
+            break;
+        }
+    }
+
     // the first whitespace large enough will be the start of the row
     let lastNonWhitespaceCol = -1;
     let whitespaceChain = 0;
@@ -603,6 +631,11 @@ function getCurrentLineStart(canvas: CanvasState, row: number, col: number) {
 }
 
 function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
+    // avoid logging changes that aren't really changes
+    if (entryData.prevValue === entryData.newVal) {
+        return;
+    }
+
     while(canvas.undoLog.length - 1 > canvas.undoLogPosition) {
         canvas.undoLog.pop();
     }
@@ -702,27 +735,18 @@ function getTool(canvas: CanvasState): ToolType {
 }
 
 function getCursorCell(canvas: CanvasState): CanvasCellArgs | undefined {
-    const cell = getCell(canvas, canvas.cursorRowCol.i, canvas.cursorRowCol.j);
-    if (!cell) return undefined;
-
-    return cell;
+    return getCell(canvas, canvas.cursorRowCol.i, canvas.cursorRowCol.j);
 }
 
-function moveCursor(canvas: CanvasState, i: number, j: number, preserveSelection = false) {
-    const cursorCell = getCursorCell(canvas);
-
+function moveCursor(canvas: CanvasState, i: number, j: number) {
     canvas.cursorRowCol.i = i;
     canvas.cursorRowCol.j = j;
 
-    if(!preserveSelection) {
-        if (cursorCell) {
-            cursorCell.isSelected = false;
-        }
-
-        const nextCursorCell = getCursorCell(canvas);
-        if (nextCursorCell) {
-            nextCursorCell.isSelected = true;
-        }
+    // If we're moving by 1 at a time, we can expand the canvas.
+    const rows = getNumRows(canvas);
+    const cols = getNumCols(canvas);
+    if (i === rows || j === cols) {
+        resizeLayers(canvas, Math.max(rows, i + 1), Math.max(cols, j + 1));
     }
 }
 
@@ -756,10 +780,68 @@ function typeChar(canvasState: CanvasState, key: string) {
     }
 }
 
+function moveToNonWhitespace(
+    start: number, 
+    len: number,
+    getChar: (i: number) => string,
+    isWhitespace = true, 
+    backwards = true, 
+    stopBefore = false,
+): number {
+    let pos = start;
+    const dir = backwards ? -1 : 1;
+    const limitLower = stopBefore ? -1 : 0;
+    const limitHigher = stopBefore ? len : len - 1;
+
+    pos += dir;
+
+    while (
+        pos + dir >= limitLower &&
+        pos + dir <= limitHigher &&
+        (getChar(pos) === ' ') !== isWhitespace
+    ) {
+        pos += dir;
+    }
+
+    while (
+        pos + dir >= limitLower &&
+        pos + dir <= limitHigher &&
+        (getChar(pos) === ' ') === isWhitespace
+    ) {
+        pos += dir;
+    }
+
+    if (stopBefore) {
+        pos -= dir;
+    }
+
+    return pos;
+}
+
+function isSelectionTool(tool: ToolType) {
+    return tool === "freeform-select"
+        || tool === "line-select"
+        || tool === "rect-outline-select"
+        || tool === "rect-select"
+        || tool === "fill-select"
+        || tool === "fill-select-outline"
+        || tool === "move-selection";
+}
+
+
+function getNumSelected(canvas: CanvasState) {
+    let numSelected = 0;
+    forEachCell(canvas, c => c.isSelected && numSelected++);
+    return numSelected;
+}
+
+
 function Canvas() {
     const s = newState<CanvasArgs>();
 
-    const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap;"});
+    let scrollIntoViewTimeout = 0;
+
+    const root = div({ style: "overflow: auto; padding-top: 10px; padding-bottom: 10px; white-space: nowrap; border: 1px solid var(--fg-color);"});
 
     const rowList = newListRenderer(root, () => {
         const s = newState<RowArgs>();
@@ -770,16 +852,16 @@ function Canvas() {
             const s = newState<CanvasCellArgs>();
             // Memoizing for peformance. 
             let lastState = -1;
-            let blLast = false; 
-            let brLast = false;
-            let btLast = false;
-            let bbLast = false;
+            let lastIsCursor = false;
             let lastChar = "";
 
-            const root = el("SPAN", { class: "pre inline-block", style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" });
+            const root = el("SPAN", { 
+                class: "pre inline-block border-box", 
+                style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" 
+            });
 
             function renderCanvasCell() {
-                const { canvasState, j, i, bl, br, bt, bb, isSelectedPreview: isSelectedTemp, } = s.args;
+                const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s.args;
 
                 let [char, layer] = getChar(canvasState, i, j);
                 if (!layer) {
@@ -793,21 +875,18 @@ function Canvas() {
                     setText(root, char);
                 }
 
-                if (blLast !== bl) {
-                    blLast = bl;
-                    setStyle(root, "borderLeft", !bl ? "": "1px solid var(--fg-color)");
-                }
-                if (brLast !== br) {
-                    brLast = br;
-                    setStyle(root, "borderRight", !br ? "": "1px solid var(--fg-color)");
-                }
-                if (btLast !== bt) {
-                    btLast = bt;
-                    setStyle(root, "borderTop", !bt ? "": "1px solid var(--fg-color)");
-                }
-                if (bbLast !== bb) {
-                    bbLast = bb;
-                    setStyle(root, "borderBottom", !bb ? "": "1px solid var(--fg-color)");
+                const isCursor = i === canvasState.cursorRowCol.i 
+                    && j === canvasState.cursorRowCol.j;
+                if (isCursor !== lastIsCursor) {
+                    lastIsCursor = isCursor;
+
+                    setStyle(root, "outline", !isCursor ? "" : "2px solid var(--fg-color)");
+                    setStyle(root, "zIndex", !isCursor ? "0" : "1");
+
+                    clearTimeout(scrollIntoViewTimeout);
+                    scrollIntoViewTimeout = setTimeout(() => {
+                        root.el.scrollIntoView({ behavior: "instant" });
+                    }, 200);
                 }
 
                 let state = 0;
@@ -827,10 +906,15 @@ function Canvas() {
                     setStyle(
                         root, 
                         "backgroundColor",  
-                        state === 1 ? "#0FF" :
-                            state === 2 ? "#888" :
-                            state === 3 ? "var(--bg-color-focus)" :
+                        state === 1 ? "var(--bg-color-focus)" :
+                            state === 2 ? "#0078D7" :
+                            state === 3 ? "#888" :
                             ""
+                    );
+                    setStyle(
+                        root, 
+                        "color",  
+                        state === 2 ? "#FFF" : ""
                     );
                 }
             }
@@ -838,10 +922,14 @@ function Canvas() {
             // We want errors to be caught by the root canvas, not inside of this specific cell.
             component.skipErrorBoundary = true;
 
-            function handleMouseMovement() {
+            function handleMouseMovement(e: MouseEvent) {
+                e.stopImmediatePropagation();
+
                 const mouseInputState = s.args.canvasState.mouseInputState;
                 mouseInputState.x = s.args.j;
                 mouseInputState.y = s.args.i;
+                
+                moveCursor(canvasState, mouseInputState.y, mouseInputState.x)
                 onMouseInputStateChange();
             }
 
@@ -861,16 +949,29 @@ function Canvas() {
             });
         }
 
-        on(root, "mouseleave", () => {
-            canvasState.mouseInputState.x = -1;
-            canvasState.mouseInputState.y = -1;
-            onMouseInputStateChange();
-        });
-
         const component = newComponent(root, renderCanvasRow, s);
         component.skipErrorBoundary = true;
 
         return component;
+    });
+
+    on(root, "mouseleave", () => {
+        canvasState.mouseInputState.x = -1;
+        canvasState.mouseInputState.y = -1;
+
+        const numSelected = getNumSelected(canvasState);
+        if (numSelected === 1) {
+            forEachCell(canvasState, c => {
+                if (!c.isSelected) {
+                    return;
+                }
+
+                canvasState.cursorRowCol.i = c.i;
+                canvasState.cursorRowCol.j = c.j;
+            });
+        }
+
+        onMouseInputStateChange();
     });
 
     function clearSelectionPreview() {
@@ -889,7 +990,7 @@ function Canvas() {
             canvasState.rows[y].charList[x].isSelectedPreview = true;
         }
 
-        moveCursor(canvasState, x2, y2);
+        moveCursor(canvasState, y2, x2);
     }
 
     // NOTE: keepOutlineOnly not quite working as intended yet :(
@@ -946,6 +1047,7 @@ function Canvas() {
             return;
         }
 
+        // some of these are also select actions, so they need to be checked first.
         if (startedAction === "move-selection") {
             // apply the move we started
 
@@ -979,30 +1081,28 @@ function Canvas() {
             return;
         } 
 
-        if (
-            startedAction === "freeform-select" ||
-            startedAction === "line-select" ||
-            startedAction === "rect-outline-select" ||
-            startedAction === "rect-select" ||
-            startedAction === "fill-select" ||
-            startedAction === "fill-select-outline"
-        ) {
+        if (isSelectionTool(startedAction)) {
             if (!cancel) {
                 // Apply our selection preview.
                 
-                if (isShiftPressed()) {
-                    forEachCell(canvasState, (c) => {
-                        // subtractive selection
-                        if (c.isSelectedPreview) {
-                            c.isSelected = false;
-                        }
-                    });
-                } else if (isCtrlPressed()) {
-                    forEachCell(canvasState, (c) => {
-                        // additive selection
-                        c.isSelected = c.isSelected || c.isSelectedPreview;
-                    });
-                } else {
+                // NOTE: Disabling this for now, as it conflicts with shift+moving to expand the current selection,
+                // the latter of which is far more usefull. We can enable it later when we figure out how to bind it
+                // if (false && isShiftPressed()) {
+                    // forEachCell(canvasState, (c) => {
+                    //     // subtractive selection
+                    //     if (c.isSelectedPreview) {
+                    //         c.isSelected = false;
+                    //     }
+                    // });
+                // } else 
+                // Should do the same for additive selections to remain consistent.
+                // if (isCtrlPressed()) {
+                //     // forEachCell(canvasState, (c) => {
+                //     //     // additive selection
+                //     //     c.isSelected = c.isSelected || c.isSelectedPreview;
+                //     // });
+                // } else
+                {
                     forEachCell(canvasState, (c) => {
                         // replace selection
                         c.isSelected = c.isSelectedPreview;
@@ -1016,12 +1116,85 @@ function Canvas() {
         }
     }
 
-    function onMouseInputStateChange() {
-        if (mouseInputState.x === -1 || mouseInputState.y === -1) {
+    function handleSelect(
+        canvasState: CanvasState,
+        started: boolean,
+        iInput: number,
+        jInput: number,
+    ) {
+        const toolState = canvasState.toolState;
+        const tool = getTool(canvasState);
+
+        if (!isSelectionTool(tool)) {
             return;
         }
 
-        const tool = getTool(canvasState);
+        if (started) {
+            toolState.startedAction = tool;
+            toolState.iSelectStart = iInput;
+            toolState.jSelectStart = jInput;
+            toolState.iPrev = iInput;
+            toolState.jPrev = jInput;
+        }
+
+        if (tool === "freeform-select") {
+            selectLine(toolState.jPrev, toolState.iPrev, jInput, iInput);
+        } else if (tool === "line-select") {
+            clearSelectionPreview();
+            selectLine(toolState.jSelectStart, toolState.iSelectStart, jInput, iInput);
+        } else if (tool === "rect-outline-select") {
+            clearSelectionPreview();
+            selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, jInput, canvasState.cursorRowCol.i);
+            selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, canvasState.cursorRowCol.j, iInput);
+            selectLine(jInput, canvasState.cursorRowCol.i, jInput, iInput);
+            selectLine(canvasState.cursorRowCol.j, iInput, jInput, iInput);
+        } else if (tool === "rect-select") {
+            clearSelectionPreview();
+            let minX = Math.min(toolState.jSelectStart, jInput);
+            let maxX = Math.max(toolState.jSelectStart, jInput);
+            let minY = Math.min(toolState.iSelectStart, iInput);
+            let maxY = Math.max(toolState.iSelectStart, iInput);
+            for (let i = minY; i <= maxY; i++) {
+                for (let j = minX; j <= maxX; j++) {
+                    getCell(canvasState, i, j).isSelectedPreview = true;
+                }
+            }
+        } else if (tool === "fill-select") {
+            if (started) {
+                const keepOutlineOnly = false;
+                const corners = false;
+                propagateSelection(jInput, iInput, corners, keepOutlineOnly);
+            }
+        } else if (tool === "fill-select-outline") {
+            if (started) {
+                // I want mouseInputState.to just select the fringe of the propagation, but it isn't working :(
+                const keepOutlineOnly = true;
+                const corners = true;
+                propagateSelection(jInput, iInput, corners, keepOutlineOnly);
+            }
+        } else if (tool === "move-selection") {
+            const tempLayer = canvasState.tempLayer;
+
+            if (started) {
+                tempLayer.iOffset = 0;
+                tempLayer.jOffset = 0;
+                moveSelectedCellDataToLayer(canvasState, getCurrentLayer(canvasState), tempLayer);
+            }
+
+            tempLayer.iOffset = iInput - toolState.iSelectStart;
+            tempLayer.jOffset = jInput - toolState.jSelectStart;
+        }
+
+        toolState.iPrev = iInput;
+        toolState.jPrev = jInput;
+    }
+
+    function onMouseInputStateChange() {
+        if (mouseInputState.x === -1 || mouseInputState.y === -1) {
+            s.args.onInput();
+            return;
+        }
+
         let released = mouseInputState._lbWasDown && !mouseInputState.lbDown;
         let clicked = !mouseInputState._lbWasDown && mouseInputState.lbDown;
 
@@ -1036,61 +1209,12 @@ function Canvas() {
 
 
         if (mouseInputState.lbDown) {
-            const toolState = canvasState.toolState;
-
-            if (clicked) {
-                moveCursor(canvasState, mouseInputState.y, mouseInputState.x, true);
-                toolState.startedAction = tool;
-            }
-
-            if (tool === "freeform-select") {
-                selectLine(mouseInputState._prevX, mouseInputState._prevY, mouseInputState.x, mouseInputState.y);
-            } else if (tool === "line-select") {
-                clearSelectionPreview();
-                selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, mouseInputState.x, mouseInputState.y);
-            } else if (tool === "rect-outline-select") {
-                clearSelectionPreview();
-                selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, mouseInputState.x, canvasState.cursorRowCol.i);
-                selectLine(canvasState.cursorRowCol.j, canvasState.cursorRowCol.i, canvasState.cursorRowCol.j, mouseInputState.y);
-                selectLine(mouseInputState.x, canvasState.cursorRowCol.i, mouseInputState.x, mouseInputState.y);
-                selectLine(canvasState.cursorRowCol.j, mouseInputState.y, mouseInputState.x, mouseInputState.y);
-            } else if (tool === "rect-select") {
-                clearSelectionPreview();
-                let minX = Math.min(canvasState.cursorRowCol.j, mouseInputState.x);
-                let maxX = Math.max(canvasState.cursorRowCol.j, mouseInputState.x);
-                let minY = Math.min(canvasState.cursorRowCol.i, mouseInputState.y);
-                let maxY = Math.max(canvasState.cursorRowCol.i, mouseInputState.y);
-                for (let i = minY; i <= maxY; i++) {
-                    for (let j = minX; j <= maxX; j++) {
-                        getCell(canvasState, i, j).isSelectedPreview = true;
-                    }
-                }
-            } else if (tool === "fill-select") {
-                if (clicked) {
-                    const keepOutlineOnly = false;
-                    const corners = false;
-                    propagateSelection(mouseInputState.x, mouseInputState.y, corners, keepOutlineOnly);
-                }
-            } else if (tool === "fill-select-outline") {
-                if (clicked) {
-                    // I want mouseInputState.to just select the fringe of the propagation, but it isn't working :(
-                    const keepOutlineOnly = true;
-                    const corners = true;
-                    propagateSelection(mouseInputState.x, mouseInputState.y, corners, keepOutlineOnly);
-                }
-            } else if (tool === "move-selection") {
-                const tempLayer = canvasState.tempLayer;
-
-                if (clicked) {
-                    tempLayer.iOffset = 0;
-                    tempLayer.jOffset = 0;
-                    moveSelectedCellDataToLayer(canvasState, getCurrentLayer(canvasState), tempLayer);
-                }
-
-
-                tempLayer.iOffset = mouseInputState.y - canvasState.cursorRowCol.j;
-                tempLayer.jOffset = mouseInputState.x - canvasState.cursorRowCol.i;
-            }
+            handleSelect(
+                canvasState, 
+                clicked,
+                mouseInputState.y,
+                mouseInputState.x
+            );
         }
 
         mouseInputState._prevX = mouseInputState.x;
@@ -1101,7 +1225,7 @@ function Canvas() {
     }
 
     const mouseInputState: MouseInputState = {
-        x: 0, y: 0,
+        x: -1, y: -1,
         lbDown: false,
         _lbWasDown: false,
         _prevX: 0, _prevY: 0,
@@ -1122,6 +1246,12 @@ function Canvas() {
         currentLayer: 0, 
         toolState: {
             startedAction: undefined,
+            iPrev: 0,
+            jPrev: 0,
+            jSelectStart: 0,
+            iSelectStart: 0,
+            keyboardSelectStart: false,
+            keyboardMoveStart: false,
         },
         tempLayer: newLayer(),
     };
@@ -1141,20 +1271,9 @@ function Canvas() {
             resetCanvas(canvasState);
         }
 
-        const height = getNumRows(canvasState);
-        const width = getNumCols(canvasState);
-        resizeLayers(canvasState, height, width);
-
-        // Update border styling
-        for (let i = 0; i < width; i++) {
-            for (let j = 0; j < height; j++) {
-                getCell(canvasState, i, j)
-                canvasState.rows[j].charList[i].bt = j === 0;
-                canvasState.rows[j].charList[i].bb = j === height - 1;
-                canvasState.rows[j].charList[i].bl = i === 0;
-                canvasState.rows[j].charList[i].br = i === width - 1;
-            }
-        }
+        const rows = getNumRows(canvasState);
+        const cols = getNumCols(canvasState);
+        resizeLayers(canvasState, rows, cols);
 
         rowList.render((getNext) => {
             for (let i = 0; i < canvasState.rows.length; i++) {
@@ -1194,12 +1313,28 @@ function Canvas() {
     });
 
     function handleKeyDown(e: KeyboardEvent) {
+        let cursorCell = getCursorCell(canvasState);
+        if (!cursorCell) {
+            moveCursor(canvasState, 0, 0);
+            cursorCell = getCursorCell(canvasState);
+        }
+        if (!cursorCell) {
+            return;
+        }
+
         if (e.key === "Escape") {
             const cancel = true;
 
             if (canvasState.toolState.startedAction) {
-                e.stopImmediatePropagation();
                 applyCurrentAction(cancel);
+                e.stopImmediatePropagation();
+                return;
+            } 
+
+            const numSelected = getNumSelected(canvasState);
+            if (numSelected > 0) {
+                forEachCell(canvasState, c => c.isSelected = false);
+                e.stopImmediatePropagation();
                 return;
             }
         }
@@ -1223,15 +1358,9 @@ function Canvas() {
             }
         }
 
-        let selectedCount = 0;
-        forEachCell(canvasState, (char) => {
-            if (char.isSelected) {
-                selectedCount++;
-            }
-        })
-
+        const numSelected = getNumSelected(canvasState);
         if (
-            selectedCount > 1 &&
+            numSelected > 1 &&
             key.length === 1
         ) {
             // Just overwrite every cell with what was typed 
@@ -1247,69 +1376,126 @@ function Canvas() {
             return;
         }
 
-        // TODO: make vertical and horizontally compatible
-        function moveHorizontallyToNonWhitespace(isWhitespace = true, backwards = true, stopBefore = false) {
-            const cursorCell = getCursorCell(canvasState);
-            if (!cursorCell) {
-                return;
-            }
-
-            let j = cursorCell.j
-            const dir = backwards ? -1 : 1;
-            const limitLower = stopBefore ? -1 : 0;
-            const limitHigher = stopBefore ? getNumCols(canvasState) : getNumCols(canvasState) - 1;
-            while (
-                j + dir >= limitLower &&
-                j + dir <= limitHigher &&
-                (getCharOnCurrentLayer(canvasState, cursorCell.i, j) === ' ') === isWhitespace
-            ) {
-                j += dir;
-            }
-
-            if (stopBefore) {
-                j -= dir;
-            }
-
-            moveCursor(canvasState, cursorCell.i, j);
-        }
-
         const ctrlPressed = e.ctrlKey || e.metaKey;
 
-        const cursorCellI = canvasState.cursorRowCol.i;
-        const cursorCellJ = canvasState.cursorRowCol.j;
+        function moveToToNonWhitespace(
+            horizontal: boolean,
+            backwards: boolean,
+            stopBefore: boolean,
+        ) {
+            const cursorCell = getCursorCell(canvasState);
+            if (!cursorCell) return;
 
-        if (e.key === "ArrowUp" && cursorCellI > 0) {
-            moveCursor(canvasState, cursorCellI - 1, cursorCellJ);
-        } else if (e.key === "ArrowDown") {
-            moveCursor(canvasState, cursorCellI + 1, cursorCellJ);
-        } else if (e.key === "ArrowLeft") {
-            if (ctrlPressed) {
-                const onWhitespace = getCharOnCurrentLayer(canvasState, cursorCellI, cursorCellJ) === ' ';
-                moveHorizontallyToNonWhitespace(onWhitespace, true, false);
+            let pos = horizontal ? cursorCell.j : cursorCell.i;
+            const len = horizontal ? getNumCols(canvasState) : getNumRows(canvasState);
+
+            const iterFn = horizontal ? (
+                (pos: number) => getCharOnCurrentLayer(canvasState, cursorCell.i, pos)
+            ) : (
+                (pos: number) => getCharOnCurrentLayer(canvasState, pos, cursorCell.j)
+            );
+
+            pos = moveToNonWhitespace(pos, len, iterFn, false, backwards, stopBefore);
+
+            if (horizontal) {
+                moveCursor(canvasState, cursorCell.i, pos);
             } else {
-                moveCursor(canvasState, cursorCellI, cursorCellJ - 1);
+                moveCursor(canvasState, pos, cursorCell.j);
             }
-        } else if (e.key === "ArrowRight") {
-            if (ctrlPressed) {
-                const onWhitespace = getCharOnCurrentLayer(canvasState, cursorCellI, cursorCellJ) === ' ';
-                moveHorizontallyToNonWhitespace(onWhitespace, false, false);
-            } else {
-                moveCursor(canvasState, cursorCellI, cursorCellJ + 1);
+        }
+
+        if (
+            e.key === "ArrowRight"
+            || e.key === "ArrowLeft"
+            || e.key === "ArrowUp" 
+            || e.key === "ArrowDown"
+            || e.key === "Home"
+            || e.key === "End"
+        ) {
+            let isSelectingOrMoving = false;
+            if (e.shiftKey || e.altKey) {
+                isSelectingOrMoving = true;
+
+                let handled = true;
+                const alreadyDoingSomething = canvasState.toolState.keyboardSelectStart 
+                    || canvasState.toolState.keyboardMoveStart;
+                if (e.shiftKey && !canvasState.toolState.keyboardSelectStart) {
+                    canvasState.toolState.keyboardSelectStart = true;
+                } else if (e.altKey && !canvasState.toolState.keyboardMoveStart) {
+                    canvasState.toolState.keyboardMoveStart = true;
+                } else {
+                    handled = false;
+                }
+
+                if (!alreadyDoingSomething && handled) {
+                    handleSelect(canvasState, true, cursorCell.i, cursorCell.j);
+                }
             }
-        } else if (e.key === "Home") {
-            moveCursor(canvasState, cursorCellI, 0);
-        } else if (e.key === "End") {
-            moveCursor(canvasState, cursorCellI, getNumCols(canvasState) - 1);
-        } else if (e.key === "Enter") {
+
+            if (e.key === "ArrowUp") {
+                if (ctrlPressed) {
+                    moveToToNonWhitespace(false, true, true);
+                } else {
+                    moveCursor(canvasState, cursorCell.i - 1, cursorCell.j);
+                }
+            } else if (e.key === "ArrowDown") {
+                if (ctrlPressed) {
+                    moveToToNonWhitespace(false, false, true);
+                } else {
+                    moveCursor(canvasState, cursorCell.i + 1, cursorCell.j);
+                }
+            } else if (e.key === "ArrowLeft") {
+                if (ctrlPressed) {
+                    moveToToNonWhitespace(true, true, true);
+                } else {
+                    moveCursor(canvasState, cursorCell.i, cursorCell.j - 1);
+                }
+            } else if (e.key === "ArrowRight") {
+                if (ctrlPressed) {
+                    moveToToNonWhitespace(true, false, true);
+                } else {
+                    moveCursor(canvasState, cursorCell.i, cursorCell.j + 1);
+                }
+            } else if (e.key === "Home") {
+                const firstWhitespaceIdx = getFirstNonWhitespace(canvasState, cursorCell.i);
+                if (cursorCell.j <= firstWhitespaceIdx) {
+                    moveCursor(canvasState, cursorCell.i, 0);
+                } else {
+                    moveCursor(canvasState, cursorCell.i, firstWhitespaceIdx);
+                }
+            } else if (e.key === "End") {
+                const lastWhitespaceIdx = getLastNonWhitespace(canvasState, cursorCell.i);
+                const cols = getNumCols(canvasState);
+                if (cursorCell.j >= lastWhitespaceIdx) {
+                    moveCursor(canvasState, cursorCell.i, cols - 1);
+                } else {
+                    moveCursor(canvasState, cursorCell.i, lastWhitespaceIdx);
+                }
+            }
+
+            if (isSelectingOrMoving) {
+                const cursorCell = getCursorCell(canvasState);
+                if (cursorCell) {
+                    handleSelect(canvasState, false, cursorCell.i, cursorCell.j);
+                }
+            }
+        }  else if (e.key === "Enter") {
             newLine(canvasState);
         } else if (e.key === "Tab") {
-            const cursorCell = getCursorCell(canvasState);
+            const start = getCurrentLineStart(canvasState, cursorCell.i, cursorCell.j);
+            const offset = cursorCell.j - start;
             if (cursorCell) {
-                moveCursor(canvasState, cursorCellI, TAB_SIZE + Math.floor(cursorCell.j / TAB_SIZE) * TAB_SIZE);
+                moveCursor(
+                    canvasState, 
+                    cursorCell.i, 
+                    start 
+                        + Math.floor(offset / TAB_SIZE) * TAB_SIZE
+                        + TAB_SIZE
+                );
             }
         } else if (e.key === "Backspace") {
             if (ctrlPressed) {
-                moveHorizontallyToNonWhitespace(true, true, true);
+                moveToToNonWhitespace(true, true, true);
                 let cursorCell;
                 while (
                     (cursorCell = getCursorCell(canvasState)) &&
@@ -1326,6 +1512,8 @@ function Canvas() {
                 return;
             }
 
+            forEachCell(canvasState, c => c.isSelected = false);
+
             typeChar(canvasState, key);
         }
 
@@ -1340,6 +1528,24 @@ function Canvas() {
         handleKeyDown(e);
 
         s.args.onInput();
+
+        renderCanvas();
+    });
+
+    document.addEventListener("keyup", (e) => {
+        let shouldApply = true;
+        if (e.key === "Shift" && canvasState.toolState.keyboardSelectStart) {
+            canvasState.toolState.keyboardSelectStart = false;
+        } else if (e.key === "Alt" && canvasState.toolState.keyboardMoveStart) {
+            canvasState.toolState.keyboardMoveStart = false;
+        } else {
+            shouldApply = false;
+        }
+
+        if (shouldApply) {
+            applyCurrentAction();
+            renderCanvas();
+        }
     });
 
 
@@ -1623,7 +1829,7 @@ export function AsciiCanvas() {
 
     function updateCanvasStausText(canvas: CanvasState) {
         const stringBuilder = [
-            `${canvas.mouseInputState.x}, ${canvas.mouseInputState.y}`
+            `row ${canvas.cursorRowCol.i}, col ${canvas.cursorRowCol.j}`
         ];
 
         let selCount = 0;
@@ -1642,14 +1848,14 @@ export function AsciiCanvas() {
         }
         
         if (selPreviewCount > 0) {
-            stringBuilder.push(
-                (
-                    isCtrlPressed() ? "adding " : 
-                    isShiftPressed() ? "subtracting " :
-                    "replacing "
-                ) + 
-                selPreviewCount 
-            );
+            // stringBuilder.push(
+            //     (
+            //         isCtrlPressed() ? "adding " : 
+            //         isShiftPressed() ? "subtracting " :
+            //         "replacing "
+            //     ) + 
+            //     selPreviewCount 
+            // );
         }
 
         setText(statusText, stringBuilder.join(" | "));
@@ -1784,6 +1990,7 @@ export function AsciiCanvas() {
         rerenderLocal();
     }
 
+
     document.addEventListener("keydown", (e) => {
         if (!isVisible(component)) {
             return;
@@ -1794,8 +2001,6 @@ export function AsciiCanvas() {
         }
 
         e.preventDefault();
-
-        console.log(e.key);
 
         let render = false;
         if (e.ctrlKey || e.metaKey) {

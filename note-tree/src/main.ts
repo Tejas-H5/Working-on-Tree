@@ -2,7 +2,7 @@ import "src/css/colours.css";
 import "src/css/layout.css";
 import "src/css/ui.css";
 
-import { AsciiCanvas, AsciiCanvasArgs, getLayersString, pasteTextToCanvas, resetCanvas, } from "src/canvas";
+import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
 import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainerV, makeButton } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
@@ -44,6 +44,7 @@ import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
 import { TextArea } from "./components/text-area";
 import { InteractiveGraph } from "./interactive-graph";
+import { initKeyboardListeners } from "./keyboard-input";
 import {
     Activity,
     AppTheme,
@@ -113,7 +114,6 @@ import {
     tryForceIndexedDBCompaction,
 } from "./state";
 import { assert } from "./utils/assert";
-import { initKeyboardListeners } from "./keyboard-input";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
