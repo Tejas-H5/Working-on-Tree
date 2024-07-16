@@ -1,12 +1,10 @@
-import { isAltPressed } from "src/./keyboard-input";
+import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-input";
 import { ScrollContainer, makeButton } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
-import { scoreFuzzyFind } from "./utils/fuzzyfind";
-import { shouldFilterOutNote } from "./state";
+import { Insertable, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
-const TAB_SIZE = 8;
+const TAB_SIZE = 4;
 
 type CanvasArgs = {
     onInput(): void;
@@ -53,9 +51,12 @@ type CanvasState = {
     rows: RowArgs[];
     layers: AsciiCanvasLayer[];
     currentLayer: number;
-    tempLayer: AsciiCanvasLayer; // used for moving things around
     toolState: {
         startedAction: ToolType | undefined;
+        startedMove: boolean;
+        moveOffsetI: number;
+        moveOffsetJ: number;
+        selectionApplyType: "additive" | "subtractive" | "replace" | "toggle";
         iSelectStart: number;
         jSelectStart: number;
         iPrev: number;
@@ -99,16 +100,10 @@ type CanvasCellArgs = {
 
 export type AsciiCanvasLayer = {
     data: string[][];
-    iOffset: number;
-    jOffset: number;
 }
 
 function newLayer(): AsciiCanvasLayer {
-    return {
-        data: [],
-        iOffset: 0,
-        jOffset: 0,
-    }
+    return { data: [] };
 }
 
 function selectCell(canvas: CanvasState, i: number, j: number, value: boolean, calledInUndoFn = false) {
@@ -220,7 +215,7 @@ function generateLines(canvas: CanvasState) {
 }
 
 function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
-    const cell = getCellForLayer(canvas, i, j, getCurrentLayer(canvas));
+    const cell = getCell(canvas, i, j);
     if (!cell) {
         return false;
     }
@@ -259,8 +254,6 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
         resizeLayer(canvas.layers[layerIdx], rows, cols);
     }
 
-    resizeLayer(canvas.tempLayer, rows, cols);
-
     // Maintain row/col pool
     // NOTE: The rowList and charList are already doing a similar pooling mechanism.
     // Should this data just be created within there itself? For now I have decided "no" but I might change my mind on this one...
@@ -293,21 +286,13 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
     }
 }
 
-// This gets the cell for the corresponding coordinate on a layer, taking the layer offset into account
-function getCellForLayer(canvas: CanvasState, i: number, j: number, layer: AsciiCanvasLayer): CanvasCellArgs | undefined {
-    const iFinal =  i - layer.iOffset;
-    const jFinal =  j - layer.jOffset;
-    return getCellOrUndefined(canvas, iFinal, jFinal);
-}
 
 function getCharOnLayer(i: number, j: number, layer: AsciiCanvasLayer): string {
-    const iFinal =  i - layer.iOffset;
-    const jFinal =  j - layer.jOffset;
     if (
-        boundsCheck(layer.data, iFinal) && 
-        boundsCheck(layer.data[iFinal], jFinal)
+        boundsCheck(layer.data, i) && 
+        boundsCheck(layer.data[i], j)
     ) {
-        return layer.data[iFinal][jFinal] || " ";
+        return layer.data[i][j] || " ";
     }
 
     return ' ';
@@ -322,20 +307,17 @@ function setCharOnLayer(
     i: number, j: number, 
     char: string, 
     layer: AsciiCanvasLayer, 
-    useOffsets = true, 
     beingCalledInsideUndoFunction = false,
 ) {
-    const iFinal =  !useOffsets ? i : i - layer.iOffset;
-    const jFinal =  !useOffsets ? j : j - layer.jOffset;
     if (
-        !boundsCheck(layer.data, iFinal) ||
-        !boundsCheck(layer.data[iFinal], jFinal)
+        !boundsCheck(layer.data, i) ||
+        !boundsCheck(layer.data[i], j)
     ) {
         return;
     } 
 
     const layerIdx = getLayerIdx(canvas, layer);
-    const prev = layer.data[iFinal][jFinal];
+    const prev = layer.data[i][j];
     if (char === prev) {
         return;
     }
@@ -346,8 +328,8 @@ function setCharOnLayer(
         layerIdx !== -1
     ) {
         logUndoableChange(canvas, {
-            row: iFinal,
-            col: jFinal,
+            row: i,
+            col: j,
             char: { layerIdx, new: char, prev  },
         });
     }
@@ -356,23 +338,8 @@ function setCharOnLayer(
         canvas.args().onWrite();
     }
 
-    layer.data[iFinal][jFinal] = char;
+    layer.data[i][j] = char;
     return;
-}
-
-// this currently deletes everything from the dst layer
-function moveSelectedCellDataToLayer(canvas: CanvasState, layerSrc: AsciiCanvasLayer, layerDst: AsciiCanvasLayer) {
-    forEachCell(canvas, (c) => {
-        // Use the correct offset
-        const cellSrc = getCellForLayer(canvas, c.i, c.j, layerSrc);
-        if (!cellSrc?.isSelected) {
-            return;
-        }
-
-        const char = getCharOnLayer(c.i, c.j, layerSrc);
-        setCharOnLayer(canvas, c.i, c.j, ' ', layerSrc);
-        setCharOnLayer(canvas, c.i, c.j, char, layerDst);
-    });
 }
 
 function getCharOnCurrentLayer(canvas: CanvasState, i: number, j: number): string {
@@ -388,24 +355,6 @@ function setCharOnCurrentLayer(canvas: CanvasState, i: number, j: number, char: 
 
 function getCurrentLayer(canvas: CanvasState): AsciiCanvasLayer {
     return canvas.layers[canvas.currentLayer];
-}
-
-// Returns the char, and the layer we pulled it from...
-function getChar(canvas: CanvasState, i: number, j: number): [string, AsciiCanvasLayer | undefined] {
-    const char = getCharOnLayer(i, j, canvas.tempLayer);
-    if (char.trim()) {
-        return [char, canvas.tempLayer];
-    }
-
-    for (let layerIdx = canvas.layers.length - 1; layerIdx >= 0; layerIdx--) {
-        const layer = canvas.layers[layerIdx]
-        const char = getCharOnLayer(i, j, layer);
-        if (char.trim()) {
-            return [char, layer];
-        }
-    }
-
-    return [' ', undefined];
 }
 
 function forEachCell(canvas: CanvasState, fn: (char: CanvasCellArgs) => void) {
@@ -602,7 +551,7 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
         for(let j = minX; j <= maxX; j++) {
             const cell = getCell(canvas, i, j);
             if (cell.isSelected) {
-                const [char] = getChar(canvas, i, j);
+                const char = getCharOnCurrentLayer(canvas, i, j);
                 row.push(char);
             } else {
                 row.push(' ');
@@ -657,12 +606,25 @@ function getLastNonWhitespace(canvas:CanvasState, row: number, blockedBySelectio
 const WHITESPACE_GAP = 2;
 function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number) {
     let row = rowStart;
-    for (let i = rowStart; i >= 0; i--) {
-        // if we can find a row above us with non-whitespace, we should use that. 
-        // I think this is somewhat error-prone actually, and may need to be revised later.
-        if (getCharOnCurrentLayer(canvas, i, col) !== ' ') {
-            row = i;
+    let lookUpwards = true;
+    for (let i = 0; i <= WHITESPACE_GAP; i++) {
+        if (getCharOnCurrentLayer(canvas, row, col - i) !== ' ')  {
+            lookUpwards = false;
             break;
+        }
+    }
+    if (lookUpwards) {
+        for (let i = rowStart; i >= 0; i--) {
+            // if we can find a row above us with non-whitespace, we should use that. 
+            // I think this is somewhat error-prone actually, and may need to be revised later.
+            if (
+                getCharOnCurrentLayer(canvas, i, col) !== ' '
+                || getCharOnCurrentLayer(canvas, i - 1, col) !== ' '
+                || getCharOnCurrentLayer(canvas, i + 1, col) !== ' '
+            ) {
+                row = i;
+                break;
+            }
         }
     }
 
@@ -759,7 +721,7 @@ function moveThroughUndoLog(canvas: CanvasState, {
                     throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
                 }
 
-                setCharOnLayer(canvas, row, col, char.prev, layer, false, true);
+                setCharOnLayer(canvas, row, col, char.prev, layer, false);
             }
 
             if (selection) {
@@ -774,7 +736,7 @@ function moveThroughUndoLog(canvas: CanvasState, {
                     throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
                 }
 
-                setCharOnLayer(canvas, row, col, char.new, layer, false, true);
+                setCharOnLayer(canvas, row, col, char.new, layer, false);
             }
 
             if (selection) {
@@ -916,6 +878,37 @@ function getNumSelected(canvas: CanvasState) {
     return numSelected;
 }
 
+type VisualCharInfo = {
+    char: string;
+    isSelected: boolean;
+}
+
+function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: VisualCharInfo) {
+    const isMoving = canvas.toolState.startedMove;
+    const thisCell = getCell(canvas, i, j);
+
+    if (isMoving) {
+        const iOffset = canvas.toolState.moveOffsetI;
+        const jOffset = canvas.toolState.moveOffsetJ;
+
+        const srcCell = getCellOrUndefined(canvas, i - iOffset, j - jOffset);
+        if (srcCell?.isSelected) {
+            outInfo.isSelected = true;
+            outInfo.char = getCharOnCurrentLayer(canvas, srcCell.i, srcCell.j);
+            return;
+        } 
+
+        if (thisCell.isSelected) {
+            outInfo.isSelected = false;
+            outInfo.char = ' ';
+            return;
+        }
+    }
+
+    outInfo.isSelected = thisCell.isSelected;
+    outInfo.char = getCharOnCurrentLayer(canvas, i, j);
+}
+
 
 function Canvas() {
     const s = newState<CanvasArgs>();
@@ -926,13 +919,17 @@ function Canvas() {
     const scrollContainer = ScrollContainer();
     const root = setAttrs(scrollContainer, { 
         class: "flex-1",
-        style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; border: 1px solid var(--fg-color);"
+        style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
+            "border: 1px solid var(--fg-color);"
     }, true);
 
     const rowList = newListRenderer(root, () => {
         const s = newState<RowArgs>();
 
-        const root = div({ class: "row justify-content-center", style: "width: fit-content" });
+        const root = div({ 
+            class: "row justify-content-center", 
+            style: "width: fit-content;"
+        });
 
         const charList = newListRenderer(root, () => {
             const s = newState<CanvasCellArgs>();
@@ -940,6 +937,11 @@ function Canvas() {
             let lastState = -1;
             let lastIsCursor = false;
             let lastChar = "";
+
+            const visualCharInfo: VisualCharInfo = {
+                isSelected: false,
+                char: ' '
+            };
 
             const root = el("SPAN", { 
                 class: "pre inline-block border-box", 
@@ -949,14 +951,10 @@ function Canvas() {
             function renderCanvasCell() {
                 const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s.args;
 
-                let [char, layer] = getChar(canvasState, i, j);
-                if (!layer) {
-                    layer = getCurrentLayer(canvasState);
-                }
-                const cell = getCellForLayer(canvasState, i, j, layer);
-                const isSelected = cell ? cell.isSelected : false;
+                getVisualChar(canvasState, i, j, visualCharInfo);
+                const { char, isSelected } = visualCharInfo;
 
-                if (lastChar !== char) {
+                if (lastChar !== visualCharInfo.char) {
                     lastChar = char;
                     setText(root, char);
                 }
@@ -1014,7 +1012,6 @@ function Canvas() {
                 mouseInputState.x = s.args.j;
                 mouseInputState.y = s.args.i;
                 
-                moveCursor(canvasState, mouseInputState.y, mouseInputState.x)
                 onMouseInputStateChange();
             }
 
@@ -1043,19 +1040,6 @@ function Canvas() {
     on(root, "mouseleave", () => {
         canvasState.mouseInputState.x = -1;
         canvasState.mouseInputState.y = -1;
-
-        const numSelected = getNumSelected(canvasState);
-        if (numSelected === 1) {
-            forEachCell(canvasState, c => {
-                if (!c.isSelected) {
-                    return;
-                }
-
-                canvasState.cursorRowCol.i = c.i;
-                canvasState.cursorRowCol.j = c.j;
-            });
-        }
-
         onMouseInputStateChange();
     });
 
@@ -1141,68 +1125,56 @@ function Canvas() {
         if (startedAction === "move-selection") {
             // apply the move we started
 
-            const tempLayer = canvasState.tempLayer;
-            if (cancel) {
-                tempLayer.iOffset = 0;
-                tempLayer.jOffset = 0;
-            }
+            const tempLayer = newLayer();
+            const selectionLayer = newLayer(); // HACK: should be booleans. but I don't care
+            resizeLayer(tempLayer, getNumRows(canvasState), getNumCols(canvasState));
+            resizeLayer(selectionLayer, getNumRows(canvasState), getNumCols(canvasState));
 
-            moveSelectedCellDataToLayer(canvasState, canvasState.tempLayer, getCurrentLayer(canvasState));
+            const visualInfo: VisualCharInfo = {
+                char: ' ',
+                isSelected: false,
+            };
 
-            // move the selection after.
-            {
-                forEachCell(canvasState, (c) => c.isSelectedTemp = false);
-                forEachCell(canvasState, (c) => {
-                    const cell = getCellForLayer(canvasState, c.i, c.j, canvasState.tempLayer);
-                    if (!cell) {
-                        return;
-                    }
+            forEachCell(canvasState, c => {
+                getVisualChar(canvasState, c.i, c.j, visualInfo);
+                tempLayer.data[c.i][c.j] = visualInfo.char;
+                selectionLayer.data[c.i][c.j] = visualInfo.isSelected ? "y" : "n";
+            });
 
-                    c.isSelectedTemp = cell.isSelected;
-                });
-                forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, c.isSelectedTemp));
-            }
+            forEachCell(canvasState, c => {
+                setCharOnCurrentLayer(canvasState, c.i, c.j, tempLayer.data[c.i][c.j]);
+                selectCell(canvasState, c.i, c.j, selectionLayer.data[c.i][c.j] === "y");
+            });
 
-
-            // clear the temp buffer
-            const useOffsets = false;
-            forEachCell(canvasState, (c) => setCharOnLayer(canvasState, c.i, c.j, ' ', canvasState.tempLayer, useOffsets));
-
+            canvasState.toolState.startedMove = false;
+            canvasState.toolState.moveOffsetI = 50;
+            canvasState.toolState.moveOffsetJ = 50;
             return;
         } 
 
         if (isSelectionTool(startedAction)) {
-            if (!cancel) {
-                // Apply our selection preview.
-                
-                // NOTE: Disabling this for now, as it conflicts with shift+moving to expand the current selection,
-                // the latter of which is far more usefull. We can enable it later when we figure out how to bind it
-                // if (false && isShiftPressed()) {
-                    // forEachCell(canvasState, (c) => {
-                    //     // subtractive selection
-                    //     if (c.isSelectedPreview) {
-                    //         c.isSelected = false;
-                    //     }
-                    // });
-                // } else 
-                // Should do the same for additive selections to remain consistent.
-                // if (isCtrlPressed()) {
-                //     // forEachCell(canvasState, (c) => {
-                //     //     // additive selection
-                //     //     c.isSelected = c.isSelected || c.isSelectedPreview;
-                //     // });
-                // } else
-                // {
-                //     forEachCell(canvasState, (c) => {
-                //         // replace selection
-                //         c.isSelected = c.isSelectedPreview;
-                //     });
-                // }
-
-                // Might just use a toggle-based selection in order to get all the functionality of 100% additive, 
-                // subtractive and replace functionality.
-                // This wouldn't fly in an image editor because the pixels are way too small to toggle individually,
-                // but it should work in this pseudo-text editor
+            const applyType = canvasState.toolState.selectionApplyType;
+            
+            if (applyType === "additive") {
+                forEachCell(canvasState, (c) => {
+                    // additive selection
+                    if (c.isSelectedPreview) {
+                        selectCell(canvasState, c.i, c.j, true);
+                    }
+                });
+            } else if (applyType === "subtractive") {
+                forEachCell(canvasState, (c) => {
+                    // subtractive selection
+                    if (c.isSelectedPreview) {
+                        selectCell(canvasState, c.i, c.j, false);
+                    }
+                });
+            } else if (applyType === "replace") {
+                forEachCell(canvasState, (c) => {
+                    // replace selection
+                    selectCell(canvasState, c.i, c.j, c.isSelectedPreview);
+                });
+            } else if (applyType === "toggle") {
                 forEachCell(canvasState, (c) => {
                     // replace selection
                     if (c.isSelectedPreview) {
@@ -1222,6 +1194,7 @@ function Canvas() {
         started: boolean,
         iInput: number,
         jInput: number,
+        isMouse: boolean,
     ) {
         const toolState = canvasState.toolState;
         const tool = getTool(canvasState);
@@ -1236,6 +1209,25 @@ function Canvas() {
             toolState.jSelectStart = jInput;
             toolState.iPrev = iInput;
             toolState.jPrev = jInput;
+        }
+
+        if ( 
+            mouseInputState.lbDown
+            || !isMouse
+        ) {
+            moveCursor(canvasState, iInput, jInput);
+        }
+
+        if (isMouse) {
+            if (isShiftPressed()) {
+                toolState.selectionApplyType = "subtractive";
+            } else if (isCtrlPressed()) {
+                toolState.selectionApplyType = "additive";
+            } else {
+                toolState.selectionApplyType = "replace";
+            }
+        } else {
+            toolState.selectionApplyType = "toggle";
         }
 
         if (tool === "freeform-select") {
@@ -1277,16 +1269,12 @@ function Canvas() {
                 propagateSelection(jInput, iInput, corners, false, true);
             }
         } else if (tool === "move-selection") {
-            const tempLayer = canvasState.tempLayer;
-
             if (started) {
-                tempLayer.iOffset = 0;
-                tempLayer.jOffset = 0;
-                moveSelectedCellDataToLayer(canvasState, getCurrentLayer(canvasState), tempLayer);
+                toolState.startedMove = true;
             }
 
-            tempLayer.iOffset = iInput - toolState.iSelectStart;
-            tempLayer.jOffset = jInput - toolState.jSelectStart;
+            toolState.moveOffsetI = iInput - toolState.iSelectStart;
+            toolState.moveOffsetJ = jInput - toolState.jSelectStart;
         }
 
         toolState.iPrev = iInput;
@@ -1317,7 +1305,8 @@ function Canvas() {
                 canvasState, 
                 clicked,
                 mouseInputState.y,
-                mouseInputState.x
+                mouseInputState.x,
+                true,
             );
         }
 
@@ -1349,15 +1338,18 @@ function Canvas() {
         ],
         currentLayer: 0, 
         toolState: {
+            startedMove: false,
             startedAction: undefined,
+            selectionApplyType: "replace",
             iPrev: 0,
             jPrev: 0,
+            moveOffsetI: 0,
+            moveOffsetJ: 0,
             jSelectStart: 0,
             iSelectStart: 0,
             keyboardSelectStart: false,
             keyboardMoveStart: false,
         },
-        tempLayer: newLayer(),
     };
 
     function renderCanvas() {
@@ -1563,7 +1555,7 @@ function Canvas() {
                 }
 
                 if (!alreadyDoingSomething && handled) {
-                    handleSelect(canvasState, true, cursorCell.i, cursorCell.j);
+                    handleSelect(canvasState, true, cursorCell.i, cursorCell.j, false);
                 }
             }
 
@@ -1611,7 +1603,7 @@ function Canvas() {
             if (isSelectingOrMoving) {
                 const cursorCell = getCursorCell(canvasState);
                 if (cursorCell) {
-                    handleSelect(canvasState, false, cursorCell.i, cursorCell.j);
+                    handleSelect(canvasState, false, cursorCell.i, cursorCell.j, false);
                 }
             }
         }  else if (e.key === "Enter") {
@@ -1705,7 +1697,7 @@ function isAsciiCanvasKeybind(e: KeyboardEvent) {
 const NUM_ROWS_INCR_AMOUNT = 32;
 // However, I don't expect the width I need to change very much at all. 
 const NUM_COLUMNS_INCR_AMOUNT = 8;
-const MIN_NUM_COLS = 130;
+const MIN_NUM_COLS = 64;
 
 export type AsciiCanvasArgs = {
     outputLayers: AsciiCanvasLayer[];
@@ -1957,7 +1949,7 @@ export function AsciiCanvas() {
     }
 
     const root = div({ class: "relative h-100 row" }, [
-        div({ class: "flex-1 col justify-content-center", style: "overflow: auto;" }, [
+        div({ class: "flex-1 col justify-content-center align-items-center", style: "overflow: auto;" }, [
             div({ class: "flex-1" }),
             canvasComponent,
             statusText,

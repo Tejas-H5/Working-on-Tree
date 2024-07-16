@@ -120,7 +120,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.94";
+const VERSION_NUMBER = "v1.1.95";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2005,7 +2005,7 @@ function NoteListInternal() {
                 const component = getNext();
 
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
-                let isSticky = note.data._isSelected || (
+                let isSticky = (note.id !== currentNote.id && note.data._isSelected) || (
                     isOnCurrentLevel && 
                     note.data.isSticky 
                 );
