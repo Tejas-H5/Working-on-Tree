@@ -123,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.95";
+const VERSION_NUMBER = "v1.1.96";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1824,7 +1824,6 @@ function NoteRowDurationInfo() {
         const parentEstimate = !parentWithEstimate ? 0 : getNoteEstimate(parentWithEstimate);
         const estimateVisible = parentWithEstimate && parentEstimate > 0;
         if (setVisible(estimateContainer, estimateVisible)) {
-            const parentEstimateRecursive = getNoteEstimateRecursive(state, parentWithEstimate!);
             const estimate = getNoteEstimate(note);
             const durationNoRange = getNoteDuration(state, note, false);
             const delta = estimate - durationNoRange;
@@ -1838,21 +1837,22 @@ function NoteRowDurationInfo() {
                     estimateEl, 
                     formatDurationAsHours(Math.abs(delta)) + (isOnTrack ? " remaining" : " over"),
                 );
-
-                if (setVisible(estimateWarningEl, parentEstimateRecursive > parentEstimate)) {
-                    // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
-                    // can update their prior assumptions and update the real estimate themselves.
-                    // The reason why I no longer automate this is because the benefits of estimating a task
-                    // come almost entirely from the side-effects of computing the number yourself, and
-                    // the final estimate actually has no real value by itself
-                    setText(estimateWarningEl, " (estimated " + formatDurationAsHours(parentEstimateRecursive) + " over!)");
-                    setStyle(estimateWarningEl, "color", "#F00");
-                }
             } else {
                 setText(
                     estimateEl,
                     formatDurationAsHours(durationNoRange) + "/" + formatDurationAsHours(parentEstimate)
                 );
+            }
+
+            const parentEstimateRecursive = getNoteEstimateRecursive(state, parentWithEstimate!);
+            if (setVisible(estimateWarningEl, hasEstimate && parentEstimateRecursive > parentEstimate)) {
+                // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
+                // can update their prior assumptions and update the real estimate themselves.
+                // The reason why I no longer automate this is because the benefits of estimating a task
+                // come almost entirely from the side-effects of computing the number yourself, and
+                // the final estimate actually has no real value by itself
+                setText(estimateWarningEl, " (estimated " + formatDurationAsHours(parentEstimateRecursive) + " over!)");
+                setStyle(estimateWarningEl, "color", "#F00");
             }
         }
 
