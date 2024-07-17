@@ -33,7 +33,8 @@ import {
     setInputValue,
     setStyle,
     setText,
-    setVisible
+    setVisible,
+    span
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
@@ -78,12 +79,14 @@ import {
     getNoteDuration,
     getNoteDurationUsingCurrentRangeCached,
     getNoteEstimate,
+    getNoteEstimateRecursive,
     getNoteNDown,
     getNoteNUp,
     getNoteOneDownLocally,
     getNoteOneUpLocally,
     getNoteOrUndefined,
     getNoteTextWithoutPriority,
+    getParentNoteWithEstimate,
     getRootNote,
     getSecondPartOfRow,
     hasNote,
@@ -111,7 +114,7 @@ import {
     setStateFromJSON,
     state,
     toggleCurrentNoteSticky,
-    tryForceIndexedDBCompaction,
+    tryForceIndexedDBCompaction
 } from "./state";
 import { assert } from "./utils/assert";
 
@@ -349,10 +352,12 @@ function TodoList() {
             const hlt = getHigherLevelTask(state, note);
             const hltText = hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
             headingText = "Everything in progress for specific task [" + hltText + "]" + count + rightArrow;
-        } else if (state._todoNoteFilters === 1) {
-            headingText = leftArrow + "Most recent thing in progress for every task" + count;
-        } else {
+        } else if (state._todoNoteFilters === 0) {
             headingText = leftArrow + "Everything in progress for every task" + count + rightArrow;
+        } else if (state._todoNoteFilters === 1) {
+            headingText = leftArrow + "Most recent thing in progress for every task" + count + rightArrow;
+        } else {
+            headingText = leftArrow + "Most recent thing in progress for every task that has an estimate" + count;
         }
         setText(heading, headingText);
 
@@ -1687,6 +1692,7 @@ function InteractiveGraphModal() {
     const rg = newRenderGroup();
     const root = Modal(
         div({ style: modalPaddingStyles(10) }, [
+            div({}, [ "This feature is no longer being worked on. I thought it would be pretty fun to make, but I've not used it ever since (unlike the scratch pad, which was surprisingly useful)" ]),
             rg(InteractiveGraph(), (c) => c.render({
                 onClose,
                 graphData: state.mainGraphData,
@@ -1710,14 +1716,7 @@ function SettingsModal() {
     const root = Modal(div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
         el("H3", { class: "text-align-center" }, "Settings"),
         div({ class: "row" }, [
-            rg(Checkbox(), (c) => c.render({
-                label: "Always show estimates",
-                value: state.settings.alwaysShowEstimates,
-                onChange(val) {
-                    state.settings.alwaysShowEstimates = val;
-                    rerenderApp();
-                }
-            }))
+            div({}, [ `No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!` ]),
         ])
     ]));
 
@@ -1796,32 +1795,68 @@ function AsciiCanvasModal() {
 function NoteRowDurationInfo() {
     const s = newState<{ note: TreeNote; duration: number; }>();
 
-    const durationEl = div();
-    const estimateEl = div();
-    const root = div({ style: "text-align: right;" }, [
-        durationEl,
-        estimateEl,
+    const durationEl = span();
+    const divider = span({}, " | ");
+    const estimateContainer = span();
+    const estimateEl = span();
+    const estimateWarningEl = span();
+    const root = div({ 
+        class: "row", 
+        style: "text-align: right; gap: 5px; padding-left: 10px;" 
+    }, [
+        durationEl, 
+        divider, 
+        addChildren(estimateContainer, [
+            estimateEl,
+            estimateWarningEl
+        ])
     ]);
 
     function renderNoteRowDurationInfo() {
         const { note, duration } = s.args;
 
-        // render task duration/estimate info right here itself.
-        const estimate = getNoteEstimate(state, note);
-
         const hasDuration = duration > 0;
-        const hasEstimate = estimate > 0;
-
         if (setVisible(durationEl, hasDuration)) {
             setText(durationEl, formatDurationAsHours(duration));
         }
 
-        if (setVisible(estimateEl, state.settings.alwaysShowEstimates || hasEstimate)) {
+        const parentWithEstimate = getParentNoteWithEstimate(state, note);
+        const parentEstimate = !parentWithEstimate ? 0 : getNoteEstimate(parentWithEstimate);
+        const estimateVisible = parentWithEstimate && parentEstimate > 0;
+        if (setVisible(estimateContainer, estimateVisible)) {
+            const parentEstimateRecursive = getNoteEstimateRecursive(state, parentWithEstimate!);
+            const estimate = getNoteEstimate(note);
             const durationNoRange = getNoteDuration(state, note, false);
-            setStyle(estimateEl, "color", durationNoRange < estimate ? "" : "#F00");
-            const estimateStr = estimate === 0 ? "?" : formatDurationAsHours(estimate);
-            setText(estimateEl, formatDurationAsHours(durationNoRange) + "/" + estimateStr);
+            const delta = estimate - durationNoRange;
+            const hasEstimate = estimate > 0;
+            const isOnTrack = !hasEstimate || delta > 0;
+
+            setStyle(estimateEl, "color", isOnTrack ? "" : "#F00");
+
+            if (hasEstimate) {
+                setText(
+                    estimateEl, 
+                    formatDurationAsHours(Math.abs(delta)) + (isOnTrack ? " remaining" : " over"),
+                );
+
+                if (setVisible(estimateWarningEl, parentEstimateRecursive > parentEstimate)) {
+                    // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
+                    // can update their prior assumptions and update the real estimate themselves.
+                    // The reason why I no longer automate this is because the benefits of estimating a task
+                    // come almost entirely from the side-effects of computing the number yourself, and
+                    // the final estimate actually has no real value by itself
+                    setText(estimateWarningEl, " (estimated " + formatDurationAsHours(parentEstimateRecursive) + " over!)");
+                    setStyle(estimateWarningEl, "color", "#F00");
+                }
+            } else {
+                setText(
+                    estimateEl,
+                    formatDurationAsHours(durationNoRange) + "/" + formatDurationAsHours(parentEstimate)
+                );
+            }
         }
+
+        setVisible(divider, hasDuration && estimateVisible);
     }
 
     return newComponent(root, renderNoteRowDurationInfo, s);
@@ -3301,7 +3336,7 @@ export function App() {
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
                     if (isInTodoList) {
-                        state._todoNoteFilters = Math.min(1, state._todoNoteFilters + 1);
+                        state._todoNoteFilters = Math.min(2, state._todoNoteFilters + 1);
                     } else {
                         shouldPreventDefault = true;
                         moveInDirectonOverHotlist(false);

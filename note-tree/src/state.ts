@@ -77,6 +77,12 @@ export type State = {
     // non-serializable fields start with _
     
     _todoNoteIds: NoteId[];
+    /**
+     * -1 -> All tasks under current high level task
+     *  0 -> All tasks under all high level tasks
+     *  1 -> Most recent task under all high level tasks
+     *  2 -> Most recent task under all high level tasks (that have an estimate)
+     */
     _todoNoteFilters: number;
     _todoRootId: NoteId;  
     _currentlyViewingActivityIdx: number;
@@ -93,7 +99,6 @@ export type State = {
 };
 
 type AppSettings = {
-    alwaysShowEstimates: boolean;
 }
 
 
@@ -272,9 +277,7 @@ export function defaultState(): State {
         activities: [],
         scratchPadCanvasLayers: [],
         mainGraphData: newGraphData(),
-        settings: {
-            alwaysShowEstimates: false,
-        },
+        settings: {},
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
@@ -622,7 +625,18 @@ export function recomputeState(state: State) {
                 if (hlt !== currentHLT) {
                     continue;
                 }
-            } else if (state._todoNoteFilters === 1) {
+            } else if (
+                state._todoNoteFilters === 1
+                || state._todoNoteFilters === 2
+            ) {
+                if (!hlt || (
+                    state._todoNoteFilters === 2
+                    && getNoteEstimate(hlt) <= 0
+                )) {
+                    // same as _todoNoteFilters === 1 but exclude hlts without an estimate
+                    continue;
+                }
+
                 // only show the most recent of each higher level task.
                 if (hlt) {
                     if (hlt.data._isUnderCurrent) {
@@ -635,6 +649,8 @@ export function recomputeState(state: State) {
                     }
                     showedNilTask = true;
                 }
+            } else if (state._todoNoteFilters === 2) {
+
             }
 
             state._todoNoteIds.push(note.id);
@@ -1312,15 +1328,32 @@ function parseNoteEstimate(text: string): number {
     return Math.floor(hours * 60 * 60 * 1000);
 }
 
-export function getNoteEstimate(state: State, note: TreeNote): number {
+export function getParentNoteWithEstimate(state: State, note: TreeNote): TreeNote | undefined {
+    let estimateNote: TreeNote | undefined;
+    tree.forEachParent(state.notes, note, (note) => {
+        if (hasEstimate(note.data.text)) {
+            estimateNote = note;
+            return true;
+        }
+    });
+
+    return estimateNote;
+}
+
+export function getNoteEstimate(note: TreeNote): number {
+    return parseNoteEstimate(note.data.text);
+}
+
+/**
+ * Returns the estimate as estimate(note) + sum(estimate(child notes)). 
+ * It shouldn't be used to return the real estimate, as this is something a user must
+ * do themselves (the process of calculating an estimate is only useful for it's side-effects).
+ */
+export function getNoteEstimateRecursive(state: State, note: TreeNote): number {
     if (!hasEstimate(note.data.text)) {
         // if this note doesn't have any parent notes with estimates, we shouldn't recurse down all children to find estimates.
         // In this way, we can prevent 'estimates' from leaking all the way up the tree - only subtrees with E= can have estimates for now.
-        if (!tree.forEachParent(
-            state.notes, 
-            note, 
-            (note) => hasEstimate(note.data.text),
-        )) {
+        if (!getParentNoteWithEstimate(state, note)) {
             return 0;
         }
     }
@@ -1339,7 +1372,6 @@ export function getNoteEstimate(state: State, note: TreeNote): number {
 
     return estimate;
 }
-
 
 
 export function getSecondPartOfRow(state: State, note: TreeNote) {
