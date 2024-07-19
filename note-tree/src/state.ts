@@ -14,39 +14,6 @@ export type TreeNote = tree.TreeNode<Note>;
 export type DockableMenu = "activities" | "todoLists";
 export type AppTheme = "Light" | "Dark";
 
-// NOTE: can't be JSON-serialized.
-type Cache<T> = {
-    map: Map<string, T>;
-    timeSet: number;
-    options: CacheOptions;
-}
-type CacheOptions = {
-    maxAgeMs: number;
-}
-
-function newCache<T>(options: CacheOptions): Cache<T> {
-    return {
-        map: new Map(),
-        timeSet: 0,
-        options,
-    };
-}
-
-function getCachedValue<T>(cache: Cache<T>, key: string, computeFn: (key: string) => T): T {
-    if (Date.now() - cache.timeSet > cache.options.maxAgeMs) {
-        cache.map.clear();
-    }
-
-    if (!cache.map.has(key)) {
-        cache.map.set(key, computeFn(key));
-        cache.timeSet = Date.now();
-    }
-
-    return cache.map.get(key)!;
-}
-
-
-
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
 export type State = {
@@ -90,17 +57,16 @@ export type State = {
     _isEditingFocusedNote: boolean;
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
+    _activitiesFromIdx: number;
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
+    _activitiesToIdx: number;
     _durationsOnlyUnderSelected: boolean;
-    _durationsCache: Cache<number>;
     _useActivityIndices: boolean;
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
 };
 
-type AppSettings = {
-}
-
+type AppSettings = {}
 
 type JsonBoolean = true | undefined;
 
@@ -127,6 +93,8 @@ export type Note = {
     _higherLevelTaskId: NoteId; // the note's higher level task, as per the TODO list calculation. This is only valid if it's in the TODO list.
     _depth: number; // used to visually indent the notes
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
+    _durationUnranged: number;
+    _durationRanged: number;
 };
 
 
@@ -289,14 +257,14 @@ export function defaultState(): State {
         _todoNoteFilters: 0,
         _currentlyViewingActivityIdx: 0,
         _isShowingDurations: false,
-        _durationsCache: newCache({ maxAgeMs: 1000 }),
         _activitiesFrom: null,
+        _activitiesFromIdx: -1,
         _activitiesTo: null,
+        _activitiesToIdx: -1,
         _durationsOnlyUnderSelected: true,
         _activityIndices: [],
         _useActivityIndices: false,
         _lastNoteId: undefined,
-
     };
 
     setActivityRangeToday(state);
@@ -393,6 +361,8 @@ export function defaultNote(state: State | null): Note {
         _isUnderCurrent: false,
         _depth: 0,
         _task: null,
+        _durationUnranged: 0,
+        _durationRanged: 0,
     };
 }
 
@@ -662,7 +632,9 @@ export function recomputeState(state: State) {
         }
     }
 
-    // recompute the range 
+    // ensure that activitiesTo resets to today if it doesn't already include today.
+    // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
+    // this reset to today only happens if today isn't in that time range
     {
         if (
             !state._isShowingDurations &&
@@ -673,10 +645,53 @@ export function recomputeState(state: State) {
         }
     }
 
+    // recompute note durations, with and without the range.
+    {
+        state._activitiesToIdx = -1;
+        state._activitiesFromIdx = -1;
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._durationUnranged = 0;
+            note.data._durationRanged = 0;
+        });
+
+        const activities = state.activities;
+        for (let i = 0; i < activities.length; i++) {
+            // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
+            const a0 = activities[i];
+            const note = getNoteOrUndefined(state, a0.nId);
+            if (!note) {
+                continue;
+            }
+
+            const a1 = activities[i + 1] as Activity | undefined;
+            const duration = getActivityDurationMs(a0, a1);
+
+            tree.forEachParent(state.notes, note, (note) => {
+                note.data._durationUnranged += duration;
+            });
+
+            // TODO: update this to work for activities with start/end times that overlap into the current range
+            if (
+                (!state._activitiesFrom || state._activitiesFrom <= getActivityTime(a0)) 
+                && (!a1 || !state._activitiesTo || getActivityTime(a1) <= state._activitiesTo)
+            ) {
+                if (state._activitiesFromIdx === -1) {
+                    state._activitiesFromIdx = i;
+                }
+                state._activitiesToIdx = i;
+
+                tree.forEachParent(state.notes, note, (note) => {
+                    note.data._durationRanged += duration;
+                });
+            }
+        }
+    }
+
     // recompute the current filtered activities
     {
         state._useActivityIndices = false; ;
-        const [hasValidRange, start, end] = getActivityRange(state);
+        const hasValidRange = state._activitiesFromIdx !== -1;
         if (state._isShowingDurations && hasValidRange) {
             state._useActivityIndices = true;
 
@@ -685,7 +700,7 @@ export function recomputeState(state: State) {
 
             state._activityIndices.splice(0, state._activityIndices.length);
 
-            for (let i = start; i <= end; i++) {
+            for (let i = state._activitiesFromIdx; i <= state._activitiesToIdx; i++) {
                 const activity = state.activities[i];
                 if (state._durationsOnlyUnderSelected && (
                     activity.deleted ||
@@ -700,53 +715,6 @@ export function recomputeState(state: State) {
         }
     }
 }
-
-export function getActivityRange(state: State): [boolean, number, number] {
-    // NOTE: it's fine for both to be null
-    let hasValidRange = state._activitiesFrom === null ||
-        state._activitiesTo === null ||
-        state._activitiesFrom < state._activitiesTo;
-
-    const activities = state.activities;
-    if (!hasValidRange) {
-        return [false, 0, -1];
-    }
-
-    let start = 0;
-    if (state._activitiesFrom) {
-        // this range is typically from today T=- to tomorrow T=0 , so let's optimize for that
-        
-        start = activities.length;
-        while (
-            start > 0 &&
-            getActivityTime(activities[start - 1]) > state._activitiesFrom
-        ) {
-            start--;
-        }
-    }
-
-    if (start === activities.length) {
-        return [true, 0, -1];
-    }
-
-    let end = activities.length - 1;
-    if (state._activitiesTo) {
-        end = start;
-        while (
-            end < activities.length - 1 &&
-            getActivityTime(activities[end]) < state._activitiesTo
-        ) {
-            end++;
-        }
-    }
-
-    if (end === start) {
-        return [true, 0, -1];
-    }
-
-    return [true, start, end];
-}
-
 
 export function isCurrentNoteOnOrInsideNote(state: State, note: TreeNote): boolean {
     return note.data._isSelected ||    // Current note inside this note
@@ -1253,51 +1221,12 @@ export function getIndentStr(note: Note) {
     return "    ".repeat(repeats);
 }
 
-function getNoteDurationUsingCurrentRange(state: State, noteId: NoteId) {
-    const note = getNote(state, noteId);
-    return getNoteDuration(state, note, true);
+export function getNoteDurationUsingCurrentRange(_state: State, note: TreeNote) {
+    return note.data._durationRanged;
 }
 
-export function getNoteDurationUsingCurrentRangeCached(state: State, noteId: NoteId) {
-    return getCachedValue(state._durationsCache, noteId, (noteId) => {
-        return getNoteDurationUsingCurrentRange(state, noteId);
-    });
-}
-
-/** 
- * This is the sum of all activities with this note, or any descendant 
- */
-export function getNoteDuration(state: State, note: TreeNote, useRange: boolean) {
-    recomputeNoteIsUnderFlag(state, note);
-
-    const activities = state.activities;
-    let duration = 0;
-
-    let start = 0, end = activities.length - 1;
-    if (useRange) {
-        let hasRange;
-        [hasRange, start, end] = getActivityRange(state);
-    }
-
-
-    for (let i = start; i <= end; i++) {
-        const activity = activities[i];
-        if (!activity.nId) {
-            continue;
-        }
-
-        if (!tree.hasNode(state.notes, activity.nId)) {
-            continue;
-        }
-
-        const note = getNote(state, activity.nId);
-        if (note.data._isUnderCurrent) {
-            const nextActivity = activities[i + 1];
-            duration += getActivityDurationMs(activity, nextActivity);
-        }
-    }
-
-    return duration;
+export function getNoteDurationWithoutRange(_state: State, note: TreeNote) {
+    return note.data._durationUnranged;
 }
 
 // NOTE: doesn't detect the 'h'. so it might be inaccurate.
@@ -1344,38 +1273,37 @@ export function getNoteEstimate(note: TreeNote): number {
     return parseNoteEstimate(note.data.text);
 }
 
-/**
- * Returns the estimate as estimate(note) + sum(estimate(child notes)). 
- * It shouldn't be used to return the real estimate, as this is something a user must
- * do themselves (the process of calculating an estimate is only useful for it's side-effects).
- */
-export function getNoteEstimateRecursive(state: State, note: TreeNote): number {
-    if (!hasEstimate(note.data.text)) {
-        // if this note doesn't have any parent notes with estimates, we shouldn't recurse down all children to find estimates.
-        // In this way, we can prevent 'estimates' from leaking all the way up the tree - only subtrees with E= can have estimates for now.
-        if (!getParentNoteWithEstimate(state, note)) {
-            return 0;
+export function getNoteChildEstimates(state: State, note: TreeNote): number {
+    let totalEstimate = 0;
+
+    const dfs = (note: TreeNote) => {
+        for (const childId of note.childIds) {
+            const note = getNote(state, childId);
+
+            if (
+                note.data._status === STATUS_DONE
+                || note.data._status === STATUS_ASSUMED_DONE
+            ) {
+                // don't need an estimate, since we know exactly how long it took to complete, actually
+                totalEstimate += getNoteDurationWithoutRange(state, note);
+                continue;
+            }
+
+            if (!hasEstimate(note.data.text)) {
+                dfs(note);
+                continue;
+            }
+
+            totalEstimate += getNoteEstimate(note);
         }
     }
-
-    let estimate = 0;
-    const dfs = (note: TreeNote) => {
-        estimate += parseNoteEstimate(note.data.text);
-
-        for (const id of note.childIds) {
-            const note = getNote(state, id);
-            dfs(note);
-        }
-    };
-
     dfs(note);
 
-    return estimate;
+    return totalEstimate;
 }
 
-
 export function getSecondPartOfRow(state: State, note: TreeNote) {
-    const duration = getNoteDuration(state, note, false);
+    const duration = getNoteDurationWithoutRange(state, note);
     const durationStr = formatDuration(duration);
     const secondPart = " " + durationStr;
     return secondPart;

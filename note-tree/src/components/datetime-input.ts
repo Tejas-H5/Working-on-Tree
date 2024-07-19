@@ -62,7 +62,9 @@ export function DateTimeInput(initialLabel?: string) {
             }
         }
 
-        lastDate = value;
+        if (value) {
+            lastDate = value;
+        }
 
         setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
     }

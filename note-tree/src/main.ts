@@ -62,7 +62,6 @@ import {
     findNextActiviyIndex,
     findPreviousActiviyIndex,
     getActivityDurationMs,
-    getActivityRange,
     getActivityText,
     getActivityTime,
     getAllNoteIdsInTreeOrder,
@@ -76,10 +75,10 @@ import {
     getLastSelectedNote,
     getMostRecentlyWorkedOnChildActivityIdx,
     getNote,
-    getNoteDuration,
-    getNoteDurationUsingCurrentRangeCached,
+    getNoteChildEstimates,
+    getNoteDurationUsingCurrentRange,
+    getNoteDurationWithoutRange,
     getNoteEstimate,
-    getNoteEstimateRecursive,
     getNoteNDown,
     getNoteNUp,
     getNoteOneDownLocally,
@@ -118,12 +117,13 @@ import {
 } from "./state";
 import { assert } from "./utils/assert";
 
+
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.96";
+const VERSION_NUMBER = "v1.1.97";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -770,7 +770,7 @@ function DeleteModal() {
         dfsPre(state, currentNote, () => count++);
         setText(countEl, count + " notes in total");
 
-        let totalTimeMs = getNoteDuration(state, currentNote, false);
+        let totalTimeMs = getNoteDurationWithoutRange(state, currentNote);
         setText(timeEl, formatDuration(totalTimeMs) + " in total");
 
         const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
@@ -1728,7 +1728,7 @@ function SettingsModal() {
     return newComponent(root, renderSettingsModal);
 }
 
-function AsciiCanvasModal() {
+function ScratchPadModal() {
     const s = newState<{ 
         open: boolean; 
         canvasArgs: AsciiCanvasArgs;
@@ -1745,6 +1745,7 @@ function AsciiCanvasModal() {
     function renderCanvas() {
         const { open } = s.args;
         setVisible(modalComponent, open);
+
         if (!wasVisible && open) {
             if (!state._isEditingFocusedNote) {
                 setIsEditingCurrentNote(state, true);
@@ -1796,10 +1797,9 @@ function NoteRowDurationInfo() {
     const s = newState<{ note: TreeNote; duration: number; }>();
 
     const durationEl = span();
-    const divider = span({}, " | ");
+    const divider = span({}, ", ");
     const estimateContainer = span();
     const estimateEl = span();
-    const estimateWarningEl = span();
     const root = div({ 
         class: "row", 
         style: "text-align: right; gap: 5px; padding-left: 10px;" 
@@ -1808,7 +1808,6 @@ function NoteRowDurationInfo() {
         divider, 
         addChildren(estimateContainer, [
             estimateEl,
-            estimateWarningEl
         ])
     ]);
 
@@ -1821,42 +1820,50 @@ function NoteRowDurationInfo() {
         }
 
         const parentWithEstimate = getParentNoteWithEstimate(state, note);
-        const parentEstimate = !parentWithEstimate ? 0 : getNoteEstimate(parentWithEstimate);
-        const estimateVisible = parentWithEstimate && parentEstimate > 0;
-        if (setVisible(estimateContainer, estimateVisible)) {
-            const estimate = getNoteEstimate(note);
-            const durationNoRange = getNoteDuration(state, note, false);
-            const delta = estimate - durationNoRange;
-            const hasEstimate = estimate > 0;
-            const isOnTrack = !hasEstimate || delta > 0;
+        if (setVisible(estimateContainer, !!parentWithEstimate) && !!parentWithEstimate) {
+            const parentEstimate = getNoteEstimate(parentWithEstimate); 
+            const childEstimates = getNoteChildEstimates(state, parentWithEstimate);
 
-            setStyle(estimateEl, "color", isOnTrack ? "" : "#F00");
+            const duration = getNoteDurationWithoutRange(state, note);
+            const noteIsParent = parentWithEstimate.id === note.id;
 
-            if (hasEstimate) {
-                setText(
-                    estimateEl, 
-                    formatDurationAsHours(Math.abs(delta)) + (isOnTrack ? " remaining" : " over"),
-                );
-            } else {
-                setText(
-                    estimateEl,
-                    formatDurationAsHours(durationNoRange) + "/" + formatDurationAsHours(parentEstimate)
-                );
-            }
+            let estimatElText = "";
+            let total = parentEstimate;
+            let isOnTrack = true;
 
-            const parentEstimateRecursive = getNoteEstimateRecursive(state, parentWithEstimate!);
-            if (setVisible(estimateWarningEl, hasEstimate && parentEstimateRecursive > parentEstimate)) {
+            const ONE_HOUR = 1000 * 60 * 60;
+
+            if (
+                noteIsParent
+                && parentEstimate < childEstimates
+            ) {
                 // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
                 // can update their prior assumptions and update the real estimate themselves.
                 // The reason why I no longer automate this is because the benefits of estimating a task
                 // come almost entirely from the side-effects of computing the number yourself, and
                 // the final estimate actually has no real value by itself
-                setText(estimateWarningEl, " (estimated " + formatDurationAsHours(parentEstimateRecursive) + " over!)");
-                setStyle(estimateWarningEl, "color", "#F00");
+                isOnTrack = false;
+                estimatElText = `estimates below sum to E=${(childEstimates / ONE_HOUR).toFixed(2)}!`;
+            } else {
+                if (!noteIsParent) {
+                    total = parentEstimate - childEstimates;
+                }
+
+                const delta = total - duration;
+                isOnTrack = delta >= 0;
+
+                if (total <= 0) {
+                    estimatElText = `estimated no time remaining!`;
+                } else {
+                    estimatElText = formatDurationAsHours(duration) + "/" + formatDurationAsHours(Math.abs(total));
+                }
             }
+
+            setStyle(estimateEl, "color", isOnTrack ? "" : "#F00");
+            setText(estimateEl, estimatElText);
         }
 
-        setVisible(divider, hasDuration && estimateVisible);
+        setVisible(divider, hasDuration && !!parentWithEstimate);
     }
 
     return newComponent(root, renderNoteRowDurationInfo, s);
@@ -2045,10 +2052,11 @@ function NoteListInternal() {
                     note.data.isSticky 
                 );
 
-                const durationMs = getNoteDurationUsingCurrentRangeCached(state, id);
+                const durationMs = getNoteDurationUsingCurrentRange(state, note);
 
                 assert(note.parentId, "Note didn't have a parent!");
-                const parentDurationMs = getNoteDurationUsingCurrentRangeCached(state, note.parentId);
+                const parentNote = getNote(state, note.parentId);
+                const parentDurationMs = getNoteDurationUsingCurrentRange(state, parentNote);
 
                 component.render({
                     note,
@@ -2802,46 +2810,43 @@ function HighLevelTaskDurations() {
     const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
 
     function renderHltList() {
-        // recompute hlt map less frequently
-        if (!renderOptions.isTimer) {
-            hltMap.clear();
+        hltMap.clear();
 
-            const [hasRange, start, end] = getActivityRange(state);
-            if (!hasRange) {
-                return;
+        const hasRange = state._activitiesFromIdx !== -1;
+        if (!hasRange) {
+            return;
+        }
+
+
+        for (let i = state._activitiesFromIdx; i <= state._activitiesToIdx; i++) {
+            const activity = state.activities[i];
+            const nextActivity = state.activities[i + 1];
+            const durationMs = getActivityDurationMs(activity, nextActivity);
+
+            if (isBreak(activity) && hideBreaks) {
+                continue;
             }
 
+            let hltText = "??";
+            let hltNId: NoteId | undefined;
 
-            for (let i = start; i <= end; i++) {
-                const activity = state.activities[i];
-                const nextActivity = state.activities[i + 1];
-                const durationMs = getActivityDurationMs(activity, nextActivity);
+            const nId = activity.nId;
+            if (nId) {
+                hltText = NIL_HLT_HEADING;
 
-                if (isBreak(activity) && hideBreaks) {
-                    continue;
+                const note = getNote(state, nId);
+                const hlt = getHigherLevelTask(state, note);
+                if (hlt) {
+                    hltText = getNoteTextWithoutPriority(hlt.data);
+                    hltNId = hlt.id;
                 }
-
-                let hltText = "??";
-                let hltNId: NoteId | undefined;
-
-                const nId = activity.nId;
-                if (nId) {
-                    hltText = NIL_HLT_HEADING;
-
-                    const note = getNote(state, nId);
-                    const hlt = getHigherLevelTask(state, note);
-                    if (hlt) {
-                        hltText = getNoteTextWithoutPriority(hlt.data);
-                        hltNId = hlt.id;
-                    }
-                } else if (isBreak(activity)) {
-                    hltText = "[Break]: " + activity.breakInfo;
-                }
-
-                const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
-                block.time += durationMs;
-                hltMap.set(hltText, block);
+            } else if (isBreak(activity)) {
+                hltText = "[Break]: " + activity.breakInfo;
             }
+
+            const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
+            block.time += durationMs;
+            hltMap.set(hltText, block);
         }
 
         if (!setVisible(list, hltMap.size > 0)) {
@@ -2928,7 +2933,7 @@ export function App() {
         todoList
     ]);
 
-    const asciiCanvasModal = AsciiCanvasModal();
+    const scratchPadModal = ScratchPadModal();
     const interactiveGraphModal = InteractiveGraphModal();
     const settingsModal = SettingsModal();
     const fuzzyFindModal = FuzzyFindModal();
@@ -2957,7 +2962,7 @@ export function App() {
     const bottomButtons = div({ class: "row align-items-end sb1t" }, [
         div({ class: "row align-items-end" }, [
             makeButtonWithCallback("Scratch Pad", () => {
-                setCurrentModal(asciiCanvasModal);
+                setCurrentModal(scratchPadModal);
             }),
         ]),
         div({ class: "row align-items-end" }, [
@@ -3034,7 +3039,7 @@ export function App() {
             bottomButtons,
             filterEditorRow,
         ]),
-        asciiCanvasModal,
+        scratchPadModal,
         interactiveGraphModal,
         fuzzyFindModal,
         settingsModal,
@@ -3121,7 +3126,7 @@ export function App() {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(asciiCanvasModal);
+            setCurrentModal(scratchPadModal);
             return;
         } else if (
             e.key === "G" &&
@@ -3440,7 +3445,7 @@ export function App() {
                 exportModal.render(undefined);
             }
 
-            asciiCanvasModal.render({
+            scratchPadModal.render({
                 canvasArgs: {
                     outputLayers: state.scratchPadCanvasLayers,
                     onInput() { },
@@ -3448,7 +3453,7 @@ export function App() {
                         debouncedSave();
                     }
                 },
-                open: currentModal === asciiCanvasModal
+                open: currentModal === scratchPadModal
             });
 
             if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
