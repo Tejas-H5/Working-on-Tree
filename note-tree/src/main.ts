@@ -1833,30 +1833,26 @@ function NoteRowDurationInfo() {
 
             const ONE_HOUR = 1000 * 60 * 60;
 
-            if (
-                noteIsParent
-                && parentEstimate < childEstimates
-            ) {
+            if (!noteIsParent) {
+                total = parentEstimate - childEstimates;
+            }
+
+            const delta = total - duration;
+            isOnTrack = delta >= 0 && total > 0;
+
+            // This totalDuration / estimate figure should almost never be obscured/hidden
+            estimatElText = formatDurationAsHours(duration) 
+                + "/" 
+                + formatDurationAsHours(Math.max(0, total));
+
+            if (noteIsParent && total <= 0) {
                 // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
                 // can update their prior assumptions and update the real estimate themselves.
                 // The reason why I no longer automate this is because the benefits of estimating a task
                 // come almost entirely from the side-effects of computing the number yourself, and
                 // the final estimate actually has no real value by itself
                 isOnTrack = false;
-                estimatElText = `estimates below sum to E=${(childEstimates / ONE_HOUR).toFixed(2)}!`;
-            } else {
-                if (!noteIsParent) {
-                    total = parentEstimate - childEstimates;
-                }
-
-                const delta = total - duration;
-                isOnTrack = delta >= 0;
-
-                if (total <= 0) {
-                    estimatElText = `estimated no time remaining!`;
-                } else {
-                    estimatElText = formatDurationAsHours(duration) + "/" + formatDurationAsHours(Math.abs(total));
-                }
+                estimatElText += ` (estimates below add to E=${(childEstimates / ONE_HOUR).toFixed(2)}h !)`;
             }
 
             setStyle(estimateEl, "color", isOnTrack ? "" : "#F00");
