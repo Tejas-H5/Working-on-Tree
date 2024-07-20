@@ -1231,30 +1231,57 @@ export function getNoteDurationWithoutRange(_state: State, note: TreeNote) {
 
 // NOTE: doesn't detect the 'h'. so it might be inaccurate.
 function hasEstimate(text: string) {
-    const DELIMITER = "E=";
-    return text.indexOf(DELIMITER) !== -1;
+    return parseNoteEstimate(text) !== -1;
+}
+
+function isNumber(c: string) {
+    return c === "." || ("0" <= c && c <= "9");
+}
+
+function isHms(c: string | undefined) {
+    return c === undefined || c === "h" || c === "m" || c === "s";
 }
 
 function parseNoteEstimate(text: string): number {
+    const ONE_SECOND = 1000;
+    const ONE_MINUTE = ONE_SECOND * 60;
+    const ONE_HOUR = 60 * ONE_MINUTE;
+
     const DELIMITER = "E=";
-    const start = text.indexOf(DELIMITER) + DELIMITER.length;
+    const start = text.indexOf(DELIMITER);
     if (start === -1) {
-        return 0;
+        return -1;
     }
 
-    const END_DELIMITER = "h";
-    const end = text.indexOf(END_DELIMITER, start + 1);
-    if (end === -1) {
-        return 0;
+    let totalMs = 0;
+
+    let iLast = start + DELIMITER.length;
+    for (let i = iLast; i <= text.length; i++) {
+        if (isNumber(text[i])) {
+            continue;
+        }
+
+        if (isHms(text[i])) {
+            const numStr = text.substring(iLast, i);
+            iLast = i + 1;
+
+            const num = parseFloat(numStr);
+
+            if (text[i] === "h") {
+                totalMs += num * ONE_HOUR;
+            } else if (text[i] === "m") {
+                totalMs += num * ONE_MINUTE;
+            } else if (text[i] === "s") {
+                totalMs += num * ONE_SECOND;
+            }
+
+            continue;
+        }
+
+        break;
     }
 
-    const hoursStr = text.substring(start, end);
-    const hours = parseFloat(hoursStr);
-    if (!hours) {
-        return 0;
-    }
-
-    return Math.floor(hours * 60 * 60 * 1000);
+    return totalMs;
 }
 
 export function getParentNoteWithEstimate(state: State, note: TreeNote): TreeNote | undefined {

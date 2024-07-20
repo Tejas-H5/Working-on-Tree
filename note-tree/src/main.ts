@@ -123,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.97";
+const VERSION_NUMBER = "v1.1.98";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1845,14 +1845,14 @@ function NoteRowDurationInfo() {
                 + "/" 
                 + formatDurationAsHours(Math.max(0, total));
 
-            if (noteIsParent && total <= 0) {
+            if (noteIsParent && childEstimates > parentEstimate) {
                 // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
                 // can update their prior assumptions and update the real estimate themselves.
                 // The reason why I no longer automate this is because the benefits of estimating a task
                 // come almost entirely from the side-effects of computing the number yourself, and
                 // the final estimate actually has no real value by itself
                 isOnTrack = false;
-                estimatElText += ` (estimates below add to E=${(childEstimates / ONE_HOUR).toFixed(2)}h !)`;
+                estimatElText += ` (estimates below add to E=${formatDurationAsHours(childEstimates)}!)`;
             }
 
             setStyle(estimateEl, "color", isOnTrack ? "" : "#F00");
@@ -2466,16 +2466,14 @@ function CheatSheet() {
         el("H4", {}, ["Analytics"]),
         makeUnorderedList([
             `Press [Ctrl + Shift + D] to toggle 'duration mode'. You can now see a bunch of solid bars below each activity that lets you see which tasks you worked on today.`,
-            `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
+            `You can also change or disable the date range that is being used to calculate the duration next to each note`,
             `You should also see a table with rows for all the higher level tasks, and the time spent on them`,
         ]),
         el("H4", {}, ["Estimates"]),
         makeUnorderedList([
-            `You can add estimates to a particular note. Type E=<n>h where <n> is some number of hours (for now, you can only estimate in exact hours - it' a fairly new feature so I don't support 
-                proper duration input like other time-tracking apps. This will pin the total duration of a particular note to the status, and this will go red if you're over your estimate. 
-                This estimate will also contribute to the estimate of it's parent note, which is where the usefulness comes in - you won't have to do a bunch of adding by hand to get the total estimate.
-                Estimation is kinda a pain, so I don't expect you to religiously use this feature.`,
-            `You can also change or disable the date range that is being used to calculate the duration next to each note, and filter the activity list`,
+            `You can add estimates to a particular note. Type E=<n> where <n> is some number of hours and minutes, e.g E=1.5h or E=1h30m. This will pin the total duration of a particular note to the status, and this will go red if you're over your estimate.`,
+            `Estimates do not contribute to the parent estimate. Instead, if the sum of the child estimates is greater than the parent estimate, you will be warned of this, so that you can update the estimate yourself. Most of the value of estimates comes from the planning/thinking side-effects, so I am no longer automating this calculation.`,
+            `If a note underneath an estimated note doesn't have it's own estimate, it will be 'allocated' the estimated time remaining, which is calculated using some logic like [Parent estimate] - [total duration of all notes under Parent which are no longer in progress] - [total estimate of all notes under Parent which are currently in progress].`,
         ]),
         el("H4", {}, ["Scratchpad"]),
         makeUnorderedList([
