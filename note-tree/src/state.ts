@@ -1583,8 +1583,12 @@ export function deleteDoneNote(state: State, note: TreeNote): string | undefined
 }
 
 export function findPreviousActiviyIndex(state: State, nId: NoteId, idx: number): number {
-    // Why couldn't they just have findLastIndex whyyyyyy??
     const activities = state.activities;
+
+    if (idx >= activities.length) {
+        idx = activities.length - 1;
+    }
+
     for (let i = idx - 1; i >= 0; i--) {
         const a = activities[i];
         if (!a.nId) {
