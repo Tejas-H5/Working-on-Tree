@@ -291,6 +291,18 @@ export function InteractiveGraph() {
     }
 
     const contextMenuItemsDict = {
+        clearAll: contextMenuItem("Clear all", () => {
+            s.args.onInput();
+
+            for(const k in graphData.nodes) {
+                delete graphData.nodes[k];
+            }
+            for(const k in graphData.edges) {
+                delete graphData.edges[k];
+            }
+
+            renderGraph();
+        }),
         newNode: contextMenuItem("New node", () => {
             const x = realXToGraphX(graphState, relativeContainer.el, graphState.contextMenuX);
             const y = realYToGraphY(graphState, relativeContainer.el, graphState.contextMenuY)
@@ -415,6 +427,7 @@ export function InteractiveGraph() {
         isSnapepdToGrid: false,
 
         contextMenuItems: [
+            contextMenuItemsDict.clearAll,
             contextMenuItemsDict.newNode,
             contextMenuItemsDict.recenter,
             contextMenuItemsDict.clearZoom,
@@ -434,6 +447,7 @@ export function InteractiveGraph() {
 
     let viewDxStart = 0, viewDyStart = 0;
     let nodeDxStart = 0, nodeDyStart = 0;
+    let mouseStartX = 0, mouseStartY = 0;
 
     function moveGraphView(x: number, y: number) {
         graphState.viewX = x;
@@ -670,16 +684,24 @@ export function InteractiveGraph() {
                 viewDxStart = graphState.viewX;
                 viewDyStart = graphState.viewY;
             }
+
+            mouseStartX = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
+            mouseStartY = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
         },
         onDrag(dx: number, dy: number, e: MouseEvent) {
             if (graphState.isEditing) {
                 return;
             }
 
+            const mouseX = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
+            const mouseY = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
+            const dxGraph = mouseX - mouseStartX;
+            const dyGraph = mouseY - mouseStartY;
+
             if (graphState.currentSelectedNodeId) {
                 const currentNode = graphData.nodes[graphState.currentSelectedNodeId];
-                currentNode.x = nodeDxStart + dx;
-                currentNode.y = nodeDyStart + dy;
+                currentNode.x = nodeDxStart + dxGraph;
+                currentNode.y = nodeDyStart + dyGraph;
 
                 s.args.onInput();
 
@@ -688,9 +710,6 @@ export function InteractiveGraph() {
 
             if (graphState.currentEdgeDragEdgeId) {
                 const currentEdge = graphData.edges[graphState.currentEdgeDragEdgeId];
-
-                const mouseX = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
-                const mouseY = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
 
                 if (graphState.currentEdgeDragStartIsSrc) {
                     currentEdge.dstX = mouseX;
@@ -705,8 +724,7 @@ export function InteractiveGraph() {
                 return;
             }
 
-            graphState.viewX = viewDxStart + dx;
-            graphState.viewY = viewDyStart + dy;
+            moveGraphView(viewDxStart + dx, viewDyStart + dy);
             return;
         },
         onDragEnd(e) {
@@ -805,24 +823,27 @@ export function InteractiveGraph() {
 
         // NOTE: Thisworks with the mouse wheel (delta ranges between -1 and 1, but infrequent) 
         // and the trackpad (ranges between -0.01 and 0.01 but occurs far more frequently)
-        const delta = clamp(e.deltaY / 100, -0.1, 0.1);
 
         const oldX0 = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
         const oldY0 = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
 
+        const delta = clamp(e.deltaY / 100, -0.1, 0.1);
         const newZoom = clamp(graphState.viewZoom - delta, 0.1, 10);
         graphState.viewZoom = newZoom;
 
         const newX0 = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
         const newY0 = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
 
+        // TODO: fix. zooming in and out doesn feel quite right
         // const xDelta = graphXToRealX(graphState, relativeContainer.el, newX0 - oldX0);
         // const yDelta = graphXToRealX(graphState, relativeContainer.el, newY0 - oldY0);
         const xDelta = newX0 - oldX0;
         const yDelta = newY0 - oldY0;
 
-        graphState.viewX += xDelta;
-        graphState.viewY += yDelta;
+        moveGraphView(
+            graphState.viewX - xDelta,
+            graphState.viewY - yDelta,
+        );
 
         renderGraph();
     });
@@ -1000,11 +1021,8 @@ function GraphNodeUI() {
         const xPos = graphXToRealX(graphState, relativeContainer.el, node.x);
         const yPos = graphYToRealY(graphState, relativeContainer.el, node.y);
 
-        const w = root.el.clientWidth;
-        const h = root.el.clientHeight;
-
         setStyle(root, "transformOrigin", `top left`);
-        setStyle(root, "transform", `scale(${graphState.viewZoom}) translate(${xPos - w / 2}px, ${yPos - h / 2}px)`);
+        setStyle(root, "transform", `translate(${xPos}px, ${yPos}px) scale(${graphState.viewZoom})`);
         setStyle(root, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
         setStyle(root, "zIndex", isSelected ? Z_INDICES.NODE_SELECTED : Z_INDICES.NODE_UNSELECTED);
         setStyle(textDiv, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");

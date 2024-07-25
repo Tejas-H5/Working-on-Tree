@@ -69,6 +69,7 @@ import {
     getCurrentStateAsJSON,
     getFirstPartOfRow,
     getHigherLevelTask,
+    getHltHeader,
     getLastActivity,
     getLastActivityWithNote,
     getLastActivityWithNoteIdx,
@@ -123,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.98";
+const VERSION_NUMBER = "v1.1.99";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -277,7 +278,7 @@ function TodoListInternal() {
                     lastHlt = higherLevelTask;
 
                     if (higherLevelTask) {
-                        hltHeading = getNoteTextWithoutPriority(higherLevelTask.data);
+                        hltHeading = getHltHeader(state, higherLevelTask);
                     } else {
                         hltHeading = NIL_HLT_HEADING;
                     }
@@ -350,7 +351,7 @@ function TodoList() {
         if (state._todoNoteFilters === -1) {
             const note = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, note);
-            const hltText = hlt ? getNoteTextWithoutPriority(hlt.data) : NIL_HLT_HEADING;
+            const hltText = hlt ? getHltHeader(state, hlt) : NIL_HLT_HEADING;
             headingText = "Everything in progress for specific task [" + hltText + "]" + count + rightArrow;
         } else if (state._todoNoteFilters === 0) {
             headingText = leftArrow + "Everything in progress for every task" + count + rightArrow;
@@ -1459,10 +1460,13 @@ function FuzzyFinder() {
     const matches: Match[] = [];
     let currentSelectionIdx = 0;
 
+    let scopedToCurrentNote = false;
+
     const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    const searchLabel = div({ style: "padding: 10px", class: "nowrap" }, ["Search:"]);
     const root = div({ class: "flex-1 col" }, [
-        div({ class: "row align-items-center" }, [
-            div({ style: "padding: 10px" }, ["Search:"]),
+        div({ class: "row align-items-center",  }, [
+            searchLabel,
             searchInput,
             div({ style: "width: 10px" }),
         ]),
@@ -1475,13 +1479,18 @@ function FuzzyFinder() {
     let timeoutId = 0;
     const DEBOUNCE_MS = 10;
     function rerenderSearch() {
+        setText(searchLabel, scopedToCurrentNote ? "Search (Current note):" : "Search (Everywhere):");
+
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             matches.splice(0, matches.length);
 
             const query = searchInput.el.value.toLowerCase();
 
-            dfsPre(state, getRootNote(state), (n) => {
+            const rootNote = scopedToCurrentNote ? getCurrentNote(state)
+                : getRootNote(state);
+
+            dfsPre(state, rootNote, (n) => {
                 if (!n.parentId) {
                     // ignore the root note
                     return;
@@ -1553,6 +1562,16 @@ function FuzzyFinder() {
             return;
         }
 
+        if (
+            (e.ctrlKey || e.metaKey)
+            && e.shiftKey
+            && e.key === "F"
+        ) {
+            scopedToCurrentNote = !scopedToCurrentNote;
+            rerenderSearch();
+            return;
+        }
+
         let handled = true;
 
         // NOTE: no home, end, we need that for the search input
@@ -1609,7 +1628,7 @@ function LoadBackupModal() {
         fileName: string;
         text: string;
     }>();
-    
+
     const fileNameDiv = el("H3");
     const infoDiv = div();
     const loadBackupButton = makeButton("Load this backup");
@@ -1692,7 +1711,6 @@ function InteractiveGraphModal() {
     const rg = newRenderGroup();
     const root = Modal(
         div({ style: modalPaddingStyles(10) }, [
-            div({}, [ "This feature is no longer being worked on. I thought it would be pretty fun to make, but I've not used it ever since (unlike the scratch pad, which was surprisingly useful)" ]),
             rg(InteractiveGraph(), (c) => c.render({
                 onClose,
                 graphData: state.mainGraphData,
@@ -1716,7 +1734,7 @@ function SettingsModal() {
     const root = Modal(div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
         el("H3", { class: "text-align-center" }, "Settings"),
         div({ class: "row" }, [
-            div({}, [ `No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!` ]),
+            div({}, [`No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!`]),
         ])
     ]));
 
@@ -1729,8 +1747,8 @@ function SettingsModal() {
 }
 
 function ScratchPadModal() {
-    const s = newState<{ 
-        open: boolean; 
+    const s = newState<{
+        open: boolean;
         canvasArgs: AsciiCanvasArgs;
     }>();
 
@@ -1800,12 +1818,12 @@ function NoteRowDurationInfo() {
     const divider = span({}, ", ");
     const estimateContainer = span();
     const estimateEl = span();
-    const root = div({ 
-        class: "row", 
-        style: "text-align: right; gap: 5px; padding-left: 10px;" 
+    const root = div({
+        class: "row",
+        style: "text-align: right; gap: 5px; padding-left: 10px;"
     }, [
-        durationEl, 
-        divider, 
+        durationEl,
+        divider,
         addChildren(estimateContainer, [
             estimateEl,
         ])
@@ -1821,31 +1839,36 @@ function NoteRowDurationInfo() {
 
         const parentWithEstimate = getParentNoteWithEstimate(state, note);
         if (setVisible(estimateContainer, !!parentWithEstimate) && !!parentWithEstimate) {
-            const parentEstimate = getNoteEstimate(parentWithEstimate); 
+            const parentEstimate = getNoteEstimate(parentWithEstimate);
             const childEstimates = getNoteChildEstimates(state, parentWithEstimate);
 
             const duration = getNoteDurationWithoutRange(state, note);
-            const noteIsParent = parentWithEstimate.id === note.id;
+            const noteIsEstimateParent = parentWithEstimate.id === note.id;
 
             let estimatElText = "";
             let total = parentEstimate;
             let isOnTrack = true;
 
-            const ONE_HOUR = 1000 * 60 * 60;
-
-            if (!noteIsParent) {
+            if (!noteIsEstimateParent) {
                 total = parentEstimate - childEstimates;
             }
 
             const delta = total - duration;
             isOnTrack = delta >= 0 && total > 0;
 
-            // This totalDuration / estimate figure should almost never be obscured/hidden
-            estimatElText = formatDurationAsHours(duration) 
-                + "/" 
-                + formatDurationAsHours(Math.max(0, total));
+            const hideTotal = (
+                note.data._status === STATUS_DONE
+                || note.data._status === STATUS_ASSUMED_DONE
+            )
+            if (hideTotal) {
+                estimatElText = formatDurationAsHours(duration) + " total"
+            } else {
+                estimatElText = formatDurationAsHours(duration)
+                    + "/"
+                    + formatDurationAsHours(Math.max(0, total));
+            }
 
-            if (noteIsParent && childEstimates > parentEstimate) {
+            if (noteIsEstimateParent && childEstimates > parentEstimate) {
                 // If the sum of the child estimates is greater than what we've put down, let the user know, so they 
                 // can update their prior assumptions and update the real estimate themselves.
                 // The reason why I no longer automate this is because the benefits of estimating a task
@@ -2044,8 +2067,8 @@ function NoteListInternal() {
 
                 const isOnCurrentLevel = currentNote.parentId === note.parentId;
                 let isSticky = (note.id !== currentNote.id && note.data._isSelected) || (
-                    isOnCurrentLevel && 
-                    note.data.isSticky 
+                    isOnCurrentLevel &&
+                    note.data.isSticky
                 );
 
                 const durationMs = getNoteDurationUsingCurrentRange(state, note);
@@ -2752,9 +2775,9 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 
 function HighLevelTaskDurations() {
     function Row() {
-        const s = newState<{ 
-            name: string; 
-            durationMs: number, nId: NoteId | undefined 
+        const s = newState<{
+            name: string;
+            durationMs: number, nId: NoteId | undefined
         }>();
 
         const rg = newRenderGroup();

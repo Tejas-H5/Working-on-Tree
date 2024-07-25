@@ -30,11 +30,9 @@ export function Checkbox(initialLabel?: string) {
         ]),
     ]);
 
-    const c = newComponent(checkbox, rg.render, s);
-
     on(checkbox, "click", () => {
         s.args.onChange(!s.args.value);
     });
 
-    return c;
+    return newComponent(checkbox, rg.render, s);;
 }

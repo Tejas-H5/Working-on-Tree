@@ -173,6 +173,19 @@ export function getNoteTextWithoutPriority(note: Note): string {
     return note.text.substring(priority).trim();
 }
 
+export function getHltHeader(state: State, note: TreeNote): string {
+    const strBuilder: string[] = [];
+    tree.forEachParent(state.notes, note, (note) => {
+        if (getTodoNotePriority(note.data) >= 2) {
+            strBuilder.push(
+                getNoteTextWithoutPriority(note.data)
+            );
+        }
+    });
+
+    return strBuilder.reverse().join(" :: ");
+}
+
 export function getTodoNotePriority(note: Note): number {
     // Keep the priority system simple. 
     // Tasks are are always changing priority, and having too many priorities means they will always be assigned the wrong priority.
@@ -568,7 +581,8 @@ export function recomputeState(state: State) {
             note.data._isUnderCurrent = false;
         });
 
-        const currentNote = getCurrentNote(state);
+        const currentId = state.currentNoteId;
+        const currentNote = getNote(state, currentId);
         const currentHLT = getHigherLevelTask(state, currentNote);
         let showedNilTask = false;
 
@@ -619,9 +633,7 @@ export function recomputeState(state: State) {
                     }
                     showedNilTask = true;
                 }
-            } else if (state._todoNoteFilters === 2) {
-
-            }
+            } 
 
             state._todoNoteIds.push(note.id);
             note.data._isUnderCurrent = true;
