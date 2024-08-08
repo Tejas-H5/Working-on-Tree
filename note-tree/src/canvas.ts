@@ -1,8 +1,8 @@
 import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-input";
-import { ScrollContainer, makeButton } from "src/components";
+import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, on, replaceChildren, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, State, div, el, isVisible, newComponent, newComponent2, newListRenderer, newState, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 const TAB_SIZE = 4;
 
@@ -910,29 +910,26 @@ function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: Visua
 }
 
 
-function Canvas() {
+function Canvas(rg: RenderGroup) {
     const s = newState<CanvasArgs>();
 
     let currentCursorEl: Insertable | null = null;
     let shouldScroll = false;
 
-    const scrollContainer = ScrollContainer();
+    const scrollContainer = newComponent(ScrollContainer);
     const root = setAttrs(scrollContainer, { 
         class: "flex-1",
         style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
             "border: 1px solid var(--fg-color);"
     }, true);
 
-    const rowList = newListRenderer(root, () => {
-        const s = newState<RowArgs>();
-
+    const rowList = newListRenderer(root, () => newComponent((rg: RenderGroup, s: State<RowArgs>) => {
         const root = div({ 
             class: "row justify-content-center", 
             style: "width: fit-content;"
         });
 
-        const charList = newListRenderer(root, () => {
-            const s = newState<CanvasCellArgs>();
+        const charList = newListRenderer(root, () => newComponent((rg: RenderGroup, s: State<CanvasCellArgs>) => {
             // Memoizing for peformance. 
             let lastState = -1;
             let lastIsCursor = false;
@@ -948,7 +945,7 @@ function Canvas() {
                 style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" 
             });
 
-            function renderCanvasCell() {
+            rg.preRenderFn(root, function renderCanvasCell() {
                 const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s.args;
 
                 getVisualChar(canvasState, i, j, visualCharInfo);
@@ -1000,10 +997,7 @@ function Canvas() {
                         state === 2 ? "#FFF" : ""
                     );
                 }
-            }
-
-            // We want errors to be caught by the root canvas, not inside of this specific cell.
-            component.skipErrorBoundary = true;
+            });
 
             function handleMouseMovement(e: MouseEvent) {
                 e.stopImmediatePropagation();
@@ -1015,12 +1009,12 @@ function Canvas() {
                 onMouseInputStateChange();
             }
 
-            on(root, "mousemove", handleMouseMovement);
+            root.el.addEventListener("mousemove", handleMouseMovement);
 
-            return newComponent(root, renderCanvasCell, s);
-        });
+            return root;
+        }, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
-        function renderCanvasRow() {
+        rg.preRenderFn(root, function renderCanvasRow() {
             const { charList: rowList } = s.args;
 
             charList.render((getNext) => {
@@ -1029,15 +1023,12 @@ function Canvas() {
                     c.render(rowList[i]);
                 }
             });
-        }
+        });
 
-        const component = newComponent(root, renderCanvasRow, s);
-        component.skipErrorBoundary = true;
+        return root;
+    }, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
-        return component;
-    });
-
-    on(root, "mouseleave", () => {
+    root.el.addEventListener("mouseleave", () => {
         canvasState.mouseInputState.x = -1;
         canvasState.mouseInputState.y = -1;
         onMouseInputStateChange();
@@ -1123,64 +1114,67 @@ function Canvas() {
 
         // some of these are also select actions, so they need to be checked first.
         if (startedAction === "move-selection") {
-            // apply the move we started
+            if (!cancel) {
+                // apply the move we started
+                const tempLayer = newLayer();
+                const selectionLayer = newLayer(); // HACK: should be booleans. but I don't care
+                resizeLayer(tempLayer, getNumRows(canvasState), getNumCols(canvasState));
+                resizeLayer(selectionLayer, getNumRows(canvasState), getNumCols(canvasState));
 
-            const tempLayer = newLayer();
-            const selectionLayer = newLayer(); // HACK: should be booleans. but I don't care
-            resizeLayer(tempLayer, getNumRows(canvasState), getNumCols(canvasState));
-            resizeLayer(selectionLayer, getNumRows(canvasState), getNumCols(canvasState));
+                const visualInfo: VisualCharInfo = {
+                    char: ' ',
+                    isSelected: false,
+                };
 
-            const visualInfo: VisualCharInfo = {
-                char: ' ',
-                isSelected: false,
-            };
+                forEachCell(canvasState, c => {
+                    getVisualChar(canvasState, c.i, c.j, visualInfo);
+                    tempLayer.data[c.i][c.j] = visualInfo.char;
+                    selectionLayer.data[c.i][c.j] = visualInfo.isSelected ? "y" : "n";
+                });
 
-            forEachCell(canvasState, c => {
-                getVisualChar(canvasState, c.i, c.j, visualInfo);
-                tempLayer.data[c.i][c.j] = visualInfo.char;
-                selectionLayer.data[c.i][c.j] = visualInfo.isSelected ? "y" : "n";
-            });
-
-            forEachCell(canvasState, c => {
-                setCharOnCurrentLayer(canvasState, c.i, c.j, tempLayer.data[c.i][c.j]);
-                selectCell(canvasState, c.i, c.j, selectionLayer.data[c.i][c.j] === "y");
-            });
+                forEachCell(canvasState, c => {
+                    setCharOnCurrentLayer(canvasState, c.i, c.j, tempLayer.data[c.i][c.j]);
+                    selectCell(canvasState, c.i, c.j, selectionLayer.data[c.i][c.j] === "y");
+                });
+            }
 
             canvasState.toolState.startedMove = false;
-            canvasState.toolState.moveOffsetI = 50;
-            canvasState.toolState.moveOffsetJ = 50;
+            canvasState.toolState.moveOffsetI = 0;
+            canvasState.toolState.moveOffsetJ = 0;
             return;
         } 
 
         if (isSelectionTool(startedAction)) {
-            const applyType = canvasState.toolState.selectionApplyType;
-            
-            if (applyType === "additive") {
-                forEachCell(canvasState, (c) => {
-                    // additive selection
-                    if (c.isSelectedPreview) {
-                        selectCell(canvasState, c.i, c.j, true);
-                    }
-                });
-            } else if (applyType === "subtractive") {
-                forEachCell(canvasState, (c) => {
-                    // subtractive selection
-                    if (c.isSelectedPreview) {
-                        selectCell(canvasState, c.i, c.j, false);
-                    }
-                });
-            } else if (applyType === "replace") {
-                forEachCell(canvasState, (c) => {
-                    // replace selection
-                    selectCell(canvasState, c.i, c.j, c.isSelectedPreview);
-                });
-            } else if (applyType === "toggle") {
-                forEachCell(canvasState, (c) => {
-                    // replace selection
-                    if (c.isSelectedPreview) {
-                        selectCell(canvasState, c.i, c.j, !c.isSelected);
-                    }
-                });
+            if (!cancel) {
+                const applyType = canvasState.toolState.selectionApplyType;
+                
+                if (applyType === "additive") {
+                    forEachCell(canvasState, (c) => {
+                        // additive selection
+                        if (c.isSelectedPreview) {
+                            selectCell(canvasState, c.i, c.j, true);
+                        }
+                    });
+                } else if (applyType === "subtractive") {
+                    forEachCell(canvasState, (c) => {
+                        // subtractive selection
+                        if (c.isSelectedPreview) {
+                            selectCell(canvasState, c.i, c.j, false);
+                        }
+                    });
+                } else if (applyType === "replace") {
+                    forEachCell(canvasState, (c) => {
+                        // replace selection
+                        selectCell(canvasState, c.i, c.j, c.isSelectedPreview);
+                    });
+                } else if (applyType === "toggle") {
+                    forEachCell(canvasState, (c) => {
+                        // replace selection
+                        if (c.isSelectedPreview) {
+                            selectCell(canvasState, c.i, c.j, !c.isSelected);
+                        }
+                    });
+                }
             }
 
             forEachCell(canvasState, (c) => c.isSelectedPreview = false);
@@ -1352,7 +1346,7 @@ function Canvas() {
         },
     };
 
-    function renderCanvas() {
+    rg.preRenderFn(root, function renderCanvas() {
         const { outputLayers } = s.args;
 
         if (outputLayers) {
@@ -1391,12 +1385,10 @@ function Canvas() {
             scrollContainer.state.args.scrollEl = currentCursorEl;
             scrollContainer.render(scrollContainer.state.args);
         }
-    }
-
-    const component = newComponent(root, renderCanvas, s);
+    });
 
     document.addEventListener("mousedown", () => {
-        if (!isVisible(component)) {
+        if (!isVisible(root)) {
             return;
         }
 
@@ -1406,7 +1398,7 @@ function Canvas() {
     });
 
     document.addEventListener("mouseup", () => {
-        if (!isVisible(component)) {
+        if (!isVisible(root)) {
             return;
         }
 
@@ -1416,7 +1408,7 @@ function Canvas() {
     });
 
     document.addEventListener("keyup", () => {
-        if (!isVisible(component)) {
+        if (!isVisible(root)) {
             return;
         }
 
@@ -1648,7 +1640,7 @@ function Canvas() {
     }
 
     document.addEventListener("keydown", (e) => {
-        if (!isVisible(component)) {
+        if (!isVisible(root)) {
             return;
         }
 
@@ -1656,7 +1648,7 @@ function Canvas() {
 
         s.args.onInput();
 
-        renderCanvas();
+        rg.render();
     });
 
     document.addEventListener("keyup", (e) => {
@@ -1671,12 +1663,11 @@ function Canvas() {
 
         if (shouldApply) {
             applyCurrentAction();
-            renderCanvas();
+            rg.render();
         }
     });
 
-
-    return [component, canvasState] as const;
+    return [root, canvasState] as const;
 }
 
 // TODO: figure out hwo to delete this fn. lol.
@@ -1708,47 +1699,42 @@ export type AsciiCanvasArgs = {
     onWrite(): void;
 }
 
-export function AsciiCanvas() {
+export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
-    function ToolbarButton() {
-        const s = newState<{
-            name: string;
-            onClick(e: MouseEvent): void;
-            tool?: ToolType;
-            selected?: boolean;
-            disabled?: boolean;
-        }>();
+    function ToolbarButton(rg: RenderGroup, s: State<{
+        name: string;
+        onClick(e: MouseEvent): void;
+        tool?: ToolType;
+        selected?: boolean;
+        disabled?: boolean;
+    }>) {
+        const button = newComponent(Button);
+        setAttrs(button, { class: "inline-block", style: ";text-align: center; align-items: center;" }, true);
 
-        const textEl = div();
-        const button = setAttrs(makeButton(""), { class: "inline-block", style: ";text-align: center; align-items: center;" }, true);
-        replaceChildren(button, [
-            textEl, 
-        ]);
-
-        function renderAsciiCanvasToolbarButton() {
+        rg.preRenderFn(button, function renderAsciiCanvasToolbarButton() {
             const { tool, selected, disabled } = s.args;
 
             setText(button, s.args.name);
+            button.render({
+                label: s.args.name,
+                onClick: (e) => {
+                    const { onClick, tool } = s.args;
+
+                    if (tool) {
+                        changeTool(tool);
+                    }
+
+                    onClick(e);
+                }
+            });
 
             const isCurrentTool = getTool(canvasState) === tool;
             setClass(button, "inverted", !!selected || isCurrentTool);
             setClass(button, "unfocused-text-color", !!disabled);
-        }
-
-        on(button, "click", (e) => { 
-            const { onClick, tool } = s.args;
-
-            if (tool) {
-                changeTool(tool);
-            }
-
-            onClick(e);
         });
 
-        return newComponent(button, renderAsciiCanvasToolbarButton, s);
+        return button;
     }
-
-    const s = newState<AsciiCanvasArgs>();
 
     function changeTool(tool?: ToolType) {
         if (!tool) {
@@ -1759,26 +1745,130 @@ export function AsciiCanvas() {
         rerenderLocal();
     }
 
-    const [canvasComponent, canvasState] = Canvas();
+    const [canvasComponent, canvasState] = newComponent2(Canvas);
     const buttons = {
-        moreRows: ToolbarButton(),
-        lessRows: ToolbarButton(),
-        moreCols: ToolbarButton(),
-        lessCols: ToolbarButton(),
-        freeformSelect: ToolbarButton(),
-        lineSelect: ToolbarButton(),
-        rectOutlineSelect: ToolbarButton(),
-        rectSelect: ToolbarButton(),
-        bucketFillSelect: ToolbarButton(),
-        bucketFillSelectOutline: ToolbarButton(),
-        bucketFillSelectConnected: ToolbarButton(),
-        invertSelection: ToolbarButton(),
-        copyToClipboard: ToolbarButton(),
-        pasteFromClipboard: ToolbarButton(),
-        pasteFromClipboardTransparent: ToolbarButton(),
-        linesFromSelection: ToolbarButton(),
-        undoButton: ToolbarButton(),
-        redoButton: ToolbarButton(),
+        moreRows: rg.cArgs(ToolbarButton, (c) => c.render({
+                name: "+",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                    rerenderLocal();
+                },
+            })),
+        lessRows: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
+        moreCols: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "+",
+            onClick: () => {
+                const wantedCols = Math.max(
+                    getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
+                    MIN_NUM_COLS,
+                );
+                resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
+                rerenderLocal();
+            },
+        })),
+        lessCols: rg.cArgs(ToolbarButton, (c) => c.render({
+                name: "-",
+                onClick: () => {
+                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                    rerenderLocal();
+                },
+            })),
+        freeformSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Draw",
+            onClick: rerenderLocal,
+            tool: "freeform-select" satisfies ToolType,
+        })),
+        lineSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Line",
+            onClick: rerenderLocal,
+            tool: "line-select",
+        })),
+        rectOutlineSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Rect Outline",
+            onClick: rerenderLocal,
+            tool: "rect-outline-select",
+        })),
+        rectSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Rect",
+            onClick: rerenderLocal,
+            tool: "rect-select",
+        })),
+        bucketFillSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Fill",
+            onClick: rerenderLocal,
+            tool: "fill-select",
+        })),
+        bucketFillSelectOutline: rg.cArgs(ToolbarButton,  (c) => c.render({
+            name: "Fill Outline",
+            onClick: rerenderLocal,
+            tool: "fill-select-outline",
+        })),
+        bucketFillSelectConnected: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Fill Connected",
+            onClick: rerenderLocal,
+            tool: "fill-select-connected",
+        })),
+        invertSelection: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Invert Selection",
+            onClick: () => {
+                forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
+                rerenderLocal();
+            },
+        })),
+        copyToClipboard: rg.cArgs(ToolbarButton, (button) => {
+            button.render({
+                name: "Copy",
+                onClick: copyCanvasToClipboard,
+                selected: copied,
+            })
+        }),
+        pasteFromClipboard: rg.cArgs(ToolbarButton, (button) => {
+            button.render({
+                name: "Paste",
+                onClick: () => {
+                    pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    rerenderLocal();
+                },
+                selected: pastedNoTransparency,
+                disabled: !canPaste,
+            });
+        }),
+        pasteFromClipboardTransparent: rg.cArgs(ToolbarButton, (button) => {
+            button.render({
+                name: "Paste (transparent)",
+                onClick: () => {
+                    pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    rerenderLocal();
+                },
+                selected: pastedWithTransparency,
+                disabled: !canPaste,
+            });
+        }),
+        linesFromSelection: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Draw Lines",
+            onClick: () => {
+                generateLines(canvasState);
+                rerenderLocal();
+            }
+        })), 
+        undoButton: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Undo",
+            selected: undoDone,
+            disabled: !canUndo(canvasState),
+            onClick: undo,
+        })),
+        redoButton: rg.cArgs(ToolbarButton, (c) => c.render({
+            name: "Redo",
+            selected: redoDone,
+            disabled: !canRedo(canvasState),
+            onClick: redo,
+        })),
     };
 
     const statusText = div({ style: "text-align: center" });
@@ -1789,86 +1879,27 @@ export function AsciiCanvas() {
     let cursorCell: CanvasCellArgs | undefined;
     let canPaste = false;
 
-    const rg = newRenderGroup();
-
     const mouseScrollList = [
-        rg(buttons.rectSelect, (c) => c.render({
-                name: "Rect",
-                onClick: rerenderLocal,
-                tool: "rect-select",
-        })),
-        rg(buttons.freeformSelect, (c) => c.render({
-            name: "Draw",
-            onClick: rerenderLocal,
-            tool: "freeform-select" satisfies ToolType,
-        })),
-        rg(buttons.lineSelect, (c) => c.render({
-            name: "Line",
-            onClick: rerenderLocal,
-            tool: "line-select",
-        })),
-        rg(buttons.rectOutlineSelect, (c) => c.render({
-            name: "Rect Outline",
-            onClick: rerenderLocal,
-            tool: "rect-outline-select",
-        })),
-        rg(buttons.bucketFillSelect, (c) => c.render({
-            name: "Fill",
-            onClick: rerenderLocal,
-            tool: "fill-select",
-        })),
-        rg(buttons.bucketFillSelectOutline, (c) => c.render({
-            name: "Fill Outline",
-            onClick: rerenderLocal,
-            tool: "fill-select-outline",
-        })),
-        rg(buttons.bucketFillSelectConnected, (c) => c.render({
-            name: "Fill Connected",
-            onClick: rerenderLocal,
-            tool: "fill-select-connected",
-        })),
+        buttons.rectSelect,
+        buttons.freeformSelect,
+        buttons.rectOutlineSelect,
+        buttons.bucketFillSelect, 
+        buttons.bucketFillSelectOutline,
+        buttons.bucketFillSelectConnected, 
     ];
 
     const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
         div({ class: "inline-block"}, [
-            rg(buttons.lessRows, (c) => c.render({
-                name: "-",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                    rerenderLocal();
-                },
-            })),
+            buttons.lessRows,
             div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
                 rg.text(() => "rows: " + getNumRows(canvasState)),
             ]),
-            rg(buttons.moreRows, (c) => c.render({
-                name: "+",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                    rerenderLocal();
-                },
-            })),
-            rg(buttons.lessCols, (c) => c.render({
-                name: "-",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
-                    rerenderLocal();
-                },
-            })),
+            buttons.moreRows,
+            buttons.lessCols,
             div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
                 rg.text(() => "cols: " + getNumCols(canvasState)),
             ]),
-            rg(buttons.moreCols, (c) => c.render({
-                name: "+",
-                onClick: () => {
-                    const wantedCols = Math.max(
-                        getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
-                        MIN_NUM_COLS,
-                    );
-                    resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
-                    rerenderLocal();
-                },
-            })),
+            buttons.moreCols,
         ]),
         spacer(),
         div({ class: "inline-block"}, [
@@ -1877,70 +1908,22 @@ export function AsciiCanvas() {
         ]),
         spacer(),
         div({ class: "inline-block"}, [
-            rg(buttons.invertSelection, (c) => c.render({
-                name: "Invert Selection",
-                onClick: () => {
-                    forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
-                    rerenderLocal();
-                },
-            })),
+            buttons.invertSelection,
         ]),
         spacer(),
         div({ class: "inline-block"}, [
-            rg(buttons.copyToClipboard, (button) => {
-                button.render({
-                    name: "Copy",
-                    onClick: copyCanvasToClipboard,
-                    selected: copied,
-                })
-            }),
-            rg(buttons.pasteFromClipboard, (button) => {
-                button.render({
-                    name: "Paste",
-                    onClick: () => {
-                        pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
-                        rerenderLocal();
-                    },
-                    selected: pastedNoTransparency,
-                    disabled: !canPaste,
-                });
-            }),
-            rg(buttons.pasteFromClipboardTransparent, (button) => {
-                button.render({
-                    name: "Paste (transparent)",
-                    onClick: () => {
-                        pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
-                        rerenderLocal();
-                    },
-                    selected: pastedWithTransparency,
-                    disabled: !canPaste,
-                });
-            }),
+            buttons.copyToClipboard,
+            buttons.pasteFromClipboard,
+            buttons.pasteFromClipboardTransparent,
         ]),
         spacer(),
         div({ class: "inline-block"}, [
-            rg(buttons.linesFromSelection, (c) => c.render({
-                name: "Draw Lines",
-                onClick: () => {
-                    generateLines(canvasState);
-                    rerenderLocal();
-                }
-            })),
+            buttons.linesFromSelection,
         ]),
         div({ class: "inline-block"}, [
-            rg(buttons.undoButton, (c) => c.render({
-                name: "Undo",
-                selected: undoDone,
-                disabled: !canUndo(canvasState),
-                onClick: undo,
-            })),
+            buttons.undoButton,
             rg.text(() => (1 + canvasState.undoLogPosition) + " / " + canvasState.undoLog.length),
-            rg(buttons.redoButton, (c) => c.render({
-                name: "Redo",
-                selected: redoDone,
-                disabled: !canRedo(canvasState),
-                onClick: redo,
-            })),
+            buttons.redoButton,
         ]),
     ]);
 
@@ -2042,11 +2025,11 @@ export function AsciiCanvas() {
     }
 
     function rerenderLocal() {
-        component.render(s.args);
+        canvasComponent.render(s.args);
         s.args.onInput();
     }
 
-    function renderAsciiCanvas() {
+    rg.preRenderFn(canvasComponent, function renderAsciiCanvas() {
         canvasArgs.outputLayers = s.args.outputLayers;
         canvasArgs.onWrite = s.args.onWrite;
 
@@ -2058,7 +2041,7 @@ export function AsciiCanvas() {
         canvasComponent.render(canvasArgs);
         
         updateCanvasStausText(canvasState);
-    }
+    });
 
     function prevTool() {
         let idx = mouseScrollList.findIndex((button) => {
@@ -2114,7 +2097,7 @@ export function AsciiCanvas() {
 
 
     document.addEventListener("keydown", (e) => {
-        if (!isVisible(component)) {
+        if (!isVisible(root)) {
             return;
         }
 
@@ -2158,7 +2141,6 @@ export function AsciiCanvas() {
         }
     });
 
-    const component = newComponent(root, renderAsciiCanvas, s);
-    return [component, canvasState] as const;
+    return [canvasComponent, canvasState] as const;
 }
 

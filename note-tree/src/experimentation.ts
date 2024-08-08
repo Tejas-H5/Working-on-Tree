@@ -256,3 +256,247 @@ function UserProfileHeader2() {
 //
 //
 
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
+// this is a good usecase of render groups actually. How tf do we do this without render groups, if possible?
+
+const mouseScrollList = [
+    rg(buttons.rectSelect, (c) => c.render({
+        name: "Rect",
+        onClick: rerenderLocal,
+        tool: "rect-select",
+    })),
+    rg(buttons.freeformSelect, (c) => c.render({
+        name: "Draw",
+        onClick: rerenderLocal,
+        tool: "freeform-select" satisfies ToolType,
+    })),
+    rg(buttons.lineSelect, (c) => c.render({
+        name: "Line",
+        onClick: rerenderLocal,
+        tool: "line-select",
+    })),
+    rg(buttons.rectOutlineSelect, (c) => c.render({
+        name: "Rect Outline",
+        onClick: rerenderLocal,
+        tool: "rect-outline-select",
+    })),
+    rg(buttons.bucketFillSelect, (c) => c.render({
+        name: "Fill",
+        onClick: rerenderLocal,
+        tool: "fill-select",
+    })),
+    rg(buttons.bucketFillSelectOutline, (c) => c.render({
+        name: "Fill Outline",
+        onClick: rerenderLocal,
+        tool: "fill-select-outline",
+    })),
+    rg(buttons.bucketFillSelectConnected, (c) => c.render({
+        name: "Fill Connected",
+        onClick: rerenderLocal,
+        tool: "fill-select-connected",
+    })),
+];
+
+const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+    div({ class: "inline-block"}, [
+        rg(buttons.lessRows, (c) => c.render({
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
+        div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            rg.text(() => "rows: " + getNumRows(canvasState)),
+        ]),
+        rg(buttons.moreRows, (c) => c.render({
+            name: "+",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
+        rg(buttons.lessCols, (c) => c.render({
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                rerenderLocal();
+            },
+        })),
+        div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            rg.text(() => "cols: " + getNumCols(canvasState)),
+        ]),
+        rg(buttons.moreCols, (c) => c.render({
+            name: "+",
+            onClick: () => {
+                const wantedCols = Math.max(
+                    getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
+                    MIN_NUM_COLS,
+                );
+                resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
+                rerenderLocal();
+            },
+        })),
+    ]),
+    spacer(),
+    div({ class: "inline-block"}, [
+        rg.text(() => "Selection (Ctrl + [Q/E]): "),
+        ...mouseScrollList,
+    ]),
+    spacer(),
+    div({ class: "inline-block"}, [
+        rg(buttons.invertSelection, (c) => c.render({
+            name: "Invert Selection",
+            onClick: () => {
+                forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
+                rerenderLocal();
+            },
+        })),
+    ]),
+    spacer(),
+    div({ class: "inline-block"}, [
+        rg(buttons.copyToClipboard, (button) => {
+            button.render({
+                name: "Copy",
+                onClick: copyCanvasToClipboard,
+                selected: copied,
+            })
+        }),
+        rg(buttons.pasteFromClipboard, (button) => {
+            button.render({
+                name: "Paste",
+                onClick: () => {
+                    pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    rerenderLocal();
+                },
+                selected: pastedNoTransparency,
+                disabled: !canPaste,
+            });
+        }),
+        rg(buttons.pasteFromClipboardTransparent, (button) => {
+            button.render({
+                name: "Paste (transparent)",
+                onClick: () => {
+                    pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
+                    rerenderLocal();
+                },
+                selected: pastedWithTransparency,
+                disabled: !canPaste,
+            });
+        }),
+    ]),
+    spacer(),
+    div({ class: "inline-block"}, [
+        rg(buttons.linesFromSelection, (c) => c.render({
+            name: "Draw Lines",
+            onClick: () => {
+                generateLines(canvasState);
+                rerenderLocal();
+            }
+        })),
+    ]),
+    div({ class: "inline-block"}, [
+        rg(buttons.undoButton, (c) => c.render({
+            name: "Undo",
+            selected: undoDone,
+            disabled: !canUndo(canvasState),
+            onClick: undo,
+        })),
+        rg.text(() => (1 + canvasState.undoLogPosition) + " / " + canvasState.undoLog.length),
+        rg(buttons.redoButton, (c) => c.render({
+            name: "Redo",
+            selected: redoDone,
+            disabled: !canRedo(canvasState),
+            onClick: redo,
+        })),
+    ]),
+]);
+
+
+const mouseScrollList = [
+    ... the args
+];
+
+
+const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" });
+
+
+
+
+
+, [
+    div({ class: "inline-block"}, [
+        rg(buttons.lessRows, (c) => c.render({
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
+        div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            rg.text(() => "rows: " + getNumRows(canvasState)),
+        ]),
+        rg(buttons.moreRows, (c) => c.render({
+            name: "+",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
+        rg(buttons.lessCols, (c) => c.render({
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                rerenderLocal();
+            },
+        })),
+        div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            rg.text(() => "cols: " + getNumCols(canvasState)),
+        ]),
+        rg(buttons.moreCols, (c) => c.render({
+            name: "+",
+            onClick: () => {
+                const wantedCols = Math.max(
+                    getNumCols(canvasState) + NUM_COLUMNS_INCR_AMOUNT,
+                    MIN_NUM_COLS,
+                );
+                resizeLayers(canvasState, getNumRows(canvasState), wantedCols);
+                rerenderLocal();
+            },
+        })),
+    ]),
+    spacer(),
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*/

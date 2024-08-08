@@ -8,7 +8,7 @@ export function TextArea(): Insertable<HTMLTextAreaElement> {
         style: "border: 1px var(--fg-color) solid; padding: 0;"
     });
 
-    on(textArea, "keydown", (e) => {
+    textArea.el.addEventListener("keydown", (e) => {
         if (e.key === "Tab") {
             e.preventDefault();
 

@@ -3,14 +3,15 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
-import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer, makeButton } from "src/components";
+import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer, Button } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
-    ChildList,
     Insertable,
+    RenderGroup,
+    State,
     addChildren,
     appendChild,
     div,
@@ -18,16 +19,16 @@ import {
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
+    newComponent2,
     newInsertable,
     newListRenderer,
-    newRenderGroup,
-    newState,
     newStyleGenerator,
-    on,
+    printRenderCounts,
     replaceChildren,
     scrollIntoView,
     setAttr,
     setAttrs,
+    setChildAt,
     setClass,
     setCssVars,
     setInputValue,
@@ -51,10 +52,10 @@ import {
     AppTheme,
     DockableMenu,
     NoteId,
+    NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
-    State,
     TreeNote,
     deleteDoneNote,
     deleteNoteIfEmpty,
@@ -136,29 +137,31 @@ const cnHoverLink = sg.makeClass("hover-link", [
     `:hover::after { content: " -->"; }`,
 ]);
 
-function NoteLink() {
-    const s = newState<{
-        text: string;
-        focusAnyway?: boolean;
-        noteId?: NoteId;
-        preventScroll?: boolean;
-    }>();
+function NoteLink(rg: RenderGroup, s: State<{
+    text: string;
+    focusAnyway?: boolean;
+    noteId?: NoteId;
+    preventScroll?: boolean;
+}>) {
+    let linkText: string = "";
+    const root = div({ style: "padding:5px; ", class: "handle-long-words" }, [
+        rg.text(() => linkText)
+    ])
 
-    const root = div({ style: "padding:5px; ", class: "handle-long-words" })
-
-    function renderNoteLink() {
+    rg.renderFn(root, () => {
         const { text, noteId, focusAnyway } = s.args;
 
         setClass(root, cnHoverLink, !!noteId);
-        setText(root, truncate(text, 500));
+        linkText = truncate(text, 500);
+
         root.el.style.backgroundColor = (!!focusAnyway || state.currentNoteId === noteId) ? (
             "var(--bg-color-focus)"
         ) : (
             "var(--bg-color)"
         );
-    }
+    });
 
-    on(root, "click", () => {
+    root.el.addEventListener("click", () => {
         const { noteId, preventScroll, } = s.args;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
@@ -172,19 +175,36 @@ function NoteLink() {
         }, 1);
     });
 
-    const component = newComponent(root, renderNoteLink, s);
-    return component;
+    return root;
 }
 
-function scrollNavItem(children?: ChildList) {
-    const cursor = div({ style: "background-color: var(--fg-color); min-width: 5px;" });
-
-    const root = div({ class: "row align-items-stretch" }, [
-        cursor,
-        div({ class: "flex-1 handle-long-words" }, children)
+function ScrollNavItem(rg: RenderGroup, s: State<{ 
+    isCursorVisible: boolean; 
+    isCursorActive: boolean;
+    isGreyedOut?: boolean;
+    isFocused: boolean;
+    children: Insertable[];
+}>) {
+    return div({ class: "row align-items-stretch" }, [
+        rg.style("backgroundColor", () => s.args.isFocused ? "var(--bg-color-focus)" : ""),
+        rg.style("color", () => s.args.isGreyedOut ? "var(--unfocus-text-color)" : ""),
+        rg.if(
+            () => s.args.isCursorVisible,
+            rg => div({ style: "min-width: 5px;" }, [
+                rg.style("backgroundColor", () => {
+                    return s.args.isCursorActive ? "var(--fg-color)" : "var(--bg-color-focus-2)"
+                }),
+            ])
+        ),
+        div({ class: "flex-1 handle-long-words" }, [
+            rg.functionality((el) => {
+                const children = s.args.children;
+                for (let i = 0; i < children.length; i++) {
+                    setChildAt(el, children[i], i);
+                }
+            })
+        ])
     ]);
-
-    return [root, cursor] as const;
 }
 
 function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
@@ -199,22 +219,23 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
 
 const NIL_HLT_HEADING = "<No higher level task>";
 
-function TodoListInternal() {
-    function TodoListItem() {
-        const s = newState<{
-            heading: string | undefined;
-            strikethrough: boolean;
-            hasCursor: boolean;
-            text: string;
-            noteId: string;
-            focusAnyway: boolean;
-            cursorNoteId: NoteId | undefined;
-        }>();
-
-        const rg = newRenderGroup();
-        const [navRoot, cursor] = scrollNavItem([
+function TodoListInternal(rg: RenderGroup, s: State<{
+    setScrollEl?(c: Insertable): void;
+    cursorNoteId?: NoteId;
+    disableHeaders: boolean;
+}>) {
+    function TodoListItem(rg: RenderGroup, s: State<{
+        heading: string | undefined;
+        strikethrough: boolean;
+        hasCursor: boolean;
+        text: string;
+        noteId: string;
+        focusAnyway: boolean;
+        cursorNoteId: NoteId | undefined;
+    }>) {
+        const children = [
             div({ class: "flex-1", style: "padding-bottom: 10px" }, [
-                rg(NoteLink(), (noteLink) => {
+                rg.cArgs(NoteLink, (noteLink) => {
                     const { text, focusAnyway, noteId } = s.args;
 
                     noteLink.render({
@@ -224,43 +245,37 @@ function TodoListInternal() {
                         focusAnyway,
                     });
                 }),
-            ]),
-        ]);
+            ])
+        ];
 
-        rg(navRoot, () => setClass(navRoot, "strikethrough", s.args.strikethrough));
+        const navRoot = rg.cArgs(ScrollNavItem, (c) => {
+            c.render({
+                isCursorVisible: s.args.hasCursor,
+                isFocused: s.args.focusAnyway,
+                isCursorActive: isInTodoList,
+                children: children,
+            })
 
-        const root = div({}, [
-            rg(el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }), (heading) => {
-                if (setVisible(heading, !!s.args.heading) && !!s.args.heading) {
-                    setText(heading, s.args.heading)
+            setClass(navRoot, "strikethrough", s.args.strikethrough)
+        });
+
+        return div({}, [
+            rg.with(
+                () => s.args.heading,
+                (rg, s) => {
+                    return el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }, [
+                        rg.text(() => s.args)
+                    ])
                 }
-            }),
+            ),
             navRoot,
         ]);
-
-        function renderTodoListItem() {
-            rg.render();
-
-            if (setVisible(cursor, s.args.hasCursor)) {
-                setStyle(cursor, "backgroundColor", isInTodoList ? "var(--fg-color)" : "var(--bg-color-focus-2)");
-            }
-
-            setStyle(navRoot, "backgroundColor", s.args.focusAnyway ? "var(--bg-color-focus)" : "");
-        }
-
-        return newComponent(root, renderTodoListItem, s);
     }
 
-    const s = newState<{
-        setScrollEl?(c: Insertable): void;
-        cursorNoteId?: NoteId;
-        disableHeaders: boolean;
-    }>();
+    const root = div();
+    const todoItemsList = newListRenderer(root, () => newComponent(TodoListItem));
 
-    const root = div({});
-    const todoItemsList = newListRenderer(root, TodoListItem);
-
-    function renderTodoListInternal() {
+    rg.renderFn(root, () => {
         const { setScrollEl, cursorNoteId, disableHeaders } = s.args;
         let alreadyScrolled = false;
 
@@ -308,24 +323,20 @@ function TodoListInternal() {
                 }
             }
         });
-    }
+    });
 
-    return newComponent(root, renderTodoListInternal, s);
+    return root;
 }
 
-function TodoList() {
-    const s = newState<{
-        cursorNoteId?: NoteId;
-    }>();
-
+function TodoList(rg: RenderGroup, s: State<{ cursorNoteId?: NoteId; }>) {
     const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, ["TODO Lists"]);
-    const listInternal = TodoListInternal();
+    const listInternal = newComponent(TodoListInternal);
     const empty = div({}, [
         `Notes starting with '>' get put into the TODO list! 
         You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
-    const scrollContainer = ScrollContainer();
+    const scrollContainer = newComponent(ScrollContainer);
     const root = div({ class: "flex-1 col" }, [
         heading,
         div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
@@ -335,9 +346,7 @@ function TodoList() {
         ])
     ]);
 
-    const comopnent = newComponent(root, renderTodoList, s);
-
-    function renderTodoList() {
+    rg.renderFn(root, () => {
         const { cursorNoteId } = s.args;
 
         setVisible(empty, state._todoNoteIds.length === 0);
@@ -380,28 +389,32 @@ function TodoList() {
             scrollEl,
             rescrollMs: 5000,
         });
-    }
+    });
 
-    return comopnent;
+    return root;
 }
 
-
-function BreakInput() {
+function BreakInput(rg: RenderGroup) {
     const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
-    const breakButton = makeButton("");
+    const breakButton = newComponent(Button);
     const root = div({ style: "padding: 5px;", class: "row align-items-center" }, [
         div({ class: "flex-1" }, [breakInput]),
         div({}, [breakButton]),
     ]);
 
-    function renderBreakInput() {
+    rg.renderFn(root, function renderBreakInput() {
         const isTakingABreak = isCurrentlyTakingABreak(state);
 
-        setText(breakButton, isTakingABreak ? "Extend break" : "Take a break");
-        setAttr(breakInput, "placeholder", "Enter break reason (optional)");
-    }
+        breakButton.render({
+            label: isTakingABreak ? "Extend break" : "Take a break",
+            onClick: addBreak,
+        });
 
-    function addBreak() {
+        setAttr(breakInput, "placeholder", "Enter break reason (optional)");
+    });
+
+    function addBreak(e: Event) {
+        e.preventDefault();
         let text = breakInput.el.value || "Taking a break ...";
 
         // When we add a break, we don't want to clear whatever state was preventing us from pressing 'enter' to start editing a note
@@ -417,64 +430,100 @@ function BreakInput() {
 
     }
 
-    on(breakInput, "keydown", (e) => {
+    breakInput.el.addEventListener("keydown", (e) => {
         if (e.key !== "Enter") {
             return;
         }
 
-        e.preventDefault();
-        addBreak();
+        addBreak(e);
     });
 
-    on(breakButton, "click", (e) => {
-
-        e.preventDefault();
-        addBreak();
-    });
-
-    return newComponent(root, renderBreakInput);
+    return root;
 }
 
-function ActivityListItem() {
-    const s = newState<{
-        previousActivity: Activity | undefined;
-        activity: Activity;
-        nextActivity: Activity | undefined;
-        showDuration: boolean;
-        focus: boolean;
-        greyedOut?: boolean;
-        hasCursor: boolean;
-    }>();
-
-
+function ActivityListItem(rg: RenderGroup, s: State<{
+    previousActivity: Activity | undefined;
+    activity: Activity;
+    nextActivity: Activity | undefined;
+    showDuration: boolean;
+    focus: boolean;
+    greyedOut?: boolean;
+    hasCursor: boolean;
+}>) {
     const breakEdit = el<HTMLInputElement>(
         "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
     );
 
-    const insertBreakButton = makeButton("+ Insert break here");
-    const breakInsertRow = div({ class: "align-items-center justify-content-center row" }, [
-        div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
-        insertBreakButton,
-        div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+    function deleteBreak() {
+        const { activity } = s.args;
+
+        if (!isEditableBreak(activity)) {
+            // can only delete breaks
+            return;
+        }
+
+        const idx = state.activities.indexOf(activity);
+        if (idx === -1) {
+            return;
+        }
+
+        state.activities.splice(idx, 1);
+        rerenderApp(false);
+    };
+
+    function insertBreak() {
+        const { activity, nextActivity } = s.args;
+
+        const idx = state.activities.indexOf(activity);
+        if (idx === -1) {
+            return;
+        }
+
+        const timeA = getActivityTime(activity).getTime();
+        const duration = getActivityDurationMs(activity, nextActivity);
+        const midpoint = timeA + duration / 2;
+
+        const newBreak = newBreakActivity("New break", new Date(midpoint), false);
+        state.activities.splice(idx + 1, 0, newBreak);
+
+        debouncedSave();
+        rerenderApp(false);
+    };
+
+    const breakInsertRow = newComponent((rg) => {
+        return div({ class: "align-items-center justify-content-center row" }, [
+            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+            rg.cArgs(Button, c => c.render({
+                label: "+ Insert break here",
+                onClick: insertBreak,
+            })),
+            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+        ]);
+    });
+
+    // TODO: CSS for this plz
+    let isInsertBreakRowOpen = false;
+    const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" }, [
+        (parent) => {
+            parent.el.addEventListener("mouseenter", () => {
+                isInsertBreakRowOpen = true;
+                rg.render();
+            });
+            parent.el.addEventListener("mouseleave", () => {
+                isInsertBreakRowOpen = false;
+                rg.render();
+            });
+        }
     ]);
 
-    let isInsertBreakRowOpen = false;
-    const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" });
-    on(breakInsertRowHitbox, "mouseenter", () => {
-        isInsertBreakRowOpen = true;
-        renderActivityListItem();
-    });
-    on(breakInsertRow, "mouseleave", () => {
-        isInsertBreakRowOpen = false;
-        renderActivityListItem();
-    });
 
-    const deleteButton = makeButton("x");
-    const noteLink = NoteLink();
+    const noteLink = newComponent(NoteLink);
     const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
-    const timestamp = DateTimeInput();
+    const timestamp = newComponent(DateTimeInput);
     const timestampWrapper = div({ style: "" }, [timestamp]);
-    const [visibleRow, cursor] = scrollNavItem([
+    const cursorRow = newComponent(ScrollNavItem);
+
+    const cursorRowContents = [
         breakInsertRowHitbox,
         div({ class: "row", style: "gap: 20px; padding: 5px 0;" }, [
             div({ class: "flex-1" }, [
@@ -482,18 +531,22 @@ function ActivityListItem() {
                 div({ class: "row align-items-center", style: "padding-left: 20px" }, [
                     noteLink,
                     breakEdit,
-                    deleteButton,
+                    rg.if(
+                        isEditable, 
+                        rg => rg.cArgs(Button, c => c.render({
+                            label: "x",
+                            onClick: deleteBreak,
+                        }))
+                    ),
                 ]),
             ]),
             durationEl,
         ])
-    ]);
+    ];
 
     const root = div({}, [
-        visibleRow,
+        cursorRow,
     ]);
-
-    const component = newComponent(root, renderActivityListItem, s);
 
     function isEditable() {
         const { activity, greyedOut } = s.args;
@@ -513,11 +566,16 @@ function ActivityListItem() {
         }
     }
 
-    function renderActivityListItem() {
+    rg.renderFn(root, function renderActivityListItem() {
         const { activity, greyedOut, focus, hasCursor } = s.args;
 
-        setStyle(visibleRow, "color", greyedOut ? "var(--unfocus-text-color)" : "");
-        setStyle(visibleRow, "backgroundColor", focus ? "var(--bg-color-focus)" : "");
+        cursorRow.render({
+            isCursorVisible: hasCursor,
+            isCursorActive: isInHotlist,
+            isFocused: focus,
+            isGreyedOut: greyedOut,
+            children: cursorRowContents
+        });
 
         // I think all break text should just be editable...
         // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
@@ -546,6 +604,7 @@ function ActivityListItem() {
         }
 
         timestamp.render({
+            label: "",
             value: getActivityTime(activity),
             onChange: updateActivityTime,
             readOnly: false,
@@ -554,22 +613,17 @@ function ActivityListItem() {
 
         renderDuration();
 
-        setVisible(deleteButton, isEditable());
-
         if (!!breakInsertRow.el.parentNode && !breakInsertRow.el.matches(":hover")) {
             isInsertBreakRowOpen = false;
         }
 
         if (isInsertBreakRowOpen && !breakInsertRow.el.parentNode) {
             root.el.prepend(breakInsertRow.el);
+            breakInsertRow.render(undefined);
         } else if (!isInsertBreakRowOpen && !!breakInsertRow.el.parentNode) {
             breakInsertRow.el.remove();
         }
-
-        if (setVisible(cursor, hasCursor)) {
-            setStyle(cursor, "backgroundColor", isInHotlist ? "var(--fg-color)" : "var(--bg-color-focus-2)");
-        }
-    }
+    });
 
     function updateActivityTime(date: Date | null) {
         if (!date) {
@@ -598,43 +652,7 @@ function ActivityListItem() {
         debouncedSave();
     }
 
-    on(insertBreakButton, "click", () => {
-        const { activity, nextActivity } = s.args;
-
-        const idx = state.activities.indexOf(activity);
-        if (idx === -1) {
-            return;
-        }
-
-        const timeA = getActivityTime(activity).getTime();
-        const duration = getActivityDurationMs(activity, nextActivity);
-        const midpoint = timeA + duration / 2;
-
-        const newBreak = newBreakActivity("New break", new Date(midpoint), false);
-        state.activities.splice(idx + 1, 0, newBreak);
-
-        debouncedSave();
-        rerenderApp(false);
-    });
-
-    on(deleteButton, "click", () => {
-        const { activity } = s.args;
-
-        if (!isEditableBreak(activity)) {
-            // can only delete breaks
-            return;
-        }
-
-        const idx = state.activities.indexOf(activity);
-        if (idx === -1) {
-            return;
-        }
-
-        state.activities.splice(idx, 1);
-        rerenderApp(false);
-    });
-
-    on(noteLink, "click", () => {
+    noteLink.el.addEventListener("click", () => {
         const { activity } = s.args;
         if (!activity.nId) {
             return;
@@ -655,76 +673,86 @@ function ActivityListItem() {
         debouncedSave();
     }
 
-    on(breakEdit, "keypress", (e) => {
+    breakEdit.el.addEventListener("keypress", (e) => {
         if (e.key === "Enter") {
             handleBreakTextEdit();
         }
     })
 
-    on(breakEdit, "blur", () => {
+    breakEdit.el.addEventListener("blur", () => {
         handleBreakTextEdit();
     });
 
-    return component;
+    return root;
 }
 
-function ExportModal() {
-    const root = Modal(div({ class: "col", style: "align-items: stretch" }, [
-        makeButtonWithCallback("Clear all", () => {
-            if (!confirm("Are you sure you want to clear your note tree?")) {
-                return;
+function ExportModal(rg: RenderGroup) {
+    const modalContent = div({ class: "col", style: "align-items: stretch" }, [
+        rg.cArgs(Button, c => c.render({
+            label: "Clear all",
+            onClick: () => {
+                if (!confirm("Are you sure you want to clear your note tree?")) {
+                    return;
+                }
+
+                resetState();
+                rerenderApp();
+
+                showStatusText("Cleared notes");
             }
-
-            resetState();
-            rerenderApp();
-
-            showStatusText("Cleared notes");
-        }),
-        makeButtonWithCallback("Download TXT", () => {
-            handleErrors(() => {
-                const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
-                const text = exportAsText(state, flatNotes);
+        })),
+        rg.cArgs(Button, c => c.render({
+            label: "Download TXT",
+            onClick: () => {
                 handleErrors(() => {
-                    saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                    const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
+                    const text = exportAsText(state, flatNotes);
+                    handleErrors(() => {
+                        saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                    });
+
+                    showStatusText("Download TXT");
                 });
+            }
+        })),
+        rg.cArgs(Button, c => c.render({
+            label: "Copy open notes",
+            onClick: () => {
+                handleErrors(() => {
+                    const flatNotes: NoteId[] = [];
+                    recomputeFlatNotes(state, flatNotes);
 
-                showStatusText("Download TXT");
-            });
-        }),
-        makeButtonWithCallback("Copy open notes", () => {
-            handleErrors(() => {
-                const flatNotes: NoteId[] = [];
-                recomputeFlatNotes(state, flatNotes);
+                    copyToClipboard(exportAsText(state, flatNotes));
+                    showStatusText("Copied current open notes as text");
+                });
+            }
+        })),
+        rg.cArgs(Button, c => c.render({
+            label: "Download JSON",
+            onClick: () => {
+                handleErrors(() => {
+                    saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
+                });
+            }
+        }))
+    ]);
 
-                copyToClipboard(exportAsText(state, flatNotes));
-                showStatusText("Copied current open notes as text");
-            });
-        }),
-        makeButtonWithCallback("Download JSON", () => {
-            handleErrors(() => {
-                saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
-            });
-        }),
-    ]));
-
-    function renderExportModal() {
-        root.render({
-            onClose: () => setCurrentModal(null)
-        });
-    };
-
-    return newComponent(root, renderExportModal);
+    return rg.cArgs(Modal, c => c.render({
+        onClose: () => setCurrentModal(null),
+        content: modalContent,
+    }));
 }
 
-function DeleteModal() {
+function DeleteModal(rg: RenderGroup) {
     const heading = el("H2", { style: "text-align: center" }, ["Delete current note"]);
     const textEl = div();
     const countEl = div();
     const timeEl = div();
     const recentEl = div();
-    const deleteButton = makeButton("Delete Note");
+    const deleteButton = newComponent(Button);
     const cantDelete = div({}, ["Can't delete notes that are still in progress..."]);
-    const root = Modal(div({ style: modalPaddingStyles(10, 70, 50) }, [
+    const root = newComponent(Modal);
+    const modalContent = div({ style: modalPaddingStyles(10, 70, 50) }, [
         heading,
         textEl,
         div({ style: "height: 20px" }),
@@ -740,9 +768,9 @@ function DeleteModal() {
         div({ style: "text-align: center" }, [
             "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
         ])
-    ]));
+    ]);
 
-    on(deleteButton, "click", (e) => {
+    function deleteNote(e: MouseEvent) {
         e.preventDefault();
 
         const currentNote = getCurrentNote(state);
@@ -756,13 +784,14 @@ function DeleteModal() {
             "Deleted!" +
             (Math.random() < 0.05 ? " - Good riddance..." : "")
         );
-    });
+    };
 
-    function renderDeleteModal() {
+    rg.renderFn(root, function renderDeleteModal() {
         const currentNote = getCurrentNote(state);
 
         root.render({
             onClose: () => setCurrentModal(null),
+            content: modalContent,
         });
 
         setText(textEl, currentNote.data.text);
@@ -782,59 +811,65 @@ function DeleteModal() {
         }
 
         const canDelete = currentNote.data._status === STATUS_DONE;
-        setVisible(deleteButton, canDelete);
+        if (setVisible(deleteButton, canDelete)) {
+            deleteButton.render({
+                label: "Delete Note",
+                onClick: deleteNote
+            });
+        }
         setVisible(cantDelete, !canDelete);
-    }
+    });
 
-    return newComponent(root, renderDeleteModal);
+    return root;
 }
 
-function LinkNavModal() {
-    function LinkItem() {
-        const s = newState<{
-            noteId: NoteId;
-            text: string;
-            range: Range;
-            url: string;
-            isFocused: boolean;
-        }>();
+function LinkNavModal(rg: RenderGroup) {
+    function LinkItem(rg: RenderGroup, s: State<{
+        noteId: NoteId;
+        text: string;
+        range: Range;
+        url: string;
+        isFocused: boolean;
+    }>) {
+        const textEl = newComponent(HighlightedText);
+        const children = [ textEl ];
+        const root = newComponent(ScrollNavItem);
 
-        const textEl = HighlightedText();
-        const [root, cursor] = scrollNavItem([textEl]);
-
-        const component = newComponent(root, renderLinkItem, s);
-
-        function renderLinkItem() {
+        rg.renderFn(root, function renderLinkItem() {
             const { text, range, isFocused } = s.args;
 
             textEl.render({
                 text,
                 highlightedRanges: [range]
             });
-            setVisible(cursor, isFocused);
-            setStyle(root, "backgroundColor", isFocused ? "var(--bg-color-focus)" : "");
-        }
 
-        return component;
+            root.render({
+                isCursorVisible: isFocused,
+                isCursorActive: true,
+                isFocused: isFocused, 
+                children: children,
+            });
+        });
+
+        return root;
     }
 
-    const linkList = newListRenderer(div(), LinkItem);
+    const linkList = newListRenderer(div(), () => newComponent(LinkItem));
     const content = div({ style: "padding: 20px" }, [
         el("H2", {}, ["URLs above or under the current note"]),
         linkList,
     ]);
     const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
-    const root = Modal(
-        div({}, [
-            content,
-            empty,
-        ])
-    );
+    const root = newComponent(Modal);
+    const modalContent = div({}, [
+        content,
+        empty,
+    ]);
 
     let idx = 0;
     let lastNote: TreeNote | undefined;
 
-    function renderLinkNavModal() {
+    rg.renderFn(root, function renderLinkNavModal() {
         const currentNote = getCurrentNote(state);
         if (lastNote === currentNote) {
             return;
@@ -843,7 +878,8 @@ function LinkNavModal() {
         lastNote = currentNote;
 
         root.render({
-            onClose: () => setCurrentModal(null)
+            onClose: () => setCurrentModal(null),
+            content: modalContent,
         });
 
 
@@ -909,7 +945,7 @@ function LinkNavModal() {
 
         setVisible(content, linkList.components.length > 0);
         setVisible(empty, linkList.components.length === 0);
-    }
+    });
 
     function rerenderItems() {
         for (let i = 0; i < linkList.components.length; i++) {
@@ -918,14 +954,11 @@ function LinkNavModal() {
         }
     }
 
-    const component = newComponent(root, renderLinkNavModal, newState());
-
     document.addEventListener("keydown", (e) => {
-        if (currentModal !== component) {
+        if (currentModal?.el !== root.el) {
             // Don't let this code execute  when this modal is closed...
             return;
         }
-
 
         if (e.key === "ArrowUp") {
             e.preventDefault();
@@ -957,21 +990,20 @@ function LinkNavModal() {
         }
     });
 
-    return component;
+    return root;
 }
 
 
-function EditableActivityList() {
-    const s = newState<{
-        activityIndexes: number[] | undefined;
-        pageSize?: number;
-    }>();
-
+function EditableActivityList(rg: RenderGroup, s: State<{
+    activityIndexes: number[] | undefined;
+    pageSize?: number;
+}>) {
     const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
-    const paginationControl = PaginationControl();
+    const paginationControl = newComponent(PaginationControl);
 
-    const listRoot = newListRenderer(div({ style: "" }), ActivityListItem);
-    const listScrollContainer = addChildren(setAttrs(ScrollContainer(), { class: "flex-1" }, true), [
+    const listRoot = newListRenderer(div({ style: "" }), () => newComponent(ActivityListItem));
+    const listScrollContainer = newComponent(ScrollContainer);
+    addChildren(setAttrs(listScrollContainer, { class: "flex-1" }, true), [
         listRoot,
     ]);
     const statusTextEl = div({ class: "text-align-center" }, []);
@@ -982,9 +1014,8 @@ function EditableActivityList() {
     ]);
 
     let lastIdx = -1;
-    const component = newComponent(root, rerenderActivityList, s);
 
-    function rerenderActivityList() {
+    rg.renderFn(root, function rerenderActivityList() {
         const { pageSize, activityIndexes } = s.args;
 
         pagination.pageSize = pageSize || 10;
@@ -1096,9 +1127,9 @@ function EditableActivityList() {
         if (setVisible(statusTextEl, !!statusText)) {
             setText(statusTextEl, statusText);
         }
-    }
+    });
 
-    return component;
+    return root;
 }
 
 type NoteRowArgs = {
@@ -1140,9 +1171,7 @@ function getNoteProgressCountText(note: TreeNote): string {
     return progressText;
 }
 
-function NoteRowText() {
-    const s = newState<NoteRowArgs>();
-
+function NoteRowText(rg: RenderGroup, s: State<NoteRowArgs>) {
     const indentWidthEl = div({ class: "pre", style: "padding-right: 5px" });
     const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; " });
 
@@ -1161,7 +1190,6 @@ function NoteRowText() {
     let lastNote: TreeNote | undefined = undefined;
     let isFocused = false;
     let isEditing = false;
-    const component = newComponent(root, renderNoteRowText, s);
 
     function updateTextContentAndSize() {
         const { note } = s.args;
@@ -1173,7 +1201,7 @@ function NoteRowText() {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    function renderNoteRowText() {
+    rg.renderFn(root, function renderNoteRowText() {
         const { note } = s.args;
 
         const currentNote = getCurrentNote(state);
@@ -1215,9 +1243,9 @@ function NoteRowText() {
         // Actually quite important that this runs even when we aren't editing, because when we eventually
         // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
         updateTextContentAndSize();
-    }
+    });
 
-    on(whenEditing, "input", () => {
+    whenEditing.el.addEventListener("input", () => {
         const { note } = s.args;
 
         // Perform a partial update on the state, to just the thing we're editing
@@ -1231,7 +1259,7 @@ function NoteRowText() {
         rerenderApp();
     });
 
-    on(whenEditing, "keydown", (e) => {
+    whenEditing.el.addEventListener("keydown", (e) => {
         const currentNote = getCurrentNote(state);
 
         const shiftPressed = e.shiftKey;
@@ -1258,20 +1286,23 @@ function NoteRowText() {
         }
     });
 
-    return component;
+    return root;
 }
 
 
-function ActivityFiltersEditor() {
+function ActivityFiltersEditor(rg: RenderGroup) {
     function onChange() {
         rerenderApp(false);
     }
 
-    const todayButton = makeButton("Today");
-    on(todayButton, "click", () => {
-        setActivityRangeToday(state);
-        onChange();
-    });
+    const todayButton = newComponent(Button);
+    todayButton.render({
+        label: "Today",
+        onClick: () => {
+            setActivityRangeToday(state);
+            onChange();
+        }
+    })
 
     function updateDate(updateFn: (d: Date) => void) {
         let updated = false;
@@ -1291,17 +1322,23 @@ function ActivityFiltersEditor() {
         }
     }
 
-    let incrDay = makeButtonWithCallback("+1d", () => updateDate((d) => addDays(d, 1))),
-        decrDay = makeButtonWithCallback("-1d", () => updateDate((d) => addDays(d, -1))),
-        incrWeek = makeButtonWithCallback("+7d", () => updateDate((d) => addDays(d, 7))),
-        decrWeek = makeButtonWithCallback("-7d", () => updateDate((d) => addDays(d, -7))),
-        incrMonth = makeButtonWithCallback("+30d", () => updateDate((d) => addDays(d, 30))),
-        decrMonth = makeButtonWithCallback("-30d", () => updateDate((d) => addDays(d, -30)));
+    const incrDay = newComponent(Button);
+    incrDay.render({ label: "+1d", onClick : () => updateDate((d) => addDays(d, 1)) });
+    const decrDay = newComponent(Button);
+    decrDay.render({ label: "-1d", onClick: () => updateDate((d) => addDays(d, -1)) });
+    const incrWeek = newComponent(Button);
+    incrWeek.render({ label: "+7d", onClick: () => updateDate((d) => addDays(d, 7)) });
+    const decrWeek = newComponent(Button);
+    decrWeek.render({ label: "-7d", onClick: () => updateDate((d) => addDays(d, -7)) });
+    const incrMonth = newComponent(Button);
+    incrMonth.render({ label: "+30d", onClick: () => updateDate((d) => addDays(d, 30)) });
+    const decrMonth = newComponent(Button);
+    decrMonth.render({ label: "-30d", onClick: () => updateDate((d) => addDays(d, -30)) });
 
     const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
-    const dateFrom = DateTimeInput("from");
-    const dateTo = DateTimeInput("to");
-    const onlyUnderCurrentNote = Checkbox("Under selected?");
+    const dateFrom = newComponent(DateTimeInput);
+    const dateTo = newComponent(DateTimeInput);
+    const onlyUnderCurrentNote = newComponent(Checkbox)
     const root = div({ class: "row", style: "white-space: nowrap" }, [
         div({ style: "width: 20px" }),
         div(blockStyle, [
@@ -1319,8 +1356,9 @@ function ActivityFiltersEditor() {
         onlyUnderCurrentNote,
     ]);
 
-    function renderActivityFiltersEditor() {
+    rg.renderFn(root, function renderActivityFiltersEditor() {
         dateFrom.render({
+            label: "from",
             value: state._activitiesFrom,
             readOnly: false,
             nullable: true,
@@ -1331,6 +1369,7 @@ function ActivityFiltersEditor() {
         });
 
         dateTo.render({
+            label: "to",
             value: state._activitiesTo,
             readOnly: false,
             nullable: true,
@@ -1341,15 +1380,16 @@ function ActivityFiltersEditor() {
         });
 
         onlyUnderCurrentNote.render({
+            label: "Under selected?",
             value: state._durationsOnlyUnderSelected,
             onChange: (val) => {
                 state._durationsOnlyUnderSelected = val;
                 onChange();
             }
         });
-    }
+    });
 
-    return newComponent(root, renderActivityFiltersEditor);
+    return root;
 }
 
 // yep, doesnt need any info about the matches, total count, etc.
@@ -1363,32 +1403,24 @@ function getMinFuzzyFindScore(query: string, strict = false) {
     return Math.pow(query.length * 0.7, 2);
 }
 
-function HighlightedText() {
-    function Span() {
-        const s = newState<{
-            highlighted: boolean;
-            text: string;
-        }>();
-
-        const root = el("SPAN", { class: "" })
-
-        function renderSpan() {
-            setText(root, s.args.text);
-            setClass(root, "unfocused-text-color", !s.args.highlighted);
-        }
-
-        return newComponent(root, renderSpan, s);
+function HighlightedText(rg: RenderGroup, s: State<{
+    text: string;
+    highlightedRanges: Range[];
+}>) {
+    function Span(rg: RenderGroup, s: State<{
+        highlighted: boolean;
+        text: string;
+    }>) {
+        return span({}, [
+            rg.text(() => s.args.text),
+            rg.class("unfocused-text-color", () => !s.args.highlighted),
+        ]);
     }
 
-    const s = newState<{
-        text: string;
-        highlightedRanges: Range[];
-    }>();
-
     const root = div({});
-    const list = newListRenderer(root, Span);
+    const list = newListRenderer(root, () => newComponent(Span));
 
-    function renderHighlightedText() {
+    rg.renderFn(root, function renderHighlightedText() {
         const { highlightedRanges: ranges, text } = s.args;
 
         list.render((getNext) => {
@@ -1412,24 +1444,23 @@ function HighlightedText() {
                 getNext().render({ text: lastPart, highlighted: false });
             }
         });
-    }
+    });
 
-    return newComponent(root, renderHighlightedText, s);
+    return root;
 }
 
-function FuzzyFinder() {
-    function FindResultItem() {
-        const s = newState<{
-            text: string;
-            ranges: Range[];
-            hasFocus: boolean;
-        }>();
-
-        const textDiv = HighlightedText();
-        const [root, cursor] = scrollNavItem([textDiv]);
+function FuzzyFinder(rg: RenderGroup) {
+    function FindResultItem(rg: RenderGroup, s: State<{
+        text: string;
+        ranges: Range[];
+        hasFocus: boolean;
+    }>) {
+        const textDiv = newComponent(HighlightedText);
+        const children = [textDiv];
+        const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
 
-        function renderFindResultItem() {
+        rg.renderFn(root, function renderFindResultItem() {
             const { text, ranges, hasFocus } = s.args;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
@@ -1437,20 +1468,25 @@ function FuzzyFinder() {
                 textDiv.render({ text: text, highlightedRanges: ranges });
             }
 
-            setVisible(cursor, hasFocus);
-            root.el.style.backgroundColor = hasFocus ? "var(--bg-color-focus)" : "var(--bg-color)";
+            root.render({
+                isFocused: hasFocus,
+                isCursorVisible: hasFocus,
+                isCursorActive: true,
+                children,
+            });
+
             textDiv.el.style.padding = hasFocus ? "20px" : "10px";
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
                 scrollIntoView(scrollParent, root, 0.5);
             }
-        }
+        });
 
-        return newComponent(root, renderFindResultItem, s);
+        return root;
     };
 
-    const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), FindResultItem);
+    const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), () => newComponent(FindResultItem));
 
     type Match = {
         note: TreeNote;
@@ -1547,12 +1583,12 @@ function FuzzyFinder() {
         }
     }
 
-    function renderFuzzyFinder() {
+    rg.renderFn(root, function renderFuzzyFinder() {
         searchInput.el.focus();
         rerenderSearch();
-    }
+    });
 
-    on(searchInput, "keydown", (e) => {
+    searchInput.el.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
             const note = matches[currentSelectionIdx].note;
@@ -1595,57 +1631,65 @@ function FuzzyFinder() {
         }
     });
 
-    on(searchInput, "input", rerenderSearch);
+    searchInput.el.addEventListener("input", rerenderSearch);
 
-    return newComponent(root, renderFuzzyFinder);
+    return root;
 }
 
-function FuzzyFindModal() {
-    const fuzzyFind = FuzzyFinder();
-    const modalComponent = Modal(
-        div({ class: "col h-100", style: modalPaddingStyles(0) }, [
-            fuzzyFind
-        ])
-    );
-
-    function renderFuzzyFindModal() {
-        modalComponent.render({
-            onClose: () => setCurrentModal(null)
-        });
-
-        fuzzyFind.render(undefined);
-    }
-
-    return newComponent(modalComponent, renderFuzzyFindModal);
+function FuzzyFindModal(rg: RenderGroup) {
+    const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
+        rg.c(FuzzyFinder),
+    ]);
+    return rg.cArgs(Modal, c => c.render({
+        onClose: () => setCurrentModal(null),
+        content: modalContent,
+    }));
 }
 
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
     return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
 }
 
-function LoadBackupModal() {
-    const s = newState<{
-        fileName: string;
-        text: string;
-    }>();
-
+function LoadBackupModal(rg: RenderGroup, s: State<{
+    fileName: string;
+    text: string;
+}>) {
     const fileNameDiv = el("H3");
     const infoDiv = div();
-    const loadBackupButton = makeButton("Load this backup");
-    const modal = Modal(
-        div({ class: "col", style: modalPaddingStyles(10, 40, 40) }, [
-            fileNameDiv,
-            infoDiv,
-            loadBackupButton,
-        ]),
-    );
+    const loadBackupButton = newComponent(Button);
+    loadBackupButton.render({
+        label: "Load this backup",
+        onClick: () => {
+            if (!canLoad || !s.args.text) {
+                return;
+            }
+
+            if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
+                const { text } = s.args;
+
+                setStateFromJSON(text);
+
+                saveCurrentState({ debounced: false });
+
+                initState(() => {
+                    setCurrentModal(null);
+                });
+            }
+        }
+    });
+    const modal = newComponent(Modal);
+    const modalContent = div({ class: "col", style: modalPaddingStyles(10, 40, 40) }, [
+        fileNameDiv,
+        infoDiv,
+        loadBackupButton,
+    ]);
 
     let canLoad = false;
 
-
-    function renderBackupModal() {
+    rg.renderFn(modal, function renderBackupModal() {
         modal.render({
-            onClose: () => setCurrentModal(null)
+            onClose: () => setCurrentModal(null),
+            content: modalContent,
         });
 
         const { text, fileName } = s.args;
@@ -1678,82 +1722,61 @@ function LoadBackupModal() {
                 div({}, ["This JSON cannot be loaded"])
             ]);
         }
-    }
-
-    on(loadBackupButton, "click", () => {
-        if (!canLoad || !s.args.text) {
-            return;
-        }
-
-        if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
-            const { text } = s.args;
-
-            setStateFromJSON(text);
-
-            saveCurrentState({ debounced: false });
-
-            initState(() => {
-                setCurrentModal(null);
-            });
-        }
     });
 
-    return newComponent(modal, renderBackupModal, s);
+    return modal;
 }
 
 
-function InteractiveGraphModal() {
+function InteractiveGraphModal(rg: RenderGroup) {
     function onClose() {
         setCurrentModal(null);
         debouncedSave();
     }
 
-    const rg = newRenderGroup();
-    const root = Modal(
-        div({ style: modalPaddingStyles(10) }, [
-            rg(InteractiveGraph(), (c) => c.render({
-                onClose,
-                graphData: state.mainGraphData,
-                onInput() {
-                    debouncedSave();
-                }
-            }))
-        ])
-    );
+    const modalContent = div({ style: modalPaddingStyles(10) }, [
+        rg.cArgs(InteractiveGraph, (c) => c.render({
+            onClose,
+            graphData: state.mainGraphData,
+            onInput() {
+                debouncedSave();
+            }
+        }))
+    ]);
 
-    return newComponent(root, rg.render);
+    return rg.cArgs(Modal, c => c.render({
+        onClose,
+        content: modalContent, 
+    }));
 }
 
-function SettingsModal() {
+function SettingsModal(rg: RenderGroup) {
     function onClose() {
         setCurrentModal(null);
         debouncedSave();
     }
 
-    const rg = newRenderGroup();
-    const root = Modal(div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
+    const modalContent = div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
         el("H3", { class: "text-align-center" }, "Settings"),
         div({ class: "row" }, [
+            // Add and then remove feature flags here as we need to
             div({}, [`No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!`]),
         ])
-    ]));
+    ]);
 
-    function renderSettingsModal() {
-        root.render({ onClose });
-        rg.render();
-    }
-
-    return newComponent(root, renderSettingsModal);
+    return rg.cArgs(Modal, c => c.render({
+        onClose,
+        content: modalContent,
+    }));
 }
 
-function ScratchPadModal() {
-    const s = newState<{
-        open: boolean;
-        canvasArgs: AsciiCanvasArgs;
-    }>();
-
-    const [asciiCanvas, canvasState] = AsciiCanvas();
-    const modalComponent = Modal(
+function ScratchPadModal(rg: RenderGroup, s: State<{
+    open: boolean;
+    canvasArgs: AsciiCanvasArgs;
+}>) {
+    const [asciiCanvas, canvasState] = newComponent2(AsciiCanvas);
+    const modalComponent = newComponent(Modal);
+    const modalContent = (
         div({ style: modalPaddingStyles(10) }, [
             asciiCanvas
         ])
@@ -1798,22 +1821,21 @@ function ScratchPadModal() {
         }
     }
 
-    function renderAsciiCanvasModal() {
+    rg.renderFn(modalComponent, function renderAsciiCanvasModal() {
         renderCanvas();
 
         modalComponent.render({
             onClose() {
                 setCurrentModal(null);
-            }
+            },
+            content: modalContent,
         });
-    }
+    });
 
-    return newComponent(modalComponent, renderAsciiCanvasModal, s);
+    return modalComponent;
 }
 
-function NoteRowDurationInfo() {
-    const s = newState<{ note: TreeNote; duration: number; }>();
-
+function NoteRowDurationInfo(rg: RenderGroup, s: State<{ note: TreeNote; duration: number; }>) {
     const durationEl = span();
     const divider = span({}, ", ");
     const estimateContainer = span();
@@ -1829,7 +1851,7 @@ function NoteRowDurationInfo() {
         ])
     ]);
 
-    function renderNoteRowDurationInfo() {
+    rg.renderFn(root, function renderNoteRowDurationInfo() {
         const { note, duration } = s.args;
 
         const hasDuration = duration > 0;
@@ -1883,18 +1905,16 @@ function NoteRowDurationInfo() {
         }
 
         setVisible(divider, hasDuration && !!parentWithEstimate);
-    }
+    });
 
-    return newComponent(root, renderNoteRowDurationInfo, s);
+    return root;
 }
 
-function NoteRowInput() {
-    const s = newState<NoteRowArgs>();
-
-    const noteRowText = NoteRowText();
+function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
+    const noteRowText = newComponent(NoteRowText);
 
     const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
-    const noteDuration = NoteRowDurationInfo();
+    const noteDuration = newComponent(NoteRowDurationInfo);
     const cursorEl = div({ style: "width: 10px;" });
     const inProgressBar = div({ class: "row align-items-center", style: "padding-right: 4px" }, [
         noteDuration
@@ -1951,7 +1971,7 @@ function NoteRowInput() {
     let isFocused = false;
     let isShowingDurations = false;
 
-    function renderNoteRowInput() {
+    rg.renderFn(root, function renderNoteRowInput() {
         const { note, duration, totalDuration, hasDivider } = s.args;
         const currentNote = getCurrentNote(state);
 
@@ -2029,30 +2049,28 @@ function NoteRowInput() {
                 }
             }
         }
-    }
+    });
 
-    on(root, "click", () => {
+    root.el.addEventListener("click", () => {
         const { note } = s.args;
 
         setCurrentNote(state, note.id);
         rerenderApp();
     });
 
-    return newComponent(root, renderNoteRowInput, s);
+    return root;
 }
 
-function NoteListInternal() {
-    const s = newState<{
-        flatNotes: NoteId[];
-        scrollParent: HTMLElement | null;
-    }>();
-
+function NoteListInternal(rg: RenderGroup, s: State<{
+    flatNotes: NoteId[];
+    scrollParent: HTMLElement | null;
+}>) {
     const root = div({
         class: "w-100 sb1b sb1t",
     });
-    const noteList = newListRenderer(root, NoteRowInput);
+    const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
-    function renderNoteListInteral() {
+    rg.renderFn(root, function renderNoteListInteral() {
         const { flatNotes, scrollParent } = s.args;
 
         noteList.render((getNext) => {
@@ -2093,25 +2111,25 @@ function NoteListInternal() {
                 }
             }
         });
-    }
+    })
 
-    return newComponent(root, renderNoteListInteral, s);
+    return root;
 }
 
-function NotesList() {
-    const list1 = NoteListInternal();
+function NotesList(rg: RenderGroup) {
+    const list1 = newComponent(NoteListInternal);
     const root = div({}, [
         list1,
     ]);
 
-    function renderNotesList() {
+    rg.renderFn(root, function renderNotesList() {
         list1.render({
             flatNotes: state._flatNoteIds,
             scrollParent: root.el.parentElement,
         });
-    }
+    });
 
-    return newComponent(root, renderNotesList);
+    return root;
 }
 
 const renderOptions: RenderOptions = {
@@ -2155,9 +2173,7 @@ function setTheme(theme: AppTheme) {
 };
 
 
-function AsciiIcon() {
-    const s = newState<AsciiIconData>();
-
+function AsciiIcon(rg: RenderGroup, s: State<AsciiIconData>) {
     const icon = div();
 
     icon.el.style.userSelect = "none";
@@ -2167,17 +2183,31 @@ function AsciiIcon() {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    function renderAsciiIcon() {
+    rg.renderFn(icon, function renderAsciiIcon() {
         const { data } = s.args;
         setText(icon, data);
-    }
+    });
 
-    return newComponent(icon, renderAsciiIcon, s);
+    return icon;
 }
 
-function DarkModeToggle() {
-    const button = makeButton("");
-    const iconEl = AsciiIcon();
+function DarkModeToggle(rg: RenderGroup) {
+    const button = newComponent(Button);
+    button.render({
+        label: "",
+        onClick: () => {
+            let theme = getTheme();
+            if (!theme || theme === "Light") {
+                theme = "Dark";
+            } else {
+                theme = "Light";
+            }
+
+            setTheme(theme);
+            rerenderApp();
+        }
+    });
+    const iconEl = newComponent(AsciiIcon);
     replaceChildren(button, [
         iconEl,
     ]);
@@ -2188,23 +2218,11 @@ function DarkModeToggle() {
         return ASCII_MOON_STARS;
     }
 
-    function renderButton() {
+    rg.renderFn(button, function renderButton() {
         iconEl.render(getIcon(getTheme()));
-    }
-
-    on(button, "click", () => {
-        let theme = getTheme();
-        if (!theme || theme === "Light") {
-            theme = "Dark";
-        } else {
-            theme = "Light";
-        }
-
-        setTheme(theme);
-        rerenderApp();
     });
 
-    return newComponent(button, renderButton);
+    return button;
 };
 
 
@@ -2220,7 +2238,7 @@ const handleErrors = (fn: () => void, onError?: (err: any) => void) => {
 
 const STATUS_TEXT_PERSIST_TIME = 1000;
 
-function exportAsText(state: State, flatNotes: NoteId[]) {
+function exportAsText(state: NoteTreeGlobalState, flatNotes: NoteId[]) {
     const header = (text: string) => `----------------${text}----------------`;
 
     const table = [];
@@ -2313,15 +2331,47 @@ function setCurrentDockedMenu(menu: DockableMenu | null) {
     rerenderApp();
 }
 
-function ActivityListContainer() {
-    const s = newState<{ docked: boolean }>();
+function ActivityListContainer(rg: RenderGroup, s: State<{ docked: boolean }>) {
+    const scrollActivitiesToTop = newComponent(Button);
+    scrollActivitiesToTop.render({
+        label: "Top", 
+        onClick: () => {
+            state._currentlyViewingActivityIdx = state.activities.length - 1;
+            rerenderApp();
+        },
+    });
+    const scrollActivitiesToMostRecent = newComponent(Button);
+    scrollActivitiesToMostRecent.render({
+        label: "Most Recent",
+        onClick: () => {
+            state._currentlyViewingActivityIdx = getMostRecentIdx();
+            rerenderApp();
+        }
+    });
+    const prevActivity = newComponent(Button);
+    prevActivity.render({
+        label: "<-",
+        onClick: () => {
+            const idx = getNextIdx();
+            if (idx !== -1) {
+                state._currentlyViewingActivityIdx = idx;
+                rerenderApp();
+            }
+        }
+    });
+    const nextActivity = newComponent(Button);
+    nextActivity.render({
+        label: "->",
+        onClick: () => {
+        const idx = getPrevIdx();
+        if (idx !== -1) {
+            state._currentlyViewingActivityIdx = idx;
+            rerenderApp();
+        }
+    }});
 
-    const scrollActivitiesToTop = makeButton("Top");
-    const scrollActivitiesToMostRecent = makeButton("Most Recent");
-    const nextActivity = makeButton("<-");
-    const prevActivity = makeButton("->");
-    const activityList = EditableActivityList();
-    const breakInput = BreakInput();
+    const activityList = newComponent(EditableActivityList);
+    const breakInput = newComponent(BreakInput);
     const root = div({ class: "flex-1 col" }, [
         div({ class: "flex row align-items-center", style: "user-select: none; padding-left: 10px;" }, [
             el("H3", { style: "margin: 0; padding: 1em 0;", }, ["Activity List"]),
@@ -2349,8 +2399,7 @@ function ActivityListContainer() {
         return findPreviousActiviyIndex(state, state.currentNoteId, state.activities.length - 1);
     }
 
-
-    function renderActivityListContainer() {
+    rg.renderFn(root, function renderActivityListContainer() {
         breakInput.render(undefined);
 
         if (s.args.docked) {
@@ -2370,43 +2419,16 @@ function ActivityListContainer() {
         setVisible(scrollActivitiesToMostRecent, state._currentlyViewingActivityIdx !== getMostRecentIdx());
         setVisible(prevActivity, getPrevIdx() !== -1);
         setVisible(nextActivity, getNextIdx() !== -1);
-    }
-
-    on(scrollActivitiesToTop, "click", () => {
-        state._currentlyViewingActivityIdx = state.activities.length - 1;
-        rerenderApp();
     });
 
-    on(scrollActivitiesToMostRecent, "click", () => {
-        state._currentlyViewingActivityIdx = getMostRecentIdx();
-        rerenderApp();
-    });
-
-    on(prevActivity, "click", () => {
-        const idx = getPrevIdx();
-        if (idx !== -1) {
-            state._currentlyViewingActivityIdx = idx;
-            rerenderApp();
-        }
-    });
-
-    on(nextActivity, "click", () => {
-        const idx = getNextIdx();
-        if (idx !== -1) {
-            state._currentlyViewingActivityIdx = idx;
-            rerenderApp();
-        }
-    });
-
-
-    return newComponent(root, renderActivityListContainer, s);
+    return root;
 }
 
 function makeUnorderedList(text: (string | Insertable)[]) {
     return el("UL", {}, text.map(s => el("LI", {}, [s])));
 }
 
-function CheatSheet() {
+function CheatSheet(_rg: RenderGroup) {
     function keymapDivs(keymap: string, desc: string) {
         return div({ class: "row" }, [
             div({ style: "width: 500px; padding-right: 50px;" }, [keymap]),
@@ -2514,10 +2536,10 @@ function CheatSheet() {
         ]),
     ])
 
-    return newComponent(root, () => { });
+    return root;
 }
 
-function getNextHotlistActivityInDirection(state: State, idx: number, backwards: boolean): number {
+function getNextHotlistActivityInDirection(state: NoteTreeGlobalState, idx: number, backwards: boolean): number {
     const activities = state.activities;
     const direction = backwards ? -1 : 1;
     let lastNoteId = activities[idx].nId;
@@ -2729,6 +2751,7 @@ function autoInsertBreakIfRequired() {
 
 
 const initState = (then: () => void) => {
+    console.log("init state!");
     loadState(() => {
         setTheme(getTheme());
         then();
@@ -2741,10 +2764,15 @@ function isRunningFromFile(): boolean {
 }
 
 function makeDownloadThisPageButton() {
-    return makeButtonWithCallback("Download this page!", () => {
-        const linkEl = el<HTMLAnchorElement>("A", { download: "note-tree.html", "href": window.location.href });
-        linkEl.el.click();
-    })
+    const button = newComponent(Button);
+    button.render({ 
+        label: "Download this page!",
+        onClick: () => {
+            const linkEl = el<HTMLAnchorElement>("A", { download: "note-tree.html", "href": window.location.href });
+            linkEl.el.click();
+        },
+    });
+    return button;
 }
 
 function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean {
@@ -2773,17 +2801,14 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
     return false;
 }
 
-function HighLevelTaskDurations() {
-    function Row() {
-        const s = newState<{
-            name: string;
-            durationMs: number, nId: NoteId | undefined
-        }>();
-
-        const rg = newRenderGroup();
-        const root = div({ class: "row sb1b" }, [
+function HighLevelTaskDurations(rg: RenderGroup) {
+    function Row(rg: RenderGroup, s: State<{
+        name: string;
+        durationMs: number, nId: NoteId | undefined
+    }>) {
+        return div({ class: "row sb1b" }, [
             div({}, [
-                rg(NoteLink(), (nl) => {
+                rg.cArgs(NoteLink, (nl) => {
                     nl.render({
                         preventScroll: true,
                         text: s.args.name,
@@ -2795,13 +2820,10 @@ function HighLevelTaskDurations() {
             div({ class: "flex-1", style: "min-width: 100px" }),
             div({}, [rg.text(() => formatDuration(s.args.durationMs))]),
         ]);
-
-        return newComponent(root, rg.render, s);
     }
 
-    const rg = newRenderGroup();
-    const list = newListRenderer(div(), Row);
-    const renderBreaksCheckbox = Checkbox();
+    const list = newListRenderer(div(), () => newComponent(Row));
+    const renderBreaksCheckbox = newComponent(Checkbox);
     const root = div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
         el("H3", {}, [
             rg.text(() => {
@@ -2886,11 +2908,7 @@ function HighLevelTaskDurations() {
         }
     }
 
-    const c = newComponent(root, renderHighlevelTaskDurations);
-
-    function renderHighlevelTaskDurations() {
-        rg.render();
-
+    rg.renderFn(root, function renderHighlevelTaskDurations() {
         renderBreaksCheckbox.render({
             label: "Hide breaks",
             value: hideBreaks,
@@ -2901,10 +2919,9 @@ function HighLevelTaskDurations() {
         });
 
         renderHltList();
-    }
+    })
 
-    return c;
-
+    return root;
 }
 
 const cnInfoButton = sg.makeClass("info-button", [` { 
@@ -2924,68 +2941,85 @@ const cnInfoButton = sg.makeClass("info-button", [` {
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
-export function App() {
-    const rg = newRenderGroup();
+export function App(rg: RenderGroup) {
     const cheatSheetButton = el("BUTTON", { class: cnInfoButton, title: "click for a list of keyboard shortcuts and functionality" }, [
         "cheatsheet?"
     ]);
     let currentHelpInfo = 1;
-    on(cheatSheetButton, "click", () => {
+    cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
         rerenderApp();
     });
 
-    const filterEditor = ActivityFiltersEditor();
+    const filterEditor = newComponent(ActivityFiltersEditor);
     const filterEditorRow = div({ class: "row", style: "" }, [
         filterEditor,
     ]);
-    const notesList = NotesList();
-    const todoList = TodoList();
+    const notesList = newComponent(NotesList);
+    const todoList = newComponent(TodoList);
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
     const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0" });
     const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 0" })
 
-    const activityListContainer = ActivityListContainer();
+    const activityListContainer = newComponent(ActivityListContainer);
     const todoListContainer = div({ class: "flex-1 col" }, [
         todoList
     ]);
 
-    const scratchPadModal = ScratchPadModal();
-    const interactiveGraphModal = InteractiveGraphModal();
-    const settingsModal = SettingsModal();
-    const fuzzyFindModal = FuzzyFindModal();
-    const deleteModal = DeleteModal();
-    const loadBackupModal = LoadBackupModal();
-    const linkNavModal = LinkNavModal();
-    const exportModal = ExportModal();
+    const scratchPadModal = newComponent(ScratchPadModal);
+    const interactiveGraphModal = newComponent(InteractiveGraphModal);
+    const settingsModal = newComponent(SettingsModal);
+    const fuzzyFindModal = newComponent(FuzzyFindModal);
+    const deleteModal = newComponent(DeleteModal);
+    const loadBackupModal = newComponent(LoadBackupModal);
+    const linkNavModal = newComponent(LinkNavModal);
+    const exportModal = newComponent(ExportModal);
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
     }
 
-    const durationsButton = makeButtonWithCallback("Durations", () => {
-        setShowingDurations(!state._isShowingDurations);
-        rerenderApp();
+    const durationsButton = newComponent(Button);
+    durationsButton.render({
+        label: "Durations",
+        onClick: () => {
+            setShowingDurations(!state._isShowingDurations);
+            rerenderApp();
+        }
     });
-    const todoNotesButton = makeButtonWithCallback("Todo Notes", () => {
-        toggleCurrentDockedMenu("todoLists");
+    const todoNotesButton = newComponent(Button);
+    todoNotesButton.render({
+        label: "Todo Notes",
+        onClick: () => {
+            toggleCurrentDockedMenu("todoLists");
+        },
     });
-    const activitiesButton = makeButtonWithCallback("Activities", () => {
-        toggleCurrentDockedMenu("activities");
+    const activitiesButton = newComponent(Button);
+    activitiesButton.render({
+        label: "Activities",
+        onClick: () => {
+            toggleCurrentDockedMenu("activities");
+        }
     });
 
     let backupText = "";
     let backupFilename = "";
     const bottomButtons = div({ class: "row align-items-end sb1t" }, [
         div({ class: "row align-items-end" }, [
-            makeButtonWithCallback("Scratch Pad", () => {
-                setCurrentModal(scratchPadModal);
-            }),
+            rg.cArgs(Button, c => c.render({
+                label: "Scratch Pad",
+                onClick: () => {
+                    setCurrentModal(scratchPadModal);
+                }
+            })),
         ]),
         div({ class: "row align-items-end" }, [
-            makeButtonWithCallback("Graph", () => {
-                setCurrentModal(interactiveGraphModal);
-            }),
+            rg.cArgs(Button, c => c.render({
+                label: "Graph",
+                onClick: () => {
+                    setCurrentModal(interactiveGraphModal);
+                }
+            }))
         ]),
         div({ class: "flex-1 text-align-center" }, [statusTextIndicator]),
         div({ style: "width: 100px" }, [VERSION_NUMBER]),
@@ -2995,36 +3029,51 @@ export function App() {
             ) : (
                 makeDownloadThisPageButton()
             ),
-            makeButtonWithCallback("Delete current", () => {
-                setCurrentModal(deleteModal);
-            }),
-            makeButtonWithCallback("Settings", () => {
-                setCurrentModal(settingsModal);
-            }),
+            rg.cArgs(Button, c => c.render({
+                label: "Delete current",
+                onClick: () => {
+                    setCurrentModal(deleteModal);
+                }
+            })),
+            rg.cArgs(Button, c => c.render({
+                label: "Settings",
+                onClick: () => {
+                    setCurrentModal(settingsModal);
+                }
+            })),
             todoNotesButton,
             activitiesButton,
             durationsButton,
-            makeButtonWithCallback("Search", () => {
-                setCurrentModal(fuzzyFindModal);
-            }),
-            makeButtonWithCallback("Export", () => {
-                handleErrors(() => {
-                    setCurrentModal(exportModal);
-                });
-            }),
-            makeButtonWithCallback("Load JSON", () => {
-                loadFile((file) => {
-                    if (!file) {
-                        return;
-                    }
-
-                    file.text().then((text) => {
-                        backupFilename = file.name;
-                        backupText = text;
-                        setCurrentModal(loadBackupModal);
+            rg.cArgs(Button, c => c.render({
+                label: "Search",
+                onClick: () => {
+                    setCurrentModal(fuzzyFindModal);
+                }
+            })),
+            rg.cArgs(Button, c => c.render({
+                label: "Export",
+                onClick: () => {
+                    handleErrors(() => {
+                        setCurrentModal(exportModal);
                     });
-                });
-            }),
+                }
+            })),
+            rg.cArgs(Button, c => c.render({
+                label: "Load JSON",
+                onClick: () => {
+                    loadFile((file) => {
+                        if (!file) {
+                            return;
+                        }
+
+                        file.text().then((text) => {
+                            backupFilename = file.name;
+                            backupText = text;
+                            setCurrentModal(loadBackupModal);
+                        });
+                    });
+                }
+            })),
         ])
     ]);
 
@@ -3034,18 +3083,18 @@ export function App() {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" }, [
                 div({ class: "col flex-1 overflow-y-auto" }, [
-                    rg.if(() => currentHelpInfo === 2, (rg) => rg.c(CheatSheet())),
+                    rg.if(() => currentHelpInfo === 2, (rg) => rg.c(CheatSheet)),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         el("H2", {}, [
                             rg.text(() => "Currently working on - " + formatDate(new Date(), undefined, true, true)),
                         ]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
-                        rg.c(DarkModeToggle()),
+                        rg.c(DarkModeToggle),
                     ]),
                     errorBanner,
                     notesList,
-                    rg.if(() => state._isShowingDurations, (rg) => rg.c(HighLevelTaskDurations())),
+                    rg.if(() => state._isShowingDurations, (rg) => rg.c(HighLevelTaskDurations)),
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea,
                         bottomRightArea,
@@ -3424,12 +3473,8 @@ export function App() {
         console.error("Webworker error: ", e);
     }
 
-    const appComponent = newComponent(appRoot, rerenderAppComponent);
-
-    function rerenderAppComponent() {
+    rg.preRenderFn(appRoot, function rerenderAppComponent() {
         recomputeState(state);
-
-        rg.render();
 
         // render modals
         {
@@ -3532,17 +3577,15 @@ export function App() {
 
         setVisible(errorBanner, !!error);
         setText(errorBanner, error);
-    }
+    });
 
-    return appComponent;
+
+    rg.renderFn(appRoot, () => {
+        printRenderCounts();
+    });
+
+    return appRoot;
 };
-
-function makeButtonWithCallback(text: string, fn: () => void, classes: string = "") {
-    const btn = makeButton(text, classes);
-    on(btn, "click", fn);
-    return btn;
-};
-
 
 let statusTextClearTimeout = 0;
 const statusTextIndicator = div({ class: "pre-wrap", style: "background-color: var(--bg-color)" })
@@ -3633,7 +3676,7 @@ const debouncedSave = () => {
     });
 };
 
-const app = App();
+const app = newComponent(App);
 appendChild(
     newInsertable(document.body),
     app
@@ -3659,7 +3702,7 @@ initState(() => {
     // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
     // (which is apparently very easy to do here)
     setInterval(() => {
-        rerenderApp(false, true);
+        // rerenderApp(false, true);
     }, 500);
 
     initKeyboardListeners(rerenderApp);

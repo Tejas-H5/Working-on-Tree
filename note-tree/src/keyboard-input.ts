@@ -64,12 +64,19 @@ export function initKeyboardListeners(renderFn: () => void) {
     });
 
     document.addEventListener("blur", () => {
-        state.isShiftPressed = false;
-        state.isCtrlPressed = false;
-        state.isCtrlPressed = false;
-        state.isAltPressed = false;
+        if (
+            state.isShiftPressed
+            || state.isCtrlPressed 
+            || state.isCtrlPressed 
+            || state.isAltPressed
+        ) {
+            state.isShiftPressed = false;
+            state.isCtrlPressed = false;
+            state.isCtrlPressed = false;
+            state.isAltPressed = false;
 
-        renderFn();
+            renderFn();
+        }
     });
 }
 

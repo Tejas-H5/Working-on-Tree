@@ -1,13 +1,11 @@
-import { Insertable, div, newComponent, newState, on, scrollIntoView } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, State, div, scrollIntoView } from "src/utils/dom-utils";
 
-export function ScrollContainer() {
-    const s = newState<{ 
-        rescrollMs?: number;
-        axes?: "h" | "v" | "hv";
-        scrollEl: Insertable<HTMLElement> | null;
-    }>();
-
-    const scrollContainer = div({ class: "flex-1", style: "overflow-y: auto;" });
+export function ScrollContainer(rg: RenderGroup, s: State<{
+    rescrollMs?: number;
+    axes?: "h" | "v" | "hv";
+    scrollEl: Insertable<HTMLElement> | null;
+}>) {
+    const root = div({ class: "flex-1", style: "overflow-y: auto;" });
 
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;
@@ -26,7 +24,7 @@ export function ScrollContainer() {
     function scrollToLastElement() {
         clearTimeout(scrollTimeout);
         setTimeout(() => {
-            const scrollParent = scrollContainer.el;
+            const scrollParent = root.el;
             if (lastScrollEl) {
                 // The same scroll container can be used for both or either axis!
 
@@ -54,7 +52,7 @@ export function ScrollContainer() {
         }
 
         if (isH()) {
-            const width = scrollContainer.el.clientWidth;
+            const width = root.el.clientWidth;
             if (width !== lastWidth) {
                 lastWidth = width;
                 shouldRerender = true;
@@ -62,7 +60,7 @@ export function ScrollContainer() {
         }
 
         if (isV()) {
-            const height = scrollContainer.el.clientHeight;
+            const height = root.el.clientHeight;
             if (height !== lastHeight) {
                 lastHeight = height;
                 shouldRerender = true;
@@ -72,7 +70,7 @@ export function ScrollContainer() {
         return shouldRerender;
     }
 
-    function renderScrollContainer() {
+    rg.renderFn(root, function renderScrollContainer() {
         if (!shouldRerender()) {
             return;
         }
@@ -82,9 +80,9 @@ export function ScrollContainer() {
         lastScrollEl = scrollEl;
         lastWidth = length;
         scrollToLastElement();
-    }
+    });
 
-    on(scrollContainer, "scroll", () => {
+    root.el.addEventListener("scroll", () => {
         const { rescrollMs } = s.args;
 
         if (!rescrollMs) {
@@ -98,5 +96,5 @@ export function ScrollContainer() {
         }, rescrollMs);
     });
 
-    return newComponent(scrollContainer, renderScrollContainer, s);
+    return root;
 }
