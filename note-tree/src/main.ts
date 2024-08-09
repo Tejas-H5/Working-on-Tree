@@ -16,6 +16,7 @@ import {
     appendChild,
     div,
     el,
+    enableDebugMode,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
@@ -3579,10 +3580,10 @@ export function App(rg: RenderGroup) {
         setText(errorBanner, error);
     });
 
-
-    rg.renderFn(appRoot, () => {
-        printRenderCounts();
-    });
+    // rg.renderFn(appRoot, () => {
+    //     enableDebugMode();
+    //     printRenderCounts();
+    // });
 
     return appRoot;
 };

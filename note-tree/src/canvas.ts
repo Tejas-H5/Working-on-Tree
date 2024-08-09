@@ -2,7 +2,7 @@ import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-inpu
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, State, div, el, isVisible, newComponent, newComponent2, newListRenderer, newState, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, State, div, el, isVisible, newComponent, newComponent2, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 const TAB_SIZE = 4;
 
@@ -910,9 +910,7 @@ function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: Visua
 }
 
 
-function Canvas(rg: RenderGroup) {
-    const s = newState<CanvasArgs>();
-
+function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
     let currentCursorEl: Insertable | null = null;
     let shouldScroll = false;
 
@@ -1888,7 +1886,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         buttons.bucketFillSelectConnected, 
     ];
 
-    const toolbar = div({ class: "", style: "justify-content: center; gap: 5px;" }, [
+    const toolbar = div({ style: "justify-content: center; gap: 5px;" }, [
         div({ class: "inline-block"}, [
             buttons.lessRows,
             div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
@@ -2025,7 +2023,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     }
 
     function rerenderLocal() {
-        canvasComponent.render(s.args);
+        rg.render();
         s.args.onInput();
     }
 
@@ -2035,8 +2033,6 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
 
         const cursorCell = getCursorCell(canvasState);
         canPaste = !!cursorCell;
-
-        rg.render();
 
         canvasComponent.render(canvasArgs);
         
@@ -2141,6 +2137,6 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         }
     });
 
-    return [canvasComponent, canvasState] as const;
+    return [root, canvasState] as const;
 }
 

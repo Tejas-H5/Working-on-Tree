@@ -614,6 +614,7 @@ export function __newRealComponentInternal<T, U extends ValidElement>(root: Inse
 }
 
 export type RenderGroup = {
+    instantiated: boolean;
     templateName: string;
     skipErrorBoundary: boolean;
     render: () => void;
@@ -642,8 +643,15 @@ export type RenderGroup = {
     preRenderFn: <U extends ValidElement>(root: Insertable<U>, fn: () => void) => void;
 };
 
+let debug = false;
+export function enableDebugMode() {
+    debug = true;
+}
+
 const renderCounts = new Map<string, { c: number, t: number; s: Set<RenderGroup>}>();
 function countRender(name: string, ref: RenderGroup, num: number) {
+    if (!debug) return;
+
     if (!renderCounts.has(name)) {
         renderCounts.set(name, { c: 0, s: new Set(), t: 0 });
     }
@@ -652,7 +660,10 @@ function countRender(name: string, ref: RenderGroup, num: number) {
     d.t++;
     d.s.add(ref);
 }
+
 export function printRenderCounts() {
+    if (!debug) return;
+
     let totalComponents = 0;
     let totalRenderFns = 0;
     let totalRenders = 0;
@@ -663,15 +674,22 @@ export function printRenderCounts() {
         totalComponents += v.s.size;
     }
 
+    for (const [k, v] of renderCounts) {
+        if (v.t === 0) {
+            renderCounts.delete(k);
+        }
+    }
+
     console.log(
         ([...renderCounts].sort((a, b) => a[1].c - b[1].c))
-            .map(([k, v]) => `${k} (${v.s.size} unique) rendered ${v.c} fns and ${v.t} times, av = ${v.c / v.t}`)
+            .map(([k, v]) => `${k} (${v.s.size} unique) rendered ${v.c} fns and ${v.t} times, av = ${(v.c / v.t).toFixed(2)}`)
             .join("\n") + "\n\n" 
             + `total num components = ${totalComponents}, total render fns  ${totalRenderFns}`
     );
 
     for (const v of renderCounts.values()) {
         v.c = 0;
+        v.t = 0;
         v.s.clear();
     }
 }
@@ -765,9 +783,11 @@ export function newRenderGroup(): RenderGroup {
     })[] = [];
 
     const rg: RenderGroup = {
+        instantiated: false,
         templateName: "unknown",
         skipErrorBoundary: false,
         render() {
+            rg.instantiated = true;
             countRender(rg.templateName, rg, renderFns.length);
             for (let i = 0; i < renderFns.length; i++) {
                 renderFns[i].fn();
@@ -842,11 +862,15 @@ export function newRenderGroup(): RenderGroup {
             };
         },
         renderFn: (root, fn) => {
-            console.log("added handler");
+            if (rg.instantiated) {
+                throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
+            }
             renderFns.push({ fn, insertable: root });
         },
         preRenderFn: (root, fn) => {
-            console.log("added handler (pre)");
+            if (rg.instantiated) {
+                throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
+            }
             renderFns.unshift({ fn, insertable: root });
         },
     };

@@ -9,8 +9,8 @@ export function Button(rg: RenderGroup, s: State<{
 }>) {
     return el<HTMLButtonElement>("BUTTON", {
         type: "button",
-        class: `solid-border flex `,
-        style: `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px; justify-content: center; `,
+        class: `solid-border text-align-center`,
+        style: `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px;`,
     }, [
         rg.attr("class", () => s.args.className || ""),
         rg.attr("style", () => s.args.styles || ""),
