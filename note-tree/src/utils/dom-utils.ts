@@ -645,7 +645,6 @@ export type RenderGroup = {
     ) => Functionality<HTMLElement>;
     attr: <U extends ValidElement>(attrName: string, valueFn: () => string) => Functionality<U>;
     class: <U extends ValidElement>(className: string, predicate: () => boolean) => Functionality<U>;
-    children: <U extends ValidElement>(childrenFn: () => Insertable[]) => Functionality<U>;
     style: <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: () => U["style"][K]) => Functionality<U>;
     functionality: <U extends ValidElement> (fn: (val: Insertable<U>) => void) => Functionality<U>;
     // NOTE: this root might be redundant now...
