@@ -3,7 +3,7 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
-import { Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer, Button } from "src/components";
+import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
@@ -16,7 +16,6 @@ import {
     appendChild,
     div,
     el,
-    enableDebugMode,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
@@ -24,7 +23,6 @@ import {
     newInsertable,
     newListRenderer,
     newStyleGenerator,
-    printRenderCounts,
     replaceChildren,
     scrollIntoView,
     setAttr,
