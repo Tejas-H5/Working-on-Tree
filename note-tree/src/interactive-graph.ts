@@ -1,5 +1,5 @@
 import { TextArea } from "./components/text-area";
-import { Insertable, addChildren, div, el, isVisible, newComponent, newListRenderer, newRenderGroup, newState, newStyleGenerator, on, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { Insertable, RenderGroup, State, addChildren, div, el, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
 
@@ -160,25 +160,22 @@ function forEachConnectedEdge(nodeId: string | undefined, edges: Record<string, 
 // I had made this for a bit of fun, but this component is mostly a mistake and any further maintanence will be a giant waste of time.
 // I should convert to SVG for convenience, and easier exporting/reusing our diagrams in other places.
 
-export function InteractiveGraph() {
-    const s = newState<GraphArgs>();
-
-    const rg = newRenderGroup();
+export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
     const graphRoot = div({
         class: "absolute-fill",
         style: "border: 2px solid var(--fg-color); overflow: hidden; cursor: move;",
     });
 
     const relativeContainer = div({ class: "col relative flex-1" });
-    const contextMenu = RadialContextMenu();
+    const contextMenu = newComponent(RadialContextMenu);
 
     let graphData = newGraphData();
 
     const nodeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
     const edgeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
 
-    const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), GraphNodeUI);
-    rg(nodeListRenderer, (list) => list.render((getNext) => {
+    const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphNodeUI));
+    rg.renderFn(nodeListRenderer, () => nodeListRenderer.render((getNext) => {
         for (const id of nodeComponentMap.keys()) {
             if (!(id in graphData.nodes)) {
                 nodeComponentMap.delete(id);
@@ -203,7 +200,7 @@ export function InteractiveGraph() {
                     onContextMenu,
 
                     relativeContainer,
-                    renderGraph,
+                    renderGraph: rg.render,
                 })
             }
 
@@ -218,8 +215,8 @@ export function InteractiveGraph() {
     }));
 
     // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
-    const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), GraphEdgeUI)
-    rg(edgeListRenderer, (c) => c.render((getNext) => {
+    const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphEdgeUI));
+    rg.renderFn(edgeListRenderer, () => edgeListRenderer.render((getNext) => {
         for (const id of edgeComponentMap.keys()) {
             if (!(id in graphData.edges)) {
                 edgeComponentMap.delete(id);
@@ -247,7 +244,7 @@ export function InteractiveGraph() {
                     onContextMenu,
 
                     relativeContainer,
-                    renderGraph,
+                    renderGraph: rg.render,
                 };
             }
 
@@ -301,7 +298,7 @@ export function InteractiveGraph() {
                 delete graphData.edges[k];
             }
 
-            renderGraph();
+            rg.render();
         }),
         newNode: contextMenuItem("New node", () => {
             const x = realXToGraphX(graphState, relativeContainer.el, graphState.contextMenuX);
@@ -310,11 +307,11 @@ export function InteractiveGraph() {
         }),
         recenter: contextMenuItem("Recenter", () => {
             recenter();
-            renderGraph();
+            rg.render();
         }),
         clearZoom: contextMenuItem("Clear Zoom", () => {
             graphState.viewZoom = 1;
-            renderGraph();
+            rg.render();
         }),
         canAddNewLabel: (edge: GraphEdge | undefined): edge is GraphEdge => !!edge && ["", " "].includes(edge.text),
         newLabel: contextMenuItem("New Label", () => {
@@ -326,7 +323,7 @@ export function InteractiveGraph() {
 
             edge.text = "New Label"
             s.args.onInput();
-            renderGraph();
+            rg.render();
         }),
         flipEdge: contextMenuItem("Flip Edge", () => {
             const edge = getCurrentEdge();
@@ -342,27 +339,27 @@ export function InteractiveGraph() {
 
             s.args.onInput();
 
-            renderGraph();
+            rg.render();
         }),
         edgeThicknessThin: contextMenuItem("Weight -> Thin", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.THIN;
-                renderGraph();
+                rg.render();
             }
         }),
         edgeThicknessNormal: contextMenuItem("Weight -> Normal", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.NORMAL;
-                renderGraph();
+                rg.render();
             }
         }),
         edgeThicknessThick: contextMenuItem("Weight -> Thick", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.THICK;
-                renderGraph();
+                rg.render();
             }
         }),
         deleteNode: contextMenuItem("Delete node", () => {
@@ -382,7 +379,7 @@ export function InteractiveGraph() {
 
             delete graphData.nodes[currentSelectedNodeId];
 
-            renderGraph();
+            rg.render();
         }),
         recalcItemVisibility() {
             const nodeSelected = !!graphState.currentSelectedNodeId;
@@ -503,7 +500,7 @@ export function InteractiveGraph() {
             );
         }
 
-        renderGraph();
+        rg.render();
     }
 
     function addNewNode(x = 0, y = 0) {
@@ -521,7 +518,7 @@ export function InteractiveGraph() {
 
     let domRect = root.el.getBoundingClientRect();
 
-    function renderGraph() {
+    rg.preRenderFn(root, function renderGraph() {
         if (s.args.graphData) {
             graphData = s.args.graphData;
         }
@@ -548,7 +545,6 @@ export function InteractiveGraph() {
             }
         }
 
-        rg.render();
         if (setVisible(contextMenu, graphState.isContextMenuOpen)) {
             contextMenuItemsDict.recalcItemVisibility();
             contextMenu.render({
@@ -559,7 +555,7 @@ export function InteractiveGraph() {
                 onClose: closeContextMenu,
             });
         }
-    }
+    });
 
     function startEdgeDrag(_e: MouseEvent) {
         // Specifically for edges, we want the endpoint to be exactly on the mouse cursor.
@@ -668,7 +664,7 @@ export function InteractiveGraph() {
 
         s.args.onInput();
 
-        renderGraph();
+        rg.render();
     }
 
     const dragManager = newDragManager({
@@ -767,7 +763,7 @@ export function InteractiveGraph() {
     function closeContextMenu() {
         graphState.isContextMenuOpen = false;
         dragManager.cancelDrag();
-        renderGraph();
+        rg.render();
     }
 
     let lastX = 0, lastY = 0;
@@ -800,25 +796,25 @@ export function InteractiveGraph() {
 
         graphState.isContextMenuOpen = false;
     }
-    on(relativeContainer, "mousemove", (e) => {
+    relativeContainer.el.addEventListener("mousemove", (e) => {
         onMouseMove(e);
 
-        renderGraph();
+        rg.render();
     });
-    on(relativeContainer, "mouseup", (e) => {
+    relativeContainer.el.addEventListener("mouseup", (e) => {
         onMouseUp(e);
-        renderGraph();
+        rg.render();
     });
-    on(relativeContainer, "mousedown", (e) => {
+    relativeContainer.el.addEventListener("mousedown", (e) => {
         onMouseDown(e);
-        renderGraph();
+        rg.render();
     });
-    on(relativeContainer, "contextmenu", (e) => {
+    relativeContainer.el.addEventListener("contextmenu", (e) => {
         onContextMenu(e);
-        renderGraph();
+        rg.render();
     });
 
-    on(relativeContainer, "wheel", (e) => {
+    relativeContainer.el.addEventListener("wheel", (e) => {
         e.preventDefault();
 
         // NOTE: Thisworks with the mouse wheel (delta ranges between -1 and 1, but infrequent) 
@@ -845,7 +841,7 @@ export function InteractiveGraph() {
             graphState.viewY - yDelta,
         );
 
-        renderGraph();
+        rg.render();
     });
 
     document.addEventListener("keydown", (e) => {
@@ -872,16 +868,14 @@ export function InteractiveGraph() {
         if (needsRender) {
             e.stopPropagation();
             e.preventDefault();
-            renderGraph();
+            rg.render();
         }
     });
 
-    return newComponent(root, renderGraph, s);
+    return root;
 }
 
-function GraphNodeUI() {
-    const s = newState<GraphNodeUIArgs>();
-
+function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
     const className = "pre w-100 h-100";
     const styles = "padding: 0; position: absolute;";
     const textArea = setAttrs(TextArea(), {
@@ -896,7 +890,7 @@ function GraphNodeUI() {
     });
 
     const [edgeDragStartRegions, updateDragRegionStyles] = makeDragRects((regionDiv) => {
-        on(regionDiv, "mousemove", (e) => {
+        regionDiv.el.addEventListener("mousemove", (e) => {
             const { graphState, node, onMouseMove, renderGraph } = s.args;
 
             e.stopImmediatePropagation();
@@ -917,7 +911,7 @@ function GraphNodeUI() {
 
             renderGraph();
         });
-        on(regionDiv, "mouseup", (e) => {
+        regionDiv.el.addEventListener("mouseup", (e) => {
             const { onMouseUp, renderGraph } = s.args;
 
             e.stopImmediatePropagation();
@@ -925,13 +919,13 @@ function GraphNodeUI() {
             onMouseUp(e);
             renderGraph();
         });
-        on(regionDiv, "mousedown", (e) => {
+        regionDiv.el.addEventListener("mousedown", (e) => {
             const { onMouseDown, renderGraph } = s.args;
             e.stopImmediatePropagation();
             onMouseDown(e);
             renderGraph();
         });
-        on(regionDiv, "contextmenu", (e) => {
+        regionDiv.el.addEventListener("contextmenu", (e) => {
             const { onContextMenu, renderGraph } = s.args;
             e.stopImmediatePropagation();
             onContextMenu(e);
@@ -939,7 +933,6 @@ function GraphNodeUI() {
         })
     });
 
-    const rg = newRenderGroup();
     const root = div({
         style: "position: absolute; padding: 5px; border: 1px var(--fg-color) solid;",
         class: "pointer-events-all",
@@ -955,7 +948,7 @@ function GraphNodeUI() {
     let lastText: string | undefined;
     let lastIsEditing = false;
 
-    function renderGraphNodeUI() {
+    rg.preRenderFn(root, function renderGraphNodeUI() {
         const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s.args;
 
         if (setVisibleGroup(
@@ -964,8 +957,6 @@ function GraphNodeUI() {
         )) {
             updateDragRegionStyles(s.args);
         }
-
-        rg.render();
 
         if (
             lastText !== node.text ||
@@ -1027,7 +1018,7 @@ function GraphNodeUI() {
         setStyle(root, "zIndex", isSelected ? Z_INDICES.NODE_SELECTED : Z_INDICES.NODE_UNSELECTED);
         setStyle(textDiv, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
         setStyle(textArea, "backgroundColor", isSelected ? "var(--bg-color-focus)" : "var(--bg-color)");
-    }
+    });
 
 
     root.el.addEventListener("click", (e) => {
@@ -1063,14 +1054,14 @@ function GraphNodeUI() {
         renderGraph();
     });
 
-    on(textArea, "input", () => {
+    textArea.el.addEventListener("input", () => {
         const { node, renderGraph, graphArgs } = s.args;
         node.text = textArea.el.value;
         graphArgs.onInput();
         renderGraph();
     });
 
-    return newComponent(root, renderGraphNodeUI, s);
+    return root;
 }
 
 const cnGraphEdgeRoot = sg.makeClass(`graph-edge-root`, [
@@ -1079,9 +1070,7 @@ const cnGraphEdgeRoot = sg.makeClass(`graph-edge-root`, [
     `.redrag .line { background-color: red; }`
 ]);
 
-function GraphEdgeUI() {
-    const s = newState<GraphEdgeUIArgs>();
-
+function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
     const arrowHitbox = div({
         class: "line",
         style: "background-color: transparent;"
@@ -1115,7 +1104,7 @@ function GraphEdgeUI() {
     }
 
     for (const seg of arrowSegments) {
-        on(seg, "mousemove", (e) => {
+        seg.el.addEventListener("mousemove", (e) => {
             const { graphState, edge, onMouseMove, renderGraph, relativeContainer, srcNode, dstNode } = s.args;
 
             e.stopImmediatePropagation();
@@ -1143,21 +1132,21 @@ function GraphEdgeUI() {
 
             renderGraph();
         });
-        on(seg, "mouseup", (e) => {
+        seg.el.addEventListener("mouseup", (e) => {
             const { onMouseUp, renderGraph } = s.args;
 
             e.stopImmediatePropagation();
             onMouseUp(e);
             renderGraph();
         });
-        on(seg, "mousedown", (e) => {
+        seg.el.addEventListener("mousedown", (e) => {
             const { onMouseDown, renderGraph } = s.args;
 
             e.stopImmediatePropagation();
             onMouseDown(e);
             renderGraph();
         });
-        on(seg, "contextmenu", (e) => {
+        seg.el.addEventListener("contextmenu", (e) => {
             const { onContextMenu, renderGraph } = s.args;
             e.stopImmediatePropagation();
             onContextMenu(e);
@@ -1165,7 +1154,6 @@ function GraphEdgeUI() {
         });
     }
 
-    const rg = newRenderGroup();
     const labelInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const label = div({ style: "position: absolute; white-space: nowrap;" }, [
         labelInput
@@ -1181,15 +1169,13 @@ function GraphEdgeUI() {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    function renderGraphEdgeUI() {
+    rg.preRenderFn(root, function renderGraphEdgeUI() {
         const { graphState, edge, graphArgs } = s.args;
 
         if (!edge.text) {
             edge.text = " ";
             graphArgs.onInput();
         }
-
-        rg.render();
 
         setClass(root, "block-mouse", true || graphState.isDragging);
         setClass(root, "redrag", graphState.currentEdgeDragEdgeId === edge.id);
@@ -1240,19 +1226,19 @@ function GraphEdgeUI() {
             labelInput.el.style.width = labelInput.el.scrollWidth + 5 + "px";
             setStyle(labelInput, "width", labelInput.el.style.width);
         }
-    }
+    });
 
-    on(labelInput, "input", () => {
+    labelInput.el.addEventListener("input", () => {
         const { edge, graphArgs } = s.args;
 
         edge.text = labelInput.el.value;
 
         graphArgs.onInput();
 
-        renderGraphEdgeUI();
+        rg.render();
     });
 
-    return newComponent(root, renderGraphEdgeUI, s);
+    return root;
 }
 
 
@@ -1316,24 +1302,19 @@ const cnContextMenu = sg.makeClass(`context-menu`, [
     ` .item:hover { background-color: var(--bg-color-focus); cursor: pointer; }`
 ])
 
-function RadialContextMenu() {
-    const s = newState<{
+function RadialContextMenu(rg: RenderGroup, s: State<{
+    x: number;
+    y: number;
+    centerText: string;
+    items: ContextMenuItem[];
+    onClose(): void;
+}>) {
+    function RadialContextMenuItem(rg: RenderGroup, s: State<{
         x: number;
         y: number;
-        centerText: string;
-        items: ContextMenuItem[];
+        item: ContextMenuItem;
         onClose(): void;
-    }>();
-
-    function RadialContextMenuItem() {
-        const s = newState<{
-            x: number;
-            y: number;
-            item: ContextMenuItem;
-            onClose(): void;
-        }>();
-
-        const rg = newRenderGroup();
+    }>) {
         const root = div({
             class: "absolute nowrap item bg-color",
             style: `z-index: ${Z_INDICES.CONTEXT_MENU}; padding: 10px; border-radius: 5px; border: 2px solid var(--fg-color);`,
@@ -1341,17 +1322,15 @@ function RadialContextMenu() {
             rg.text(() => s.args.item.text)
         ]);
 
-        function renderRadialContextMenuItem() {
+        rg.preRenderFn(root, function renderRadialContextMenuItem() {
             const { x, y, item } = s.args;
-
-            rg.render();
 
             setStyle(root, "left", x + "px");
             setStyle(root, "top", y + "px");
             setClass(root, "inverted", item.toggled);
-        }
+        });
 
-        on(root, "mousedown", (e) => {
+        root.el.addEventListener("mousedown", (e) => {
             if (e.button !== 0) {
                 return
             }
@@ -1360,10 +1339,10 @@ function RadialContextMenu() {
             closeSelf(e);
         });
 
-        return newComponent(root, renderRadialContextMenuItem, s);
+        return root;
     }
 
-    const contextMenuItemList = newListRenderer(div({ class: "relative" }), RadialContextMenuItem);
+    const contextMenuItemList = newListRenderer(div({ class: "relative" }), () => newComponent(RadialContextMenuItem));
     const centerTextEl = div({ class: "pre" });
     const centerTextContainerPadding = 10;
     const centerTextContainer = div({
@@ -1386,7 +1365,7 @@ function RadialContextMenu() {
         ]),
     ]);
 
-    function renderRadialContextMenu() {
+    rg.preRenderFn(root, function renderRadialContextMenu() {
         const { x, y, items, centerText } = s.args;
 
         setText(centerTextEl, centerText);
@@ -1477,7 +1456,7 @@ function RadialContextMenu() {
         setStyle(root, "width", rootWidth + "px");
         setStyle(root, "height", rootHeight + "px");
 
-    }
+    });
 
     function closeSelf(e: MouseEvent) {
         e.preventDefault();
@@ -1485,17 +1464,17 @@ function RadialContextMenu() {
         s.args.onClose();
     }
 
-    on(root, "contextmenu", closeSelf);
-    on(root, "mousedown", (e) => {
+    root.el.addEventListener("contextmenu", closeSelf);
+    root.el.addEventListener("mousedown", (e) => {
         if (e.button === 0) {
             closeSelf(e);
         }
     });
-    on(root, "mousemove", (e) => {
+    root.el.addEventListener("mousemove", (e) => {
         e.stopImmediatePropagation();
     });
 
-    return newComponent(root, renderRadialContextMenu, s);
+    return root;
 }
 
 function rectIntersect(

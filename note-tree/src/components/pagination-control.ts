@@ -1,6 +1,6 @@
-import { div, newComponent, newState, on, setText, setVisible } from "src/utils/dom-utils";
+import { RenderGroup, State, div, newComponent, setText, setVisible } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
-import { makeButton } from "./button";
+import { Button } from "./button";
 
 type PaginationControlArgs = {
     totalCount: number;
@@ -8,14 +8,43 @@ type PaginationControlArgs = {
     rerender(): void;
 };
 
-
-export function PaginationControl() {
-    const s = newState<PaginationControlArgs>();
-
-    const leftButton = makeButton("<");
-    const leftLeftButton = makeButton("<<");
-    const rightButton = makeButton(">");
-    const rightRightButton = makeButton(">>");
+export function PaginationControl(rg: RenderGroup, s: State<PaginationControlArgs>) {
+    const leftButton = newComponent(Button)
+    leftButton.render({
+        label: "<",
+        onClick: () => {
+            const { pagination, rerender } = s.args;
+            setPage(pagination, getPage(pagination) - 1);
+            rerender();
+        }
+    });
+    const leftLeftButton = newComponent(Button);
+    leftLeftButton.render({
+        label: "<<",
+        onClick: () => {
+            const { pagination, rerender } = s.args;
+            pagination.start = 0;
+            rerender();
+        }
+    });
+    const rightButton = newComponent(Button);
+    rightButton.render({
+        label: ">",
+        onClick: () => {
+            const { pagination, rerender } = s.args;
+            setPage(pagination, getPage(pagination) + 1);
+            rerender();
+        }
+    });
+    const rightRightButton = newComponent(Button);
+    rightRightButton.render({
+        label: ">>",
+        onClick: () => {
+            const { pagination, rerender } = s.args;
+            pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
+            rerender();
+        }
+    });
     const pageReadout = div({ style: "" });
 
     const root = div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
@@ -31,7 +60,7 @@ export function PaginationControl() {
         ]),
     ])
 
-    function renderPaginationControl() {
+    rg.preRenderFn(root, function renderPaginationControl() {
         const { pagination, totalCount } = s.args;
 
         setTotalCount(pagination, totalCount);
@@ -44,32 +73,7 @@ export function PaginationControl() {
         setVisible(leftLeftButton, page !== 0);
         setVisible(rightButton, page !== getMaxPages(pagination));
         setVisible(rightRightButton, page !== getMaxPages(pagination));
-    }
-
-    on(leftButton, "click", () => {
-        const { pagination, rerender } = s.args;
-        setPage(pagination, getPage(pagination) - 1);
-        rerender();
     });
 
-    on(leftLeftButton, "click", () => {
-        const { pagination, rerender } = s.args;
-        pagination.start = 0;
-        rerender();
-    });
-
-    on(rightRightButton, "click", () => {
-        const { pagination, rerender } = s.args;
-        pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
-        rerender();
-    });
-
-
-    on(rightButton, "click", () => {
-        const { pagination, rerender } = s.args;
-        setPage(pagination, getPage(pagination) + 1);
-        rerender();
-    });
-
-    return newComponent(root, renderPaginationControl, s);
+    return root;
 }

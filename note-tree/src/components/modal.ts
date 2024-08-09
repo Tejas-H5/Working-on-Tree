@@ -1,15 +1,10 @@
-import { Insertable, div, newComponent, newState, on } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, State, div, setChildAt } from "src/utils/dom-utils";
 
-export type ModalArgs = { onClose(): void };
-
-export function Modal(content: Insertable) {
-    const s = newState<ModalArgs>({
-        onClose() { }
-    });
-
+export function Modal(rg: RenderGroup, s: State<{ onClose(): void; content: Insertable; }>) {
     const bgRect = div({ style: "background-color: var(--bg-color)" }, [
-        content,
-    ])
+        rg.functionality(div => setChildAt(div, s.args.content, 0)),
+    ]);
+
     const root = div({
         class: "modal-shadow fixed align-items-center justify-content-center row",
         style: `top: 0vh; left: 0vw; right: 0vw; bottom: 0vh; z-index: 9999;`
@@ -18,7 +13,7 @@ export function Modal(content: Insertable) {
     let blockMouseDown = false;
 
     // Clicking outside the modal should close it
-    on(root, "mousedown", () => {
+    root.el.addEventListener("mousedown", () => {
         if (!blockMouseDown) {
             s.args.onClose()
         }
@@ -27,10 +22,10 @@ export function Modal(content: Insertable) {
 
     // Clicking inside the modal shouldn't close it.
     // We can't simply stop propagation of this event to the nodes inside though, so we're doing it like this.
-    on(bgRect, "mousedown", () => {
+    bgRect.el.addEventListener("mousedown", () => {
         blockMouseDown = true;
     });
 
-    return newComponent(root, () => { }, s);
+    return root;
 }
 

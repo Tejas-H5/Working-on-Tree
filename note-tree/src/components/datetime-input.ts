@@ -1,19 +1,17 @@
 import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
-import { div, el, isEditingInput, newComponent, newState, on, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { RenderGroup, State, div, el, isEditingInput, newComponent, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
-export function DateTimeInput(initialLabel?: string) {
-    const s = newState<{
-        readOnly: boolean;
-        nullable: boolean;
-        value: Date | null;
-        label?: string;
-        onChange(val: Date | null): void;
-    }>();
-
+export function DateTimeInput(rg: RenderGroup, s: State<{
+    readOnly: boolean;
+    nullable: boolean;
+    value: Date | null;
+    label: string;
+    onChange(val: Date | null): void;
+}>) {
     const show = div();
     const edit = el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
-    const checkbox = Checkbox();
+    const checkbox = newComponent(Checkbox);
     const root = div({ class: "row", style: "" }, [
         checkbox,
         div(
@@ -25,19 +23,9 @@ export function DateTimeInput(initialLabel?: string) {
         )
     ]);
 
-    if (initialLabel) {
-        checkbox.render({
-            label: initialLabel,
-            value: false,
-            onChange: onCheckOrUncheck,
-        });
-    }
-
     let lastDate: Date | null = null;
 
-    const component = newComponent(root, renderDateTimeInput, s);
-
-    function renderDateTimeInput() {
+    rg.renderFn(root, function renderDateTimeInput() {
         const { value, label, readOnly, nullable } = s.args;
 
         const canEdit = readOnly && !!value;
@@ -67,7 +55,7 @@ export function DateTimeInput(initialLabel?: string) {
         }
 
         setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
-    }
+    });
     
     function onCheckOrUncheck(b: boolean) {
         const { onChange } = s.args;
@@ -96,15 +84,15 @@ export function DateTimeInput(initialLabel?: string) {
         // no render call here, onChange is responsible for rendering this component
     }
 
-    on(edit, "keypress", (e) => {
+    edit.el.addEventListener("keypress", (e) => {
         if (e.key === "Enter") {
             handleTextfieldEdit();
         }
     });
 
-    on(edit, "blur", () => {
+    edit.el.addEventListener("blur", () => {
         handleTextfieldEdit();
     });
 
-    return component;
+    return root;
 }
