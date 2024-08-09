@@ -2852,12 +2852,6 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     function renderHltList() {
         hltMap.clear();
 
-        const hasRange = state._activitiesFromIdx !== -1;
-        if (!hasRange) {
-            return;
-        }
-
-
         for (let i = state._activitiesFromIdx; i <= state._activitiesToIdx; i++) {
             const activity = state.activities[i];
             const nextActivity = state.activities[i + 1];
@@ -2894,19 +2888,17 @@ function HighLevelTaskDurations(rg: RenderGroup) {
         }
 
         // render hlt map
-        {
-            list.render((getNext) => {
-                const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
+        list.render((getNext) => {
+            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
 
-                for (const [hltName, { time, nId }] of hltSorted) {
-                    getNext().render({
-                        name: hltName,
-                        durationMs: time,
-                        nId,
-                    });
-                }
-            });
-        }
+            for (const [hltName, { time, nId }] of hltSorted) {
+                getNext().render({
+                    name: hltName,
+                    durationMs: time,
+                    nId,
+                });
+            }
+        });
     }
 
     rg.renderFn(root, function renderHighlevelTaskDurations() {
@@ -2915,7 +2907,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             value: hideBreaks,
             onChange: (val) => {
                 hideBreaks = val;
-                renderHighlevelTaskDurations();
+                rg.render();
             }
         });
 

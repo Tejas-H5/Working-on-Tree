@@ -1707,7 +1707,6 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         disabled?: boolean;
     }>) {
         const button = newComponent(Button);
-        setAttrs(button, { class: "inline-block", style: ";text-align: center; align-items: center;" }, true);
 
         rg.preRenderFn(button, function renderAsciiCanvasToolbarButton() {
             const { tool, selected, disabled } = s.args;
@@ -1715,6 +1714,8 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             setText(button, s.args.name);
             button.render({
                 label: s.args.name,
+                className: "inline-block", 
+                style: ";text-align: center; align-items: center;",
                 onClick: (e) => {
                     const { onClick, tool } = s.args;
 
