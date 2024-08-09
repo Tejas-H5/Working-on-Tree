@@ -27,7 +27,6 @@ import {
     scrollIntoView,
     setAttr,
     setAttrs,
-    setChildAt,
     setClass,
     setCssVars,
     setInputValue,
@@ -197,10 +196,7 @@ function ScrollNavItem(rg: RenderGroup, s: State<{
         ),
         div({ class: "flex-1 handle-long-words" }, [
             rg.functionality((el) => {
-                const children = s.args.children;
-                for (let i = 0; i < children.length; i++) {
-                    setChildAt(el, children[i], i);
-                }
+                replaceChildren(el, s.args.children);
             })
         ])
     ]);

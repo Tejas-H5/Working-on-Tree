@@ -5,11 +5,20 @@ export type Insertable<T extends ValidElement = HTMLElement> = {
 };
 
 export function replaceChildren(comp: Insertable, children: (Insertable | undefined)[]) {
-    comp.el.replaceChildren(
-        ...children.filter(c => !!c).map((c) => {
-            return c!.el;
-        })
-    );
+    let iReal = 0;
+    for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (!child) {
+            continue;
+        }
+
+        setChildAt(comp, child, iReal);
+        iReal++;
+    }
+
+    while (iReal < comp.el.children.length) {
+        comp.el.children[comp.el.children.length - 1].remove();
+    }
 };
 
 export function appendChild<T extends ValidElement, U extends ValidElement>(mountPoint: Insertable<T>, child: Insertable<U>) {
@@ -636,6 +645,7 @@ export type RenderGroup = {
     ) => Functionality<HTMLElement>;
     attr: <U extends ValidElement>(attrName: string, valueFn: () => string) => Functionality<U>;
     class: <U extends ValidElement>(className: string, predicate: () => boolean) => Functionality<U>;
+    children: <U extends ValidElement>(childrenFn: () => Insertable[]) => Functionality<U>;
     style: <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: () => U["style"][K]) => Functionality<U>;
     functionality: <U extends ValidElement> (fn: (val: Insertable<U>) => void) => Functionality<U>;
     // NOTE: this root might be redundant now...
