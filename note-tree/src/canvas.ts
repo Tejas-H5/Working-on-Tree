@@ -943,7 +943,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" 
             });
 
-            rg.preRenderFn(root, function renderCanvasCell() {
+            rg.preRenderFn(function renderCanvasCell() {
                 const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s.args;
 
                 getVisualChar(canvasState, i, j, visualCharInfo);
@@ -1010,9 +1010,9 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             root.el.addEventListener("mousemove", handleMouseMovement);
 
             return root;
-        }, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
+        }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
-        rg.preRenderFn(root, function renderCanvasRow() {
+        rg.preRenderFn(function renderCanvasRow() {
             const { charList: rowList } = s.args;
 
             charList.render((getNext) => {
@@ -1024,7 +1024,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         });
 
         return root;
-    }, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
+    }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
     root.el.addEventListener("mouseleave", () => {
         canvasState.mouseInputState.x = -1;
@@ -1344,7 +1344,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         },
     };
 
-    rg.preRenderFn(root, function renderCanvas() {
+    rg.preRenderFn(function renderCanvas() {
         const { outputLayers } = s.args;
 
         if (outputLayers) {
@@ -1371,8 +1371,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             }
         });
 
-        if (!scrollContainer.state.hasArgs()) {
-            scrollContainer.state.args = { 
+        if (!scrollContainer.state.argsOrUndefined) {
+            scrollContainer.state.argsOrUndefined = { 
                 scrollEl: null,
                 axes: "hv",
             };
@@ -1708,7 +1708,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     }>) {
         const button = newComponent(Button);
 
-        rg.preRenderFn(button, function renderAsciiCanvasToolbarButton() {
+        rg.preRenderFn(function renderAsciiCanvasToolbarButton() {
             const { tool, selected, disabled } = s.args;
 
             setText(button, s.args.name);
@@ -1746,21 +1746,21 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
 
     const [canvasComponent, canvasState] = newComponent2(Canvas);
     const buttons = {
-        moreRows: rg.cArgs(ToolbarButton, (c) => c.render({
+        moreRows: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
                 name: "+",
                 onClick: () => {
                     resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
                     rerenderLocal();
                 },
             })),
-        lessRows: rg.cArgs(ToolbarButton, (c) => c.render({
+        lessRows: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "-",
             onClick: () => {
                 resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
                 rerenderLocal();
             },
         })),
-        moreCols: rg.cArgs(ToolbarButton, (c) => c.render({
+        moreCols: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "+",
             onClick: () => {
                 const wantedCols = Math.max(
@@ -1771,63 +1771,63 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
                 rerenderLocal();
             },
         })),
-        lessCols: rg.cArgs(ToolbarButton, (c) => c.render({
+        lessCols: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
                 name: "-",
                 onClick: () => {
                     resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
                     rerenderLocal();
                 },
             })),
-        freeformSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+        freeformSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Draw",
             onClick: rerenderLocal,
             tool: "freeform-select" satisfies ToolType,
         })),
-        lineSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+        lineSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Line",
             onClick: rerenderLocal,
             tool: "line-select",
         })),
-        rectOutlineSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+        rectOutlineSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Rect Outline",
             onClick: rerenderLocal,
             tool: "rect-outline-select",
         })),
-        rectSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+        rectSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Rect",
             onClick: rerenderLocal,
             tool: "rect-select",
         })),
-        bucketFillSelect: rg.cArgs(ToolbarButton, (c) => c.render({
+        bucketFillSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Fill",
             onClick: rerenderLocal,
             tool: "fill-select",
         })),
-        bucketFillSelectOutline: rg.cArgs(ToolbarButton,  (c) => c.render({
+        bucketFillSelectOutline: rg.cArgs(newComponent(ToolbarButton),  (c) => c.render({
             name: "Fill Outline",
             onClick: rerenderLocal,
             tool: "fill-select-outline",
         })),
-        bucketFillSelectConnected: rg.cArgs(ToolbarButton, (c) => c.render({
+        bucketFillSelectConnected: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Fill Connected",
             onClick: rerenderLocal,
             tool: "fill-select-connected",
         })),
-        invertSelection: rg.cArgs(ToolbarButton, (c) => c.render({
+        invertSelection: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Invert Selection",
             onClick: () => {
                 forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
                 rerenderLocal();
             },
         })),
-        copyToClipboard: rg.cArgs(ToolbarButton, (button) => {
+        copyToClipboard: rg.cArgs(newComponent(ToolbarButton), (button) => {
             button.render({
                 name: "Copy",
                 onClick: copyCanvasToClipboard,
                 selected: copied,
             })
         }),
-        pasteFromClipboard: rg.cArgs(ToolbarButton, (button) => {
+        pasteFromClipboard: rg.cArgs(newComponent(ToolbarButton), (button) => {
             button.render({
                 name: "Paste",
                 onClick: () => {
@@ -1838,7 +1838,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
                 disabled: !canPaste,
             });
         }),
-        pasteFromClipboardTransparent: rg.cArgs(ToolbarButton, (button) => {
+        pasteFromClipboardTransparent: rg.cArgs(newComponent(ToolbarButton), (button) => {
             button.render({
                 name: "Paste (transparent)",
                 onClick: () => {
@@ -1849,20 +1849,20 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
                 disabled: !canPaste,
             });
         }),
-        linesFromSelection: rg.cArgs(ToolbarButton, (c) => c.render({
+        linesFromSelection: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Draw Lines",
             onClick: () => {
                 generateLines(canvasState);
                 rerenderLocal();
             }
         })), 
-        undoButton: rg.cArgs(ToolbarButton, (c) => c.render({
+        undoButton: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Undo",
             selected: undoDone,
             disabled: !canUndo(canvasState),
             onClick: undo,
         })),
-        redoButton: rg.cArgs(ToolbarButton, (c) => c.render({
+        redoButton: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Redo",
             selected: redoDone,
             disabled: !canRedo(canvasState),
@@ -2028,7 +2028,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         s.args.onInput();
     }
 
-    rg.preRenderFn(canvasComponent, function renderAsciiCanvas() {
+    rg.preRenderFn(function renderAsciiCanvas() {
         canvasArgs.outputLayers = s.args.outputLayers;
         canvasArgs.onWrite = s.args.onWrite;
 

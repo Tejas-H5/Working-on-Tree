@@ -70,7 +70,7 @@ export function ScrollContainer(rg: RenderGroup, s: State<{
         return shouldRerender;
     }
 
-    rg.renderFn(root, function renderScrollContainer() {
+    rg.renderFn(function renderScrollContainer() {
         if (!shouldRerender()) {
             return;
         }

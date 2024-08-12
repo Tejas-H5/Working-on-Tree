@@ -142,7 +142,7 @@ export function setVisible<U extends HTMLElement | SVGElement>(component: Insert
 // NOTE: this component will also return false if it hasn't been rendered yet. This is to handle the specific case of
 // when we might want to prevent a global event handler from running if our component isn't visible in a modal.
 // This turns out to be one of the few reasons why I would ever use this method...
-export function isVisible(component: Renderable<unknown, HTMLElement> | Insertable<HTMLElement>): boolean {
+export function isVisible(component: Component<unknown, HTMLElement> | Insertable<HTMLElement>): boolean {
     if (wasHiddenOrUninserted(component)) {
         // if _isHidden is set, then the component is guaranteed to be hidden via CSS. 
         return true;
@@ -166,10 +166,10 @@ export function isVisibleElement(el: HTMLElement) {
 }
 
 type ComponentPool<T, U extends ValidElement> = {
-    components: Renderable<T, U>[];
+    components: Component<T, U>[];
     lastIdx: number;
     getIdx(): number;
-    render(renderFn: (getNext: () => Renderable<T, U>) => void): void;
+    render(renderFn: (getNext: () => Component<T, U>) => void): void;
 }
 
 type ValidAttributeName = string;
@@ -374,7 +374,7 @@ export type ListRenderer<R extends ValidElement, T, U extends ValidElement> = In
 export function newListRenderer<R extends ValidElement, T, U extends ValidElement>(
     root: Insertable<R>, 
     // TODO: templateFn?
-    createFn: () => Renderable<T, U>,
+    createFn: () => Component<T, U>,
 ): ListRenderer<R, T, U> {
     function getNext() {
         if (renderer.lastIdx > renderer.components.length) {
@@ -390,7 +390,7 @@ export function newListRenderer<R extends ValidElement, T, U extends ValidElemen
         return renderer.components[renderer.lastIdx++];
     }
 
-    let renderFn: ((getNext: () => Renderable<T, U>) => void) | undefined;
+    let renderFn: ((getNext: () => Component<T, U>) => void) | undefined;
     function renderFnBinded() {
         renderFn?.(getNext);
     }
@@ -520,37 +520,32 @@ export function setInputValue<T extends TextElement>(component: Insertable<T>, t
 
 
 export type State<T> = {
+    /** This is the raw value */
+    argsOrUndefined: T | undefined;
     /**
      * A getter that will assert that the args have actually been set
      * before returning them. This should be the case in 99% of normal use-cases
      */
     args: T;
-    /** 
-     * Use this to check if args has been set or not. 
-     * You can't simply check {@link args} because it will throw an exception if
-     * it hasn't been set yet.
-     */
-    hasArgs(): boolean;
 }
 
 /**
  * Typically used to store and get the last arguments a component got.
  * Stateless by default.
  */
-export function newState<T = undefined>(initialValue: T | null = null) {
-    let argsOrNull: T | null = initialValue;
+export function newState<T = undefined>(initialValue: T | undefined = undefined) {
     const state: State<T> = {
-        hasArgs() { return argsOrNull !== null },
+        argsOrUndefined: initialValue,
         set args(val: T) {
-            argsOrNull = val;
+            state.argsOrUndefined = val;
         },
         get args() {
-            if (argsOrNull === null) {
+            if (state.argsOrUndefined === undefined) {
                 // If u programmed it right you won't be seeing this error
                 throw new Error("A component must be rendered with Args at least once before it's state can be accessed.");
             }
 
-            return argsOrNull;
+            return state.argsOrUndefined;
         }
     };
 
@@ -600,7 +595,7 @@ export function newState<T = undefined>(initialValue: T | null = null) {
  *
  */
 export function __newRealComponentInternal<T, U extends ValidElement>(root: Insertable<U>, renderFn: () => void, s: State<T> = newState()) {
-    const component: Renderable<T, U> = {
+    const component: Component<T, U> = {
         el: root.el,
         skipErrorBoundary: false,
         get _isHidden() { return root._isHidden; },
@@ -628,15 +623,15 @@ export type RenderGroup = {
     skipErrorBoundary: boolean;
     render: () => void;
     text: (fn: () => string) => Insertable<HTMLSpanElement>;
-    c: <U extends ValidElement>(componentFn: TemplateFn<unknown, U>) => Renderable<unknown, U>;
+    c: <U extends ValidElement>(component: Component<unknown, U>) => Component<unknown, U>;
     cArgs: <T, U extends ValidElement>(
-        componentFn: TemplateFn<T, U>,
-        renderFn: (c: Renderable<T, U>) => void,
-    ) => Renderable<T, U>;
+        component: Component<T, U>,
+        renderFn: (c: Component<T, U>) => void,
+    ) => Component<T, U>;
     /** Sets a component visible based on a predicate, and only renders it if it is visible */
-    if: <U extends ValidElement> (predicate: () => boolean, templateFn: TemplateFn<unknown, U>) => Renderable<unknown, U>,
+    if: <U extends ValidElement> (predicate: () => boolean, templateFn: TemplateFn<unknown, U>) => Component<unknown, U>,
     /** Same as `if` - will hide the component if T is undefined, but lets you do type narrowing */
-    with: <U extends ValidElement, T> (predicate: () => T | undefined, templateFn: TemplateFn<T, U>) => Renderable<T, U>,
+    with: <U extends ValidElement, T> (predicate: () => T | undefined, templateFn: TemplateFn<T, U>) => Component<T, U>,
     // TODO: extend to SVGElement as well. you can still use it on both, but the autocomplete won't work
     on: <K extends keyof HTMLElementEventMap>(
         type: K,
@@ -648,8 +643,8 @@ export type RenderGroup = {
     style: <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: () => U["style"][K]) => Functionality<U>;
     functionality: <U extends ValidElement> (fn: (val: Insertable<U>) => void) => Functionality<U>;
     // NOTE: this root might be redundant now...
-    renderFn: <U extends ValidElement>(root: Insertable<U>, fn: () => void) => void;
-    preRenderFn: <U extends ValidElement>(root: Insertable<U>, fn: () => void) => void;
+    renderFn: (fn: () => void) => void;
+    preRenderFn: (fn: () => void) => void;
 };
 
 let debug = false;
@@ -786,10 +781,7 @@ export function printRenderCounts() {
  *
  */
 export function newRenderGroup(): RenderGroup {
-    const renderFns: ({
-        fn: () => void;
-        insertable: Insertable<ValidElement>;
-    })[] = [];
+    const renderFns: ({ fn: () => void; })[] = [];
 
     const rg: RenderGroup = {
         instantiated: false,
@@ -804,12 +796,12 @@ export function newRenderGroup(): RenderGroup {
         },
         text: (fn: () => string): Insertable<HTMLSpanElement> => {
             const e = span();
-            renderFns.push({ fn: () => setText(e, fn()), insertable: e });
+            renderFns.push({ fn: () => setText(e, fn())  });
             return e;
         },
         with: (predicate, templateFn) => {
             const c = newComponent(templateFn);
-            rg.renderFn(c, () => {
+            rg.renderFn(() => {
                 const val = predicate();
                 if (setVisible(c, val !== undefined)) {
                     c.render(val!);
@@ -821,7 +813,7 @@ export function newRenderGroup(): RenderGroup {
         if: (predicate, templateFn) => {
             const c = newComponent(templateFn);
 
-            rg.renderFn(c, () => {
+            rg.renderFn(() => {
                 if (setVisible(c, predicate())) {
                     c.render(undefined);
                 }
@@ -829,19 +821,13 @@ export function newRenderGroup(): RenderGroup {
 
             return c;
         },
-        c: (componentFn) => {
-            const renderable = newComponent(componentFn);
-            rg.renderFn(renderable, () => renderable.render(undefined));
-            return renderable;
+        c: (component) => {
+            rg.renderFn(() => component.render(undefined));
+            return component;
         },
-        cArgs: <T, U extends ValidElement>(
-            componentFn: TemplateFn<T, U>,
-            renderFn: (c: Renderable<T, U>) => void,
-            skipErrorBoundary = false,
-        ): Renderable<T, U> => {
-            const renderable = newComponent(componentFn, skipErrorBoundary);
-            rg.renderFn(renderable, () => renderFn(renderable));
-            return renderable;
+        cArgs: (component, renderFn) => {
+            rg.renderFn(() => renderFn(component));
+            return component;
         },
         on(type, listener, options,) {
             return (parent) => {
@@ -851,36 +837,36 @@ export function newRenderGroup(): RenderGroup {
         attr: (attrName, valueFn) => {
             return (parent) => {
                 const currentAttrValue = getAttr(parent, attrName);
-                rg.renderFn(parent, () => setAttr(parent, attrName, currentAttrValue + valueFn()));
+                rg.renderFn(() => setAttr(parent, attrName, currentAttrValue + valueFn()));
             }
         },
         class: (className, predicate) => {
             return (parent) => {
-                rg.renderFn(parent, () => setClass(parent, className, predicate()));
+                rg.renderFn(() => setClass(parent, className, predicate()));
             }
         },
         style: (styleName, valueFn) => {
             return (parent) => {
                 const currentStyle = parent.el.style[styleName];
-                rg.renderFn(parent, () => setStyle(parent, styleName, valueFn() || currentStyle));
+                rg.renderFn(() => setStyle(parent, styleName, valueFn() || currentStyle));
             };
         },
         functionality: (fn) => {
             return (parent) => {
-                rg.renderFn(parent, () => fn(parent));
+                rg.renderFn(() => fn(parent));
             };
         },
-        renderFn: (root, fn) => {
+        renderFn: (fn) => {
             if (rg.instantiated) {
                 throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
             }
-            renderFns.push({ fn, insertable: root });
+            renderFns.push({ fn });
         },
-        preRenderFn: (root, fn) => {
+        preRenderFn: (fn) => {
             if (rg.instantiated) {
                 throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
             }
-            renderFns.unshift({ fn, insertable: root });
+            renderFns.unshift({ fn });
         },
     };
 
@@ -896,11 +882,12 @@ type TemplateFnPRO<T, U extends ValidElement, R> = (rg: RenderGroup, state: Stat
  */
 export function newComponent<T, U extends ValidElement>(
     templateFn: TemplateFn<T, U>,
+    initialState?: T,
     skipErrorBoundary = false
 ) {
     const rg = newRenderGroup();
     rg.templateName = templateFn.name ?? "unknown fn name";
-    const state = newState<T>();
+    const state = newState<T>(initialState);
     const root = templateFn(rg, state);
     const component = __newRealComponentInternal(root, rg.render, state);
     component.skipErrorBoundary = skipErrorBoundary;
@@ -917,11 +904,12 @@ export function newComponent<T, U extends ValidElement>(
  */
 export function newComponent2<T, U extends ValidElement, R>(
     templateFn: TemplateFnPRO<T, U, R>,
+    initialState?: T,
     skipErrorBoundary = false
 ) {
     const rg = newRenderGroup();
     rg.templateName = templateFn.name ?? "unknown fn name";
-    const state = newState<T>();
+    const state = newState<T>(initialState);
     const [root, imperativeHandle] = templateFn(rg, state);
     const component = __newRealComponentInternal(root, rg.render, state);
     component.skipErrorBoundary = skipErrorBoundary;
@@ -935,7 +923,7 @@ export function newInsertable<T extends ValidElement>(el: T): Insertable<T> {
     };
 }
 
-export type Renderable<T, U extends ValidElement> = Insertable<U> & {
+export type Component<T, U extends ValidElement> = Insertable<U> & {
     /**
      * A renderable's arguments will be null until during or after the first render
      * .args is actually a getter that will throw an error if they are null 

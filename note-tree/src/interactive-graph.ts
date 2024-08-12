@@ -175,7 +175,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
     const edgeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
 
     const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphNodeUI));
-    rg.renderFn(nodeListRenderer, () => nodeListRenderer.render((getNext) => {
+    rg.renderFn(() => nodeListRenderer.render((getNext) => {
         for (const id of nodeComponentMap.keys()) {
             if (!(id in graphData.nodes)) {
                 nodeComponentMap.delete(id);
@@ -185,8 +185,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
         for (const id in graphData.nodes) {
             const node = graphData.nodes[id];
             const c = getNext();
-            if (!c.state.hasArgs()) {
-                c.render({
+            if (!c.state.argsOrUndefined) {
+                c.state.argsOrUndefined = {
                     node,
                     graphArgs: s.args,
 
@@ -201,7 +201,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
                     relativeContainer,
                     renderGraph: rg.render,
-                })
+                };
             }
 
             c.state.args.node = node;
@@ -216,7 +216,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
     // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
     const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphEdgeUI));
-    rg.renderFn(edgeListRenderer, () => edgeListRenderer.render((getNext) => {
+    rg.renderFn(() => edgeListRenderer.render((getNext) => {
         for (const id of edgeComponentMap.keys()) {
             if (!(id in graphData.edges)) {
                 edgeComponentMap.delete(id);
@@ -227,8 +227,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             const edge = graphData.edges[id];
             const c = getNext();
 
-            if (!c.state.hasArgs()) {
-                c.state.args = {
+            if (!c.state.argsOrUndefined) {
+                c.state.argsOrUndefined = {
                     graphArgs: s.args,
 
                     srcNode: undefined,
@@ -518,7 +518,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
     let domRect = root.el.getBoundingClientRect();
 
-    rg.preRenderFn(root, function renderGraph() {
+    rg.preRenderFn(function renderGraph() {
         if (s.args.graphData) {
             graphData = s.args.graphData;
         }
@@ -945,10 +945,7 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
     ]);
 
 
-    let lastText: string | undefined;
-    let lastIsEditing = false;
-
-    rg.preRenderFn(root, function renderGraphNodeUI() {
+    rg.preRenderFn(function renderGraphNodeUI() {
         const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s.args;
 
         if (setVisibleGroup(
@@ -958,55 +955,45 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
             updateDragRegionStyles(s.args);
         }
 
-        if (
-            lastText !== node.text ||
-            lastIsEditing !== isEditing
-        ) {
-            lastIsEditing = isEditing;
+        if (!node.text) {
+            node.text = " ";
+            graphArgs.onInput();
+        }
 
-            if (!node.text) {
-                node.text = " ";
-                graphArgs.onInput();
-            }
+        if (setVisible(textArea, isEditing)) {
+            textArea.el.focus();
+            setInputValue(textArea, node.text);
+        }
 
-            lastText = node.text;
+        if (setVisible(textDiv, !isEditing)) {
+            setText(textDiv, node.text);
+        }
 
-            if (setVisible(textArea, isEditing)) {
-                textArea.el.focus();
-                setInputValue(textArea, node.text);
-            }
+        // update text area size
+        {
+            // we need to fit to the text size both the width and height!
 
-            if (setVisible(textDiv, !isEditing)) {
-                setText(textDiv, node.text);
-            }
+            const { isEditing } = s.args;
 
-            // update text area size
-            {
-                // we need to fit to the text size both the width and height!
+            const textEl = isEditing ? textArea : textDiv;
 
-                const { node, isEditing } = s.args;
-                lastText = node.text;
+            textEl.el.style.width = "0";
+            // these are our '' styles.
+            // it don't work though, so I've commented it out
+            // textEl.el.style.whiteSpace = "";
+            // textEl.el.style.overflowWrap = "anywhere";
+            textEl.el.style.whiteSpace = "pre";
+            // was getting some false wrapping happening when using exact width, so now I've aded this + 5 and it seems to be working nicer
+            textEl.el.style.width = textEl.el.scrollWidth + "px";
+            textEl.el.style.whiteSpace = "pre-wrap";
+            textEl.el.style.height = "0";
+            textEl.el.style.height = textEl.el.scrollHeight + "px";
 
-                const textEl = isEditing ? textArea : textDiv;
+            textEl.el.parentElement!.style.width = textEl.el.style.width;
+            textEl.el.parentElement!.style.height = textEl.el.style.height;
 
-                textEl.el.style.width = "0";
-                // these are our '' styles.
-                // it don't work though, so I've commented it out
-                // textEl.el.style.whiteSpace = "";
-                // textEl.el.style.overflowWrap = "anywhere";
-                textEl.el.style.whiteSpace = "pre";
-                // was getting some false wrapping happening when using exact width, so now I've aded this + 5 and it seems to be working nicer
-                textEl.el.style.width = textEl.el.scrollWidth + "px";
-                textEl.el.style.whiteSpace = "pre-wrap";
-                textEl.el.style.height = "0";
-                textEl.el.style.height = textEl.el.scrollHeight + "px";
-
-                textEl.el.parentElement!.style.width = textEl.el.style.width;
-                textEl.el.parentElement!.style.height = textEl.el.style.height;
-
-                textEl.el.parentElement!.parentElement!.style.width = textEl.el.style.width;
-                textEl.el.parentElement!.parentElement!.style.height = textEl.el.style.height;
-            }
+            textEl.el.parentElement!.parentElement!.style.width = textEl.el.style.width;
+            textEl.el.parentElement!.parentElement!.style.height = textEl.el.style.height;
         }
 
         const xPos = graphXToRealX(graphState, relativeContainer.el, node.x);
@@ -1169,7 +1156,7 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    rg.preRenderFn(root, function renderGraphEdgeUI() {
+    rg.preRenderFn(function renderGraphEdgeUI() {
         const { graphState, edge, graphArgs } = s.args;
 
         if (!edge.text) {
@@ -1322,7 +1309,7 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
             rg.text(() => s.args.item.text)
         ]);
 
-        rg.preRenderFn(root, function renderRadialContextMenuItem() {
+        rg.preRenderFn(function renderRadialContextMenuItem() {
             const { x, y, item } = s.args;
 
             setStyle(root, "left", x + "px");
@@ -1365,7 +1352,7 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
         ]),
     ]);
 
-    rg.preRenderFn(root, function renderRadialContextMenu() {
+    rg.preRenderFn(function renderRadialContextMenu() {
         const { x, y, items, centerText } = s.args;
 
         setText(centerTextEl, centerText);
