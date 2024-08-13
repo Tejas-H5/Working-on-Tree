@@ -1,6 +1,6 @@
-import { Insertable, RenderGroup, State, div, scrollIntoView } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, div, getState, scrollIntoView } from "src/utils/dom-utils";
 
-export function ScrollContainer(rg: RenderGroup, s: State<{
+export function ScrollContainer(rg: RenderGroup<{
     rescrollMs?: number;
     axes?: "h" | "v" | "hv";
     scrollEl: Insertable<HTMLElement> | null;
@@ -13,12 +13,14 @@ export function ScrollContainer(rg: RenderGroup, s: State<{
     let lastHeight = 0;
 
     function isH() {
-        return s.args.axes === "h" || s.args.axes === "hv";
+        const s = getState(rg);
+        return s.axes === "h" || s.axes === "hv";
     }
 
     function isV() {
         // default to vertical
-        return s.args.axes === "v" || s.args.axes === "hv" || !s.args.axes;
+        const s = getState(rg);
+        return s.axes === "v" || s.axes === "hv" || !s.axes;
     }
 
     function scrollToLastElement() {
@@ -42,9 +44,10 @@ export function ScrollContainer(rg: RenderGroup, s: State<{
     }
 
     function shouldRerender() {
+        const s = getState(rg);
         let shouldRerender = false;
 
-        const { scrollEl } = s.args;
+        const { scrollEl } = s;
 
         if (scrollEl !== lastScrollEl) {
             lastScrollEl = scrollEl;
@@ -70,12 +73,12 @@ export function ScrollContainer(rg: RenderGroup, s: State<{
         return shouldRerender;
     }
 
-    rg.renderFn(function renderScrollContainer() {
+    rg.renderFn(function renderScrollContainer(s) {
         if (!shouldRerender()) {
             return;
         }
 
-        const { scrollEl } = s.args;
+        const { scrollEl } = s;
 
         lastScrollEl = scrollEl;
         lastWidth = length;
@@ -83,7 +86,8 @@ export function ScrollContainer(rg: RenderGroup, s: State<{
     });
 
     root.el.addEventListener("scroll", () => {
-        const { rescrollMs } = s.args;
+        const s = getState(rg);
+        const { rescrollMs } = s;
 
         if (!rescrollMs) {
             // We simply won't scroll back to where we were before.

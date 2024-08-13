@@ -1,8 +1,8 @@
-import { Insertable, RenderGroup, State, div, setChildAt } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, div, getState, setChildAt } from "src/utils/dom-utils";
 
-export function Modal(rg: RenderGroup, s: State<{ onClose(): void; content: Insertable; }>) {
+export function Modal(rg: RenderGroup<{ onClose(): void; content: Insertable; }>) {
     const bgRect = div({ style: "background-color: var(--bg-color)" }, [
-        rg.functionality(div => setChildAt(div, s.args.content, 0)),
+        rg.functionality((div, s) => setChildAt(div, s.content, 0)),
     ]);
 
     const root = div({
@@ -14,8 +14,9 @@ export function Modal(rg: RenderGroup, s: State<{ onClose(): void; content: Inse
 
     // Clicking outside the modal should close it
     root.el.addEventListener("mousedown", () => {
+        const s = getState(rg);
         if (!blockMouseDown) {
-            s.args.onClose()
+            s.onClose()
         }
         blockMouseDown = false;
     });

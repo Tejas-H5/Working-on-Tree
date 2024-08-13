@@ -11,11 +11,11 @@ import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestam
 import {
     Insertable,
     RenderGroup,
-    State,
     addChildren,
     appendChild,
     div,
     el,
+    getState,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
@@ -135,7 +135,7 @@ const cnHoverLink = sg.makeClass("hover-link", [
     `:hover::after { content: " -->"; }`,
 ]);
 
-function NoteLink(rg: RenderGroup, s: State<{
+function NoteLink(rg: RenderGroup<{
     text: string;
     focusAnyway?: boolean;
     noteId?: NoteId;
@@ -146,8 +146,8 @@ function NoteLink(rg: RenderGroup, s: State<{
         rg.text(() => linkText)
     ])
 
-    rg.renderFn(() => {
-        const { text, noteId, focusAnyway } = s.args;
+    rg.renderFn((s) => {
+        const { text, noteId, focusAnyway } = s;
 
         setClass(root, cnHoverLink, !!noteId);
         linkText = truncate(text, 500);
@@ -160,7 +160,8 @@ function NoteLink(rg: RenderGroup, s: State<{
     });
 
     root.el.addEventListener("click", () => {
-        const { noteId, preventScroll, } = s.args;
+        const s = getState(rg);
+        const { noteId, preventScroll, } = s;
 
         // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
         // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
@@ -176,27 +177,27 @@ function NoteLink(rg: RenderGroup, s: State<{
     return root;
 }
 
-function ScrollNavItem(rg: RenderGroup, s: State<{ 
-    isCursorVisible: boolean; 
+function ScrollNavItem(rg: RenderGroup<{
+    isCursorVisible: boolean;
     isCursorActive: boolean;
     isGreyedOut?: boolean;
     isFocused: boolean;
     children: Insertable[];
 }>) {
     return div({ class: "row align-items-stretch" }, [
-        rg.style("backgroundColor", () => s.args.isFocused ? "var(--bg-color-focus)" : ""),
-        rg.style("color", () => s.args.isGreyedOut ? "var(--unfocus-text-color)" : ""),
+        rg.style("backgroundColor", (s) => s.isFocused ? "var(--bg-color-focus)" : ""),
+        rg.style("color", (s) => s.isGreyedOut ? "var(--unfocus-text-color)" : ""),
         rg.if(
-            () => s.args.isCursorVisible,
+            (s) => s.isCursorVisible,
             rg => div({ style: "min-width: 5px;" }, [
-                rg.style("backgroundColor", () => {
-                    return s.args.isCursorActive ? "var(--fg-color)" : "var(--bg-color-focus-2)"
+                rg.style("backgroundColor", (s) => {
+                    return s.isCursorActive ? "var(--fg-color)" : "var(--bg-color-focus-2)"
                 }),
             ])
         ),
         div({ class: "flex-1 handle-long-words" }, [
-            rg.functionality((el) => {
-                replaceChildren(el, s.args.children);
+            rg.functionality((el, s) => {
+                replaceChildren(el, s.children);
             })
         ])
     ]);
@@ -214,12 +215,12 @@ function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
 
 const NIL_HLT_HEADING = "<No higher level task>";
 
-function TodoListInternal(rg: RenderGroup, s: State<{
+function TodoListInternal(rg: RenderGroup<{
     setScrollEl?(c: Insertable): void;
     cursorNoteId?: NoteId;
     disableHeaders: boolean;
 }>) {
-    function TodoListItem(rg: RenderGroup, s: State<{
+    function TodoListItem(rg: RenderGroup<{
         heading: string | undefined;
         strikethrough: boolean;
         hasCursor: boolean;
@@ -230,8 +231,8 @@ function TodoListInternal(rg: RenderGroup, s: State<{
     }>) {
         const children = [
             div({ class: "flex-1", style: "padding-bottom: 10px" }, [
-                rg.cArgs(newComponent(NoteLink), (noteLink) => {
-                    const { text, focusAnyway, noteId } = s.args;
+                rg.cArgs(newComponent(NoteLink), (noteLink, s) => {
+                    const { text, focusAnyway, noteId } = s;
 
                     noteLink.render({
                         noteId,
@@ -243,23 +244,23 @@ function TodoListInternal(rg: RenderGroup, s: State<{
             ])
         ];
 
-        const navRoot = rg.cArgs(newComponent(ScrollNavItem), (c) => {
+        const navRoot = rg.cArgs(newComponent(ScrollNavItem), (c, s) => {
             c.render({
-                isCursorVisible: s.args.hasCursor,
-                isFocused: s.args.focusAnyway,
+                isCursorVisible: s.hasCursor,
+                isFocused: s.focusAnyway,
                 isCursorActive: isInTodoList,
                 children: children,
             })
 
-            setClass(navRoot, "strikethrough", s.args.strikethrough)
+            setClass(navRoot, "strikethrough", s.strikethrough)
         });
 
         return div({}, [
             rg.with(
-                () => s.args.heading,
-                (rg, s) => {
+                (s) => s.heading,
+                (rg) => {
                     return el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }, [
-                        rg.text(() => s.args)
+                        rg.text((s) => s)
                     ])
                 }
             ),
@@ -270,8 +271,8 @@ function TodoListInternal(rg: RenderGroup, s: State<{
     const root = div();
     const todoItemsList = newListRenderer(root, () => newComponent(TodoListItem));
 
-    rg.renderFn(() => {
-        const { setScrollEl, cursorNoteId, disableHeaders } = s.args;
+    rg.renderFn((s) => {
+        const { setScrollEl, cursorNoteId, disableHeaders } = s;
         let alreadyScrolled = false;
 
         todoItemsList.render((getNext) => {
@@ -323,7 +324,7 @@ function TodoListInternal(rg: RenderGroup, s: State<{
     return root;
 }
 
-function TodoList(rg: RenderGroup, s: State<{ cursorNoteId?: NoteId; }>) {
+function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, ["TODO Lists"]);
     const listInternal = newComponent(TodoListInternal);
     const empty = div({}, [
@@ -341,8 +342,8 @@ function TodoList(rg: RenderGroup, s: State<{ cursorNoteId?: NoteId; }>) {
         ])
     ]);
 
-    rg.renderFn(() => {
-        const { cursorNoteId } = s.args;
+    rg.renderFn((s) => {
+        const { cursorNoteId } = s;
 
         setVisible(empty, state._todoNoteIds.length === 0);
 
@@ -436,7 +437,7 @@ function BreakInput(rg: RenderGroup) {
     return root;
 }
 
-function ActivityListItem(rg: RenderGroup, s: State<{
+function ActivityListItem(rg: RenderGroup<{
     previousActivity: Activity | undefined;
     activity: Activity;
     nextActivity: Activity | undefined;
@@ -450,7 +451,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     );
 
     function deleteBreak() {
-        const { activity } = s.args;
+        const s = getState(rg);
+        const { activity } = s;
 
         if (!isEditableBreak(activity)) {
             // can only delete breaks
@@ -467,7 +469,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     };
 
     function insertBreak() {
-        const { activity, nextActivity } = s.args;
+        const s = getState(rg);
+        const { activity, nextActivity } = s;
 
         const idx = state.activities.indexOf(activity);
         if (idx === -1) {
@@ -499,16 +502,14 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     // TODO: CSS for this plz
     let isInsertBreakRowOpen = false;
     const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" }, [
-        (parent) => {
-            parent.el.addEventListener("mouseenter", () => {
-                isInsertBreakRowOpen = true;
-                rg.render();
-            });
-            parent.el.addEventListener("mouseleave", () => {
-                isInsertBreakRowOpen = false;
-                rg.render();
-            });
-        }
+        rg.on("mouseenter", () => {
+            isInsertBreakRowOpen = true;
+            rg.renderWithCurrentState();
+        }),
+        rg.on("mouseleave", () => {
+            isInsertBreakRowOpen = false;
+            rg.renderWithCurrentState();
+        }),
     ]);
 
 
@@ -527,7 +528,7 @@ function ActivityListItem(rg: RenderGroup, s: State<{
                     noteLink,
                     breakEdit,
                     rg.if(
-                        isEditable, 
+                        isEditable,
                         rg => rg.cArgs(newComponent(Button), c => c.render({
                             label: "x",
                             onClick: deleteBreak,
@@ -544,12 +545,14 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     ]);
 
     function isEditable() {
-        const { activity, greyedOut } = s.args;
+        const s = getState(rg);
+        const { activity, greyedOut } = s;
         return !greyedOut && isEditableBreak(activity);
     }
 
     function renderDuration() {
-        const { activity, nextActivity, showDuration, } = s.args;
+        const s = getState(rg);
+        const { activity, nextActivity, showDuration, } = s;
 
         // The idea is that only breaks we insert ourselves retroactively are editable, as these times
         // did not come from the computer's sytem time but our own subjective memory
@@ -561,8 +564,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
         }
     }
 
-    rg.renderFn(function renderActivityListItem() {
-        const { activity, greyedOut, focus, hasCursor } = s.args;
+    rg.renderFn(function renderActivityListItem(s) {
+        const { activity, greyedOut, focus, hasCursor } = s;
 
         cursorRow.render({
             isCursorVisible: hasCursor,
@@ -614,7 +617,7 @@ function ActivityListItem(rg: RenderGroup, s: State<{
 
         if (isInsertBreakRowOpen && !breakInsertRow.el.parentNode) {
             root.el.prepend(breakInsertRow.el);
-            breakInsertRow.render(undefined);
+            breakInsertRow.render(null);
         } else if (!isInsertBreakRowOpen && !!breakInsertRow.el.parentNode) {
             breakInsertRow.el.remove();
         }
@@ -625,7 +628,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
             return;
         }
 
-        const { previousActivity, activity, nextActivity } = s.args;
+        const s = getState(rg);
+        const { previousActivity, activity, nextActivity } = s;
 
         if (previousActivity) {
             // don't update our date to be before the previous time
@@ -648,7 +652,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     }
 
     noteLink.el.addEventListener("click", () => {
-        const { activity } = s.args;
+        const s = getState(rg);
+        const { activity } = s;
         if (!activity.nId) {
             return;
         }
@@ -658,7 +663,8 @@ function ActivityListItem(rg: RenderGroup, s: State<{
     });
 
     function handleBreakTextEdit() {
-        const { activity } = s.args;
+        const s = getState(rg);
+        const { activity } = s;
 
         // 'prevent' clearing it out
         const val = breakEdit.el.value || activity.breakInfo;
@@ -819,7 +825,7 @@ function DeleteModal(rg: RenderGroup) {
 }
 
 function LinkNavModal(rg: RenderGroup) {
-    function LinkItem(rg: RenderGroup, s: State<{
+    function LinkItem(rg: RenderGroup<{
         noteId: NoteId;
         text: string;
         range: Range;
@@ -827,11 +833,11 @@ function LinkNavModal(rg: RenderGroup) {
         isFocused: boolean;
     }>) {
         const textEl = newComponent(HighlightedText);
-        const children = [ textEl ];
+        const children = [textEl];
         const root = newComponent(ScrollNavItem);
 
-        rg.renderFn(function renderLinkItem() {
-            const { text, range, isFocused } = s.args;
+        rg.renderFn(function renderLinkItem(s) {
+            const { text, range, isFocused } = s;
 
             textEl.render({
                 text,
@@ -841,7 +847,7 @@ function LinkNavModal(rg: RenderGroup) {
             root.render({
                 isCursorVisible: isFocused,
                 isCursorActive: true,
-                isFocused: isFocused, 
+                isFocused: isFocused,
                 children: children,
             });
         });
@@ -944,8 +950,10 @@ function LinkNavModal(rg: RenderGroup) {
 
     function rerenderItems() {
         for (let i = 0; i < linkList.components.length; i++) {
-            linkList.components[i].state.args.isFocused = i === idx;
-            linkList.components[i].render(linkList.components[i].state.args);
+            const c = linkList.components[i];
+            const s = getState(c);
+            s.isFocused = i === idx;
+            c.renderWithCurrentState();
         }
     }
 
@@ -968,7 +976,7 @@ function LinkNavModal(rg: RenderGroup) {
         } else if (e.key === "Enter") {
             e.preventDefault();
 
-            const { url, noteId } = linkList.components[idx].state.args;
+            const { url, noteId } = getState(linkList.components[idx]);
             e.stopImmediatePropagation();
 
             if (e.shiftKey) {
@@ -989,7 +997,7 @@ function LinkNavModal(rg: RenderGroup) {
 }
 
 
-function EditableActivityList(rg: RenderGroup, s: State<{
+function EditableActivityList(rg: RenderGroup<{
     activityIndexes: number[] | undefined;
     pageSize?: number;
 }>) {
@@ -1010,8 +1018,8 @@ function EditableActivityList(rg: RenderGroup, s: State<{
 
     let lastIdx = -1;
 
-    rg.renderFn(function rerenderActivityList() {
-        const { pageSize, activityIndexes } = s.args;
+    rg.renderFn(function rerenderActivityList(s) {
+        const { pageSize, activityIndexes } = s;
 
         pagination.pageSize = pageSize || 10;
         if (lastIdx !== state._currentlyViewingActivityIdx) {
@@ -1021,7 +1029,7 @@ function EditableActivityList(rg: RenderGroup, s: State<{
         paginationControl.render({
             pagination,
             totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
-            rerender: rerenderActivityList,
+            rerender: rg.renderWithCurrentState,
         });
 
         const activities = state.activities;
@@ -1166,7 +1174,7 @@ function getNoteProgressCountText(note: TreeNote): string {
     return progressText;
 }
 
-function NoteRowText(rg: RenderGroup, s: State<NoteRowArgs>) {
+function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
     const indentWidthEl = div({ class: "pre", style: "padding-right: 5px" });
     const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; " });
 
@@ -1187,7 +1195,8 @@ function NoteRowText(rg: RenderGroup, s: State<NoteRowArgs>) {
     let isEditing = false;
 
     function updateTextContentAndSize() {
-        const { note } = s.args;
+        const s = getState(rg);
+        const { note } = s;
 
         setInputValue(whenEditing, note.data.text);
         lastNote = note;
@@ -1196,8 +1205,8 @@ function NoteRowText(rg: RenderGroup, s: State<NoteRowArgs>) {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    rg.renderFn(function renderNoteRowText() {
-        const { note } = s.args;
+    rg.renderFn(function renderNoteRowText(s) {
+        const { note } = s;
 
         const currentNote = getCurrentNote(state);
         const isOnSameLevel = currentNote.parentId === note.parentId;
@@ -1241,7 +1250,8 @@ function NoteRowText(rg: RenderGroup, s: State<NoteRowArgs>) {
     });
 
     whenEditing.el.addEventListener("input", () => {
-        const { note } = s.args;
+        const s = getState(rg);
+        const { note } = s;
 
         // Perform a partial update on the state, to just the thing we're editing
 
@@ -1290,14 +1300,13 @@ function ActivityFiltersEditor(rg: RenderGroup) {
         rerenderApp(false);
     }
 
-    const todayButton = newComponent(Button);
-    todayButton.render({
+    const todayButton = newComponent(Button, {
         label: "Today",
         onClick: () => {
             setActivityRangeToday(state);
             onChange();
         }
-    })
+    });
 
     function updateDate(updateFn: (d: Date) => void) {
         let updated = false;
@@ -1317,18 +1326,12 @@ function ActivityFiltersEditor(rg: RenderGroup) {
         }
     }
 
-    const incrDay = newComponent(Button);
-    incrDay.render({ label: "+1d", onClick : () => updateDate((d) => addDays(d, 1)) });
-    const decrDay = newComponent(Button);
-    decrDay.render({ label: "-1d", onClick: () => updateDate((d) => addDays(d, -1)) });
-    const incrWeek = newComponent(Button);
-    incrWeek.render({ label: "+7d", onClick: () => updateDate((d) => addDays(d, 7)) });
-    const decrWeek = newComponent(Button);
-    decrWeek.render({ label: "-7d", onClick: () => updateDate((d) => addDays(d, -7)) });
-    const incrMonth = newComponent(Button);
-    incrMonth.render({ label: "+30d", onClick: () => updateDate((d) => addDays(d, 30)) });
-    const decrMonth = newComponent(Button);
-    decrMonth.render({ label: "-30d", onClick: () => updateDate((d) => addDays(d, -30)) });
+    const incrDay = newComponent(Button, { label: "+1d", onClick: () => updateDate((d) => addDays(d, 1)) });
+    const decrDay = newComponent(Button, { label: "-1d", onClick: () => updateDate((d) => addDays(d, -1)) });
+    const incrWeek = newComponent(Button, { label: "+7d", onClick: () => updateDate((d) => addDays(d, 7)) });
+    const decrWeek = newComponent(Button, { label: "-7d", onClick: () => updateDate((d) => addDays(d, -7)) });
+    const incrMonth = newComponent(Button, { label: "+30d", onClick: () => updateDate((d) => addDays(d, 30)) });
+    const decrMonth = newComponent(Button, { label: "-30d", onClick: () => updateDate((d) => addDays(d, -30)) });
 
     const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
     const dateFrom = newComponent(DateTimeInput);
@@ -1398,25 +1401,25 @@ function getMinFuzzyFindScore(query: string, strict = false) {
     return Math.pow(query.length * 0.7, 2);
 }
 
-function HighlightedText(rg: RenderGroup, s: State<{
+function HighlightedText(rg: RenderGroup<{
     text: string;
     highlightedRanges: Range[];
 }>) {
-    function Span(rg: RenderGroup, s: State<{
+    function Span(rg: RenderGroup<{
         highlighted: boolean;
         text: string;
     }>) {
         return span({}, [
-            rg.text(() => s.args.text),
-            rg.class("unfocused-text-color", () => !s.args.highlighted),
+            rg.text((s) => s.text),
+            rg.class("unfocused-text-color", (s) => !s.highlighted),
         ]);
     }
 
     const root = div({});
     const list = newListRenderer(root, () => newComponent(Span));
 
-    rg.renderFn(function renderHighlightedText() {
-        const { highlightedRanges: ranges, text } = s.args;
+    rg.renderFn(function renderHighlightedText(s) {
+        const { highlightedRanges: ranges, text } = s;
 
         list.render((getNext) => {
             let last = 0;
@@ -1445,7 +1448,7 @@ function HighlightedText(rg: RenderGroup, s: State<{
 }
 
 function FuzzyFinder(rg: RenderGroup) {
-    function FindResultItem(rg: RenderGroup, s: State<{
+    function FindResultItem(rg: RenderGroup<{
         text: string;
         ranges: Range[];
         hasFocus: boolean;
@@ -1455,8 +1458,8 @@ function FuzzyFinder(rg: RenderGroup) {
         const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
 
-        rg.renderFn(function renderFindResultItem() {
-            const { text, ranges, hasFocus } = s.args;
+        rg.renderFn(function renderFindResultItem(s) {
+            const { text, ranges, hasFocus } = s;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
             if (ranges !== lastRanges) {
@@ -1496,7 +1499,7 @@ function FuzzyFinder(rg: RenderGroup) {
     const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const searchLabel = div({ style: "padding: 10px", class: "nowrap" }, ["Search:"]);
     const root = div({ class: "flex-1 col" }, [
-        div({ class: "row align-items-center",  }, [
+        div({ class: "row align-items-center", }, [
             searchLabel,
             searchInput,
             div({ style: "width: 10px" }),
@@ -1573,8 +1576,9 @@ function FuzzyFinder(rg: RenderGroup) {
     function rerenderList() {
         for (let i = 0; i < matches.length; i++) {
             const c = resultList.components[i];
-            c.state.args.hasFocus = i === currentSelectionIdx;
-            c.render(c.state.args);
+            const s = getState(c);
+            s.hasFocus = i === currentSelectionIdx;
+            c.renderWithCurrentState();
         }
     }
 
@@ -1645,22 +1649,22 @@ function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
     return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
 }
 
-function LoadBackupModal(rg: RenderGroup, s: State<{
+function LoadBackupModal(rg: RenderGroup<{
     fileName: string;
     text: string;
 }>) {
     const fileNameDiv = el("H3");
     const infoDiv = div();
-    const loadBackupButton = newComponent(Button);
-    loadBackupButton.render({
+    const loadBackupButton = newComponent(Button, {
         label: "Load this backup",
         onClick: () => {
-            if (!canLoad || !s.args.text) {
+            const s = getState(rg);
+            if (!canLoad || !s.text) {
                 return;
             }
 
             if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
-                const { text } = s.args;
+                const { text } = s;
 
                 setStateFromJSON(text);
 
@@ -1681,13 +1685,13 @@ function LoadBackupModal(rg: RenderGroup, s: State<{
 
     let canLoad = false;
 
-    rg.renderFn(function renderBackupModal() {
+    rg.renderFn(function renderBackupModal(s) {
         modal.render({
             onClose: () => setCurrentModal(null),
             content: modalContent,
         });
 
-        const { text, fileName } = s.args;
+        const { text, fileName } = s;
 
         setText(fileNameDiv, "Load backup - " + fileName);
         setVisible(loadBackupButton, false);
@@ -1741,7 +1745,7 @@ function InteractiveGraphModal(rg: RenderGroup) {
 
     return rg.cArgs(newComponent(Modal), c => c.render({
         onClose,
-        content: modalContent, 
+        content: modalContent,
     }));
 }
 
@@ -1765,7 +1769,7 @@ function SettingsModal(rg: RenderGroup) {
     }));
 }
 
-function ScratchPadModal(rg: RenderGroup, s: State<{
+function ScratchPadModal(rg: RenderGroup<{
     open: boolean;
     canvasArgs: AsciiCanvasArgs;
 }>) {
@@ -1778,8 +1782,9 @@ function ScratchPadModal(rg: RenderGroup, s: State<{
     );
 
     let wasVisible = false;
-    function renderCanvas() {
-        const { open } = s.args;
+
+    rg.renderFn(function renderAsciiCanvasModal(s) {
+        const { open } = s;
         setVisible(modalComponent, open);
 
         if (!wasVisible && open) {
@@ -1792,7 +1797,7 @@ function ScratchPadModal(rg: RenderGroup, s: State<{
             wasVisible = true;
 
             const note = getCurrentNote(state);
-            asciiCanvas.render(s.args.canvasArgs);
+            asciiCanvas.render(s.canvasArgs);
 
             // needs to happen after we render the canvas, since we will be swapping out the output buffer
             resetCanvas(canvasState, false, note.data.text);
@@ -1814,10 +1819,6 @@ function ScratchPadModal(rg: RenderGroup, s: State<{
                 state.scratchPadCanvasLayers = [];
             }
         }
-    }
-
-    rg.renderFn(function renderAsciiCanvasModal() {
-        renderCanvas();
 
         modalComponent.render({
             onClose() {
@@ -1830,7 +1831,7 @@ function ScratchPadModal(rg: RenderGroup, s: State<{
     return modalComponent;
 }
 
-function NoteRowDurationInfo(rg: RenderGroup, s: State<{ note: TreeNote; duration: number; }>) {
+function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number; }>) {
     const durationEl = span();
     const divider = span({}, ", ");
     const estimateContainer = span();
@@ -1846,8 +1847,8 @@ function NoteRowDurationInfo(rg: RenderGroup, s: State<{ note: TreeNote; duratio
         ])
     ]);
 
-    rg.renderFn(function renderNoteRowDurationInfo() {
-        const { note, duration } = s.args;
+    rg.renderFn(function renderNoteRowDurationInfo(s) {
+        const { note, duration } = s;
 
         const hasDuration = duration > 0;
         if (setVisible(durationEl, hasDuration)) {
@@ -1905,7 +1906,7 @@ function NoteRowDurationInfo(rg: RenderGroup, s: State<{ note: TreeNote; duratio
     return root;
 }
 
-function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
+function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
     const noteRowText = newComponent(NoteRowText);
 
     const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
@@ -1930,7 +1931,8 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
     ]);
 
     function setStickyOffset() {
-        const { stickyOffset } = s.args;
+        const s = getState(rg);
+        const { stickyOffset } = s;
 
         if (stickyOffset !== undefined) {
             root.el.style.position = "sticky";
@@ -1947,7 +1949,8 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
     }
 
     function scrollComponentToView() {
-        const { scrollParent } = s.args;
+        const s = getState(rg);
+        const { scrollParent } = s;
 
         if (!scrollParent) {
             return;
@@ -1966,8 +1969,8 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
     let isFocused = false;
     let isShowingDurations = false;
 
-    rg.renderFn(function renderNoteRowInput() {
-        const { note, duration, totalDuration, hasDivider } = s.args;
+    rg.renderFn(function renderNoteRowInput(s) {
+        const { note, duration, totalDuration, hasDivider } = s;
         const currentNote = getCurrentNote(state);
 
         const wasFocused = isFocused;
@@ -2031,7 +2034,7 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
         }
 
         // render the text input
-        noteRowText.render(s.args);
+        noteRowText.render(s);
 
         // do auto-scrolling
         {
@@ -2047,7 +2050,8 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
     });
 
     root.el.addEventListener("click", () => {
-        const { note } = s.args;
+        const s = getState(rg);
+        const { note } = s;
 
         setCurrentNote(state, note.id);
         rerenderApp();
@@ -2056,7 +2060,7 @@ function NoteRowInput(rg: RenderGroup, s: State<NoteRowArgs>) {
     return root;
 }
 
-function NoteListInternal(rg: RenderGroup, s: State<{
+function NoteListInternal(rg: RenderGroup<{
     flatNotes: NoteId[];
     scrollParent: HTMLElement | null;
 }>) {
@@ -2065,8 +2069,8 @@ function NoteListInternal(rg: RenderGroup, s: State<{
     });
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
-    rg.renderFn(function renderNoteListInteral() {
-        const { flatNotes, scrollParent } = s.args;
+    rg.renderFn(function renderNoteListInteral(s) {
+        const { flatNotes, scrollParent } = s;
 
         noteList.render((getNext) => {
             let stickyOffset = 0;
@@ -2168,7 +2172,7 @@ function setTheme(theme: AppTheme) {
 };
 
 
-function AsciiIcon(rg: RenderGroup, s: State<AsciiIconData>) {
+function AsciiIcon(rg: RenderGroup<AsciiIconData>) {
     const icon = div();
 
     icon.el.style.userSelect = "none";
@@ -2178,8 +2182,8 @@ function AsciiIcon(rg: RenderGroup, s: State<AsciiIconData>) {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    rg.renderFn(function renderAsciiIcon() {
-        const { data } = s.args;
+    rg.renderFn(function renderAsciiIcon(s) {
+        const { data } = s;
         setText(icon, data);
     });
 
@@ -2187,8 +2191,7 @@ function AsciiIcon(rg: RenderGroup, s: State<AsciiIconData>) {
 }
 
 function DarkModeToggle(rg: RenderGroup) {
-    const button = newComponent(Button);
-    button.render({
+    const button = newComponent(Button, {
         label: "",
         onClick: () => {
             let theme = getTheme();
@@ -2326,17 +2329,15 @@ function setCurrentDockedMenu(menu: DockableMenu | null) {
     rerenderApp();
 }
 
-function ActivityListContainer(rg: RenderGroup, s: State<{ docked: boolean }>) {
-    const scrollActivitiesToTop = newComponent(Button);
-    scrollActivitiesToTop.render({
-        label: "Top", 
+function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
+    const scrollActivitiesToTop = newComponent(Button, {
+        label: "Top",
         onClick: () => {
             state._currentlyViewingActivityIdx = state.activities.length - 1;
             rerenderApp();
         },
     });
-    const scrollActivitiesToMostRecent = newComponent(Button);
-    scrollActivitiesToMostRecent.render({
+    const scrollActivitiesToMostRecent = newComponent(Button,{
         label: "Most Recent",
         onClick: () => {
             state._currentlyViewingActivityIdx = getMostRecentIdx();
@@ -2354,16 +2355,16 @@ function ActivityListContainer(rg: RenderGroup, s: State<{ docked: boolean }>) {
             }
         }
     });
-    const nextActivity = newComponent(Button);
-    nextActivity.render({
+    const nextActivity = newComponent(Button, {
         label: "->",
         onClick: () => {
-        const idx = getPrevIdx();
-        if (idx !== -1) {
-            state._currentlyViewingActivityIdx = idx;
-            rerenderApp();
+            const idx = getPrevIdx();
+            if (idx !== -1) {
+                state._currentlyViewingActivityIdx = idx;
+                rerenderApp();
+            }
         }
-    }});
+    });
 
     const activityList = newComponent(EditableActivityList);
     const breakInput = newComponent(BreakInput);
@@ -2394,10 +2395,10 @@ function ActivityListContainer(rg: RenderGroup, s: State<{ docked: boolean }>) {
         return findPreviousActiviyIndex(state, state.currentNoteId, state.activities.length - 1);
     }
 
-    rg.renderFn(function renderActivityListContainer() {
-        breakInput.render(undefined);
+    rg.renderFn(function renderActivityListContainer(s) {
+        breakInput.render(null);
 
-        if (s.args.docked) {
+        if (s.docked) {
             activityList.render({
                 pageSize: 20,
                 activityIndexes: state._useActivityIndices ? state._activityIndices : undefined,
@@ -2746,7 +2747,6 @@ function autoInsertBreakIfRequired() {
 
 
 const initState = (then: () => void) => {
-    console.log("init state!");
     loadState(() => {
         setTheme(getTheme());
         then();
@@ -2760,7 +2760,7 @@ function isRunningFromFile(): boolean {
 
 function makeDownloadThisPageButton() {
     const button = newComponent(Button);
-    button.render({ 
+    button.render({
         label: "Download this page!",
         onClick: () => {
             const linkEl = el<HTMLAnchorElement>("A", { download: "note-tree.html", "href": window.location.href });
@@ -2797,23 +2797,23 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 }
 
 function HighLevelTaskDurations(rg: RenderGroup) {
-    function Row(rg: RenderGroup, s: State<{
+    function Row(rg: RenderGroup<{
         name: string;
         durationMs: number, nId: NoteId | undefined
     }>) {
         return div({ class: "row sb1b" }, [
             div({}, [
-                rg.cArgs(newComponent(NoteLink), (nl) => {
+                rg.cArgs(newComponent(NoteLink), (nl, s) => {
                     nl.render({
                         preventScroll: true,
-                        text: s.args.name,
+                        text: s.name,
                         focusAnyway: false,
-                        noteId: s.args.nId,
+                        noteId: s.nId,
                     });
                 })
             ]),
             div({ class: "flex-1", style: "min-width: 100px" }),
-            div({}, [rg.text(() => formatDuration(s.args.durationMs))]),
+            div({}, [rg.text((s) => formatDuration(s.durationMs))]),
         ]);
     }
 
@@ -2901,7 +2901,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             value: hideBreaks,
             onChange: (val) => {
                 hideBreaks = val;
-                rg.render();
+                rg.renderWithCurrentState();
             }
         });
 
@@ -3475,23 +3475,23 @@ export function App(rg: RenderGroup) {
             }
 
             if (setVisible(linkNavModal, currentModal === linkNavModal)) {
-                linkNavModal.render(undefined);
+                linkNavModal.render(null);
             }
 
             if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
-                fuzzyFindModal.render(undefined);
+                fuzzyFindModal.render(null);
             }
 
             if (setVisible(settingsModal, currentModal === settingsModal)) {
-                settingsModal.render(undefined);
+                settingsModal.render(null);
             }
 
             if (setVisible(deleteModal, currentModal === deleteModal)) {
-                deleteModal.render(undefined);
+                deleteModal.render(null);
             }
 
             if (setVisible(exportModal, currentModal === exportModal)) {
-                exportModal.render(undefined);
+                exportModal.render(null);
             }
 
             scratchPadModal.render({
@@ -3506,7 +3506,7 @@ export function App(rg: RenderGroup) {
             });
 
             if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
-                interactiveGraphModal.render(undefined)
+                interactiveGraphModal.render(null)
             }
         }
 
@@ -3517,7 +3517,7 @@ export function App(rg: RenderGroup) {
         setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
 
         if (setVisible(filterEditorRow, state._isShowingDurations)) {
-            filterEditor.render(undefined);
+            filterEditor.render(null);
         }
 
         let currentDockedMenu: DockableMenu | null = state.dockedMenu;
@@ -3534,7 +3534,7 @@ export function App(rg: RenderGroup) {
 
         // Render the list after rendering the right dock, so that the sticky offsets have the correct heights.
         // The right panel can cause lines to wrap when they otherwise wouldn't have, resulting in incorrect heights
-        notesList.render(undefined);
+        notesList.render(null);
 
         if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
             // Render activities in their normal spot
@@ -3673,7 +3673,7 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
     // there are actually very few times when we don't want to scroll to the current note
     renderOptions.shouldScroll = shouldScroll;
     renderOptions.isTimer = isTimer;
-    app.render(undefined);
+    app.render(null);
 }
 
 

@@ -12,11 +12,11 @@ export function replaceChildren(comp: Insertable, children: (Insertable | undefi
             continue;
         }
 
-        setChildAt(comp, child, iReal);
+        setChildAt(comp, child, i);
         iReal++;
     }
 
-    while (iReal < comp.el.children.length) {
+    while (comp.el.children.length > iReal) {
         comp.el.children[comp.el.children.length - 1].remove();
     }
 };
@@ -519,37 +519,46 @@ export function setInputValue<T extends TextElement>(component: Insertable<T>, t
 };
 
 
-export type State<T> = {
-    /** This is the raw value */
-    argsOrUndefined: T | undefined;
-    /**
-     * A getter that will assert that the args have actually been set
-     * before returning them. This should be the case in 99% of normal use-cases
-     */
-    args: T;
-}
+// export type State<T> = {
+//     /** This is the raw value */
+//     argsOrUndefined: T | undefined;
+//     /**
+//      * A getter that will assert that the args have actually been set
+//      * before returning them. This should be the case in 99% of normal use-cases
+//      */
+//     args: T;
+// }
 
-/**
- * Typically used to store and get the last arguments a component got.
- * Stateless by default.
- */
-export function newState<T = undefined>(initialValue: T | undefined = undefined) {
-    const state: State<T> = {
-        argsOrUndefined: initialValue,
-        set args(val: T) {
-            state.argsOrUndefined = val;
-        },
-        get args() {
-            if (state.argsOrUndefined === undefined) {
-                // If u programmed it right you won't be seeing this error
-                throw new Error("A component must be rendered with Args at least once before it's state can be accessed.");
-            }
+// /**
+//  * Typically used to store and get the last arguments a component got.
+//  * Stateless by default.
+//  */
+// export function newState<T = undefined>(initialValue: T | undefined = undefined) {
+//     const state: State<T> = {
+//         argsOrUndefined: initialValue,
+//         set args(val: T) {
+//             state.argsOrUndefined = val;
+//         },
+//         get args() {
+//             if (state.argsOrUndefined === undefined) {
+//                 // If u programmed it right you won't be seeing this error
+//                 throw new Error("A component must be rendered with Args at least once before it's state can be accessed.");
+//             }
+//
+//             return state.argsOrUndefined;
+//         }
+//     };
+//
+//     return state;
+// }
 
-            return state.argsOrUndefined;
-        }
-    };
+export function getState<T>(c: Component<T, any> | RenderGroup<T>): T {
+    const s = c.s;
+    if (s === undefined) {
+        throw new Error(`A component should been rendered with state at least once before we can access it's state!`);
+    }
 
-    return state;
+    return s;
 }
 
 /** 
@@ -594,57 +603,76 @@ export function newState<T = undefined>(initialValue: T | undefined = undefined)
  * ```
  *
  */
-export function __newRealComponentInternal<T, U extends ValidElement>(root: Insertable<U>, renderFn: () => void, s: State<T> = newState()) {
+export function __newRealComponentInternal<
+    T,
+    U extends ValidElement,
+    Si extends T,
+>(root: Insertable<U>, renderFn: (s: T) => void, s: Si | undefined) {
+    function renderFnWrapper() {
+        const s = getState(component);
+        renderFn(s);
+    }
+
     const component: Component<T, U> = {
         el: root.el,
+        instantiated: false,
         skipErrorBoundary: false,
         get _isHidden() { return root._isHidden; },
         set _isHidden(val: boolean) { root._isHidden = val; },
-        state: s,
+        s: s,
         render(args: T) {
-            s.args = args;
+            component.s = args;
+            component.renderWithCurrentState();
+        },
+        renderWithCurrentState() {
+            if (component.instantiated) {
+                checkForRenderMistake(this);
+            }
 
-            checkForRenderMistake(this);
+            // allow the component to render once before it's ever inserted.
+            component.instantiated = true;
 
             if (component.skipErrorBoundary) {
-                renderFn();
+                renderFnWrapper();
             } else {
-                handleRenderingError(this, renderFn);
+                handleRenderingError(this, renderFnWrapper);
             }
-        },
+        }
     };
 
     return component;
 }
 
-export type RenderGroup = {
+export type RenderGroup<S = null> = {
+    s: S | undefined;
     instantiated: boolean;
     templateName: string;
     skipErrorBoundary: boolean;
-    render: () => void;
-    text: (fn: () => string) => Insertable<HTMLSpanElement>;
+    render: (s: S) => void;
+    renderWithCurrentState: () => void;
+    text: (fn: (s: S) => string) => Insertable<HTMLSpanElement>;
     c: <U extends ValidElement>(component: Component<unknown, U>) => Component<unknown, U>;
     cArgs: <T, U extends ValidElement>(
         component: Component<T, U>,
-        renderFn: (c: Component<T, U>) => void,
+        renderFn: (c: Component<T, U>, s: S) => void,
     ) => Component<T, U>;
     /** Sets a component visible based on a predicate, and only renders it if it is visible */
-    if: <U extends ValidElement> (predicate: () => boolean, templateFn: TemplateFn<unknown, U>) => Component<unknown, U>,
+    if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
     /** Same as `if` - will hide the component if T is undefined, but lets you do type narrowing */
-    with: <U extends ValidElement, T> (predicate: () => T | undefined, templateFn: TemplateFn<T, U>) => Component<T, U>,
+    with: <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>) => Component<T, U>,
     // TODO: extend to SVGElement as well. you can still use it on both, but the autocomplete won't work
     on: <K extends keyof HTMLElementEventMap>(
         type: K,
-        listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any,
+        listener: (s: S, ev: HTMLElementEventMap[K]) => any,
         options?: boolean | AddEventListenerOptions
     ) => Functionality<HTMLElement>;
-    attr: <U extends ValidElement>(attrName: string, valueFn: () => string) => Functionality<U>;
-    class: <U extends ValidElement>(className: string, predicate: () => boolean) => Functionality<U>;
-    style: <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: () => U["style"][K]) => Functionality<U>;
-    functionality: <U extends ValidElement> (fn: (val: Insertable<U>) => void) => Functionality<U>;
+    attr: <U extends ValidElement>(attrName: string, valueFn: (s: S) => string) => Functionality<U>;
+    class: <U extends ValidElement>(className: string, predicate: (s: S) => boolean) => Functionality<U>;
+    style: <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: (s: S) => U["style"][K]) => Functionality<U>;
+    functionality: <U extends ValidElement> (fn: (val: Insertable<U>, s: S) => void) => Functionality<U>;
     // NOTE: this root might be redundant now...
-    renderFn: (fn: () => void) => void;
-    preRenderFn: (fn: () => void) => void;
+    renderFn: (fn: (s: S) => void) => void;
+    preRenderFn: (fn: (s: S) => void) => void;
 };
 
 let debug = false;
@@ -652,8 +680,8 @@ export function enableDebugMode() {
     debug = true;
 }
 
-const renderCounts = new Map<string, { c: number, t: number; s: Set<RenderGroup>}>();
-function countRender(name: string, ref: RenderGroup, num: number) {
+const renderCounts = new Map<string, { c: number, t: number; s: Set<RenderGroup<any>>}>();
+function countRender(name: string, ref: RenderGroup<any>, num: number) {
     if (!debug) return;
 
     if (!renderCounts.has(name)) {
@@ -780,29 +808,40 @@ export function printRenderCounts() {
  * TODO: rewrite doc. Rendergroup has completely changed - it's much more powerful than before
  *
  */
-export function newRenderGroup(): RenderGroup {
-    const renderFns: ({ fn: () => void; })[] = [];
+function newRenderGroup<S, Si extends S>(initialState: Si | undefined): RenderGroup<S> {
+    const renderFns: ({ fn: (s: S) => void; })[] = [];
 
-    const rg: RenderGroup = {
+    const rg: RenderGroup<S> = {
+        /** 
+         * NOTE: 
+         * this s is actually a copy of the reference/value passed into this render group - 
+         * we need it so that callbacks we add here work.
+         */
+        s: initialState,
         instantiated: false,
         templateName: "unknown",
         skipErrorBoundary: false,
-        render() {
+        render(s) {
+            rg.s = s;
+            rg.renderWithCurrentState();
+        },
+        renderWithCurrentState() {
+            const s = getState(rg);
             rg.instantiated = true;
             countRender(rg.templateName, rg, renderFns.length);
             for (let i = 0; i < renderFns.length; i++) {
-                renderFns[i].fn();
+                renderFns[i].fn(s);
             }
         },
-        text: (fn: () => string): Insertable<HTMLSpanElement> => {
+        text: (fn) => {
             const e = span();
-            renderFns.push({ fn: () => setText(e, fn())  });
+            rg.renderFn((s) => setText(e, fn(s)));
             return e;
         },
         with: (predicate, templateFn) => {
             const c = newComponent(templateFn);
-            rg.renderFn(() => {
-                const val = predicate();
+            rg.renderFn((s) => {
+                const val = predicate(s);
                 if (setVisible(c, val !== undefined)) {
                     c.render(val!);
                 }
@@ -813,47 +852,50 @@ export function newRenderGroup(): RenderGroup {
         if: (predicate, templateFn) => {
             const c = newComponent(templateFn);
 
-            rg.renderFn(() => {
-                if (setVisible(c, predicate())) {
-                    c.render(undefined);
+            rg.renderFn((s) => {
+                if (setVisible(c, predicate(s))) {
+                    c.render(s);
                 }
             });
 
             return c;
         },
         c: (component) => {
-            rg.renderFn(() => component.render(undefined));
+            rg.renderFn(() => component.render(null));
             return component;
         },
         cArgs: (component, renderFn) => {
-            rg.renderFn(() => renderFn(component));
+            rg.renderFn((s) => renderFn(component, s));
             return component;
         },
-        on(type, listener, options,) {
+        on(type, listener, options) {
             return (parent) => {
-                on(parent, type, listener, options);
+                on(parent, type, (e) => { 
+                    const s = getState(rg);
+                    listener(s, e);
+                }, options);
             }
         },
         attr: (attrName, valueFn) => {
             return (parent) => {
                 const currentAttrValue = getAttr(parent, attrName);
-                rg.renderFn(() => setAttr(parent, attrName, currentAttrValue + valueFn()));
+                rg.renderFn((s) => setAttr(parent, attrName, currentAttrValue + valueFn(s)));
             }
         },
         class: (className, predicate) => {
             return (parent) => {
-                rg.renderFn(() => setClass(parent, className, predicate()));
+                rg.renderFn((s) => setClass(parent, className, predicate(s)));
             }
         },
         style: (styleName, valueFn) => {
             return (parent) => {
                 const currentStyle = parent.el.style[styleName];
-                rg.renderFn(() => setStyle(parent, styleName, valueFn() || currentStyle));
+                rg.renderFn((s) => setStyle(parent, styleName, valueFn(s) || currentStyle));
             };
         },
         functionality: (fn) => {
             return (parent) => {
-                rg.renderFn(() => fn(parent));
+                rg.renderFn((s) => fn(parent, s));
             };
         },
         renderFn: (fn) => {
@@ -874,23 +916,26 @@ export function newRenderGroup(): RenderGroup {
 }
 
 
-type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup, state: State<T>) => Insertable<U>;
-type TemplateFnPRO<T, U extends ValidElement, R> = (rg: RenderGroup, state: State<T>) => readonly [Insertable<U>, R];
+type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup<T>) => Insertable<U>;
+type TemplateFnPRO<T, U extends ValidElement, R> = (rg: RenderGroup<T>) => readonly [Insertable<U>, R];
 
 /**
  * Turns out that this is really good. 
  */
-export function newComponent<T, U extends ValidElement>(
+export function newComponent<T, U extends ValidElement, Si extends T>(
     templateFn: TemplateFn<T, U>,
-    initialState?: T,
+    initialState?: Si,
     skipErrorBoundary = false
 ) {
-    const rg = newRenderGroup();
+    const rg = newRenderGroup<T, Si>(initialState);
     rg.templateName = templateFn.name ?? "unknown fn name";
-    const state = newState<T>(initialState);
-    const root = templateFn(rg, state);
+    const state = initialState;
+    const root = templateFn(rg);
     const component = __newRealComponentInternal(root, rg.render, state);
     component.skipErrorBoundary = skipErrorBoundary;
+    if (component.s !== undefined) {
+        component.renderWithCurrentState();
+    }
     return component;
 }
 
@@ -902,18 +947,23 @@ export function newComponent<T, U extends ValidElement>(
  *
  * The '2' is because it returns 2 things (and not because it is lazily named, actually)
  */
-export function newComponent2<T, U extends ValidElement, R>(
+export function newComponent2<T, U extends ValidElement, R, Si extends T>(
     templateFn: TemplateFnPRO<T, U, R>,
-    initialState?: T,
+    initialState?: Si,
     skipErrorBoundary = false
-) {
-    const rg = newRenderGroup();
+): [Component<T,U>, R] {
+    // NOTE: Just copy paste this from the other method, dont bother trying to make the same changes in both places...
+    const rg = newRenderGroup<T, Si>(initialState);
     rg.templateName = templateFn.name ?? "unknown fn name";
-    const state = newState<T>(initialState);
-    const [root, imperativeHandle] = templateFn(rg, state);
+    const state = initialState;
+    const [root, h] = templateFn(rg);
     const component = __newRealComponentInternal(root, rg.render, state);
     component.skipErrorBoundary = skipErrorBoundary;
-    return [component, imperativeHandle] as const;
+    if (component.s !== undefined) {
+        component.render
+    }
+    return [component, h];
+
 }
 
 export function newInsertable<T extends ValidElement>(el: T): Insertable<T> {
@@ -970,8 +1020,10 @@ export type Component<T, U extends ValidElement> = Insertable<U> & {
      * ```
      */
     render(args: T): void;
-    state: State<T>;
+    renderWithCurrentState(): void;
+    s: T | undefined;
     skipErrorBoundary: boolean;
+    instantiated: boolean;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {

@@ -1,8 +1,8 @@
 import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
-import { RenderGroup, State, div, el, isEditingInput, newComponent, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { RenderGroup, div, el, getState, isEditingInput, newComponent, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
-export function DateTimeInput(rg: RenderGroup, s: State<{
+export function DateTimeInput(rg: RenderGroup<{
     readOnly: boolean;
     nullable: boolean;
     value: Date | null;
@@ -25,8 +25,8 @@ export function DateTimeInput(rg: RenderGroup, s: State<{
 
     let lastDate: Date | null = null;
 
-    rg.renderFn(function renderDateTimeInput() {
-        const { value, label, readOnly, nullable } = s.args;
+    rg.renderFn(function renderDateTimeInput(s) {
+        const { value, label, readOnly, nullable } = s;
 
         const canEdit = readOnly && !!value;
 
@@ -58,7 +58,8 @@ export function DateTimeInput(rg: RenderGroup, s: State<{
     });
     
     function onCheckOrUncheck(b: boolean) {
-        const { onChange } = s.args;
+        const s = getState(rg);
+        const { onChange } = s;
 
         if (b) {
             onChange(lastDate || new Date());
@@ -68,7 +69,8 @@ export function DateTimeInput(rg: RenderGroup, s: State<{
     }
 
     function handleTextfieldEdit() {
-        const { onChange } = s.args;
+        const s = getState(rg);
+        const { onChange } = s;
         const value = edit.el.value;
 
         const [date, err] = parseYMDTDateTime(value);

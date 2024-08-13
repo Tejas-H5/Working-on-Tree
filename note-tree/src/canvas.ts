@@ -2,7 +2,7 @@ import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-inpu
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, State, div, el, isVisible, newComponent, newComponent2, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, div, el, getState, isVisible, newComponent, newComponent2, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 const TAB_SIZE = 4;
 
@@ -68,10 +68,10 @@ type CanvasState = {
     // Undo state
     undoLog: UndoLogEntry[];
     // This will always point to the last change that was _applied_. Should default to -1 if nothing in the undo log
-    undoLogPosition: number; 
+    undoLogPosition: number;
 }
 
-type ToolType = "freeform-select" | 
+type ToolType = "freeform-select" |
     "line-select" |
     "rect-outline-select" |
     "rect-select" |
@@ -128,7 +128,7 @@ function selectCell(canvas: CanvasState, i: number, j: number, value: boolean, c
 }
 
 function generateLines(canvas: CanvasState) {
-    type DirectionMatrix = [boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean,boolean];
+    type DirectionMatrix = [boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean];
     function matchDirections(directions: DirectionMatrix, coords: [0 | 1 | 2, 0 | 1 | 2][]) {
         return coords.every(([i, j]) => directions[j + 3 * i]);
     }
@@ -139,9 +139,9 @@ function generateLines(canvas: CanvasState) {
         }
 
         const directions: DirectionMatrix = [
-                isSelected(canvas, c.i - 1, c.j - 1),   isSelected(canvas, c.i, c.j - 1),   isSelected(canvas, c.i + 1, c.j - 1),
-                isSelected(canvas, c.i - 1, c.j),                                   true,   isSelected(canvas, c.i + 1, c.j),
-                isSelected(canvas, c.i - 1, c.j + 1),   isSelected(canvas, c.i, c.j + 1),   isSelected(canvas, c.i + 1, c.j + 1),
+            isSelected(canvas, c.i - 1, c.j - 1), isSelected(canvas, c.i, c.j - 1), isSelected(canvas, c.i + 1, c.j - 1),
+            isSelected(canvas, c.i - 1, c.j), true, isSelected(canvas, c.i + 1, c.j),
+            isSelected(canvas, c.i - 1, c.j + 1), isSelected(canvas, c.i, c.j + 1), isSelected(canvas, c.i + 1, c.j + 1),
         ];
 
         let char = '';
@@ -195,7 +195,7 @@ function generateLines(canvas: CanvasState) {
             ]) ||
             matchDirections(directions, [
                 [2, 1],
-            ]) 
+            ])
         ) {
             char = '-';
         } else if (
@@ -204,17 +204,17 @@ function generateLines(canvas: CanvasState) {
             ]) ||
             matchDirections(directions, [
                 [1, 2],
-            ]) 
+            ])
         ) {
             char = '|';
-        } 
+        }
 
         setCharOnCurrentLayer(canvas, c.i, c.j, char);
 
     });
 }
 
-function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
+function isSelected(canvas: CanvasState, i: number, j: number): boolean {
     const cell = getCell(canvas, i, j);
     if (!cell) {
         return false;
@@ -227,20 +227,20 @@ function isSelected(canvas: CanvasState, i: number, j: number) : boolean {
 function resizeLayer(layer: AsciiCanvasLayer, rows: number, cols: number) {
     const data = layer.data;
 
-    while(data.length < rows) {
+    while (data.length < rows) {
         data.push(Array(cols).fill(" "));
     }
-    while(data.length > rows) {
+    while (data.length > rows) {
         data.pop();
     }
 
     for (let i = 0; i < data.length; i++) {
         const rows = data[i];
 
-        while(rows.length < cols) {
+        while (rows.length < cols) {
             rows.push(" ");
         }
-        while(rows.length > cols) {
+        while (rows.length > cols) {
             rows.pop();
         }
     }
@@ -289,7 +289,7 @@ function resizeLayers(canvas: CanvasState, rows: number, cols: number) {
 
 function getCharOnLayer(i: number, j: number, layer: AsciiCanvasLayer): string {
     if (
-        boundsCheck(layer.data, i) && 
+        boundsCheck(layer.data, i) &&
         boundsCheck(layer.data[i], j)
     ) {
         return layer.data[i][j] || " ";
@@ -303,10 +303,10 @@ function getLayerIdx(canvas: CanvasState, layer: AsciiCanvasLayer): number {
 }
 
 function setCharOnLayer(
-    canvas: CanvasState, 
-    i: number, j: number, 
-    char: string, 
-    layer: AsciiCanvasLayer, 
+    canvas: CanvasState,
+    i: number, j: number,
+    char: string,
+    layer: AsciiCanvasLayer,
     beingCalledInsideUndoFunction = false,
 ) {
     if (
@@ -314,7 +314,7 @@ function setCharOnLayer(
         !boundsCheck(layer.data[i], j)
     ) {
         return;
-    } 
+    }
 
     const layerIdx = getLayerIdx(canvas, layer);
     const prev = layer.data[i][j];
@@ -330,7 +330,7 @@ function setCharOnLayer(
         logUndoableChange(canvas, {
             row: i,
             col: j,
-            char: { layerIdx, new: char, prev  },
+            char: { layerIdx, new: char, prev },
         });
     }
 
@@ -389,7 +389,7 @@ function getNumRows(canvas: CanvasState) {
     return canvas.layers[0].data.length;
 }
 
-function lerp(a: number, b: number, t: number) : number {
+function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
 }
 
@@ -420,7 +420,7 @@ export function resetCanvas(canvas: CanvasState, resetSize = true, initialText: 
 
 function lineLength(line: string) {
     let len = 0;
-    for(const c of line) {
+    for (const c of line) {
         if (c === "\t") {
             len += TAB_SIZE;
         } else {
@@ -539,16 +539,16 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
     });
 
     if (minX > maxX || minY > maxY) {
-        minX = 0; 
+        minX = 0;
         maxX = getNumCols(canvas);
-        minY = 0; 
+        minY = 0;
         maxY = getNumRows(canvas);
     }
 
     const lines: string[] = [];
-    for(let i = minY; i <= maxY; i++) {
+    for (let i = minY; i <= maxY; i++) {
         const row: string[] = [];
-        for(let j = minX; j <= maxX; j++) {
+        for (let j = minX; j <= maxX; j++) {
             const cell = getCell(canvas, i, j);
             if (cell.isSelected) {
                 const char = getCharOnCurrentLayer(canvas, i, j);
@@ -564,7 +564,7 @@ function getCanvasSelectionAsString(canvas: CanvasState) {
     return lines.join("\n");
 }
 
-function getFirstNonWhitespace(canvas:CanvasState, row: number, blockedBySelection = true): number {
+function getFirstNonWhitespace(canvas: CanvasState, row: number, blockedBySelection = true): number {
     const cols = getNumCols(canvas);
     for (let i = 0; i < cols; i++) {
         if (blockedBySelection) {
@@ -584,7 +584,7 @@ function getFirstNonWhitespace(canvas:CanvasState, row: number, blockedBySelecti
 }
 
 
-function getLastNonWhitespace(canvas:CanvasState, row: number, blockedBySelection = true): number {
+function getLastNonWhitespace(canvas: CanvasState, row: number, blockedBySelection = true): number {
     const cols = getNumCols(canvas);
     for (let i = cols; i >= 0; i--) {
         if (blockedBySelection) {
@@ -608,7 +608,7 @@ function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number)
     let row = rowStart;
     let lookUpwards = true;
     for (let i = 0; i <= WHITESPACE_GAP; i++) {
-        if (getCharOnCurrentLayer(canvas, row, col - i) !== ' ')  {
+        if (getCharOnCurrentLayer(canvas, row, col - i) !== ' ') {
             lookUpwards = false;
             break;
         }
@@ -649,7 +649,7 @@ function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number)
 }
 
 function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
-    while(canvas.undoLog.length - 1 > canvas.undoLogPosition) {
+    while (canvas.undoLog.length - 1 > canvas.undoLogPosition) {
         canvas.undoLog.pop();
     }
 
@@ -701,14 +701,14 @@ function moveThroughUndoLog(canvas: CanvasState, {
         // The current undo position is always on the last change that was applied. 
         // Undoing a change needs to undo the change at the current cursor, and redoing a change needs to 
         // apply the next change and increment the postion up to that
-        
+
         if (!currentChange) {
             break;
         }
 
         const { row, col, char, selection } = currentChange.data;
 
-        const cell : CanvasCellArgs | undefined = getCellOrUndefined(canvas, row, col);
+        const cell: CanvasCellArgs | undefined = getCellOrUndefined(canvas, row, col);
         if (!cell) {
             // We currently don't undo/redo resizing, so dont worry about handling cell being undefined
             continue;
@@ -769,7 +769,7 @@ function redoWithinTime(canvas: CanvasState) {
 }
 
 function getTool(canvas: CanvasState): ToolType {
-    return isAltPressed() ?  "move-selection" : canvas.currentTool;
+    return isAltPressed() ? "move-selection" : canvas.currentTool;
 }
 
 function getCursorCell(canvas: CanvasState): CanvasCellArgs | undefined {
@@ -819,12 +819,12 @@ function typeChar(canvasState: CanvasState, key: string) {
 }
 
 function moveToNonWhitespaceOrSelected(
-    start: number, 
+    start: number,
     len: number,
     getChar: (i: number) => string,
     getSelected: (i: number) => boolean,
-    isWhitespace = true, 
-    backwards = true, 
+    isWhitespace = true,
+    backwards = true,
     stopBefore = false,
 ): number {
     let pos = start;
@@ -836,18 +836,18 @@ function moveToNonWhitespaceOrSelected(
     pos += dir;
 
     while (
-        pos + dir >= limitLower 
-        && pos + dir <= limitHigher 
-        && (getChar(pos) === ' ') !== isWhitespace 
+        pos + dir >= limitLower
+        && pos + dir <= limitHigher
+        && (getChar(pos) === ' ') !== isWhitespace
         && (initialSelected === getSelected(pos))
     ) {
         pos += dir;
     }
 
     while (
-        pos + dir >= limitLower 
-        && pos + dir <= limitHigher 
-        && (getChar(pos) === ' ') === isWhitespace 
+        pos + dir >= limitLower
+        && pos + dir <= limitHigher
+        && (getChar(pos) === ' ') === isWhitespace
         && (initialSelected === getSelected(pos))
     ) {
         pos += dir;
@@ -896,7 +896,7 @@ function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: Visua
             outInfo.isSelected = true;
             outInfo.char = getCharOnCurrentLayer(canvas, srcCell.i, srcCell.j);
             return;
-        } 
+        }
 
         if (thisCell.isSelected) {
             outInfo.isSelected = false;
@@ -910,24 +910,24 @@ function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: Visua
 }
 
 
-function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
+function Canvas(rg: RenderGroup<CanvasArgs>) {
     let currentCursorEl: Insertable | null = null;
     let shouldScroll = false;
 
     const scrollContainer = newComponent(ScrollContainer);
-    const root = setAttrs(scrollContainer, { 
+    const root = setAttrs(scrollContainer, {
         class: "flex-1",
         style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
             "border: 1px solid var(--fg-color);"
     }, true);
 
-    const rowList = newListRenderer(root, () => newComponent((rg: RenderGroup, s: State<RowArgs>) => {
-        const root = div({ 
-            class: "row justify-content-center", 
+    const rowList = newListRenderer(root, () => newComponent((rg: RenderGroup<RowArgs>) => {
+        const root = div({
+            class: "row justify-content-center",
             style: "width: fit-content;"
         });
 
-        const charList = newListRenderer(root, () => newComponent((rg: RenderGroup, s: State<CanvasCellArgs>) => {
+        const charList = newListRenderer(root, () => newComponent((rg: RenderGroup<CanvasCellArgs>) => {
             // Memoizing for peformance. 
             let lastState = -1;
             let lastIsCursor = false;
@@ -938,13 +938,13 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 char: ' '
             };
 
-            const root = el("SPAN", { 
-                class: "pre inline-block border-box", 
-                style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;" 
+            const root = el("SPAN", {
+                class: "pre inline-block border-box",
+                style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;"
             });
 
-            rg.preRenderFn(function renderCanvasCell() {
-                const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s.args;
+            rg.preRenderFn(function renderCanvasCell(s) {
+                const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s;
 
                 getVisualChar(canvasState, i, j, visualCharInfo);
                 const { char, isSelected } = visualCharInfo;
@@ -954,7 +954,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                     setText(root, char);
                 }
 
-                const isCursor = i === canvasState.cursorRowCol.i 
+                const isCursor = i === canvasState.cursorRowCol.i
                     && j === canvasState.cursorRowCol.j;
                 if (isCursor !== lastIsCursor) {
                     lastIsCursor = isCursor;
@@ -973,7 +973,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 } else if (isSelected) {
                     state = 2;
                 } else if (
-                    j === canvasState.mouseInputState.x && 
+                    j === canvasState.mouseInputState.x &&
                     i === canvasState.mouseInputState.y
                 ) {
                     state = 3;
@@ -982,16 +982,16 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 if (state !== lastState) {
                     lastState = state;
                     setStyle(
-                        root, 
-                        "backgroundColor",  
+                        root,
+                        "backgroundColor",
                         state === 1 ? "var(--bg-color-focus)" :
                             state === 2 ? "#0078D7" :
-                            state === 3 ? "#888" :
-                            ""
+                                state === 3 ? "#888" :
+                                    ""
                     );
                     setStyle(
-                        root, 
-                        "color",  
+                        root,
+                        "color",
                         state === 2 ? "#FFF" : ""
                     );
                 }
@@ -1000,10 +1000,11 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             function handleMouseMovement(e: MouseEvent) {
                 e.stopImmediatePropagation();
 
-                const mouseInputState = s.args.canvasState.mouseInputState;
-                mouseInputState.x = s.args.j;
-                mouseInputState.y = s.args.i;
-                
+                const s = getState(rg);
+                const mouseInputState = s.canvasState.mouseInputState;
+                mouseInputState.x = s.j;
+                mouseInputState.y = s.i;
+
                 onMouseInputStateChange();
             }
 
@@ -1012,8 +1013,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             return root;
         }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
-        rg.preRenderFn(function renderCanvasRow() {
-            const { charList: rowList } = s.args;
+        rg.preRenderFn(function renderCanvasRow(s) {
+            const { charList: rowList } = s;
 
             charList.render((getNext) => {
                 for (let i = 0; i < rowList.length; i++) {
@@ -1040,7 +1041,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         const dirX = x2 - x1;
         const dirY = y2 - y1;
 
-        const mag = Math.sqrt(dirX*dirX + dirY*dirY);
+        const mag = Math.sqrt(dirX * dirX + dirY * dirY);
 
         for (let i = 0; i < mag + 2; i++) {
             const x = Math.round(lerp(x1, x2, i / (mag + 1)));
@@ -1061,7 +1062,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         const queue: Coord[] = [[y, x, y, x]];
         let coords: Coord | undefined;
         let fillChar: string | undefined;
-        while(coords = queue.pop()) {
+        while (coords = queue.pop()) {
             const [i, j, iPrev, jPrev] = coords;
 
             const cell = getCellOrUndefined(canvasState, i, j);
@@ -1140,12 +1141,12 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             canvasState.toolState.moveOffsetI = 0;
             canvasState.toolState.moveOffsetJ = 0;
             return;
-        } 
+        }
 
         if (isSelectionTool(startedAction)) {
             if (!cancel) {
                 const applyType = canvasState.toolState.selectionApplyType;
-                
+
                 if (applyType === "additive") {
                     forEachCell(canvasState, (c) => {
                         // additive selection
@@ -1203,7 +1204,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             toolState.jPrev = jInput;
         }
 
-        if ( 
+        if (
             mouseInputState.lbDown
             || !isMouse
         ) {
@@ -1275,7 +1276,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 
     function onMouseInputStateChange() {
         if (mouseInputState.x === -1 || mouseInputState.y === -1) {
-            s.args.onInput();
+            const s = getState(rg);
+            s.onInput();
             return;
         }
 
@@ -1285,7 +1287,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         if (released) {
             const cancel = false;
             applyCurrentAction(cancel);
-        } else if (clicked) { 
+        } else if (clicked) {
             clicked = true;
             mouseInputState._prevX = mouseInputState.x;
             mouseInputState._prevY = mouseInputState.y;
@@ -1294,7 +1296,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 
         if (mouseInputState.lbDown) {
             handleSelect(
-                canvasState, 
+                canvasState,
                 clicked,
                 mouseInputState.y,
                 mouseInputState.x,
@@ -1306,7 +1308,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         mouseInputState._prevY = mouseInputState.y;
         mouseInputState._lbWasDown = mouseInputState.lbDown;
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
     }
 
     const mouseInputState: MouseInputState = {
@@ -1317,7 +1320,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
     };
 
     const canvasState: CanvasState = {
-        args: () => s.args,
+        args: () => getState(rg),
         mouseInputState,
         rows: [],
         currentTool: "rect-select",
@@ -1328,7 +1331,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             // main layer. right now it's the only layer
             newLayer(),
         ],
-        currentLayer: 0, 
+        currentLayer: 0,
         toolState: {
             startedMove: false,
             startedAction: undefined,
@@ -1344,8 +1347,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         },
     };
 
-    rg.preRenderFn(function renderCanvas() {
-        const { outputLayers } = s.args;
+    rg.preRenderFn(function renderCanvas(s) {
+        const { outputLayers } = s;
 
         if (outputLayers) {
             // Allows writing to an array that lives outside of this component
@@ -1371,8 +1374,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             }
         });
 
-        if (!scrollContainer.state.argsOrUndefined) {
-            scrollContainer.state.argsOrUndefined = { 
+        if (!scrollContainer.s) {
+            scrollContainer.s = {
                 scrollEl: null,
                 axes: "hv",
             };
@@ -1380,8 +1383,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 
         if (shouldScroll) {
             shouldScroll = false;
-            scrollContainer.state.args.scrollEl = currentCursorEl;
-            scrollContainer.render(scrollContainer.state.args);
+            scrollContainer.s.scrollEl = currentCursorEl;
+            scrollContainer.render(scrollContainer.s);
         }
     });
 
@@ -1410,7 +1413,8 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             return;
         }
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
     });
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -1430,7 +1434,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 applyCurrentAction(cancel);
                 e.stopImmediatePropagation();
                 return;
-            } 
+            }
 
             const numSelected = getNumSelected(canvasState);
             if (numSelected > 0) {
@@ -1465,7 +1469,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             key.length === 1
         ) {
             // Just overwrite every cell with what was typed 
-            
+
             e.stopImmediatePropagation();
 
             forEachCell(canvasState, (char) => {
@@ -1503,12 +1507,12 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
             );
 
             pos = moveToNonWhitespaceOrSelected(
-                pos, 
-                len, 
-                iterFnChar, 
-                iterFnSelect, 
-                false, 
-                backwards, 
+                pos,
+                len,
+                iterFnChar,
+                iterFnSelect,
+                false,
+                backwards,
                 stopBefore,
             );
 
@@ -1522,7 +1526,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
         if (
             e.key === "ArrowRight"
             || e.key === "ArrowLeft"
-            || e.key === "ArrowUp" 
+            || e.key === "ArrowUp"
             || e.key === "ArrowDown"
             || e.key === "Home"
             || e.key === "End"
@@ -1534,7 +1538,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                 isSelectingOrMoving = true;
 
                 let handled = true;
-                const alreadyDoingSomething = canvasState.toolState.keyboardSelectStart 
+                const alreadyDoingSomething = canvasState.toolState.keyboardSelectStart
                     || canvasState.toolState.keyboardMoveStart;
                 if (e.shiftKey && !canvasState.toolState.keyboardSelectStart) {
                     canvasState.toolState.keyboardSelectStart = true;
@@ -1596,18 +1600,18 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
                     handleSelect(canvasState, false, cursorCell.i, cursorCell.j, false);
                 }
             }
-        }  else if (e.key === "Enter") {
+        } else if (e.key === "Enter") {
             newLine(canvasState);
         } else if (e.key === "Tab") {
             const start = getCurrentLineStart(canvasState, cursorCell.i, cursorCell.j);
             const offset = cursorCell.j - start;
             if (cursorCell) {
                 moveCursor(
-                    canvasState, 
-                    cursorCell.i, 
-                    start 
-                        + Math.floor(offset / TAB_SIZE) * TAB_SIZE
-                        + TAB_SIZE
+                    canvasState,
+                    cursorCell.i,
+                    start
+                    + Math.floor(offset / TAB_SIZE) * TAB_SIZE
+                    + TAB_SIZE
                 );
             }
         } else if (e.key === "Backspace") {
@@ -1644,9 +1648,10 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 
         handleKeyDown(e);
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
 
-        rg.render();
+        rg.renderWithCurrentState();
     });
 
     document.addEventListener("keyup", (e) => {
@@ -1661,7 +1666,7 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 
         if (shouldApply) {
             applyCurrentAction();
-            rg.render();
+            rg.renderWithCurrentState();
         }
     });
 
@@ -1672,11 +1677,11 @@ function Canvas(rg: RenderGroup, s: State<CanvasArgs>) {
 function isAsciiCanvasKeybind(e: KeyboardEvent) {
     const ctrlPressed = e.ctrlKey || e.metaKey;
     return (
-       (ctrlPressed && (e.key === "E" || e.key === "e")) 
-        || (ctrlPressed && (e.key === "Q" || e.key === "q")) 
-        || (ctrlPressed && (e.key === "C" || e.key === "c")) 
-        || (ctrlPressed && (e.key === "V" || e.key === "v")) 
-        || (ctrlPressed && (e.key === "Z" || e.key === "z")) 
+        (ctrlPressed && (e.key === "E" || e.key === "e"))
+        || (ctrlPressed && (e.key === "Q" || e.key === "q"))
+        || (ctrlPressed && (e.key === "C" || e.key === "c"))
+        || (ctrlPressed && (e.key === "V" || e.key === "v"))
+        || (ctrlPressed && (e.key === "Z" || e.key === "z"))
         || (ctrlPressed && (e.key === "Y" || e.key === "y"))
     );
 }
@@ -1697,9 +1702,9 @@ export type AsciiCanvasArgs = {
     onWrite(): void;
 }
 
-export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
+export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
-    function ToolbarButton(rg: RenderGroup, s: State<{
+    function ToolbarButton(rg: RenderGroup<{
         name: string;
         onClick(e: MouseEvent): void;
         tool?: ToolType;
@@ -1708,16 +1713,16 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     }>) {
         const button = newComponent(Button);
 
-        rg.preRenderFn(function renderAsciiCanvasToolbarButton() {
-            const { tool, selected, disabled } = s.args;
+        rg.preRenderFn(function renderAsciiCanvasToolbarButton(s) {
+            const { tool, selected, disabled } = s;
 
-            setText(button, s.args.name);
+            setText(button, s.name);
             button.render({
-                label: s.args.name,
-                className: "inline-block", 
+                label: s.name,
+                className: "inline-block",
                 style: ";text-align: center; align-items: center;",
                 onClick: (e) => {
-                    const { onClick, tool } = s.args;
+                    const { onClick, tool } = s;
 
                     if (tool) {
                         changeTool(tool);
@@ -1747,12 +1752,12 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     const [canvasComponent, canvasState] = newComponent2(Canvas);
     const buttons = {
         moreRows: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
-                name: "+",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
-                    rerenderLocal();
-                },
-            })),
+            name: "+",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
+                rerenderLocal();
+            },
+        })),
         lessRows: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "-",
             onClick: () => {
@@ -1772,12 +1777,12 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             },
         })),
         lessCols: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
-                name: "-",
-                onClick: () => {
-                    resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
-                    rerenderLocal();
-                },
-            })),
+            name: "-",
+            onClick: () => {
+                resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
+                rerenderLocal();
+            },
+        })),
         freeformSelect: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Draw",
             onClick: rerenderLocal,
@@ -1803,7 +1808,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             onClick: rerenderLocal,
             tool: "fill-select",
         })),
-        bucketFillSelectOutline: rg.cArgs(newComponent(ToolbarButton),  (c) => c.render({
+        bucketFillSelectOutline: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Fill Outline",
             onClick: rerenderLocal,
             tool: "fill-select-outline",
@@ -1855,7 +1860,7 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
                 generateLines(canvasState);
                 rerenderLocal();
             }
-        })), 
+        })),
         undoButton: rg.cArgs(newComponent(ToolbarButton), (c) => c.render({
             name: "Undo",
             selected: undoDone,
@@ -1882,13 +1887,13 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         buttons.rectSelect,
         buttons.freeformSelect,
         buttons.rectOutlineSelect,
-        buttons.bucketFillSelect, 
+        buttons.bucketFillSelect,
         buttons.bucketFillSelectOutline,
-        buttons.bucketFillSelectConnected, 
+        buttons.bucketFillSelectConnected,
     ];
 
     const toolbar = div({ style: "justify-content: center; gap: 5px;" }, [
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             buttons.lessRows,
             div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
                 rg.text(() => "rows: " + getNumRows(canvasState)),
@@ -1901,25 +1906,25 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             buttons.moreCols,
         ]),
         spacer(),
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             rg.text(() => "Selection (Ctrl + [Q/E]): "),
             ...mouseScrollList,
         ]),
         spacer(),
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             buttons.invertSelection,
         ]),
         spacer(),
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             buttons.copyToClipboard,
             buttons.pasteFromClipboard,
             buttons.pasteFromClipboardTransparent,
         ]),
         spacer(),
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             buttons.linesFromSelection,
         ]),
-        div({ class: "inline-block"}, [
+        div({ class: "inline-block" }, [
             buttons.undoButton,
             rg.text(() => (1 + canvasState.undoLogPosition) + " / " + canvasState.undoLog.length),
             buttons.redoButton,
@@ -1966,9 +1971,9 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
         setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > MIN_NUM_COLS * 128);
     }
 
-    const canvasArgs : CanvasArgs = {
+    const canvasArgs: CanvasArgs = {
         onInput: rerenderLocal,
-        onWrite: () => {},
+        onWrite: () => { },
         outputLayers: [],
     };
 
@@ -2024,25 +2029,26 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
     }
 
     function rerenderLocal() {
-        rg.render();
-        s.args.onInput();
+        rg.renderWithCurrentState();
+        const s = getState(rg);
+        s.onInput();
     }
 
-    rg.preRenderFn(function renderAsciiCanvas() {
-        canvasArgs.outputLayers = s.args.outputLayers;
-        canvasArgs.onWrite = s.args.onWrite;
+    rg.preRenderFn(function renderAsciiCanvas(s) {
+        canvasArgs.outputLayers = s.outputLayers;
+        canvasArgs.onWrite = s.onWrite;
 
         const cursorCell = getCursorCell(canvasState);
         canPaste = !!cursorCell;
 
         canvasComponent.render(canvasArgs);
-        
+
         updateCanvasStausText(canvasState);
     });
 
     function prevTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.state.args.tool === canvasState.currentTool;
+            return button.s?.tool === canvasState.currentTool;
         });
 
         if (idx > 0) {
@@ -2051,12 +2057,13 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             idx = mouseScrollList.length - 1;
         }
 
-        changeTool(mouseScrollList[idx].state.args.tool);
+        const s = getState(mouseScrollList[idx]);
+        changeTool(s.tool);
     }
 
     function nextTool() {
         let idx = mouseScrollList.findIndex((button) => {
-            return button.state.args.tool === canvasState.currentTool;
+            return button.s?.tool === canvasState.currentTool;
         });
 
         if (idx < mouseScrollList.length - 1) {
@@ -2065,7 +2072,8 @@ export function AsciiCanvas(rg: RenderGroup, s: State<AsciiCanvasArgs>) {
             idx = 0;
         }
 
-        changeTool(mouseScrollList[idx].state.args.tool);
+        const s = getState(mouseScrollList[idx]);
+        changeTool(s.tool);
     }
 
     function undo() {

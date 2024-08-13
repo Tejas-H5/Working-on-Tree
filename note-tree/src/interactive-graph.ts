@@ -1,5 +1,5 @@
 import { TextArea } from "./components/text-area";
-import { Insertable, RenderGroup, State, addChildren, div, el, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { Insertable, RenderGroup, addChildren, div, el, getState, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
 
@@ -160,7 +160,7 @@ function forEachConnectedEdge(nodeId: string | undefined, edges: Record<string, 
 // I had made this for a bit of fun, but this component is mostly a mistake and any further maintanence will be a giant waste of time.
 // I should convert to SVG for convenience, and easier exporting/reusing our diagrams in other places.
 
-export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
+export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
     const graphRoot = div({
         class: "absolute-fill",
         style: "border: 2px solid var(--fg-color); overflow: hidden; cursor: move;",
@@ -175,7 +175,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
     const edgeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
 
     const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphNodeUI));
-    rg.renderFn(() => nodeListRenderer.render((getNext) => {
+    rg.renderFn((graphS) => nodeListRenderer.render((getNext) => {
         for (const id of nodeComponentMap.keys()) {
             if (!(id in graphData.nodes)) {
                 nodeComponentMap.delete(id);
@@ -185,10 +185,10 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
         for (const id in graphData.nodes) {
             const node = graphData.nodes[id];
             const c = getNext();
-            if (!c.state.argsOrUndefined) {
-                c.state.argsOrUndefined = {
+            if (!c.s) {
+                c.s = {
                     node,
-                    graphArgs: s.args,
+                    graphArgs: graphS,
 
                     isEditing: false,
                     isSelected: false,
@@ -200,23 +200,23 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                     onContextMenu,
 
                     relativeContainer,
-                    renderGraph: rg.render,
+                    renderGraph: rg.renderWithCurrentState,
                 };
             }
 
-            c.state.args.node = node;
-            c.state.args.graphState = graphState;
-            c.state.args.isSelected = graphState.currentSelectedNodeId === id;
-            c.state.args.isEditing = graphState.isEditing && c.state.args.isSelected;
+            c.s.node = node;
+            c.s.graphState = graphState;
+            c.s.isSelected = graphState.currentSelectedNodeId === id;
+            c.s.isEditing = graphState.isEditing && c.s.isSelected;
 
-            c.render(c.state.args);
+            c.renderWithCurrentState();
             nodeComponentMap.set(id, c);
         }
     }));
 
     // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
     const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphEdgeUI));
-    rg.renderFn(() => edgeListRenderer.render((getNext) => {
+    rg.renderFn((graphS) => edgeListRenderer.render((getNext) => {
         for (const id of edgeComponentMap.keys()) {
             if (!(id in graphData.edges)) {
                 edgeComponentMap.delete(id);
@@ -227,9 +227,9 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             const edge = graphData.edges[id];
             const c = getNext();
 
-            if (!c.state.argsOrUndefined) {
-                c.state.argsOrUndefined = {
-                    graphArgs: s.args,
+            if (!c.s) {
+                c.s = {
+                    graphArgs: graphS,
 
                     srcNode: undefined,
                     srcNodeEl: undefined,
@@ -244,19 +244,19 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                     onContextMenu,
 
                     relativeContainer,
-                    renderGraph: rg.render,
+                    renderGraph: rg.renderWithCurrentState,
                 };
             }
 
-            c.state.args.edge = edge;
-            c.state.args.srcNode = getObj(graphData.nodes, edge.srcNodeId);
-            c.state.args.srcNodeEl = getMap(nodeComponentMap, edge.srcNodeId)?.el;
-            c.state.args.dstNode = getObj(graphData.nodes, edge.dstNodeId);
-            c.state.args.dstNodeEl = getMap(nodeComponentMap, edge.dstNodeId)?.el;
-            c.state.args.graphState = graphState;
-            c.state.args.relativeContainer = relativeContainer;
+            c.s.edge = edge;
+            c.s.srcNode = getObj(graphData.nodes, edge.srcNodeId);
+            c.s.srcNodeEl = getMap(nodeComponentMap, edge.srcNodeId)?.el;
+            c.s.dstNode = getObj(graphData.nodes, edge.dstNodeId);
+            c.s.dstNodeEl = getMap(nodeComponentMap, edge.dstNodeId)?.el;
+            c.s.graphState = graphState;
+            c.s.relativeContainer = relativeContainer;
 
-            c.render(c.state.args);
+            c.render(c.s);
             edgeComponentMap.set(id, c);
         }
     }));
@@ -289,16 +289,17 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
     const contextMenuItemsDict = {
         clearAll: contextMenuItem("Clear all", () => {
-            s.args.onInput();
+            const s = getState(rg);
+            s.onInput();
 
-            for(const k in graphData.nodes) {
+            for (const k in graphData.nodes) {
                 delete graphData.nodes[k];
             }
-            for(const k in graphData.edges) {
+            for (const k in graphData.edges) {
                 delete graphData.edges[k];
             }
 
-            rg.render();
+            rg.renderWithCurrentState();
         }),
         newNode: contextMenuItem("New node", () => {
             const x = realXToGraphX(graphState, relativeContainer.el, graphState.contextMenuX);
@@ -307,11 +308,11 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
         }),
         recenter: contextMenuItem("Recenter", () => {
             recenter();
-            rg.render();
+            rg.renderWithCurrentState();
         }),
         clearZoom: contextMenuItem("Clear Zoom", () => {
             graphState.viewZoom = 1;
-            rg.render();
+            rg.renderWithCurrentState();
         }),
         canAddNewLabel: (edge: GraphEdge | undefined): edge is GraphEdge => !!edge && ["", " "].includes(edge.text),
         newLabel: contextMenuItem("New Label", () => {
@@ -322,8 +323,9 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
 
             edge.text = "New Label"
-            s.args.onInput();
-            rg.render();
+            const s = getState(rg);
+            s.onInput();
+            rg.renderWithCurrentState();
         }),
         flipEdge: contextMenuItem("Flip Edge", () => {
             const edge = getCurrentEdge();
@@ -337,29 +339,30 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             [edge.srcXPivot, edge.dstXPivot] = [edge.dstXPivot, edge.srcXPivot];
             [edge.srcYPivot, edge.dstYPivot] = [edge.dstYPivot, edge.srcYPivot];
 
-            s.args.onInput();
+            const s = getState(rg);
+            s.onInput();
 
-            rg.render();
+            rg.renderWithCurrentState();
         }),
         edgeThicknessThin: contextMenuItem("Weight -> Thin", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.THIN;
-                rg.render();
+                rg.renderWithCurrentState();
             }
         }),
         edgeThicknessNormal: contextMenuItem("Weight -> Normal", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.NORMAL;
-                rg.render();
+                rg.renderWithCurrentState();
             }
         }),
         edgeThicknessThick: contextMenuItem("Weight -> Thick", () => {
             const edge: GraphEdge | undefined = graphState.currentEdgeDragEdgeId ? graphData.edges[graphState.currentEdgeDragEdgeId] : undefined;
             if (edge) {
                 edge.thickness = EDGE_THICNKESSES.THICK;
-                rg.render();
+                rg.renderWithCurrentState();
             }
         }),
         deleteNode: contextMenuItem("Delete node", () => {
@@ -379,7 +382,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
 
             delete graphData.nodes[currentSelectedNodeId];
 
-            rg.render();
+            rg.renderWithCurrentState();
         }),
         recalcItemVisibility() {
             const nodeSelected = !!graphState.currentSelectedNodeId;
@@ -467,7 +470,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                 node.y -= meanY;
             }
 
-            s.args.onInput();
+            const s = getState(rg);
+            s.onInput();
         }
 
         // move and zoom the graph to fit all the shite
@@ -495,12 +499,12 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             // moveGraphView(minX, minY);
             // moveGraphView(maxX, maxY);
             moveGraphView(
-                lerp(minX, maxY, 0.5), 
+                lerp(minX, maxY, 0.5),
                 lerp(minY, maxY, 0.5),
             );
         }
 
-        rg.render();
+        rg.renderWithCurrentState();
     }
 
     function addNewNode(x = 0, y = 0) {
@@ -511,20 +515,21 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             x, y,
         };
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
 
         return id;
     }
 
     let domRect = root.el.getBoundingClientRect();
 
-    rg.preRenderFn(function renderGraph() {
-        if (s.args.graphData) {
-            graphData = s.args.graphData;
+    rg.preRenderFn(function renderGraph(s) {
+        if (s.graphData) {
+            graphData = s.graphData;
         }
 
         let hasNodes = false;
-        for (const k in graphData.nodes) {
+        for (const _k in graphData.nodes) {
             hasNodes = true;
             break;
         }
@@ -601,7 +606,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                 edge.dstYPivot = pivotY;
             }
 
-            s.args.onInput();
+            const s = getState(rg);
+            s.onInput();
         }
 
         const currentEdge = getObj(graphData.edges, graphState.currentEdgeDragEdgeId);
@@ -621,7 +627,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             currentEdge.srcY = startYGraph;
         }
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
 
         graphState.currentSelectedNodeId = undefined;
     }
@@ -662,9 +669,10 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             currentEdge.srcYPivot = pivotY;
         }
 
-        s.args.onInput();
+        const s = getState(rg);
+        s.onInput();
 
-        rg.render();
+        rg.renderWithCurrentState();
     }
 
     const dragManager = newDragManager({
@@ -684,7 +692,9 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             mouseStartX = realXToGraphX(graphState, relativeContainer.el, graphState.lastMouseX);
             mouseStartY = realYToGraphY(graphState, relativeContainer.el, graphState.lastMouseY);
         },
-        onDrag(dx: number, dy: number, e: MouseEvent) {
+        onDrag(dx: number, dy: number, _e: MouseEvent) {
+            const s = getState(rg);
+
             if (graphState.isEditing) {
                 return;
             }
@@ -699,7 +709,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                 currentNode.x = nodeDxStart + dxGraph;
                 currentNode.y = nodeDyStart + dyGraph;
 
-                s.args.onInput();
+                s.onInput();
 
                 return;
             }
@@ -715,7 +725,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
                     currentEdge.srcY = mouseY;
                 }
 
-                s.args.onInput();
+                s.onInput();
 
                 return;
             }
@@ -763,7 +773,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
     function closeContextMenu() {
         graphState.isContextMenuOpen = false;
         dragManager.cancelDrag();
-        rg.render();
+        rg.renderWithCurrentState();
     }
 
     let lastX = 0, lastY = 0;
@@ -799,19 +809,19 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
     relativeContainer.el.addEventListener("mousemove", (e) => {
         onMouseMove(e);
 
-        rg.render();
+        rg.renderWithCurrentState();
     });
     relativeContainer.el.addEventListener("mouseup", (e) => {
         onMouseUp(e);
-        rg.render();
+        rg.renderWithCurrentState();
     });
     relativeContainer.el.addEventListener("mousedown", (e) => {
         onMouseDown(e);
-        rg.render();
+        rg.renderWithCurrentState();
     });
     relativeContainer.el.addEventListener("contextmenu", (e) => {
         onContextMenu(e);
-        rg.render();
+        rg.renderWithCurrentState();
     });
 
     relativeContainer.el.addEventListener("wheel", (e) => {
@@ -841,7 +851,7 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             graphState.viewY - yDelta,
         );
 
-        rg.render();
+        rg.renderWithCurrentState();
     });
 
     document.addEventListener("keydown", (e) => {
@@ -859,7 +869,8 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
             } else if (graphState.currentSelectedNodeId) {
                 graphState.currentSelectedNodeId = undefined;
             } else {
-                s.args.onClose();
+                const s = getState(rg);
+                s.onClose();
             }
         } else {
             needsRender = false;
@@ -868,14 +879,14 @@ export function InteractiveGraph(rg: RenderGroup, s: State<GraphArgs>) {
         if (needsRender) {
             e.stopPropagation();
             e.preventDefault();
-            rg.render();
+            rg.renderWithCurrentState();
         }
     });
 
     return root;
 }
 
-function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
+function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     const className = "pre w-100 h-100";
     const styles = "padding: 0; position: absolute;";
     const textArea = setAttrs(TextArea(), {
@@ -891,7 +902,8 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
 
     const [edgeDragStartRegions, updateDragRegionStyles] = makeDragRects((regionDiv) => {
         regionDiv.el.addEventListener("mousemove", (e) => {
-            const { graphState, node, onMouseMove, renderGraph } = s.args;
+            const s = getState(rg);
+            const { graphState, node, onMouseMove, renderGraph } = s;
 
             e.stopImmediatePropagation();
 
@@ -912,7 +924,8 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
             renderGraph();
         });
         regionDiv.el.addEventListener("mouseup", (e) => {
-            const { onMouseUp, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onMouseUp, renderGraph } = s;
 
             e.stopImmediatePropagation();
 
@@ -920,13 +933,15 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
             renderGraph();
         });
         regionDiv.el.addEventListener("mousedown", (e) => {
-            const { onMouseDown, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onMouseDown, renderGraph } = s;
             e.stopImmediatePropagation();
             onMouseDown(e);
             renderGraph();
         });
         regionDiv.el.addEventListener("contextmenu", (e) => {
-            const { onContextMenu, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onContextMenu, renderGraph } = s;
             e.stopImmediatePropagation();
             onContextMenu(e);
             renderGraph();
@@ -945,14 +960,14 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
     ]);
 
 
-    rg.preRenderFn(function renderGraphNodeUI() {
-        const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s.args;
+    rg.preRenderFn(function renderGraphNodeUI(s) {
+        const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s;
 
         if (setVisibleGroup(
             !graphState.isDragging || node.id !== graphState.currentEdgeDragStartNodeIdx,
             edgeDragStartRegions
         )) {
-            updateDragRegionStyles(s.args);
+            updateDragRegionStyles(s);
         }
 
         if (!node.text) {
@@ -973,7 +988,7 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
         {
             // we need to fit to the text size both the width and height!
 
-            const { isEditing } = s.args;
+            const { isEditing } = s;
 
             const textEl = isEditing ? textArea : textDiv;
 
@@ -1009,17 +1024,18 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
 
 
     root.el.addEventListener("click", (e) => {
-        const { graphState, renderGraph, node } = s.args;
+        const s = getState(rg);
+        const { graphState, renderGraph, node } = s;
 
-        if (s.args.graphState.isDragging) {
+        if (s.graphState.isDragging) {
             return;
         }
 
         // TODO: fix. it clicks instantly after it selects.  lmao.
         e.stopPropagation();
 
-        if (s.args.graphState.isDragging) {
-            s.args.graphState.isDragging = false;
+        if (s.graphState.isDragging) {
+            s.graphState.isDragging = false;
             return;
         }
 
@@ -1030,7 +1046,8 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
     });
 
     root.el.addEventListener("mousedown", () => {
-        const { node, graphState, renderGraph, } = s.args;
+        const s = getState(rg);
+        const { node, graphState, renderGraph, } = s;
 
         // block clicking, so we don't instantly de-select this thing.
         graphState.isClickBlocked = true;
@@ -1042,7 +1059,8 @@ function GraphNodeUI(rg: RenderGroup, s: State<GraphNodeUIArgs>) {
     });
 
     textArea.el.addEventListener("input", () => {
-        const { node, renderGraph, graphArgs } = s.args;
+        const s = getState(rg);
+        const { node, renderGraph, graphArgs } = s;
         node.text = textArea.el.value;
         graphArgs.onInput();
         renderGraph();
@@ -1057,7 +1075,7 @@ const cnGraphEdgeRoot = sg.makeClass(`graph-edge-root`, [
     `.redrag .line { background-color: red; }`
 ]);
 
-function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
+function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
     const arrowHitbox = div({
         class: "line",
         style: "background-color: transparent;"
@@ -1074,25 +1092,30 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
     ];
 
     function getX0() {
-        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s.args;
+        const s = getState(rg);
+        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s;
         return edgeSrcX(graphState, relativeContainer.el, edge, srcNode, srcNodeEl);
     }
     function getY0() {
-        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s.args;
+        const s = getState(rg);
+        const { graphState, relativeContainer, edge, srcNode, srcNodeEl } = s;
         return edgeSrcY(graphState, relativeContainer.el, edge, srcNode, srcNodeEl);
     }
     function getX1() {
-        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s.args;
+        const s = getState(rg);
+        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s;
         return edgeDstX(graphState, relativeContainer.el, edge, dstNode, dstNodeEl);
     }
     function getY1() {
-        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s.args;
+        const s = getState(rg);
+        const { graphState, relativeContainer, edge, dstNode, dstNodeEl } = s;
         return edgeDstY(graphState, relativeContainer.el, edge, dstNode, dstNodeEl);
     }
 
     for (const seg of arrowSegments) {
         seg.el.addEventListener("mousemove", (e) => {
-            const { graphState, edge, onMouseMove, renderGraph, relativeContainer, srcNode, dstNode } = s.args;
+            const s = getState(rg);
+            const { graphState, edge, onMouseMove, renderGraph, relativeContainer, srcNode, dstNode } = s;
 
             e.stopImmediatePropagation();
             onMouseMove(e);
@@ -1120,21 +1143,24 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
             renderGraph();
         });
         seg.el.addEventListener("mouseup", (e) => {
-            const { onMouseUp, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onMouseUp, renderGraph } = s;
 
             e.stopImmediatePropagation();
             onMouseUp(e);
             renderGraph();
         });
         seg.el.addEventListener("mousedown", (e) => {
-            const { onMouseDown, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onMouseDown, renderGraph } = s;
 
             e.stopImmediatePropagation();
             onMouseDown(e);
             renderGraph();
         });
         seg.el.addEventListener("contextmenu", (e) => {
-            const { onContextMenu, renderGraph } = s.args;
+            const s = getState(rg);
+            const { onContextMenu, renderGraph } = s;
             e.stopImmediatePropagation();
             onContextMenu(e);
             renderGraph();
@@ -1156,8 +1182,8 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    rg.preRenderFn(function renderGraphEdgeUI() {
-        const { graphState, edge, graphArgs } = s.args;
+    rg.preRenderFn(function renderGraphEdgeUI(s) {
+        const { graphState, edge, graphArgs } = s;
 
         if (!edge.text) {
             edge.text = " ";
@@ -1201,9 +1227,9 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
 
             const arrowHeadLength = 30 * graphState.viewZoom;
             setStyle(
-                arrowHead1, 
-                `transform`, 
-                `translate(${length - edgeThickness / 2 }px, ${arrowHeadSegmentVOfffset }px) rotate(-${arrowAngle }rad) scale(${arrowHeadLength}, ${edgeThickness}) translate(50%)`
+                arrowHead1,
+                `transform`,
+                `translate(${length - edgeThickness / 2}px, ${arrowHeadSegmentVOfffset}px) rotate(-${arrowAngle}rad) scale(${arrowHeadLength}, ${edgeThickness}) translate(50%)`
             );
             setStyle(arrowHead2, `transform`, `translate(${length - edgeThickness / 2}px, ${-arrowHeadSegmentVOfffset}px) rotate(${arrowAngle}rad) scale(${arrowHeadLength}, ${edgeThickness}) translate(50%)`);
 
@@ -1216,13 +1242,14 @@ function GraphEdgeUI(rg: RenderGroup, s: State<GraphEdgeUIArgs>) {
     });
 
     labelInput.el.addEventListener("input", () => {
-        const { edge, graphArgs } = s.args;
+        const s = getState(rg);
+        const { edge, graphArgs } = s;
 
         edge.text = labelInput.el.value;
 
         graphArgs.onInput();
 
-        rg.render();
+        rg.renderWithCurrentState();
     });
 
     return root;
@@ -1289,14 +1316,14 @@ const cnContextMenu = sg.makeClass(`context-menu`, [
     ` .item:hover { background-color: var(--bg-color-focus); cursor: pointer; }`
 ])
 
-function RadialContextMenu(rg: RenderGroup, s: State<{
+function RadialContextMenu(rg: RenderGroup<{
     x: number;
     y: number;
     centerText: string;
     items: ContextMenuItem[];
     onClose(): void;
 }>) {
-    function RadialContextMenuItem(rg: RenderGroup, s: State<{
+    function RadialContextMenuItem(rg: RenderGroup<{
         x: number;
         y: number;
         item: ContextMenuItem;
@@ -1306,11 +1333,11 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
             class: "absolute nowrap item bg-color",
             style: `z-index: ${Z_INDICES.CONTEXT_MENU}; padding: 10px; border-radius: 5px; border: 2px solid var(--fg-color);`,
         }, [
-            rg.text(() => s.args.item.text)
+            rg.text((s) => s.item.text)
         ]);
 
-        rg.preRenderFn(function renderRadialContextMenuItem() {
-            const { x, y, item } = s.args;
+        rg.preRenderFn(function renderRadialContextMenuItem(s) {
+            const { x, y, item } = s;
 
             setStyle(root, "left", x + "px");
             setStyle(root, "top", y + "px");
@@ -1322,7 +1349,8 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
                 return
             }
 
-            s.args.item.onClick();
+            const s = getState(rg);
+            s.item.onClick();
             closeSelf(e);
         });
 
@@ -1352,8 +1380,8 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
         ]),
     ]);
 
-    rg.preRenderFn(function renderRadialContextMenu() {
-        const { x, y, items, centerText } = s.args;
+    rg.preRenderFn(function renderRadialContextMenu(s) {
+        const { x, y, items, centerText } = s;
 
         setText(centerTextEl, centerText);
         const centerTextWidth = centerTextEl.el.clientWidth;
@@ -1372,7 +1400,7 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
                     item,
                     // set later
                     x: 0, y: 0,
-                    onClose: s.args.onClose,
+                    onClose: s.onClose,
                 });
             }
 
@@ -1399,6 +1427,7 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
                 const centerY = Math.sin(cirlceAngle) * baseRadius * radiusMultiplierY;
 
                 const c = contextMenuItemList.components[i];
+                const s = getState(c);
                 const w = c.el.clientWidth;
                 const h = c.el.clientHeight;
 
@@ -1409,8 +1438,8 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
                     continue;
                 }
 
-                c.state.args.x = x;
-                c.state.args.y = y;
+                s.x = x;
+                s.y = y;
 
                 const spacing = 10;
                 lastRect.x = x - spacing;
@@ -1434,7 +1463,7 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
 
             for (let i = 0; i < contextMenuItemList.components.length; i++) {
                 const c = contextMenuItemList.components[i];
-                c.render(c.state.args);
+                c.renderWithCurrentState();
             }
         });
 
@@ -1448,7 +1477,8 @@ function RadialContextMenu(rg: RenderGroup, s: State<{
     function closeSelf(e: MouseEvent) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        s.args.onClose();
+        const s = getState(rg);
+        s.onClose();
     }
 
     root.el.addEventListener("contextmenu", closeSelf);
