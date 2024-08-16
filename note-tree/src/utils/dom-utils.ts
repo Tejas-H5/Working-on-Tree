@@ -165,13 +165,6 @@ export function isVisibleElement(el: HTMLElement) {
     return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 }
 
-type ComponentPool<T, U extends ValidElement> = {
-    components: Component<T, U>[];
-    lastIdx: number;
-    getIdx(): number;
-    render(renderFn: (getNext: () => Component<T, U>) => void): void;
-}
-
 type ValidAttributeName = string;
 
 /** 
@@ -369,7 +362,12 @@ function handleRenderingError<T extends ValidElement>(root: Insertable<T>, rende
     }
 }
 
-export type ListRenderer<R extends ValidElement, T, U extends ValidElement> = Insertable<R> & ComponentPool<T, U>;
+export type ListRenderer<R extends ValidElement, T, U extends ValidElement> = Insertable<R> & {
+    components: Component<T, U>[];
+    lastIdx: number;
+    getIdx(): number;
+    render(renderFn: (getNext: () => Component<T, U>) => void): void;
+};
 
 export function newListRenderer<R extends ValidElement, T, U extends ValidElement>(
     root: Insertable<R>, 
@@ -629,7 +627,7 @@ export function __newRealComponentInternal<
                 checkForRenderMistake(this);
             }
 
-            // allow the component to render once before it's ever inserted.
+            // Setting this value this late allows the component to render once before it's ever inserted.
             component.instantiated = true;
 
             if (component.skipErrorBoundary) {
@@ -656,8 +654,14 @@ export type RenderGroup<S = null> = {
         component: Component<T, U>,
         renderFn: (c: Component<T, U>, s: S) => void,
     ) => Component<T, U>;
+    /** An internal variable used by {@link else} and {@link else_if} to determine if the last call to if or else_if failed. */
+    lastPredicateResult: boolean;
     /** Sets a component visible based on a predicate, and only renders it if it is visible */
     if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
+    /** Sets a component visible if the last predicate was _not_ true, but this one is */
+    else_if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
+    /** Sets a component visible if the last predicate was _not_ true */
+    else: <U extends ValidElement> (templateFn: TemplateFn<S, U>) => Component<S, U>,
     /** Same as `if` - will hide the component if T is undefined, but lets you do type narrowing */
     with: <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>) => Component<T, U>,
     // TODO: extend to SVGElement as well. you can still use it on both, but the autocomplete won't work
@@ -811,6 +815,8 @@ export function printRenderCounts() {
 function newRenderGroup<S, Si extends S>(initialState: Si | undefined): RenderGroup<S> {
     const renderFns: ({ fn: (s: S) => void; })[] = [];
 
+    const wasLastPredicateFalse = () => !rg.lastPredicateResult;
+
     const rg: RenderGroup<S> = {
         /** 
          * NOTE: 
@@ -821,7 +827,9 @@ function newRenderGroup<S, Si extends S>(initialState: Si | undefined): RenderGr
         instantiated: false,
         templateName: "unknown",
         skipErrorBoundary: false,
+        lastPredicateResult: true,
         render(s) {
+            rg.lastPredicateResult = false;
             rg.s = s;
             rg.renderWithCurrentState();
         },
@@ -853,12 +861,22 @@ function newRenderGroup<S, Si extends S>(initialState: Si | undefined): RenderGr
             const c = newComponent(templateFn);
 
             rg.renderFn((s) => {
-                if (setVisible(c, predicate(s))) {
+                const isTrue = !rg.lastPredicateResult && predicate(s);
+                if (setVisible(c, isTrue)) {
+                    rg.lastPredicateResult = true;
                     c.render(s);
                 }
             });
 
             return c;
+        },
+        // very big brain
+        else_if: (predicate, templateFn) => {
+            const predicate2 = (s: S) => wasLastPredicateFalse() && predicate(s);
+            return rg.if(predicate2, templateFn);
+        },
+        else: (templateFn) => {
+            return rg.if(wasLastPredicateFalse, templateFn);
         },
         c: (component) => {
             rg.renderFn(() => component.render(null));

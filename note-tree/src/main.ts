@@ -199,7 +199,7 @@ function ScrollNavItem(rg: RenderGroup<{
             rg.functionality((el, s) => {
                 replaceChildren(el, s.children);
             })
-        ])
+        ]),
     ]);
 }
 
@@ -1562,11 +1562,12 @@ function FuzzyFinder(rg: RenderGroup) {
             }
 
             resultList.render((getNext) => {
-                for (const m of matches) {
+                for (let i = 0; i < matches.length; i++) {
+                    const m = matches[i];
                     getNext().render({
                         text: m.note.data.text,
                         ranges: m.ranges,
-                        hasFocus: resultList.getIdx() === currentSelectionIdx,
+                        hasFocus: i === currentSelectionIdx,
                     });
                 }
             });

@@ -2,13 +2,11 @@ import { RenderGroup, div, getState, newComponent } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
 import { Button } from "./button";
 
-type PaginationControlArgs = {
+export function PaginationControl(rg: RenderGroup<{
     totalCount: number;
     pagination: Pagination;
     rerender(): void;
-};
-
-export function PaginationControl(rg: RenderGroup<PaginationControlArgs>) {
+}>) {
     function previousPage() {
         const { pagination, rerender } = getState(rg);
         setPage(pagination, getPage(pagination) - 1);
@@ -38,6 +36,7 @@ export function PaginationControl(rg: RenderGroup<PaginationControlArgs>) {
         const { pagination, totalCount } = s;
 
         setTotalCount(pagination, totalCount);
+
         page = getPage(pagination);
         start = getStart(pagination) + 1;
         end = getCurrentEnd(pagination);
