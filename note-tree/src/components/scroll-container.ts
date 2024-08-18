@@ -1,4 +1,4 @@
-import { Insertable, RenderGroup, div, getState, scrollIntoView } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, div, getState, on, scrollIntoView } from "src/utils/dom-utils";
 
 export function ScrollContainer(rg: RenderGroup<{
     rescrollMs?: number;
@@ -85,7 +85,7 @@ export function ScrollContainer(rg: RenderGroup<{
         scrollToLastElement();
     });
 
-    root.el.addEventListener("scroll", () => {
+    on(root, "scroll", () => {
         const s = getState(rg);
         const { rescrollMs } = s;
 

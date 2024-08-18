@@ -32,7 +32,7 @@ export function PaginationControl(rg: RenderGroup<{
     }
 
     let page = 0, start = 0, end = 0, maxPages = 0;
-    rg.preRenderFn(function renderPaginationControl(s) {
+    rg.renderFn(function renderPaginationControl(s) {
         const { pagination, totalCount } = s;
 
         setTotalCount(pagination, totalCount);

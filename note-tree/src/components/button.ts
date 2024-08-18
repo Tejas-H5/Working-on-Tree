@@ -7,15 +7,11 @@ export function Button(c: RenderGroup<{
     style?: string;
     onClick: (e: MouseEvent) => void;
 }>) {
-    return el<HTMLButtonElement>("BUTTON", {
-        type: "button",
-        class: `solid-border col align-items-center justify-content-center` 
-            // this is a load-bearing whitespace. plz don't delete
-            + " ",
-        style: `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px;`,
-    }, [
-        c.attr("class", (s) => s.className || ""),
-        c.attr("style", (s) => s.style || ""),
+    const buttonClass = `solid-border col align-items-center justify-content-center `;
+    const buttonStyle = `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px;`;
+    return el<HTMLButtonElement>("BUTTON", { type: "button" }, [
+        c.attr("class", (s) => buttonClass + (s.className || "")),
+        c.attr("style", (s) => buttonStyle + (s.style || "")),
         c.on("click", (s, e) => s.onClick(e)),
         c.text((s) => s.label),
     ]);

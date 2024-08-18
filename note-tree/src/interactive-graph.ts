@@ -523,7 +523,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 
     let domRect = root.el.getBoundingClientRect();
 
-    rg.preRenderFn(function renderGraph(s) {
+    rg.renderFn(function renderGraph(s) {
         if (s.graphData) {
             graphData = s.graphData;
         }
@@ -960,7 +960,7 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     ]);
 
 
-    rg.preRenderFn(function renderGraphNodeUI(s) {
+    rg.renderFn(function renderGraphNodeUI(s) {
         const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s;
 
         if (setVisibleGroup(
@@ -1182,7 +1182,7 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    rg.preRenderFn(function renderGraphEdgeUI(s) {
+    rg.renderFn(function renderGraphEdgeUI(s) {
         const { graphState, edge, graphArgs } = s;
 
         if (!edge.text) {
@@ -1336,7 +1336,7 @@ function RadialContextMenu(rg: RenderGroup<{
             rg.text((s) => s.item.text)
         ]);
 
-        rg.preRenderFn(function renderRadialContextMenuItem(s) {
+        rg.renderFn(function renderRadialContextMenuItem(s) {
             const { x, y, item } = s;
 
             setStyle(root, "left", x + "px");
@@ -1380,7 +1380,7 @@ function RadialContextMenu(rg: RenderGroup<{
         ]),
     ]);
 
-    rg.preRenderFn(function renderRadialContextMenu(s) {
+    rg.renderFn(function renderRadialContextMenu(s) {
         const { x, y, items, centerText } = s;
 
         setText(centerTextEl, centerText);

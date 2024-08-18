@@ -123,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99";
+const VERSION_NUMBER = "v1.1.991";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -231,7 +231,7 @@ function TodoListInternal(rg: RenderGroup<{
     }>) {
         const children = [
             div({ class: "flex-1", style: "padding-bottom: 10px" }, [
-                rg.cArgs(newComponent(NoteLink), (noteLink, s) => {
+                rg.c(NoteLink, (noteLink, s) => {
                     const { text, focusAnyway, noteId } = s;
 
                     noteLink.render({
@@ -244,7 +244,7 @@ function TodoListInternal(rg: RenderGroup<{
             ])
         ];
 
-        const navRoot = rg.cArgs(newComponent(ScrollNavItem), (c, s) => {
+        const navRoot = rg.c(ScrollNavItem, (c, s) => {
             c.render({
                 isCursorVisible: s.hasCursor,
                 isFocused: s.focusAnyway,
@@ -491,7 +491,7 @@ function ActivityListItem(rg: RenderGroup<{
     const breakInsertRow = newComponent((rg) => {
         return div({ class: "align-items-center justify-content-center row" }, [
             div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "+ Insert break here",
                 onClick: insertBreak,
             })),
@@ -529,7 +529,7 @@ function ActivityListItem(rg: RenderGroup<{
                     breakEdit,
                     rg.if(
                         isEditable,
-                        rg => rg.cArgs(newComponent(Button), c => c.render({
+                        rg => rg.c(Button, c => c.render({
                             label: "x",
                             onClick: deleteBreak,
                         }))
@@ -689,7 +689,7 @@ function ActivityListItem(rg: RenderGroup<{
 
 function ExportModal(rg: RenderGroup) {
     const modalContent = div({ class: "col", style: "align-items: stretch" }, [
-        rg.cArgs(newComponent(Button), c => c.render({
+        rg.c(Button, c => c.render({
             label: "Clear all",
             onClick: () => {
                 if (!confirm("Are you sure you want to clear your note tree?")) {
@@ -702,7 +702,7 @@ function ExportModal(rg: RenderGroup) {
                 showStatusText("Cleared notes");
             }
         })),
-        rg.cArgs(newComponent(Button), c => c.render({
+        rg.c(Button, c => c.render({
             label: "Download TXT",
             onClick: () => {
                 handleErrors(() => {
@@ -716,7 +716,7 @@ function ExportModal(rg: RenderGroup) {
                 });
             }
         })),
-        rg.cArgs(newComponent(Button), c => c.render({
+        rg.c(Button, c => c.render({
             label: "Copy open notes",
             onClick: () => {
                 handleErrors(() => {
@@ -728,7 +728,7 @@ function ExportModal(rg: RenderGroup) {
                 });
             }
         })),
-        rg.cArgs(newComponent(Button), c => c.render({
+        rg.c(Button, c => c.render({
             label: "Download JSON",
             onClick: () => {
                 handleErrors(() => {
@@ -738,7 +738,7 @@ function ExportModal(rg: RenderGroup) {
         }))
     ]);
 
-    return rg.cArgs(newComponent(Modal), c => c.render({
+    return rg.c(Modal, c => c.render({
         onClose: () => setCurrentModal(null),
         content: modalContent,
     }));
@@ -1638,9 +1638,9 @@ function FuzzyFinder(rg: RenderGroup) {
 
 function FuzzyFindModal(rg: RenderGroup) {
     const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
-        rg.c(newComponent(FuzzyFinder)),
+        rg.cNull(FuzzyFinder),
     ]);
-    return rg.cArgs(newComponent(Modal), c => c.render({
+    return rg.c(Modal, c => c.render({
         onClose: () => setCurrentModal(null),
         content: modalContent,
     }));
@@ -1735,7 +1735,7 @@ function InteractiveGraphModal(rg: RenderGroup) {
     }
 
     const modalContent = div({ style: modalPaddingStyles(10) }, [
-        rg.cArgs(newComponent(InteractiveGraph), (c) => c.render({
+        rg.c(InteractiveGraph, (c) => c.render({
             onClose,
             graphData: state.mainGraphData,
             onInput() {
@@ -1744,7 +1744,7 @@ function InteractiveGraphModal(rg: RenderGroup) {
         }))
     ]);
 
-    return rg.cArgs(newComponent(Modal), c => c.render({
+    return rg.c(Modal, c => c.render({
         onClose,
         content: modalContent,
     }));
@@ -1764,7 +1764,7 @@ function SettingsModal(rg: RenderGroup) {
         ])
     ]);
 
-    return rg.cArgs(newComponent(Modal), c => c.render({
+    return rg.c(Modal, c => c.render({
         onClose,
         content: modalContent,
     }));
@@ -2804,7 +2804,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     }>) {
         return div({ class: "row sb1b" }, [
             div({}, [
-                rg.cArgs(newComponent(NoteLink), (nl, s) => {
+                rg.c(NoteLink, (nl, s) => {
                     nl.render({
                         preventScroll: true,
                         text: s.name,
@@ -2994,7 +2994,7 @@ export function App(rg: RenderGroup) {
     let backupFilename = "";
     const bottomButtons = div({ class: "row align-items-end sb1t" }, [
         div({ class: "row align-items-end" }, [
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Scratch Pad",
                 onClick: () => {
                     setCurrentModal(scratchPadModal);
@@ -3002,7 +3002,7 @@ export function App(rg: RenderGroup) {
             })),
         ]),
         div({ class: "row align-items-end" }, [
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Graph",
                 onClick: () => {
                     setCurrentModal(interactiveGraphModal);
@@ -3017,13 +3017,13 @@ export function App(rg: RenderGroup) {
             ) : (
                 makeDownloadThisPageButton()
             ),
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Delete current",
                 onClick: () => {
                     setCurrentModal(deleteModal);
                 }
             })),
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Settings",
                 onClick: () => {
                     setCurrentModal(settingsModal);
@@ -3032,13 +3032,13 @@ export function App(rg: RenderGroup) {
             todoNotesButton,
             activitiesButton,
             durationsButton,
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Search",
                 onClick: () => {
                     setCurrentModal(fuzzyFindModal);
                 }
             })),
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Export",
                 onClick: () => {
                     handleErrors(() => {
@@ -3046,7 +3046,7 @@ export function App(rg: RenderGroup) {
                     });
                 }
             })),
-            rg.cArgs(newComponent(Button), c => c.render({
+            rg.c(Button, c => c.render({
                 label: "Load JSON",
                 onClick: () => {
                     loadFile((file) => {
@@ -3071,18 +3071,18 @@ export function App(rg: RenderGroup) {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" }, [
                 div({ class: "col flex-1 overflow-y-auto" }, [
-                    rg.if(() => currentHelpInfo === 2, (rg) => rg.c(newComponent(CheatSheet))),
+                    rg.if(() => currentHelpInfo === 2, (rg) => rg.cNull(CheatSheet)),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         el("H2", {}, [
                             rg.text(() => "Currently working on - " + formatDate(new Date(), undefined, true, true)),
                         ]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
-                        rg.c(newComponent(DarkModeToggle)),
+                        rg.cNull(DarkModeToggle),
                     ]),
                     errorBanner,
                     notesList,
-                    rg.if(() => state._isShowingDurations, (rg) => rg.c(newComponent(HighLevelTaskDurations))),
+                    rg.if(() => state._isShowingDurations, (rg) => rg.cNull(HighLevelTaskDurations)),
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea,
                         bottomRightArea,
@@ -3461,7 +3461,7 @@ export function App(rg: RenderGroup) {
         console.error("Webworker error: ", e);
     }
 
-    rg.preRenderFn(function rerenderAppComponent() {
+    rg.renderFn(function rerenderAppComponent() {
         recomputeState(state);
 
         // render modals
