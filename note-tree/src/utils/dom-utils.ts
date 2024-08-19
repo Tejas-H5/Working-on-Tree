@@ -427,17 +427,17 @@ export function newListRenderer<R extends ValidElement, T, U extends ValidElemen
         lastIdx: 0,
         getIdx() {
             // (We want to get the index of the current iteration, not the literal value of lastIdx)
-            return this.lastIdx - 1;
+            return renderer.lastIdx - 1;
         },
         render(renderFnIn) {
-            this.lastIdx = 0;
+            renderer.lastIdx = 0;
 
             renderFn = renderFnIn;
 
             renderFnBinded();
 
-            while (this.components.length > this.lastIdx) {
-                const component = this.components.pop()!;
+            while (renderer.components.length > renderer.lastIdx) {
+                const component = renderer.components.pop()!;
                 component.el.remove();
             }
         },
@@ -615,7 +615,7 @@ export type RenderGroup<S = null> = {
     /* Enables error handling. */
     skipErrorBoundary: boolean;
     /** 
-     * An internal variable used by {@link else} and {@link else_if} to determine if the last call to if, else_if or with failed. 
+     * An internal variable used by {@link else} and {@link else_if}.
      */
     lastPredicateResult: boolean;
     /**
@@ -673,8 +673,8 @@ export type RenderGroup<S = null> = {
     c<T, U extends ValidElement>(templateFn: TemplateFn<T, U>, renderFn: (c: Component<T, U>, s: S) => void): Component<T, U>;
     cNull<U extends ValidElement>(templateFn: TemplateFn<null, U>): Component<null, U>;
     /**
-     * Similar to {@link RenderGroup.renderFn}, but it takes in any insertable type as well and
-     * then returns it.
+     * Appends a function that will render an arbitrary insertable
+     * however you want, and then returns the insertable.
      */
     inlineFn: <T extends Insertable<U>, U extends ValidElement>(
         thing: T,
@@ -691,9 +691,18 @@ export type RenderGroup<S = null> = {
     ) => ListRenderer<R, T, U>;
     /** Sets a component visible based on a predicate, and only renders it if it is visible */
     if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
-    /** Sets a component visible if the last predicate was _not_ true, but this one is */
+    /** 
+     * Sets a component visible if the last predicate was _not_ true, but this one is. 
+     * A predicate being _false_ is more than you might think though. Right now, it includes:
+     * - the predicate for `if` or `else_if` being false
+     * - the predicate for `with` returning undefined
+     * - the list-rendering function iterating over zero elements
+     */
     else_if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
-    /** Sets a component visible if the last predicate was _not_ true */
+    /** Similar to if, but is true by default (but for now, it doesn't reset the last predicate. so multiple
+     *  elses one after the other (you shouldn't do this, but you can)
+     *  will all be visible or not visible
+     */
     else: <U extends ValidElement> (templateFn: TemplateFn<S, U>) => Component<S, U>,
     /** Same as `if` - will hide the component if T is undefined, but lets you do type narrowing */
     with: <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>) => Component<T, U>,
@@ -742,7 +751,27 @@ export type RenderGroup<S = null> = {
      * Appends a custom render function to this render group. Usefull for adding functionality to the render group
      * that has nothing to do with the DOM or the UI, or if you find it better to use an imperative approach to 
      * writing a particular component. 
-     * Most of the other declarative functions will be implemented using this function.
+     *
+     * Most of the other declarative functions will be implemented using something similar to this function.
+     * The difference is that these functions will always run _before_ any of the DOM render functions.
+     *
+     * @example
+     * ```
+     * function Example1(rg: RenderGroup) {
+     *      // just try not to write your components like this, honestly.
+     *      // this is j ust an example
+     *      const root = div(rg.text(() => state.something));
+     *
+     *      rg.preRenderFn(() => {
+     *          // this had better run before the thing above,
+     *          // or our component will be 1 frame behind!
+     *          recomputeState(state);
+     *      });
+     *
+     *      return root;
+     * }
+     * ```
+     *
      *
      * There are also times where you'll have literally thousands of dom nodes under a single component, and it 
      * may just be more efficient to do stuff imperatively and without allocating memory for each render.
@@ -768,7 +797,7 @@ export type RenderGroup<S = null> = {
      *
      *      const root = div({});
      *
-     *      rg.renderFn((s) => {
+     *      rg.preRenderFn((s) => {
      *          for (let i = 0; i < grid.length; i++) {
      *              const row = grid[i];
      *              const elRow = gridElements[i];
@@ -784,7 +813,13 @@ export type RenderGroup<S = null> = {
      * }
      * ```
      */
-    renderFn: (fn: (s: S) => void, errorRoot?: Insertable<any>) => void;
+    preRenderFn: (fn: (s: S) => void, errorRoot?: Insertable<any>) => void;
+    /** 
+     * Similar to {@link RenderGroup.preRenderFn}, but this function will be run _after_ the dom rendering functions.
+     * You basically never want to run custom functions in-between DOM functions, so I'm currently not exposing
+     * a domRenderFn, but you can be sure that it exists.
+     */
+    postRenderFn: (fn: (s: S) => void, errorRoot?: Insertable<any>) => void;
 };
 
 let debug = false;
@@ -838,6 +873,45 @@ export function printRenderCounts() {
     }
 }
 
+type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined };
+function pushRenderFn<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) {
+    if (rg.instantiated) {
+        throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
+    }
+    renderFns.push({ root, fn });
+}
+
+function renderFunctions<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[]) {
+    const s = getState(rg);
+    const defaultErrorRoot = getRoot(rg);
+    countRender(rg.templateName, rg, renderFns.length);
+    if (rg.skipErrorBoundary) {
+        for (let i = 0; i < renderFns.length; i++) {
+            renderFns[i].fn(s);
+        }
+        return;
+    } 
+
+    for (let i = 0; i < renderFns.length; i++) {
+        const errorRoot = renderFns[i].root || defaultErrorRoot;
+        const fn = renderFns[i].fn;
+
+        // While this still won't catch errors with callbacks, it is still extremely helpful.
+        // By catching the error at this component and logging it, we allow all other components to render as expected, and
+        // It becomes a lot easier to spot the cause of a bug.
+        //
+        // TODO: consider doing this for callbacks as well, it shouldn't be too hard.
+
+        try {
+            setErrorClass(errorRoot, false);
+            fn(s);
+        } catch (e) {
+            setErrorClass(errorRoot, true);
+            console.error("An error occured while rendering your component:", e);
+        }
+    }
+}
+
 /**
  * Render groups are the foundation of this 'framework'.
  * Fundamentally, a 'render group' is an array of functions that are called in the 
@@ -848,8 +922,10 @@ function newRenderGroup<S, Si extends S>(
     templateName: string = "unknown",
     skipErrorBoundary = false,
 ): RenderGroup<S> {
-    const renderFns: ({ fn: (s: S) => void; root: Insertable<any> | undefined })[] = [];
     const wasLastPredicateFalse = () => !rg.lastPredicateResult;
+    const preRenderFn: RenderFn<S>[] = [];
+    const domRenderFn: RenderFn<S>[] = [];
+    const postRenderFn: RenderFn<S>[] = [];
 
     const rg: RenderGroup<S> = {
         /** 
@@ -871,43 +947,18 @@ function newRenderGroup<S, Si extends S>(
         renderWithCurrentState() {
             rg.instantiated = true;
 
-            const s = getState(rg);
-            const defaultErrorRoot = getRoot(rg);
-
-            countRender(rg.templateName, rg, renderFns.length);
-            if (rg.skipErrorBoundary) {
-                for (let i = 0; i < renderFns.length; i++) {
-                    renderFns[i].fn(s);
-                }
-            } else {
-                for (let i = 0; i < renderFns.length; i++) {
-                    const errorRoot = renderFns[i].root || defaultErrorRoot;
-                    const fn = renderFns[i].fn;
-
-                    // While this still won't catch errors with callbacks, it is still extremely helpful.
-                    // By catching the error at this component and logging it, we allow all other components to render as expected, and
-                    // It becomes a lot easier to spot the cause of a bug.
-                    //
-                    // TODO: consider doing this for callbacks as well, it shouldn't be too hard.
-
-                    try {
-                        setErrorClass(errorRoot, false);
-                        fn(s);
-                    } catch (e) {
-                        setErrorClass(errorRoot, true);
-                        console.error("An error occured while rendering your component:", e);
-                    }
-                }
-            }
+            renderFunctions(rg, preRenderFn);
+            renderFunctions(rg, domRenderFn);
+            renderFunctions(rg, postRenderFn);
         },
         text: (fn) => {
             const e = span();
-            rg.renderFn((s) => setText(e, fn(s)), e);
+            pushRenderFn(rg, domRenderFn, (s) => setText(e, fn(s)), e);
             return e;
         },
         with: (predicate, templateFn) => {
             const c = newComponent(templateFn);
-            rg.renderFn((s) => {
+            pushRenderFn(rg, domRenderFn, (s) => {
                 const val = predicate(s);
                 rg.lastPredicateResult = val !== undefined;
                 if (setVisible(c, rg.lastPredicateResult)) {
@@ -920,7 +971,7 @@ function newRenderGroup<S, Si extends S>(
         if: (predicate, templateFn) => {
             const c = newComponent(templateFn);
 
-            rg.renderFn((s) => {
+            pushRenderFn(rg, domRenderFn, (s) => {
                 rg.lastPredicateResult = predicate(s);
                 if (setVisible(c, rg.lastPredicateResult)) {
                     c.render(s);
@@ -939,16 +990,16 @@ function newRenderGroup<S, Si extends S>(
         },
         c: (templateFn, renderFn) => {
             const component = newComponent(templateFn);
-            rg.renderFn(() => renderFn(component, getState(rg)), component);
+            pushRenderFn(rg, domRenderFn, () => renderFn(component, getState(rg)), component);
             return component;
         },
         cNull: (templateFn) => {
             const component = newComponent(templateFn);
-            rg.renderFn(() => component.render(null), component);
+            pushRenderFn(rg, domRenderFn, () => component.render(null), component);
             return component;
         },
         inlineFn: (component, renderFn) => {
-            rg.renderFn((s) => renderFn(component, s), component);
+            pushRenderFn(rg, domRenderFn, (s) => renderFn(component, s), component);
             return component;
         },
         on(type, listener, options) {
@@ -961,45 +1012,45 @@ function newRenderGroup<S, Si extends S>(
         },
         attr: (attrName, valueFn) => {
             return (parent) => {
-                rg.renderFn((s) => setAttr(parent, attrName, valueFn(s)), parent);
+                pushRenderFn(rg, domRenderFn, (s) => setAttr(parent, attrName, valueFn(s)), parent);
             }
         },
         list: (root, templateFn, renderFn) => {
             const listRenderer = newListRenderer(root, () => newComponent(templateFn));
-            rg.renderFn((s) => {
+            pushRenderFn(rg, domRenderFn, (s) => {
                 listRenderer.render((getNext) => {
                     renderFn(s, getNext, listRenderer);
                 });
+                rg.lastPredicateResult = listRenderer.lastIdx !== 0;
             }, root);
             return listRenderer;
         },
         class: (className, predicate) => {
             return (parent) => {
-                rg.renderFn((s) => setClass(parent, className, predicate(s)), parent);
+                pushRenderFn(rg, domRenderFn, (s) => setClass(parent, className, predicate(s)), parent);
             }
         },
         style: (styleName, valueFn) => {
             return (parent) => {
                 const currentStyle = parent.el.style[styleName];
-                rg.renderFn((s) => setStyle(parent, styleName, valueFn(s) || currentStyle), parent);
+                pushRenderFn(rg, domRenderFn, (s) => setStyle(parent, styleName, valueFn(s) || currentStyle), parent);
             };
         },
         children: (childArrayFn) => {
             return (parent) => {
-                rg.renderFn((s) => replaceChildren(parent, childArrayFn(s)))
+                pushRenderFn(rg, domRenderFn, (s) => replaceChildren(parent, childArrayFn(s)), undefined)
             }
         },
         functionality: (fn) => {
             return (parent) => {
-                rg.renderFn((s) => fn(parent, s), parent);
+                pushRenderFn(rg, domRenderFn, (s) => fn(parent, s), parent);
             };
         },
-        renderFn: (fn, root) => {
-            if (rg.instantiated) {
-                throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
-            }
-
-            renderFns.push({ fn, root });
+        preRenderFn: (fn, root) => {
+            pushRenderFn(rg, preRenderFn, fn, root);
+        },
+        postRenderFn: (fn, root) => {
+            pushRenderFn(rg, postRenderFn, fn, root);
         },
     };
 

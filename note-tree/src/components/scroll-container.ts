@@ -73,7 +73,7 @@ export function ScrollContainer(rg: RenderGroup<{
         return shouldRerender;
     }
 
-    rg.renderFn(function renderScrollContainer(s) {
+    rg.preRenderFn(function renderScrollContainer(s) {
         if (!shouldRerender()) {
             return;
         }

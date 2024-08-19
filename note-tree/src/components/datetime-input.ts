@@ -25,7 +25,7 @@ export function DateTimeInput(rg: RenderGroup<{
 
     let lastDate: Date | null = null;
 
-    rg.renderFn(function renderDateTimeInput(s) {
+    rg.preRenderFn(function renderDateTimeInput(s) {
         const { value, label, readOnly, nullable } = s;
 
         const canEdit = readOnly && !!value;

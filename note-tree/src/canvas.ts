@@ -943,7 +943,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
                 style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;"
             });
 
-            rg.renderFn(function renderCanvasCell(s) {
+            rg.preRenderFn(function renderCanvasCell(s) {
                 const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s;
 
                 getVisualChar(canvasState, i, j, visualCharInfo);
@@ -1013,7 +1013,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             return root;
         }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
 
-        rg.renderFn(function renderCanvasRow(s) {
+        rg.preRenderFn(function renderCanvasRow(s) {
             const { charList: rowList } = s;
 
             charList.render((getNext) => {
@@ -1347,7 +1347,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         },
     };
 
-    rg.renderFn(function renderCanvas(s) {
+    rg.preRenderFn(function renderCanvas(s) {
         const { outputLayers } = s;
 
         if (outputLayers) {
@@ -1713,7 +1713,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     }>) {
         const button = newComponent(Button);
 
-        rg.renderFn(function renderAsciiCanvasToolbarButton(s) {
+        rg.preRenderFn(function renderAsciiCanvasToolbarButton(s) {
             const { tool, selected, disabled } = s;
 
             setText(button, s.name);
@@ -2034,7 +2034,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         s.onInput();
     }
 
-    rg.renderFn(function renderAsciiCanvas(s) {
+    rg.preRenderFn(function renderAsciiCanvas(s) {
         canvasArgs.outputLayers = s.outputLayers;
         canvasArgs.onWrite = s.onWrite;
 

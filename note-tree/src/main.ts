@@ -123,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.991";
+const VERSION_NUMBER = "v1.1.992";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -141,40 +141,26 @@ function NoteLink(rg: RenderGroup<{
     noteId?: NoteId;
     preventScroll?: boolean;
 }>) {
-    let linkText: string = "";
-    const root = div({ style: "padding:5px; ", class: "handle-long-words" }, [
-        rg.text(() => linkText)
-    ])
-
-    rg.renderFn((s) => {
-        const { text, noteId, focusAnyway } = s;
-
-        setClass(root, cnHoverLink, !!noteId);
-        linkText = truncate(text, 500);
-
-        root.el.style.backgroundColor = (!!focusAnyway || state.currentNoteId === noteId) ? (
+    return div({ style: "padding:5px; ", class: "handle-long-words" }, [
+        rg.class(cnHoverLink, (s) => !!s.noteId),
+        rg.style("backgroundColor", (s) => (!!s.focusAnyway || state.currentNoteId === s.noteId) ? (
             "var(--bg-color-focus)"
         ) : (
             "var(--bg-color)"
-        );
-    });
-
-    root.el.addEventListener("click", () => {
-        const s = getState(rg);
-        const { noteId, preventScroll, } = s;
-
-        // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
-        // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
-        // something like this allowed to happen. LOL.
-        setTimeout(() => {
-            if (noteId) {
-                setCurrentNote(state, noteId);
-                rerenderApp(preventScroll || false);
-            }
-        }, 1);
-    });
-
-    return root;
+        )),
+        rg.text((s) => truncate(s.text, 500)),
+        rg.on("click", ({ noteId, preventScroll }) => {
+            // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
+            // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
+            // something like this allowed to happen. LOL.
+            setTimeout(() => {
+                if (noteId) {
+                    setCurrentNote(state, noteId);
+                    rerenderApp(preventScroll || false);
+                }
+            }, 1);
+        }),
+    ]);
 }
 
 function ScrollNavItem(rg: RenderGroup<{
@@ -271,7 +257,7 @@ function TodoListInternal(rg: RenderGroup<{
     const root = div();
     const todoItemsList = newListRenderer(root, () => newComponent(TodoListItem));
 
-    rg.renderFn((s) => {
+    rg.preRenderFn((s) => {
         const { setScrollEl, cursorNoteId, disableHeaders } = s;
         let alreadyScrolled = false;
 
@@ -342,7 +328,7 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
         ])
     ]);
 
-    rg.renderFn((s) => {
+    rg.preRenderFn((s) => {
         const { cursorNoteId } = s;
 
         setVisible(empty, state._todoNoteIds.length === 0);
@@ -398,7 +384,7 @@ function BreakInput(rg: RenderGroup) {
         div({}, [breakButton]),
     ]);
 
-    rg.renderFn(function renderBreakInput() {
+    rg.preRenderFn(function renderBreakInput() {
         const isTakingABreak = isCurrentlyTakingABreak(state);
 
         breakButton.render({
@@ -564,7 +550,7 @@ function ActivityListItem(rg: RenderGroup<{
         }
     }
 
-    rg.renderFn(function renderActivityListItem(s) {
+    rg.preRenderFn(function renderActivityListItem(s) {
         const { activity, greyedOut, focus, hasCursor } = s;
 
         cursorRow.render({
@@ -787,7 +773,7 @@ function DeleteModal(rg: RenderGroup) {
         );
     };
 
-    rg.renderFn(function renderDeleteModal() {
+    rg.preRenderFn(function renderDeleteModal() {
         const currentNote = getCurrentNote(state);
 
         root.render({
@@ -836,7 +822,7 @@ function LinkNavModal(rg: RenderGroup) {
         const children = [textEl];
         const root = newComponent(ScrollNavItem);
 
-        rg.renderFn(function renderLinkItem(s) {
+        rg.preRenderFn(function renderLinkItem(s) {
             const { text, range, isFocused } = s;
 
             textEl.render({
@@ -870,7 +856,7 @@ function LinkNavModal(rg: RenderGroup) {
     let idx = 0;
     let lastNote: TreeNote | undefined;
 
-    rg.renderFn(function renderLinkNavModal() {
+    rg.preRenderFn(function renderLinkNavModal() {
         const currentNote = getCurrentNote(state);
         if (lastNote === currentNote) {
             return;
@@ -1018,7 +1004,7 @@ function EditableActivityList(rg: RenderGroup<{
 
     let lastIdx = -1;
 
-    rg.renderFn(function rerenderActivityList(s) {
+    rg.preRenderFn(function rerenderActivityList(s) {
         const { pageSize, activityIndexes } = s;
 
         pagination.pageSize = pageSize || 10;
@@ -1205,7 +1191,7 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
     }
 
-    rg.renderFn(function renderNoteRowText(s) {
+    rg.preRenderFn(function renderNoteRowText(s) {
         const { note } = s;
 
         const currentNote = getCurrentNote(state);
@@ -1354,7 +1340,7 @@ function ActivityFiltersEditor(rg: RenderGroup) {
         onlyUnderCurrentNote,
     ]);
 
-    rg.renderFn(function renderActivityFiltersEditor() {
+    rg.preRenderFn(function renderActivityFiltersEditor() {
         dateFrom.render({
             label: "from",
             value: state._activitiesFrom,
@@ -1418,7 +1404,7 @@ function HighlightedText(rg: RenderGroup<{
     const root = div({});
     const list = newListRenderer(root, () => newComponent(Span));
 
-    rg.renderFn(function renderHighlightedText(s) {
+    rg.preRenderFn(function renderHighlightedText(s) {
         const { highlightedRanges: ranges, text } = s;
 
         list.render((getNext) => {
@@ -1458,7 +1444,7 @@ function FuzzyFinder(rg: RenderGroup) {
         const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
 
-        rg.renderFn(function renderFindResultItem(s) {
+        rg.preRenderFn(function renderFindResultItem(s) {
             const { text, ranges, hasFocus } = s;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
@@ -1583,7 +1569,7 @@ function FuzzyFinder(rg: RenderGroup) {
         }
     }
 
-    rg.renderFn(function renderFuzzyFinder() {
+    rg.preRenderFn(function renderFuzzyFinder() {
         searchInput.el.focus();
         rerenderSearch();
     });
@@ -1686,7 +1672,7 @@ function LoadBackupModal(rg: RenderGroup<{
 
     let canLoad = false;
 
-    rg.renderFn(function renderBackupModal(s) {
+    rg.preRenderFn(function renderBackupModal(s) {
         modal.render({
             onClose: () => setCurrentModal(null),
             content: modalContent,
@@ -1784,7 +1770,7 @@ function ScratchPadModal(rg: RenderGroup<{
 
     let wasVisible = false;
 
-    rg.renderFn(function renderAsciiCanvasModal(s) {
+    rg.preRenderFn(function renderAsciiCanvasModal(s) {
         const { open } = s;
         setVisible(modalComponent, open);
 
@@ -1848,7 +1834,7 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number;
         ])
     ]);
 
-    rg.renderFn(function renderNoteRowDurationInfo(s) {
+    rg.preRenderFn(function renderNoteRowDurationInfo(s) {
         const { note, duration } = s;
 
         const hasDuration = duration > 0;
@@ -1970,7 +1956,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
     let isFocused = false;
     let isShowingDurations = false;
 
-    rg.renderFn(function renderNoteRowInput(s) {
+    rg.preRenderFn(function renderNoteRowInput(s) {
         const { note, duration, totalDuration, hasDivider } = s;
         const currentNote = getCurrentNote(state);
 
@@ -2070,7 +2056,7 @@ function NoteListInternal(rg: RenderGroup<{
     });
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
-    rg.renderFn(function renderNoteListInteral(s) {
+    rg.preRenderFn(function renderNoteListInteral(s) {
         const { flatNotes, scrollParent } = s;
 
         noteList.render((getNext) => {
@@ -2122,7 +2108,7 @@ function NotesList(rg: RenderGroup) {
         list1,
     ]);
 
-    rg.renderFn(function renderNotesList() {
+    rg.preRenderFn(function renderNotesList() {
         list1.render({
             flatNotes: state._flatNoteIds,
             scrollParent: root.el.parentElement,
@@ -2183,7 +2169,7 @@ function AsciiIcon(rg: RenderGroup<AsciiIconData>) {
     icon.el.style.fontWeight = "bold";
     icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
 
-    rg.renderFn(function renderAsciiIcon(s) {
+    rg.preRenderFn(function renderAsciiIcon(s) {
         const { data } = s;
         setText(icon, data);
     });
@@ -2217,7 +2203,7 @@ function DarkModeToggle(rg: RenderGroup) {
         return ASCII_MOON_STARS;
     }
 
-    rg.renderFn(function renderButton() {
+    rg.preRenderFn(function renderButton() {
         iconEl.render(getIcon(getTheme()));
     });
 
@@ -2338,7 +2324,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
             rerenderApp();
         },
     });
-    const scrollActivitiesToMostRecent = newComponent(Button,{
+    const scrollActivitiesToMostRecent = newComponent(Button, {
         label: "Most Recent",
         onClick: () => {
             state._currentlyViewingActivityIdx = getMostRecentIdx();
@@ -2396,7 +2382,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
         return findPreviousActiviyIndex(state, state.currentNoteId, state.activities.length - 1);
     }
 
-    rg.renderFn(function renderActivityListContainer(s) {
+    rg.preRenderFn(function renderActivityListContainer(s) {
         breakInput.render(null);
 
         if (s.docked) {
@@ -2820,11 +2806,87 @@ function HighLevelTaskDurations(rg: RenderGroup) {
 
     const list = newListRenderer(div(), () => newComponent(Row));
     const renderBreaksCheckbox = newComponent(Checkbox);
-    const root = div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
+
+    let hideBreaks = false;
+    const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
+
+    function renderHltList() {
+        // render hlt map
+        list.render((getNext) => {
+            hltMap.clear();
+
+            for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
+                const activity = state.activities[i];
+                const nextActivity = state.activities[i + 1] as Activity | undefined;
+                const durationMs = getActivityDurationMs(activity, nextActivity);
+
+                if (isBreak(activity) && hideBreaks) {
+                    continue;
+                }
+
+                let hltText = "??";
+                let hltNId: NoteId | undefined;
+
+                const nId = activity.nId;
+                if (nId) {
+                    hltText = NIL_HLT_HEADING;
+
+                    const note = getNote(state, nId);
+                    const hlt = getHigherLevelTask(state, note);
+                    if (hlt) {
+                        hltText = getNoteTextWithoutPriority(hlt.data);
+                        hltNId = hlt.id;
+                    }
+                } else if (isBreak(activity)) {
+                    hltText = "[Break]: " + activity.breakInfo;
+                }
+
+                const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
+                block.time += durationMs;
+                hltMap.set(hltText, block);
+            }
+
+
+            if (!setVisible(list, hltMap.size > 0)) {
+                return;
+            }
+
+            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
+
+            for (const [hltName, { time, nId }] of hltSorted) {
+                getNext().render({
+                    name: hltName,
+                    durationMs: time,
+                    nId,
+                });
+            }
+        });
+    }
+
+    rg.preRenderFn(function renderHighlevelTaskDurations() {
+        renderBreaksCheckbox.render({
+            label: "Hide breaks",
+            value: hideBreaks,
+            onChange: (val) => {
+                hideBreaks = val;
+                rerenderApp();
+            }
+        });
+
+        renderHltList();
+    })
+
+    return div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
+        rg.text(() => "" + state._activitiesFromIdx),
+        rg.text(() => {
+            return "" + state._activitiesToIdx
+        }),
         el("H3", {}, [
             rg.text(() => {
                 if (state._activitiesFrom && state._activitiesTo) {
-                    return "Tasks from " + formatDate(state._activitiesFrom, undefined, true) + " to " + formatDate(state._activitiesTo, undefined, true);
+                    return "Tasks from "
+                        + formatDate(state._activitiesFrom, undefined, true)
+                        + " to " + formatDate(state._activitiesTo, undefined, true);
                 }
                 if (state._activitiesFrom) {
                     return "Tasks from " + formatDate(state._activitiesFrom, undefined, true);
@@ -2840,76 +2902,6 @@ function HighLevelTaskDurations(rg: RenderGroup) {
         ]),
         list,
     ]);
-
-    let hideBreaks = false;
-    const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
-
-    function renderHltList() {
-        hltMap.clear();
-
-        for (let i = state._activitiesFromIdx; i <= state._activitiesToIdx; i++) {
-            const activity = state.activities[i];
-            const nextActivity = state.activities[i + 1];
-            const durationMs = getActivityDurationMs(activity, nextActivity);
-
-            if (isBreak(activity) && hideBreaks) {
-                continue;
-            }
-
-            let hltText = "??";
-            let hltNId: NoteId | undefined;
-
-            const nId = activity.nId;
-            if (nId) {
-                hltText = NIL_HLT_HEADING;
-
-                const note = getNote(state, nId);
-                const hlt = getHigherLevelTask(state, note);
-                if (hlt) {
-                    hltText = getNoteTextWithoutPriority(hlt.data);
-                    hltNId = hlt.id;
-                }
-            } else if (isBreak(activity)) {
-                hltText = "[Break]: " + activity.breakInfo;
-            }
-
-            const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
-            block.time += durationMs;
-            hltMap.set(hltText, block);
-        }
-
-        if (!setVisible(list, hltMap.size > 0)) {
-            return;
-        }
-
-        // render hlt map
-        list.render((getNext) => {
-            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
-
-            for (const [hltName, { time, nId }] of hltSorted) {
-                getNext().render({
-                    name: hltName,
-                    durationMs: time,
-                    nId,
-                });
-            }
-        });
-    }
-
-    rg.renderFn(function renderHighlevelTaskDurations() {
-        renderBreaksCheckbox.render({
-            label: "Hide breaks",
-            value: hideBreaks,
-            onChange: (val) => {
-                hideBreaks = val;
-                rg.renderWithCurrentState();
-            }
-        });
-
-        renderHltList();
-    })
-
-    return root;
 }
 
 const cnInfoButton = sg.makeClass("info-button", [` { 
@@ -3461,7 +3453,7 @@ export function App(rg: RenderGroup) {
         console.error("Webworker error: ", e);
     }
 
-    rg.renderFn(function rerenderAppComponent() {
+    rg.preRenderFn(function rerenderAppComponent() {
         recomputeState(state);
 
         // render modals

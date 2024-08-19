@@ -175,7 +175,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
     const edgeComponentMap = new Map<string, Insertable<HTMLDivElement>>();
 
     const nodeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphNodeUI));
-    rg.renderFn((graphS) => nodeListRenderer.render((getNext) => {
+    rg.preRenderFn((graphS) => nodeListRenderer.render((getNext) => {
         for (const id of nodeComponentMap.keys()) {
             if (!(id in graphData.nodes)) {
                 nodeComponentMap.delete(id);
@@ -216,7 +216,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 
     // NOTE: important that this renders _after_ the node list renderer - the edges depend on nodes being created and existing to render properly.
     const edgeListRenderer = newListRenderer(div({ class: "absolute-fill pointer-events-none" }), () => newComponent(GraphEdgeUI));
-    rg.renderFn((graphS) => edgeListRenderer.render((getNext) => {
+    rg.preRenderFn((graphS) => edgeListRenderer.render((getNext) => {
         for (const id of edgeComponentMap.keys()) {
             if (!(id in graphData.edges)) {
                 edgeComponentMap.delete(id);
@@ -523,7 +523,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 
     let domRect = root.el.getBoundingClientRect();
 
-    rg.renderFn(function renderGraph(s) {
+    rg.preRenderFn(function renderGraph(s) {
         if (s.graphData) {
             graphData = s.graphData;
         }
@@ -960,7 +960,7 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     ]);
 
 
-    rg.renderFn(function renderGraphNodeUI(s) {
+    rg.preRenderFn(function renderGraphNodeUI(s) {
         const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s;
 
         if (setVisibleGroup(
@@ -1182,7 +1182,7 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
 
     setInputValueAndResize(labelInput, "Edge");
 
-    rg.renderFn(function renderGraphEdgeUI(s) {
+    rg.preRenderFn(function renderGraphEdgeUI(s) {
         const { graphState, edge, graphArgs } = s;
 
         if (!edge.text) {
@@ -1336,7 +1336,7 @@ function RadialContextMenu(rg: RenderGroup<{
             rg.text((s) => s.item.text)
         ]);
 
-        rg.renderFn(function renderRadialContextMenuItem(s) {
+        rg.preRenderFn(function renderRadialContextMenuItem(s) {
             const { x, y, item } = s;
 
             setStyle(root, "left", x + "px");
@@ -1380,7 +1380,7 @@ function RadialContextMenu(rg: RenderGroup<{
         ]),
     ]);
 
-    rg.renderFn(function renderRadialContextMenu(s) {
+    rg.preRenderFn(function renderRadialContextMenu(s) {
         const { x, y, items, centerText } = s;
 
         setText(centerTextEl, centerText);

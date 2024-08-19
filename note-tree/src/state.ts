@@ -426,7 +426,11 @@ export function setActivityTime(activity: Activity, t: Date) {
     activity._t = t;
 }
 
-export function getActivityTime(activity: Activity) {
+export function getActivityTime(activity: Activity | undefined) {
+    if (!activity) {
+        return new Date();
+    }
+
     if (!activity._t) {
         activity._t = new Date(activity.t);
     }
@@ -686,7 +690,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
             // TODO: update this to work for activities with start/end times that overlap into the current range
             if (
                 (!state._activitiesFrom || state._activitiesFrom <= getActivityTime(a0)) 
-                && (!a1 || !state._activitiesTo || getActivityTime(a1) <= state._activitiesTo)
+                && (!state._activitiesTo || getActivityTime(a1) <= state._activitiesTo)
             ) {
                 if (state._activitiesFromIdx === -1) {
                     state._activitiesFromIdx = i;
