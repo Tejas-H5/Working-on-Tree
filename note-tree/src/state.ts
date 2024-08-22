@@ -1,10 +1,10 @@
 import { AsciiCanvasLayer } from "src/canvas";
-import { addDays, floorDateLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
+import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
 import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
-import { assert } from "./utils/assert";
 import { GraphData, newGraphData } from "./interactive-graph";
+import { assert } from "./utils/assert";
 
 export type NoteId = string;
 export type TaskId = string;
@@ -13,6 +13,8 @@ export type TreeNote = tree.TreeNode<Note>;
 
 export type DockableMenu = "activities" | "todoLists";
 export type AppTheme = "Light" | "Dark";
+
+export type CurrentDateScope = "any" | "week";
 
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
@@ -64,6 +66,7 @@ export type NoteTreeGlobalState = {
     _useActivityIndices: boolean;
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
+    _currentDateScope: CurrentDateScope;
 };
 
 type AppSettings = {}
@@ -278,9 +281,10 @@ export function defaultState(): NoteTreeGlobalState {
         _activityIndices: [],
         _useActivityIndices: false,
         _lastNoteId: undefined,
+        _currentDateScope: "week",
     };
 
-    setActivityRangeToday(state);
+    setActivityRangeToToday(state);
 
     return state;
 }
@@ -648,16 +652,32 @@ export function recomputeState(state: NoteTreeGlobalState) {
         }
     }
 
-    // ensure that activitiesTo resets to today if it doesn't already include today.
-    // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
-    // this reset to today only happens if today isn't in that time range
+    // compute the duration range as needed
     {
+        // Once we leave the duration view, ensure that activitiesTo resets to today if it doesn't already include today.
+        // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
+        // this reset to today only happens if today isn't in that time range
         if (
             !state._isShowingDurations &&
-            !!state._activitiesTo &&
-            state._activitiesTo < new Date()
+            !!state._activitiesTo && state._activitiesTo < new Date()
         ) {
-            setActivityRangeToday(state);
+            setActivityRangeToToday(state);
+        }
+        
+
+        if (state._isShowingDurations) {
+            // if scope is week, make sure we always have a week-long window set,
+            // which also starts at day 0. (in JS land it's sunday. who cares tbh)
+            if (state._currentDateScope === "week") {
+                if (state._activitiesFrom === null) {
+                    state._activitiesFrom = new Date();
+                }
+
+                floorDateToWeekLocalTime(state._activitiesFrom)
+
+                state._activitiesTo = new Date(state._activitiesFrom);
+                addDays(state._activitiesTo, 7);
+            } 
         }
     }
 
@@ -1500,12 +1520,23 @@ export function getLastSelectedNote(state: NoteTreeGlobalState, note: TreeNote):
 }
 
 
-export function setActivityRangeToday(state: NoteTreeGlobalState) {
+export function setActivityRangeToToday(state: NoteTreeGlobalState) {
     const dateFrom = new Date();
     const dateTo = new Date();
     addDays(dateTo, 1);
     floorDateLocalTime(dateFrom);
     floorDateLocalTime(dateTo);
+    state._activitiesFrom = dateFrom;
+    state._activitiesTo = dateTo;
+}
+
+export function setActivityRangeToThisWeek(state: NoteTreeGlobalState) {
+    const dateFrom = new Date();
+    floorDateToWeekLocalTime(dateFrom);
+
+    const dateTo = new Date(dateFrom.getTime());
+    addDays(dateTo, 7);
+
     state._activitiesFrom = dateFrom;
     state._activitiesTo = dateTo;
 }

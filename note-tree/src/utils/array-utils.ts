@@ -46,7 +46,7 @@ export function shuffleArray<T>(arr: T[]) {
 }
 
 export function newArray<T>(n: number, fn: (i: number) => T): T[] {
-    const arr = [...Array(n)];
+    const arr = Array(n);
     for (let i = 0; i < arr.length; i++) {
         arr[i] = fn(i);
     }

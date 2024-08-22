@@ -1719,8 +1719,8 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             setText(button, s.name);
             button.render({
                 label: s.name,
-                className: "inline-block",
                 style: ";text-align: center; align-items: center;",
+                inline: true,
                 onClick: (e) => {
                     const { onClick, tool } = s;
 

@@ -3,11 +3,11 @@ import "src/css/layout.css";
 import "src/css/ui.css";
 
 import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
-import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
+import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, filterInPlace, findLastIndex } from "src/utils/array-utils";
+import { countOccurances, filterInPlace, findLastIndex, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
-import { addDays, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
     Insertable,
     RenderGroup,
@@ -48,6 +48,7 @@ import { initKeyboardListeners } from "./keyboard-input";
 import {
     Activity,
     AppTheme,
+    CurrentDateScope,
     DockableMenu,
     NoteId,
     NoteTreeGlobalState,
@@ -105,7 +106,7 @@ import {
     recomputeState,
     resetState,
     saveState,
-    setActivityRangeToday,
+    setActivityRangeToToday,
     setActivityTime,
     setCurrentActivityIdxToCurrentNote,
     setCurrentNote,
@@ -123,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.992";
+const VERSION_NUMBER = "v1.1.994";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1280,101 +1281,6 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
     return root;
 }
 
-
-function ActivityFiltersEditor(rg: RenderGroup) {
-    function onChange() {
-        rerenderApp(false);
-    }
-
-    const todayButton = newComponent(Button, {
-        label: "Today",
-        onClick: () => {
-            setActivityRangeToday(state);
-            onChange();
-        }
-    });
-
-    function updateDate(updateFn: (d: Date) => void) {
-        let updated = false;
-
-        if (state._activitiesFrom) {
-            updateFn(state._activitiesFrom);
-            updated = true;
-        }
-
-        if (state._activitiesTo) {
-            updateFn(state._activitiesTo);
-            updated = true;
-        }
-
-        if (updated) {
-            onChange();
-        }
-    }
-
-    const incrDay = newComponent(Button, { label: "+1d", onClick: () => updateDate((d) => addDays(d, 1)) });
-    const decrDay = newComponent(Button, { label: "-1d", onClick: () => updateDate((d) => addDays(d, -1)) });
-    const incrWeek = newComponent(Button, { label: "+7d", onClick: () => updateDate((d) => addDays(d, 7)) });
-    const decrWeek = newComponent(Button, { label: "-7d", onClick: () => updateDate((d) => addDays(d, -7)) });
-    const incrMonth = newComponent(Button, { label: "+30d", onClick: () => updateDate((d) => addDays(d, 30)) });
-    const decrMonth = newComponent(Button, { label: "-30d", onClick: () => updateDate((d) => addDays(d, -30)) });
-
-    const blockStyle = { class: "row", style: "padding-left: 10px; padding-right: 10px" };
-    const dateFrom = newComponent(DateTimeInput);
-    const dateTo = newComponent(DateTimeInput);
-    const onlyUnderCurrentNote = newComponent(Checkbox)
-    const root = div({ class: "row", style: "white-space: nowrap" }, [
-        div({ style: "width: 20px" }),
-        div(blockStyle, [
-            todayButton,
-            div({ style: "width: 10px" }),
-            incrDay,
-            decrDay,
-            incrWeek,
-            decrWeek,
-            incrMonth,
-            decrMonth,
-        ]),
-        div({ class: "row", style: "padding-left: 10px; padding-right: 10px" }, [dateFrom]),
-        div(blockStyle, [dateTo]),
-        onlyUnderCurrentNote,
-    ]);
-
-    rg.preRenderFn(function renderActivityFiltersEditor() {
-        dateFrom.render({
-            label: "from",
-            value: state._activitiesFrom,
-            readOnly: false,
-            nullable: true,
-            onChange: (val) => {
-                state._activitiesFrom = val;
-                onChange();
-            }
-        });
-
-        dateTo.render({
-            label: "to",
-            value: state._activitiesTo,
-            readOnly: false,
-            nullable: true,
-            onChange: (val) => {
-                state._activitiesTo = val;
-                onChange();
-            }
-        });
-
-        onlyUnderCurrentNote.render({
-            label: "Under selected?",
-            value: state._durationsOnlyUnderSelected,
-            onChange: (val) => {
-                state._durationsOnlyUnderSelected = val;
-                onChange();
-            }
-        });
-    });
-
-    return root;
-}
 
 // yep, doesnt need any info about the matches, total count, etc.
 // Although, I do wonder if this is the right place for it. 
@@ -2784,12 +2690,26 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 }
 
 function HighLevelTaskDurations(rg: RenderGroup) {
-    function Row(rg: RenderGroup<{
+    function DayRow(rg: RenderGroup<{
         name: string;
-        durationMs: number, nId: NoteId | undefined
+        nId: NoteId | undefined;
+        text: string[];
+        bold: boolean;
     }>) {
+        function TimeItem(rg: RenderGroup<{ str: string }>) {
+            return div({ class: "text-align-center", style: "width: 10ch" }, [
+                rg.text((s) => s.str),
+            ])
+        }
+
         return div({ class: "row sb1b" }, [
-            div({}, [
+            rg.style("backgroundColor", (s) => (state.currentNoteId === s.nId) ? (
+                "var(--bg-color-focus)"
+            ) : (
+                "var(--bg-color)"
+            )),
+            rg.style("fontWeight", s => s.bold ? "bold" : ""),
+            div({ class: "flex-1" }, [
                 rg.c(NoteLink, (nl, s) => {
                     nl.render({
                         preventScroll: true,
@@ -2799,108 +2719,232 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                     });
                 })
             ]),
-            div({ class: "flex-1", style: "min-width: 100px" }),
-            div({}, [rg.text((s) => formatDuration(s.durationMs))]),
+            div({ style: "min-width: 100px" }),
+            rg.list(div({ class: "row" }), TimeItem, (s, getNext) => {
+                for (const str of s.text) {
+                    getNext().render({ str });
+                }
+            })
         ]);
     }
 
-    const list = newListRenderer(div(), () => newComponent(Row));
-    const renderBreaksCheckbox = newComponent(Checkbox);
-
     let hideBreaks = false;
-    const hltMap = new Map<string, { nId: NoteId | undefined, time: number }>();
+    type Block = { nId: NoteId | undefined; times: number[]; };
+    const hltMap = new Map<string, Block>();
+    let hltSorted: [string, Block][] = [];
 
-    function renderHltList() {
-        // render hlt map
-        list.render((getNext) => {
-            hltMap.clear();
-
-            for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
-                const activity = state.activities[i];
-                const nextActivity = state.activities[i + 1] as Activity | undefined;
-                const durationMs = getActivityDurationMs(activity, nextActivity);
-
-                if (isBreak(activity) && hideBreaks) {
-                    continue;
-                }
-
-                let hltText = "??";
-                let hltNId: NoteId | undefined;
-
-                const nId = activity.nId;
-                if (nId) {
-                    hltText = NIL_HLT_HEADING;
-
-                    const note = getNote(state, nId);
-                    const hlt = getHigherLevelTask(state, note);
-                    if (hlt) {
-                        hltText = getNoteTextWithoutPriority(hlt.data);
-                        hltNId = hlt.id;
-                    }
-                } else if (isBreak(activity)) {
-                    hltText = "[Break]: " + activity.breakInfo;
-                }
-
-                const block = hltMap.get(hltText) ?? { time: 0, nId: hltNId };
-                block.time += durationMs;
-                hltMap.set(hltText, block);
+    function newBlock(hltNId: NoteId | undefined): Block {
+        if (state._currentDateScope === "week") {
+            return {
+                nId: hltNId,
+                // The 8 is from 7 + 1 - I'm storing the total time this week at the end
+                times: newArray(8, () => 0)
             }
+        }
 
+        return {
+            nId: hltNId,
+            // The 8 is from 7 + 1 - I'm storing the total time this week at the end
+            times: [0],
+        }
+    }
 
-            if (!setVisible(list, hltMap.size > 0)) {
-                return;
-            }
+    function setScope(scope: CurrentDateScope) {
+        state._currentDateScope = scope;
+        rerenderApp();
+    }
 
-            const hltSorted = [...hltMap.entries()].sort((a, b) => b[1].time - a[1].time);
+    function moveDateWindow(backwards: boolean) {
+        let numDays = state._currentDateScope === "week" ? 7 : 1;
+        if (backwards) {
+            numDays = -numDays;
+        }
 
-            for (const [hltName, { time, nId }] of hltSorted) {
-                getNext().render({
-                    name: hltName,
-                    durationMs: time,
-                    nId,
-                });
-            }
-        });
+        if (state._activitiesFrom) {
+            addDays(state._activitiesFrom, numDays);
+        }
+
+        if (state._activitiesTo) {
+            addDays(state._activitiesTo, numDays);
+        }
+
+        rerenderApp();
+    }
+
+    function resetDateWindow() {
+        setActivityRangeToToday(state);
+        rerenderApp();
+    }
+
+    function handleActivitiesToChange(date: Date | null) {
+        state._activitiesTo = date;
+        rerenderApp();
+    }
+
+    function handleActivitiesFromChange(date: Date | null) {
+        state._activitiesFrom = date;
+        rerenderApp();
     }
 
     rg.preRenderFn(function renderHighlevelTaskDurations() {
-        renderBreaksCheckbox.render({
-            label: "Hide breaks",
-            value: hideBreaks,
-            onChange: (val) => {
-                hideBreaks = val;
-                rerenderApp();
-            }
-        });
+        hltMap.clear();
 
-        renderHltList();
-    })
+        for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
+            const activity = state.activities[i];
+            const nextActivity = state.activities[i + 1] as Activity | undefined;
+            const durationMs = getActivityDurationMs(activity, nextActivity);
+
+            if (isBreak(activity) && hideBreaks) {
+                continue;
+            }
+
+            let hltText = "??";
+            let hltNId: NoteId | undefined;
+
+            const nId = activity.nId;
+            if (nId) {
+                hltText = NIL_HLT_HEADING;
+
+                const note = getNote(state, nId);
+                const hlt = getHigherLevelTask(state, note);
+                if (hlt) {
+                    hltText = getNoteTextWithoutPriority(hlt.data);
+                    hltNId = hlt.id;
+                }
+            } else if (isBreak(activity)) {
+                hltText = "[Break]: " + activity.breakInfo;
+            }
+
+
+            const block = hltMap.get(hltText) ?? newBlock(hltNId);
+
+            const dayOfWeek = getActivityTime(activity).getDay();
+
+            if (state._currentDateScope === "week") {
+                block.times[dayOfWeek] += durationMs;
+                block.times[7] += durationMs;
+            } else {
+                block.times[0] += durationMs;
+            }
+
+            hltMap.set(hltText, block);
+        }
+
+        hltSorted = [...hltMap.entries()].sort((a, b) => b[1].times[7] - a[1].times[7]);
+    });
 
     return div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
-        rg.text(() => "" + state._activitiesFromIdx),
-        rg.text(() => {
-            return "" + state._activitiesToIdx
-        }),
-        el("H3", {}, [
-            rg.text(() => {
-                if (state._activitiesFrom && state._activitiesTo) {
-                    return "Tasks from "
-                        + formatDate(state._activitiesFrom, undefined, true)
-                        + " to " + formatDate(state._activitiesTo, undefined, true);
-                }
-                if (state._activitiesFrom) {
-                    return "Tasks from " + formatDate(state._activitiesFrom, undefined, true);
-                }
-                if (state._activitiesTo) {
-                    return "Tasks to " + formatDate(state._activitiesTo, undefined, true);
-                }
-                return "High level task durations";
-            })
+        div({ class: "row", style: "gap: 10px; padding-bottom: 10px" }, [
+            div({ class: "row", }, [
+                rg.c(Button, c => c.render({
+                    label: "<-",
+                    onClick: () => moveDateWindow(true),
+                })),
+                rg.c(Button, c => c.render({
+                    label: "->",
+                    onClick: () => moveDateWindow(false),
+                })),
+                span({}, [
+                    // Opacity and not conditional rendering here to prevent layout shift when dissapearing and re-appearing.
+                    // Funilly enough I can still click on it...
+                    rg.style("opacity", () => {
+                        let value;
+                        if (state._currentDateScope === "week") {
+                            const d = new Date();
+                            floorDateToWeekLocalTime(d);
+                            value = d.getTime() !== state._activitiesFrom?.getTime();
+                        } else {
+                            const d = new Date();
+                            floorDateLocalTime(d);
+                            value = d.getTime() !== state._activitiesFrom?.getTime();
+                        }
+
+                        return value ? "1" : "0";
+                    }),
+                    rg.c(Button, c => c.render({
+                        label: state._currentDateScope === "week" ? "this week" : "today",
+                        onClick: resetDateWindow
+                    })),
+                ]),
+            ]),
+            rg.c(DateTimeInput, c => c.render({
+                label: "From",
+                nullable: true,
+                readOnly: state._currentDateScope === "week",
+                value: state._activitiesFrom,
+                onChange: handleActivitiesFromChange,
+            })),
+            rg.c(DateTimeInput, c => c.render({
+                label: "To",
+                nullable: true,
+                readOnly: state._currentDateScope === "week",
+                value: state._activitiesTo,
+                onChange: handleActivitiesToChange,
+            })),
+            div({ class: "flex-1" }),
+            rg.c(Button, c => c.render({
+                label: "Week",
+                onClick: () => state._currentDateScope !== "week" ? setScope("week") : setScope("any"),
+                toggled: state._currentDateScope === "week",
+            })),
+            rg.c(Button, c => c.render({
+                label: "Breaks",
+                toggled: !hideBreaks,
+                onClick: () => { hideBreaks = !hideBreaks; rerenderApp(); }
+            })),
+            div({ class: "flex-1" }),
         ]),
-        div({ style: "padding-bottom: 10px" }, [
-            renderBreaksCheckbox,
-        ]),
-        list,
+        rg.list(div(), DayRow, (s, getNext) => {
+            if (hltMap.size === 0) {
+                return;
+            }
+
+
+            // Only need the header for a week
+            if (state._currentDateScope === "week") {
+                const date = new Date(state._activitiesFrom!);
+                floorDateToWeekLocalTime(date);
+
+                const text: string[] = [];
+                for (const weekDay of DAYS_OF_THE_WEEK_ABBREVIATED) {
+                    text.push(weekDay + ' ' + date.getDate());
+                    addDays(date, 1);
+                }
+                text.push("Total");
+
+                getNext().render({
+                    name: "Tasks",
+                    text: text,
+                    bold: true,
+                    nId: undefined
+                });
+            }
+
+            let totalTimes;
+            if (state._currentDateScope === "week") {
+                totalTimes = newArray(8, () => 0);
+            } else {
+                totalTimes = newArray(1, () => 0);
+            }
+            for (const [hltName, { times, nId }] of hltSorted) {
+                for (let i = 0; i < times.length; i++) {
+                    totalTimes[i] += times[i];
+                }
+                getNext().render({
+                    name: hltName,
+                    text: times.map(formatDurationAsHours),
+                    bold: false,
+                    nId,
+                });
+            }
+
+            getNext().render({
+                name: "Total",
+                text: totalTimes.map(formatDurationAsHours),
+                bold: false,
+                nId: undefined,
+            });
+        })
     ]);
 }
 
@@ -2931,10 +2975,6 @@ export function App(rg: RenderGroup) {
         rerenderApp();
     });
 
-    const filterEditor = newComponent(ActivityFiltersEditor);
-    const filterEditorRow = div({ class: "row", style: "" }, [
-        filterEditor,
-    ]);
     const notesList = newComponent(NotesList);
     const todoList = newComponent(TodoList);
     const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
@@ -3083,7 +3123,6 @@ export function App(rg: RenderGroup) {
                 rightPanelArea,
             ]),
             bottomButtons,
-            filterEditorRow,
         ]),
         scratchPadModal,
         interactiveGraphModal,
@@ -3508,10 +3547,6 @@ export function App(rg: RenderGroup) {
         setClass(durationsButton, "inverted", state._isShowingDurations);
         setClass(todoNotesButton, "inverted", state.dockedMenu === "todoLists" && state.showDockedMenu);
         setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
-
-        if (setVisible(filterEditorRow, state._isShowingDurations)) {
-            filterEditor.render(null);
-        }
 
         let currentDockedMenu: DockableMenu | null = state.dockedMenu;
 

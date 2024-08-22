@@ -1,5 +1,5 @@
 
-const DAYS_OF_THE_WEEK_ABBREVIATED = [
+export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
     "Mon",
     "Tue",
@@ -117,6 +117,12 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
 
 export function floorDateLocalTime(date: Date) {
     date.setHours(0, 0, 0, 0);
+}
+
+export function floorDateToWeekLocalTime(date: Date) {
+    floorDateLocalTime(date);
+    const dayOfWeek = date.getDay();
+    addDays(date, -dayOfWeek);
 }
 
 export function addDays(date: Date, days: number) {
