@@ -103,6 +103,7 @@ import {
     noteStatusToString,
     pushBreakActivity,
     recomputeFlatNotes,
+    recomputeNoteIsUnderFlag,
     recomputeState,
     resetState,
     saveState,
@@ -113,6 +114,7 @@ import {
     setIsEditingCurrentNote,
     setStateFromJSON,
     state,
+    toggleActivityScopedNote,
     toggleCurrentNoteSticky,
     tryForceIndexedDBCompaction
 } from "./state";
@@ -124,7 +126,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.994";
+const VERSION_NUMBER = "v1.1.995";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -150,14 +152,16 @@ function NoteLink(rg: RenderGroup<{
             "var(--bg-color)"
         )),
         rg.text((s) => truncate(s.text, 500)),
-        rg.on("click", ({ noteId, preventScroll }) => {
+        rg.on("click", ({ noteId, preventScroll }, e) => {
+            e.stopImmediatePropagation();
+
             // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
             // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
             // something like this allowed to happen. LOL.
             setTimeout(() => {
                 if (noteId) {
                     setCurrentNote(state, noteId);
-                    rerenderApp(preventScroll || false);
+                    rerenderApp(!preventScroll);
                 }
             }, 1);
         }),
@@ -1106,7 +1110,7 @@ function EditableActivityList(rg: RenderGroup<{
             if (lastIdx === activities.length - 1) {
                 statusText = "Reached most recent activity";
             } else if (activityIndexes.length === 0) {
-                if (state._durationsOnlyUnderSelected) {
+                if (state._currentActivityScopedNote) {
                     statusText = "0 results under the selected note";
                 } else {
                     statusText = "0 results in this date range";
@@ -2259,17 +2263,48 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
         }
     });
 
+    function handleLockUnlockActivitiesToNote() {
+        if (state._currentActivityScopedNote) {
+            state._currentActivityScopedNote = "";
+        } else {
+            state._currentActivityScopedNote = state.currentNoteId;
+        }
+        rerenderApp();
+    }
+
     const activityList = newComponent(EditableActivityList);
     const breakInput = newComponent(BreakInput);
     const root = div({ class: "flex-1 col" }, [
         div({ class: "flex row align-items-center", style: "user-select: none; padding-left: 10px;" }, [
-            el("H3", { style: "margin: 0; padding: 1em 0;", }, ["Activity List"]),
+            el("H3", { style: "margin: 0; padding: 1em 0;", }, [
+                rg.text(() => {
+                    const note = getNoteOrUndefined(state, state._currentActivityScopedNote);
+                    if (!note) {
+                        return "Activity List";
+                    }
+
+                    return "Scope: " + truncate(getNoteTextWithoutPriority(note.data), 50);
+                }),
+            ]),
+        ]),
+        div({ class: "row" }, [
+            rg.c(Button, c => c.render({
+                label: state._currentActivityScopedNote ? "Unlock" : "Lock to selected",
+                onClick: handleLockUnlockActivitiesToNote,
+            })),
             div({ class: "flex-1" }),
+            rg.c(Button, c => c.render({
+                label: "Scop",
+                onClick: () => {
+                    state._currentlyViewingActivityIdx = state.activities.length - 1;
+                    rerenderApp();
+                },
+            })),
             scrollActivitiesToTop,
             scrollActivitiesToMostRecent,
             div({ style: "width: 10px" }),
-            div({ style: "width: 50px" }, [nextActivity]),
             div({ style: "width: 50px" }, [prevActivity]),
+            div({ style: "width: 50px" }, [nextActivity]),
         ]),
         div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
         breakInput,
@@ -2690,48 +2725,33 @@ function handleEnterPress(ctrlPressed: boolean, shiftPressed: boolean): boolean 
 }
 
 function HighLevelTaskDurations(rg: RenderGroup) {
-    function DayRow(rg: RenderGroup<{
-        name: string;
-        nId: NoteId | undefined;
-        text: string[];
-        bold: boolean;
-    }>) {
-        function TimeItem(rg: RenderGroup<{ str: string }>) {
-            return div({ class: "text-align-center", style: "width: 10ch" }, [
-                rg.text((s) => s.str),
-            ])
-        }
-
-        return div({ class: "row sb1b" }, [
-            rg.style("backgroundColor", (s) => (state.currentNoteId === s.nId) ? (
-                "var(--bg-color-focus)"
-            ) : (
-                "var(--bg-color)"
-            )),
-            rg.style("fontWeight", s => s.bold ? "bold" : ""),
-            div({ class: "flex-1" }, [
-                rg.c(NoteLink, (nl, s) => {
-                    nl.render({
-                        preventScroll: true,
-                        text: s.name,
-                        focusAnyway: false,
-                        noteId: s.nId,
-                    });
-                })
-            ]),
-            div({ style: "min-width: 100px" }),
-            rg.list(div({ class: "row" }), TimeItem, (s, getNext) => {
-                for (const str of s.text) {
-                    getNext().render({ str });
-                }
-            })
-        ]);
-    }
-
-    let hideBreaks = false;
+    let currentHoverCol = -1;
+    let currentFocusCol = -1;
+    let hideBreaks = true;
+    let over1Min = true;
     type Block = { nId: NoteId | undefined; times: number[]; };
     const hltMap = new Map<string, Block>();
     let hltSorted: [string, Block][] = [];
+
+    function handleColEnter(i: number) {
+        if (i >= 7) {
+            currentHoverCol = -1;
+        } else {
+            currentHoverCol = i;
+        }
+
+        rerenderApp(false);
+    }
+
+    function handleColClick(i: number) {
+        if (i >= 7 || state._currentDateScopeWeekDay === i) {
+            state._currentDateScopeWeekDay = -1;
+        } else {
+            state._currentDateScopeWeekDay = i;
+        }
+
+        rerenderApp(false);
+    }
 
     function newBlock(hltNId: NoteId | undefined): Block {
         if (state._currentDateScope === "week") {
@@ -2750,11 +2770,13 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     }
 
     function setScope(scope: CurrentDateScope) {
+        state._currentDateScopeWeekDay = -1;
         state._currentDateScope = scope;
-        rerenderApp();
+        rerenderApp(false);
     }
 
     function moveDateWindow(backwards: boolean) {
+        state._currentDateScopeWeekDay = -1;
         let numDays = state._currentDateScope === "week" ? 7 : 1;
         if (backwards) {
             numDays = -numDays;
@@ -2772,6 +2794,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     }
 
     function resetDateWindow() {
+        state._currentDateScopeWeekDay = -1;
         setActivityRangeToToday(state);
         rerenderApp();
     }
@@ -2786,15 +2809,19 @@ function HighLevelTaskDurations(rg: RenderGroup) {
         rerenderApp();
     }
 
+    const ONE_MINUTE = 1000 * 60;
+
     rg.preRenderFn(function renderHighlevelTaskDurations() {
         hltMap.clear();
+
+        currentFocusCol = state._currentDateScopeWeekDay;
 
         for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
             const activity = state.activities[i];
             const nextActivity = state.activities[i + 1] as Activity | undefined;
             const durationMs = getActivityDurationMs(activity, nextActivity);
 
-            if (isBreak(activity) && hideBreaks) {
+            if (hideBreaks && isBreak(activity)) {
                 continue;
             }
 
@@ -2834,6 +2861,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     });
 
     return div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
+        rg.on("click", () => { state._currentDateScopeWeekDay = -1; rerenderApp(); }),
         div({ class: "row", style: "gap: 10px; padding-bottom: 10px" }, [
             div({ class: "row", }, [
                 rg.c(Button, c => c.render({
@@ -2892,14 +2920,14 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 toggled: !hideBreaks,
                 onClick: () => { hideBreaks = !hideBreaks; rerenderApp(); }
             })),
+            rg.c(Button, c => c.render({
+                label: ">1 min",
+                toggled: over1Min,
+                onClick: () => { over1Min = !over1Min; rerenderApp(); }
+            })),
             div({ class: "flex-1" }),
         ]),
-        rg.list(div(), DayRow, (s, getNext) => {
-            if (hltMap.size === 0) {
-                return;
-            }
-
-
+        rg.list(div(), DayRow, (_, getNext) => {
             // Only need the header for a week
             if (state._currentDateScope === "week") {
                 const date = new Date(state._activitiesFrom!);
@@ -2916,8 +2944,16 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                     name: "Tasks",
                     text: text,
                     bold: true,
-                    nId: undefined
+                    nId: undefined,
+                    onColEnter: handleColEnter,
+                    onColClick: handleColClick,
+                    currentHoverCol,
+                    currentFocusCol,
                 });
+            }
+
+            if (hltMap.size === 0) {
+                return;
             }
 
             let totalTimes;
@@ -2930,11 +2966,22 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 for (let i = 0; i < times.length; i++) {
                     totalTimes[i] += times[i];
                 }
+
+
+                let total = times[times.length - 1];
+                if (over1Min && total < ONE_MINUTE) {
+                    continue;
+                }
+
                 getNext().render({
                     name: hltName,
                     text: times.map(formatDurationAsHours),
                     bold: false,
                     nId,
+                    currentHoverCol,
+                    currentFocusCol,
+                    onColEnter: handleColEnter,
+                    onColClick: handleColClick,
                 });
             }
 
@@ -2943,9 +2990,79 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 text: totalTimes.map(formatDurationAsHours),
                 bold: false,
                 nId: undefined,
+                currentHoverCol,
+                currentFocusCol,
+                onColEnter: handleColEnter,
+                onColClick: handleColClick,
             });
-        })
+        }),
+        rg.else(
+            rg => div({}, ["No tasks to display!"])
+        )
     ]);
+
+    function DayRow(rg: RenderGroup<{
+        name: string;
+        nId: NoteId | undefined;
+        text: string[];
+        bold: boolean;
+        onColEnter?(i: number): void;
+        onColClick?(i: number): void;
+        currentFocusCol: number;
+        currentHoverCol: number;
+    }>) {
+        return div({ class: "row sb1b" }, [
+            rg.on("mouseleave", (s) => s.onColEnter?.(-1)),
+            rg.style("backgroundColor", (s) => (state.currentNoteId === s.nId) ? (
+                "var(--bg-color-focus)"
+            ) : (
+                "var(--bg-color)"
+            )),
+            rg.style("fontWeight", s => s.bold ? "bold" : ""),
+            div({ class: "flex-1" }, [
+                rg.c(NoteLink, (nl, s) => {
+                    nl.render({
+                        preventScroll: true,
+                        text: s.name,
+                        focusAnyway: false,
+                        noteId: s.nId,
+                    });
+                })
+            ]),
+            div({ style: "min-width: 100px" }),
+            rg.list(div({ class: "row" }), TimeItem, (s, getNext) => {
+                for (let i = 0; i < s.text.length; i++) {
+                    const bgColor = s.currentHoverCol === i ? "var(--bg-color-focus-2)" :
+                        s.currentFocusCol === i ? "var(--bg-color-focus)" :
+                            "";
+
+                    getNext().render({
+                        str: s.text[i],
+                        i,
+                        bgColor,
+                        onColEnter: s.onColEnter,
+                        onColClick: s.onColClick,
+                    });
+                }
+            })
+        ]);
+
+        function TimeItem(rg: RenderGroup<{
+            str: string;
+            i: number;
+            onColEnter?(i: number): void;
+            onColClick?(i: number): void;
+            bgColor: string;
+        }>) {
+            return div({ class: "text-align-center", style: "width: 10ch" }, [
+                rg.style("cursor", (s) => s.onColEnter ? "pointer" : ""),
+                rg.style("backgroundColor", s => s.bgColor),
+                rg.on("mouseenter", (s) => s.onColEnter?.(s.i)),
+                rg.on("click", (s, e) => { e.stopImmediatePropagation(); s.onColClick?.(s.i); }),
+                rg.text((s) => s.str),
+            ])
+        }
+    }
 }
 
 const cnInfoButton = sg.makeClass("info-button", [` { 
@@ -3221,6 +3338,13 @@ export function App(rg: RenderGroup) {
             e.preventDefault();
             setCurrentModal(interactiveGraphModal);
             return;
+        } else if (
+            e.key === "L" &&
+            ctrlPressed &&
+            shiftPressed
+        ) {
+            toggleActivityScopedNote(state);
+            rerenderApp();
         } else if (
             e.key === "," &&
             ctrlPressed
@@ -3698,9 +3822,11 @@ appendChild(
 );
 
 const rerenderApp = (shouldScroll = true, isTimer = false) => {
-    // there are actually very few times when we don't want to scroll to the current note
-    renderOptions.shouldScroll = shouldScroll;
     renderOptions.isTimer = isTimer;
+    if (!isTimer) {
+        // there are actually very few times when we don't want to scroll to the current note
+        renderOptions.shouldScroll = shouldScroll;
+    }
     app.render(null);
 }
 

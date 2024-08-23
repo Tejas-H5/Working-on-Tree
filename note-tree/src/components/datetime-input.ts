@@ -41,7 +41,7 @@ export function DateTimeInput(rg: RenderGroup<{
         const dateText = formatDate(value, undefined, true);
 
         if (setVisible(show, canEdit)) {
-            setText(show, dateText);
+            setText(show, label + " " + dateText);
         }
 
         if (setVisible(edit, !canEdit)) {

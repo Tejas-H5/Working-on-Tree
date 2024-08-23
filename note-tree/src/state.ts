@@ -55,6 +55,7 @@ export type NoteTreeGlobalState = {
     _todoNoteFilters: number;
     _todoRootId: NoteId;  
     _currentlyViewingActivityIdx: number;
+    _currentActivityScopedNote: NoteId;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
     _isShowingDurations: boolean;
@@ -62,11 +63,11 @@ export type NoteTreeGlobalState = {
     _activitiesFromIdx: number;
     _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
     _activitiesToIdx: number;
-    _durationsOnlyUnderSelected: boolean;
     _useActivityIndices: boolean;
     _activityIndices: number[];
     _lastNoteId: NoteId | undefined;
     _currentDateScope: CurrentDateScope;
+    _currentDateScopeWeekDay: number;
 };
 
 type AppSettings = {}
@@ -272,16 +273,17 @@ export function defaultState(): NoteTreeGlobalState {
         _todoRootId: notes.rootId,
         _todoNoteFilters: 0,
         _currentlyViewingActivityIdx: 0,
+        _currentActivityScopedNote: "",
         _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesFromIdx: -1,
         _activitiesTo: null,
         _activitiesToIdx: -1,
-        _durationsOnlyUnderSelected: true,
         _activityIndices: [],
         _useActivityIndices: false,
         _lastNoteId: undefined,
         _currentDateScope: "week",
+        _currentDateScopeWeekDay: -1,
     };
 
     setActivityRangeToToday(state);
@@ -675,8 +677,16 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
                 floorDateToWeekLocalTime(state._activitiesFrom)
 
-                state._activitiesTo = new Date(state._activitiesFrom);
-                addDays(state._activitiesTo, 7);
+                if (state._currentDateScopeWeekDay >= 0) {
+                    // scope the date to the current week day selected within the week
+                    addDays(state._activitiesFrom, state._currentDateScopeWeekDay);
+                    state._activitiesTo = new Date(state._activitiesFrom);
+                    addDays(state._activitiesTo, 1);
+                } else {
+                    // scope the date to the whole week
+                    state._activitiesTo = new Date(state._activitiesFrom);
+                    addDays(state._activitiesTo, 7);
+                }
             } 
         }
     }
@@ -728,20 +738,21 @@ export function recomputeState(state: NoteTreeGlobalState) {
     {
         state._useActivityIndices = false; ;
         const hasValidRange = state._activitiesFromIdx !== -1;
-        if (state._isShowingDurations && hasValidRange) {
+        const useDurations = state._isShowingDurations && hasValidRange;
+        if (useDurations || !!state._currentActivityScopedNote) {
             state._useActivityIndices = true;
-
-            const currentNote = getCurrentNote(state);
-            recomputeNoteIsUnderFlag(state, currentNote);
-
             state._activityIndices.splice(0, state._activityIndices.length);
 
-            for (let i = state._activitiesFromIdx; i <= state._activitiesToIdx; i++) {
+            let start = useDurations ? state._activitiesFromIdx : 0;
+            let end = useDurations ? state._activitiesToIdx : state.activities.length - 1;
+
+            for (let i = start; i >= 0 && i <= end; i++) {
                 const activity = state.activities[i];
-                if (state._durationsOnlyUnderSelected && (
+
+                if (state._currentActivityScopedNote && (
                     activity.deleted ||
                     !activity.nId ||
-                    !getNote(state, activity.nId).data._isUnderCurrent
+                    !isNoteUnderParent(state, state._currentActivityScopedNote, getNote(state, activity.nId),)
                 )) {
                     continue;
                 }
@@ -1796,6 +1807,16 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
 
     return higherLevelNote;
 }
+
+
+export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
+    if (state._currentActivityScopedNote) {
+        state._currentActivityScopedNote = "";
+    } else {
+        state._currentActivityScopedNote = state.currentNoteId;
+    }
+}
+
 
 // I used to have tabs, but I literally never used then, so I've just removed those components.
 // However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
