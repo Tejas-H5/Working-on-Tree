@@ -464,11 +464,11 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
-export function recomputeState(state: NoteTreeGlobalState) {
+export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = false) {
     assert(!!state, "WTF");
     
     // delete the empty notes
-    {
+    if (!isTimer) {
         dfsPre(state, getRootNote(state), (n) => {
             if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
                 deleteNoteIfEmpty(state, n.id)
@@ -478,7 +478,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
-    {
+    if (!isTimer) {
         const dfs = (note: TreeNote, depth: number) => {
             note.data._depth = depth;
 
@@ -492,7 +492,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute _status, do some sorting
-    {
+    if (!isTimer) {
         tree.forEachNode(state.notes, (id) => {
             getNote(state, id).data._status = STATUS_IN_PROGRESS;
         });
@@ -556,7 +556,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute _isSelected to just be the current note + all parent notes 
-    {
+    if (!isTimer) {
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
             note.data._isSelected = false;
@@ -570,7 +570,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute _flatNoteIds (after deleting things)
-    {
+    if (!isTimer) {
         if (!state._flatNoteIds) {
             state._flatNoteIds = [];
         }
@@ -579,7 +579,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute the TODO note list
-    {
+    if (!isTimer) {
         // Should be somewhat inefficient. but I don't care. 
         // most of the calculations here suck actually, now that I think about it...
         // They're really easy to verify the correctness of and change later though.
@@ -735,7 +735,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute the current filtered activities
-    {
+    if (!isTimer) {
         state._useActivityIndices = false; ;
         const hasValidRange = state._activitiesFromIdx !== -1;
         const useDurations = state._isShowingDurations && hasValidRange;

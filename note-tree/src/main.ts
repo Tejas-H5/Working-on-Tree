@@ -103,7 +103,6 @@ import {
     noteStatusToString,
     pushBreakActivity,
     recomputeFlatNotes,
-    recomputeNoteIsUnderFlag,
     recomputeState,
     resetState,
     saveState,
@@ -2813,9 +2812,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
 
     rg.preRenderFn(function renderHighlevelTaskDurations() {
         hltMap.clear();
-
         currentFocusCol = state._currentDateScopeWeekDay;
-
         for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
             const activity = state.activities[i];
             const nextActivity = state.activities[i + 1] as Activity | undefined;
@@ -3343,8 +3340,10 @@ export function App(rg: RenderGroup) {
             ctrlPressed &&
             shiftPressed
         ) {
+            e.preventDefault();
             toggleActivityScopedNote(state);
             rerenderApp();
+            return;
         } else if (
             e.key === "," &&
             ctrlPressed
@@ -3617,7 +3616,7 @@ export function App(rg: RenderGroup) {
     }
 
     rg.preRenderFn(function rerenderAppComponent() {
-        recomputeState(state);
+        recomputeState(state, renderOptions.isTimer);
 
         // render modals
         {
