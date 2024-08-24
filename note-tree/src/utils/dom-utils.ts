@@ -193,10 +193,8 @@ export function isVisible(component: Component<unknown, HTMLElement> | Insertabl
     // If _isHidden is false, we need to perform additional checking to determine if a component is visible or not.
     // This is why we don't call isVisible to disable rendering when a component is hidden.
 
-    if ("argsOrNull" in component && component.argsOrNull === null) {
-        // Args are only populated once a component has been rendered for the first time.
-        // They can be undefined, or some object.
-        // In retrospect, I think I may have mixed up null and undefined here. Might be worth picking a better sentinel value.
+    if ("s" in component && component.s === undefined) {
+        // Not visible if no state is present.
         return false;
     }
 
@@ -558,7 +556,7 @@ export function getRoot<T>(c: RenderGroup<T>): Insertable<any> {
 }
 
 
-export function __newRealComponentInternal<
+export function __newComponentInternal<
     T,
     U extends ValidElement,
     Si extends T,
@@ -575,7 +573,7 @@ export function __newRealComponentInternal<
         },
         renderWithCurrentState() {
             if (component.instantiated) {
-                checkForRenderMistake(this);
+                checkForRenderMistake(component);
             }
 
             // Setting this value this late allows the component to render once before it's ever inserted.
@@ -631,6 +629,8 @@ export type RenderGroup<S = null> = {
      *
      * Currently, this function *does NOT* perform any error handling - 
      * this is currently done at a per-component level in {@link Component.renderWithCurrentState}.
+     *
+     * NOTE: consider rerendering the entire app instead - this is just a performance optimization
      */
     renderWithCurrentState: () => void;
     /**
@@ -763,7 +763,7 @@ export type RenderGroup<S = null> = {
      *      const root = div(rg.text(() => state.something));
      *
      *      rg.preRenderFn(() => {
-     *          // this had better run before the thing above,
+     *          // his had better run before the thing above,
      *          // or our component will be 1 frame behind!
      *          recomputeState(state);
      *      });
@@ -873,12 +873,21 @@ export function printRenderCounts() {
     }
 }
 
-type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined };
+type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined; error?: any };
 function pushRenderFn<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) {
     if (rg.instantiated) {
         throw new Error("Can't add event handlers to this template (" + rg.templateName + ") after it's been instantiated");
     }
     renderFns.push({ root, fn });
+}
+
+function clearErrorClass<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[]) {
+    const defaultErrorRoot = getRoot(rg);
+    for (let i = 0; i < renderFns.length; i++) {
+        const errorRoot = renderFns[i].root || defaultErrorRoot;
+        renderFns[i].error = undefined;
+        setErrorClass(errorRoot, false);
+    }
 }
 
 function renderFunctions<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[]) {
@@ -902,11 +911,17 @@ function renderFunctions<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[]) {
         //
         // TODO: consider doing this for callbacks as well, it shouldn't be too hard.
 
+        if (renderFns[i].error !== undefined) {
+            // don't run more functions for this component if one of them errored
+            continue;
+        }
+
         try {
-            setErrorClass(errorRoot, false);
             fn(s);
         } catch (e) {
             setErrorClass(errorRoot, true);
+            // TODO: do something with these errors we're collecting. lmao.
+            renderFns[i].error = e;
             console.error("An error occured while rendering your component:", e);
         }
     }
@@ -946,6 +961,13 @@ function newRenderGroup<S, Si extends S>(
         },
         renderWithCurrentState() {
             rg.instantiated = true;
+
+            // The same node may have multiple functions - 
+            // We don't want to clear the error class before each run, as we may be wiping away errors
+            // from previous functions. Instead, we clear them here.
+            clearErrorClass(rg, preRenderFn);
+            clearErrorClass(rg, domRenderFn);
+            clearErrorClass(rg, postRenderFn);
 
             renderFunctions(rg, preRenderFn);
             renderFunctions(rg, domRenderFn);
@@ -1081,7 +1103,7 @@ export function newComponent<T, U extends ValidElement, Si extends T>(
     );
 
     const root = templateFn(rg);
-    const component = __newRealComponentInternal(root, rg.render, initialState);
+    const component = __newComponentInternal(root, rg.render, initialState);
     rg.instantiatedRoot = root;
 
     if (component.s !== undefined) {
@@ -1136,7 +1158,7 @@ export function newComponent2<T, U extends ValidElement, R, Si extends T>(
     );
 
     const [root, h] = templateFn(rg);
-    const component = __newRealComponentInternal(root, rg.render, initialState);
+    const component = __newComponentInternal(root, rg.render, initialState);
     rg.instantiatedRoot = root;
 
     if (component.s !== undefined) {

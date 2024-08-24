@@ -1887,6 +1887,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         buttons.rectSelect,
         buttons.freeformSelect,
         buttons.rectOutlineSelect,
+        buttons.lineSelect,
         buttons.bucketFillSelect,
         buttons.bucketFillSelectOutline,
         buttons.bucketFillSelectConnected,
