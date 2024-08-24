@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.995";
+const VERSION_NUMBER = "v1.1.996";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -3220,7 +3220,7 @@ export function App(rg: RenderGroup) {
                     rg.if(() => currentHelpInfo === 2, (rg) => rg.cNull(CheatSheet)),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         el("H2", {}, [
-                            rg.text(() => "Currently working on - " + formatDate(new Date(), undefined, true, true)),
+                            rg.text(() => currentAppHeader + " - " + formatDate(new Date(), undefined, true, true)),
                         ]),
                         div({ class: "flex-1" }),
                         cheatSheetButton,
@@ -3618,6 +3618,18 @@ export function App(rg: RenderGroup) {
     rg.preRenderFn(function rerenderAppComponent() {
         recomputeState(state, renderOptions.isTimer);
 
+        // recompute the app title
+        {
+            const currentNote = getCurrentNote(state);
+            const hlt = getHigherLevelTask(state, currentNote);
+            if (!hlt) {
+                setAppHeader("Currently working on");
+            } else {
+                const text = "Current task: " + getNoteTextWithoutPriority(hlt.data);
+                setAppHeader(text);
+            }
+        }
+
         // render modals
         {
             if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
@@ -3813,6 +3825,13 @@ const debouncedSave = () => {
         debounced: true
     });
 };
+
+let currentAppHeader = "Currently working on";
+const titleEl = newInsertable(document.querySelector("title")!);
+function setAppHeader(newHeader: string) {
+    currentAppHeader = newHeader;
+    setText(titleEl, newHeader);
+}
 
 const app = newComponent(App);
 appendChild(
