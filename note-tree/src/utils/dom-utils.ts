@@ -564,6 +564,7 @@ export function __newComponentInternal<
     const component: Component<T, U> = {
         el: root.el,
         instantiated: false,
+        rendering: false,
         get _isHidden() { return root._isHidden; },
         set _isHidden(val: boolean) { root._isHidden = val; },
         s: s,
@@ -572,6 +573,10 @@ export function __newComponentInternal<
             component.renderWithCurrentState();
         },
         renderWithCurrentState() {
+            if (component.rendering) {
+                throw new Error("Can't call a component's render method while it's already rendering");
+            }
+
             if (component.instantiated) {
                 checkForRenderMistake(component);
             }
@@ -579,8 +584,14 @@ export function __newComponentInternal<
             // Setting this value this late allows the component to render once before it's ever inserted.
             component.instantiated = true;
 
+            component.rendering = true;
             const s = getState(component);
-            renderFn(s);
+
+            try {
+                renderFn(s);
+            } finally {
+                component.rendering = false;
+            }
         }
     };
 
@@ -899,7 +910,7 @@ function renderFunctions<S>(rg: RenderGroup<S>, renderFns: RenderFn<S>[]) {
             renderFns[i].fn(s);
         }
         return;
-    } 
+    }
 
     for (let i = 0; i < renderFns.length; i++) {
         const errorRoot = renderFns[i].root || defaultErrorRoot;
@@ -1095,7 +1106,7 @@ export function newComponent<T, U extends ValidElement, Si extends T>(
     skipErrorBoundary = false
 ) {
     // NOTE: COPYPASTE: newComponent
-    
+
     const rg = newRenderGroup<T, Si>(
         initialState,
         templateFn.name ?? "unknown fn name",
@@ -1150,7 +1161,7 @@ export function newComponent2<T, U extends ValidElement, R, Si extends T>(
     skipErrorBoundary = false
 ): [Component<T, U>, R] {
     // NOTE: COPYPASTE: newComponent
-    
+
     const rg = newRenderGroup<T, Si>(
         initialState,
         templateFn.name ?? "unknown fn name",
@@ -1192,6 +1203,10 @@ export type Component<T, U extends ValidElement> = Insertable<U> & {
     renderWithCurrentState(): void;
     s: T | undefined;
     instantiated: boolean;
+    /**
+     * Internal variable used to catch infinite recursion bug 
+     */
+    rendering: boolean;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
