@@ -1259,8 +1259,11 @@ export function scrollIntoView(
     scrollParent.scrollTop = scrollToElOffsetTop - scrollOffset + elementHeightOffset;
 }
 
-export function setCssVars(vars: [string, string][]) {
-    const cssRoot = document.querySelector(":root") as HTMLElement;
+export function setCssVars(vars: [string, string][], cssRoot?: HTMLElement) {
+    if (!cssRoot) {
+        cssRoot = document.querySelector(":root") as HTMLElement;
+    }
+
     for (const [k, v] of vars) {
         cssRoot.style.setProperty(k, v);
     }
@@ -1276,9 +1279,15 @@ let lastClass = 0;
  * NOTE: this should always be called at a global scope on a *per-module* basis, and never on a per-component basis.
  * Otherwise you'll just have a tonne of duplicate styles lying around in the DOM. 
  */
-export function newStyleGenerator(): StyleGenerator {
+export function newStyleGenerator(appendUnder? : Element): StyleGenerator {
+    if (!appendUnder) {
+        // Sometimes you will need to append styles under something that isn't the body...
+        appendUnder = document.body;
+    }
+
     const root = el<HTMLStyleElement>("style", { type: "text/css" });
-    document.body.appendChild(root.el);
+
+    appendUnder.appendChild(root.el);
 
     lastClass++;
 

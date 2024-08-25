@@ -480,6 +480,10 @@ function ActivityListItem(rg: RenderGroup<{
 
     const breakInsertRow = newComponent((rg) => {
         return div({ class: "align-items-center justify-content-center row" }, [
+            rg.on("mouseleave", () => {
+                isInsertBreakRowOpen = false;
+                rg.renderWithCurrentState();
+            }),
             div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
             rg.c(Button, c => c.render({
                 label: "+ Insert break here",
@@ -494,10 +498,6 @@ function ActivityListItem(rg: RenderGroup<{
     const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" }, [
         rg.on("mouseenter", () => {
             isInsertBreakRowOpen = true;
-            rg.renderWithCurrentState();
-        }),
-        rg.on("mouseleave", () => {
-            isInsertBreakRowOpen = false;
             rg.renderWithCurrentState();
         }),
     ]);
