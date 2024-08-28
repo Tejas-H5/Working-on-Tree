@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.997";
+const VERSION_NUMBER = "v1.1.998";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -383,9 +383,17 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
 function BreakInput(rg: RenderGroup) {
     const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
     const breakButton = newComponent(Button);
-    const root = div({ style: "padding: 5px;", class: "row align-items-center" }, [
-        div({ class: "flex-1" }, [breakInput]),
-        div({}, [breakButton]),
+    const root = div({ style: "padding: 5px;" }, [
+        // I'm putting it here above the break input because it seems fitting amongst the other activity times, however,
+        // this clock is really just a way for me to know that my app hasn't frozen.
+        // So if I ever want to delete it, I _must_ put it somewhere else.
+        div({}, [
+            rg.text(() => formatDate(new Date(), undefined, true, true))
+        ]),
+        div({ class: "row align-items-center" }, [
+            div({ class: "flex-1" }, [breakInput]),
+            div({}, [breakButton]),
+        ]),
     ]);
 
     rg.preRenderFn(function renderBreakInput() {
@@ -2360,12 +2368,13 @@ function CheatSheet(_rg: RenderGroup) {
     }
 
     const root = div({ style: "padding: 10px" }, [
-        el("H3", {}, ["Cheatsheet"]),
+        el("H3", {}, ["Note tree " + VERSION_NUMBER + " Cheatsheet"]),
         el("H4", {}, ["Offline use"]),
         isRunningFromFile() ? (
             div({}, [
-                "The 'Download this page!' button is gone, now that you've downloaded the page.",
-                ` Moving or renaming this file will result in all your data being lost, so make sure you download a copy of your JSON before you do that.`,
+                "The 'Download this page!' button is gone, now that you've downloaded the page!",
+                ` However, you're not out of the woods yet. Moving or renaming this file will result in all your data being lost, so make sure you download your save-file before you do that.`,
+                `You should also make it a habit to download your save-file very week or so - web browsers (firefox, since this is the only browser where this website is useable apparently) can stop working all of a sudden for various reasons.`,
                 ` The same is true if I or my hosting provider decided to change the URL of this page - not something you need to worry about anymore, now that you've downloaded this page.`,
             ])
         ) : (
@@ -2374,7 +2383,7 @@ function CheatSheet(_rg: RenderGroup) {
                     ` This web page can be saved to your computer and ran offline!`,
                     makeDownloadThisPageButton(),
                 ]),
-                `You will need to download the json here and load the json there if you've already been using it online for a while.`,
+                `You will need to download your save file here (Export -> Download JSON) and load the save file there (Load JSON) if you've already been using it online for a while.`,
                 ` I would recommend this, because if I, or my hosting provider, decided to change the URL of this page (lets say I don't like Tejas-H5 as a github username, and I change it to Tejas-H6 for example) - all your data will be lost.`,
             ])
         ),
@@ -3078,7 +3087,8 @@ const cnInfoButton = sg.makeClass("info-button", [` {
 // decide to start using those
 export function App(rg: RenderGroup) {
     const cheatSheetButton = el("BUTTON", { class: cnInfoButton, title: "click for a list of keyboard shortcuts and functionality" }, [
-        "cheatsheet?"
+        div({}, "Note tree " + VERSION_NUMBER),
+        div({}, "cheatsheet"),
     ]);
     let currentHelpInfo = 1;
     cheatSheetButton.el.addEventListener("click", () => {
@@ -3153,7 +3163,6 @@ export function App(rg: RenderGroup) {
             }))
         ]),
         div({ class: "flex-1 text-align-center" }, [statusTextIndicator]),
-        div({ style: "width: 100px" }, [VERSION_NUMBER]),
         div({ class: "row" }, [
             isRunningFromFile() ? (
                 div()
@@ -3216,10 +3225,11 @@ export function App(rg: RenderGroup) {
                 div({ class: "col flex-1 overflow-y-auto" }, [
                     rg.if(() => currentHelpInfo === 2, (rg) => rg.cNull(CheatSheet)),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
-                        el("H2", {}, [
-                            rg.text(() => currentAppHeader + " - " + formatDate(new Date(), undefined, true, true)),
+                        div({ class: "flex-1" }, [
+                            el("H2", {}, [
+                                rg.text(() => currentAppHeader),
+                            ]),
                         ]),
-                        div({ class: "flex-1" }),
                         cheatSheetButton,
                         rg.cNull(DarkModeToggle),
                     ]),

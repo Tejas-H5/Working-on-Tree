@@ -470,7 +470,8 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     
     // delete the empty notes
     if (!isTimer) {
-        dfsPre(state, getRootNote(state), (n) => {
+        tree.forEachNode(state.notes, (id) => {
+            const n = getNote(state, id);
             if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
                 deleteNoteIfEmpty(state, n.id)
             }
@@ -656,7 +657,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     }
 
     // compute the duration range as needed
-    {
+    if (!isTimer) {
         // Once we leave the duration view, ensure that activitiesTo resets to today if it doesn't already include today.
         // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
         // this reset to today only happens if today isn't in that time range
@@ -666,7 +667,6 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         ) {
             setActivityRangeToToday(state);
         }
-        
 
         if (state._isShowingDurations) {
             // if scope is week, make sure we always have a week-long window set,
