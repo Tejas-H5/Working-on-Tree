@@ -54,10 +54,3 @@ Task 2: <timestamp 3 - timestamp 2> hrs
 And this turns out to be a great way to keep track of what we're doing in the day, but it is somewhat limited, in that we can't really 
 get an insight into the overall work spent on a specific task. 
 
-~~~Another thing I've found is that chrome has a bug which causes indexedDB to grow to an unbounded size.
-My indexedDB grew to 15GB in production, causing chrome to crash whenever it even attempted to read data from
-this database. Hence, I would recommend NOT using chrome or any chromium based browser to run this program.
-I have added code to the program to detect and flag this issue if it ever starts happening to you.~~~
-
-As of v1.1.999, this should no longer be the case - the problem was solved by storing the state as a blob instead of a string. 
-

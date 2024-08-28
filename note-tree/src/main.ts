@@ -1693,7 +1693,7 @@ function ScratchPadModal(rg: RenderGroup<{
         if (!wasVisible && open) {
             if (!state._isEditingFocusedNote) {
                 setIsEditingCurrentNote(state, true);
-                rerenderApp();
+                rerenderAppNextFrame();
                 return;
             }
 
@@ -2299,13 +2299,6 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
                 onClick: handleLockUnlockActivitiesToNote,
             })),
             div({ class: "flex-1" }),
-            rg.c(Button, c => c.render({
-                label: "Scop",
-                onClick: () => {
-                    state._currentlyViewingActivityIdx = state.activities.length - 1;
-                    rerenderApp();
-                },
-            })),
             scrollActivitiesToTop,
             scrollActivitiesToMostRecent,
             div({ style: "width: 10px" }),
@@ -3848,6 +3841,12 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
         renderOptions.shouldScroll = shouldScroll;
     }
     app.render(null);
+}
+
+let renderNextFrameTimeout = 0;
+function rerenderAppNextFrame() {
+    clearTimeout(renderNextFrameTimeout);
+    renderNextFrameTimeout = setTimeout(rerenderApp, 1);
 }
 
 
