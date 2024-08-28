@@ -45,6 +45,7 @@ export type NoteTreeGlobalState = {
 
     // non-serializable fields start with _
     
+    // NOTE: these ids are more like 'these are the stuff we worked on last' type ids.
     _todoNoteIds: NoteId[];
     /**
      * -1 -> All tasks under current high level task

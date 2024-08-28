@@ -698,7 +698,7 @@ export type RenderGroup<S = null> = {
     list: <R extends ValidElement, T, U extends ValidElement>(
         root: Insertable<R>,
         templateFn: TemplateFn<T, U>,
-        renderFn: (s: S, getNext: () => Component<T, U>, listRenderer: ListRenderer<R, T, U>) => void,
+        renderFn: (getNext: () => Component<T, U>, s: S, listRenderer: ListRenderer<R, T, U>) => void,
     ) => ListRenderer<R, T, U>;
     /** Sets a component visible based on a predicate, and only renders it if it is visible */
     if: <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>) => Component<S, U>,
@@ -1052,7 +1052,7 @@ function newRenderGroup<S, Si extends S>(
             const listRenderer = newListRenderer(root, () => newComponent(templateFn));
             pushRenderFn(rg, domRenderFn, (s) => {
                 listRenderer.render((getNext) => {
-                    renderFn(s, getNext, listRenderer);
+                    renderFn(getNext, s, listRenderer);
                 });
                 rg.lastPredicateResult = listRenderer.lastIdx !== 0;
             }, root);

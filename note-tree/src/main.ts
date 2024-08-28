@@ -2921,7 +2921,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             })),
             div({ class: "flex-1" }),
         ]),
-        rg.list(div(), DayRow, (_, getNext) => {
+        rg.list(div(), DayRow, (getNext) => {
             // Only need the header for a week
             if (state._currentDateScope === "week") {
                 const date = new Date(state._activitiesFrom!);
@@ -3024,7 +3024,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 })
             ]),
             div({ style: "min-width: 100px" }),
-            rg.list(div({ class: "row" }), TimeItem, (s, getNext) => {
+            rg.list(div({ class: "row" }), TimeItem, (getNext, s) => {
                 for (let i = 0; i < s.text.length; i++) {
                     const bgColor = s.currentHoverCol === i ? "var(--bg-color-focus-2)" :
                         s.currentFocusCol === i ? "var(--bg-color-focus)" :
