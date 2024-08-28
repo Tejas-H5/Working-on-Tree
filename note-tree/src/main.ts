@@ -115,7 +115,6 @@ import {
     state,
     toggleActivityScopedNote,
     toggleCurrentNoteSticky,
-    tryForceIndexedDBCompaction
 } from "./state";
 import { assert } from "./utils/assert";
 
@@ -125,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.998";
+const VERSION_NUMBER = "v1.1.999";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2373,8 +2372,7 @@ function CheatSheet(_rg: RenderGroup) {
         isRunningFromFile() ? (
             div({}, [
                 "The 'Download this page!' button is gone, now that you've downloaded the page!",
-                ` However, you're not out of the woods yet. Moving or renaming this file will result in all your data being lost, so make sure you download your save-file before you do that.`,
-                `You should also make it a habit to download your save-file very week or so - web browsers (firefox, since this is the only browser where this website is useable apparently) can stop working all of a sudden for various reasons.`,
+                `You should also make it a habit to download your save-file very week or so, since browsers can stop working all of a sudden for various reasons (mostly from new updates every now and then)`,
                 ` The same is true if I or my hosting provider decided to change the URL of this page - not something you need to worry about anymore, now that you've downloaded this page.`,
             ])
         ) : (
@@ -3794,12 +3792,9 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
                 if (mb * COMPACTION_THRESHOLD < estimatedMbUsage) {
                     console.warn(baseErrorMessage);
-                    tryForceIndexedDBCompaction();
                 }
 
                 if (mb * CRITICAL_ERROR_THRESHOLD < estimatedMbUsage) {
-                    tryForceIndexedDBCompaction();
-
                     const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on https://github.com/Tejas-H5/Working-on-Tree"
 
                     state.criticalSavingError = criticalSavingError;

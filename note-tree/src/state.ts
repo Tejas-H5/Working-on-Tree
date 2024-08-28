@@ -27,12 +27,11 @@ export type NoteTreeGlobalState = {
     breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
 
-    // A stupid bug in chrome causes IndexedDB to be non-functional 
+    // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
     // (at least with the way I'm using it as a drop-in replacement for localStorage.).
     // see usages of this variable for more details.
+    // I've kept this in just in case it starts happening again.
     criticalSavingError: string | undefined;
-
-    /** The quicklist. This is different from the activities list. **/
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
@@ -44,7 +43,7 @@ export type NoteTreeGlobalState = {
     settings: AppSettings;
 
     // non-serializable fields start with _
-    
+
     // NOTE: these ids are more like 'these are the stuff we worked on last' type ids.
     _todoNoteIds: NoteId[];
     /**
@@ -54,7 +53,7 @@ export type NoteTreeGlobalState = {
      *  2 -> Most recent task under all high level tasks (that have an estimate)
      */
     _todoNoteFilters: number;
-    _todoRootId: NoteId;  
+    _todoRootId: NoteId;
     _currentlyViewingActivityIdx: number;
     _currentActivityScopedNote: NoteId;
     _flatNoteIds: NoteId[];
@@ -103,7 +102,8 @@ export type Note = {
 };
 
 
-export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeNote) {state
+export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeNote) {
+    state
     tree.forEachNode(state.notes, (id) => {
         const note = getNote(state, id);
         note.data._isUnderCurrent = false;
@@ -319,14 +319,28 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
 
 }
 
-export function setStateFromJSON(savedStateJSON: string) {
+export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => void) {
+    if (typeof savedStateJSON !== "string") {
+        logTrace("Got a blob, converting to string before using...");
+
+        savedStateJSON.text()
+            .then(text => setStateFromJSON(text, then))
+            .catch(err => console.error("Error with parsing json blob: ", err));
+
+        return;
+    }
+
+    logTrace("Setting state from JSON string");
+
     const loaded = loadStateFromJSON(savedStateJSON);
     if (!loaded) {
         state = defaultState();
         return;
     }
-    
+
     state = loaded;
+
+    then?.();
 }
 
 export function getLastActivity(state: NoteTreeGlobalState): Activity | undefined {
@@ -344,7 +358,7 @@ export function getLastActivityWithNote(state: NoteTreeGlobalState): Activity | 
 export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
     let i = state.activities.length - 1;
     while (i >= 0) {
-        if(state.activities[i].nId) {
+        if (state.activities[i].nId) {
             return i;
         }
 
@@ -393,7 +407,7 @@ export type NoteFilter = null | {
 
 export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
     const noteIds: NoteId[] = [];
-    
+
     const root = getRootNote(state);
     for (const childId of root.childIds) {
         const note = getNote(state, childId);
@@ -401,7 +415,7 @@ export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
             noteIds.push(note.id);
         });
     }
-    
+
     return noteIds;
 }
 
@@ -467,7 +481,7 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
 // TODO: super inefficient, need to set up a compute graph or something more complicated
 export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = false) {
     assert(!!state, "WTF");
-    
+
     // delete the empty notes
     if (!isTimer) {
         tree.forEachNode(state.notes, (id) => {
@@ -536,7 +550,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
             const everyChildNoteIsDone = note.childIds.every((id) => {
                 const note = getNote(state, id);
-                return note.data._status === STATUS_DONE 
+                return note.data._status === STATUS_DONE
                     || note.data._status === STATUS_ASSUMED_DONE;
             });
 
@@ -645,7 +659,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
                     }
                     showedNilTask = true;
                 }
-            } 
+            }
 
             state._todoNoteIds.push(note.id);
             note.data._isUnderCurrent = true;
@@ -688,7 +702,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
                     state._activitiesTo = new Date(state._activitiesFrom);
                     addDays(state._activitiesTo, 7);
                 }
-            } 
+            }
         }
     }
 
@@ -720,7 +734,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
             // TODO: update this to work for activities with start/end times that overlap into the current range
             if (
-                (!state._activitiesFrom || state._activitiesFrom <= getActivityTime(a0)) 
+                (!state._activitiesFrom || state._activitiesFrom <= getActivityTime(a0))
                 && (!state._activitiesTo || getActivityTime(a1) <= state._activitiesTo)
             ) {
                 if (state._activitiesFromIdx === -1) {
@@ -737,7 +751,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
     // recompute the current filtered activities
     if (!isTimer) {
-        state._useActivityIndices = false; ;
+        state._useActivityIndices = false;
         const hasValidRange = state._activitiesFromIdx !== -1;
         const useDurations = state._isShowingDurations && hasValidRange;
         if (useDurations || !!state._currentActivityScopedNote) {
@@ -820,7 +834,7 @@ export function createNewNote(state: NoteTreeGlobalState, text: string): TreeNot
 }
 
 
-export function activityNoteIdMatchesLastActivity(state: NoteTreeGlobalState, activity: Activity) : boolean {
+export function activityNoteIdMatchesLastActivity(state: NoteTreeGlobalState, activity: Activity): boolean {
     const lastActivity = getLastActivity(state);
     if (!lastActivity) {
         return false;
@@ -838,22 +852,22 @@ function canActivityBeReplacedWithNewActivity(state: NoteTreeGlobalState, lastAc
     const activityDurationMs = getActivityDurationMs(lastActivity, undefined);
 
     if (
-        lastActivity && 
-        lastActivity.nId && 
-        lastActivity.c === 1 && 
-        !lastActivity.deleted 
+        lastActivity &&
+        lastActivity.nId &&
+        lastActivity.c === 1 &&
+        !lastActivity.deleted
     ) {
         return false;
     }
 
     if (
         // A bunch of conditions that make this activity something we don't need to keep around as much
-        !lastActivity || 
+        !lastActivity ||
         !lastActivity.nId ||
-        !hasNote(state, lastActivity.nId) || 
-        lastActivity.deleted || 
+        !hasNote(state, lastActivity.nId) ||
+        lastActivity.deleted ||
         lastActivity.c !== 1 || // activity wasn't created, but edited
-        isBreak(lastActivity) || 
+        isBreak(lastActivity) ||
         !getNote(state, lastActivity.nId).data.text.trim()  // empty text
     ) {
         // The activity is more replaceable, so we extend this time.
@@ -875,7 +889,7 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
     if (lastActivity && canActivityBeReplacedWithNewActivity(state, lastActivity)) {
         // this activity may be popped - effectively replaced with the new activity
         state.activities.pop();
-        
+
         if (activityNoteIdMatchesLastActivity(state, activity)) {
             // Still, don't push the same activity twice in a row
             return;
@@ -953,7 +967,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
         }
     }
 
-    while(state.activities.length > 0 && state.activities[state.activities.length - 1].deleted) {
+    while (state.activities.length > 0 && state.activities[state.activities.length - 1].deleted) {
         state.activities.pop();
     }
 
@@ -1177,7 +1191,7 @@ export function findNextImportantNote(state: NoteTreeGlobalState, note: TreeNote
     }
 
     const isInProgress = nextNote.data._status === STATUS_IN_PROGRESS;
-    for (let i = idx + dir; i + dir >= -1 &&  i + dir <= siblings.length; i += dir) {
+    for (let i = idx + dir; i + dir >= -1 && i + dir <= siblings.length; i += dir) {
         const note = getNote(state, siblings[i]);
         if (
             i <= 0 ||
@@ -1450,7 +1464,7 @@ export function isBreak(activity: Activity): boolean {
     return !!activity.breakInfo;
 }
 
-export function isMultiDay(activity: Activity, nextActivity: Activity | undefined) : boolean {
+export function isMultiDay(activity: Activity, nextActivity: Activity | undefined): boolean {
     const t = getActivityTime(activity);
     const t1 = nextActivity ? getActivityTime(nextActivity) : new Date();
 
@@ -1556,7 +1570,7 @@ export function setActivityRangeToThisWeek(state: NoteTreeGlobalState) {
 
 export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): string | undefined {
     // WARNING: this is a A destructive action that permenantly deletes user data. Take every precaution, and do every check
-    
+
     if (!hasNote(state, note.id)) {
         return "Note doesn't exist to delete. It may have already been deleted.";
     }
@@ -1596,8 +1610,8 @@ export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): stri
         }
 
         if (
-            !hasNote(state, activity.nId) || 
-            activity.deleted 
+            !hasNote(state, activity.nId) ||
+            activity.deleted
         ) {
             activity.nId = parentId;
             activity.deleted = true;
@@ -1626,7 +1640,7 @@ export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): stri
     if (lastActivityIdx !== -1) {
         const activity = state.activities[lastActivityIdx];
         assert(activity.nId);
-        setCurrentNote(state, activity.nId);    
+        setCurrentNote(state, activity.nId);
         return;
     }
 
@@ -1721,7 +1735,7 @@ export function loadState(then: () => void) {
         kvStore.createIndex("value", "value", { unique: false });
     }
 
-    request.onsuccess = ()  => {
+    request.onsuccess = () => {
         db = request.result;
 
         logTrace("Opened DB");
@@ -1750,8 +1764,7 @@ export function loadState(then: () => void) {
             }
 
             logTrace("Loaded data from IndexedDB (and not localStorage)");
-            setStateFromJSON(savedStateJSONWrapper.value);
-            then();
+            setStateFromJSON(savedStateJSONWrapper.value, then);
         }
     };
 }
@@ -1766,21 +1779,27 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
     const nonCyclicState = recursiveShallowCopy(state);
     const serialized = JSON.stringify(nonCyclicState);
 
+    // https://developer.chrome.com/blog/blob-support-for-Indexeddb-landed-on-chrome-dev
+    // NOTE: I'm not even going to attempt to save as a string, because that simply won't work on chromium browsers
+    // in the long run: https://github.com/google/leveldb/issues/299
+    // They solved their issue by moving to blob storage instead of strings, and it has worked for me as well.
+    const serializedBlob = new Blob([serialized], { type: "text/plain" });
+
     const kvStoreTx = db.transaction([INDEXED_DB_KV_STORE_NAME], "readwrite");
 
     kvStoreTx.objectStore(INDEXED_DB_KV_STORE_NAME).put({
         key: KV_STORE_STATE_KEY,
-        value: serialized,
+        value: serializedBlob,
     });
 
     // Do something when all the data is added to the database.
     kvStoreTx.oncomplete = () => {
-        logTrace("Saved!");
+        logTrace("Saved! (as a blob this time, and not text!)");
         then(serialized);
     };
 
     kvStoreTx.onerror = (event) => {
-        console.error("An error occured while trying to save: ", event, kvStoreTx.error);
+        console.error("An error occured while trying to save as a blob: ", event, kvStoreTx.error);
     };
 }
 
@@ -1848,52 +1867,3 @@ export function loadStateFromBackup(text: string) {
 }
 
 
-export function tryForceIndexedDBCompaction() {
-    // HACK:
-    // https://github.com/localForage/localForage/issues/339#issuecomment-503879440
-    // A user wrote:
-    // > Chromium's implementation of IndexedDB will compact storage after a write of ~4Mb.
-    // > https://stackoverflow.com/questions/15841828/why-does-empty-indexeddb-still-take-up-space
-    // > I found this Chromium commit that says a compaction can be forced by deleting a database.
-    // > https://codereview.chromium.org/100013003
-    // > I wrote a small hack with Dexie.js to create and delete a database to force a compaction, but it doesn't work consistently. 
-    // > It works well when there's a big difference between reported storage (the output of navigator.storage.estimate()), 
-    //      and "desired" storage (the amount of storage you know you've written, excluding "tombstone records")
-
-    // I have faced a similar issue with my own production data, where IndexedDB would grow to 15GB and then crash chrome whenever opening this app.
-    // The 'total data' taken up by our state was only ~2mb. But each save increased our IndexedDB size by 1 mb.
-    // In order to avoid this bug, we need to do some hacks to manually trigger a compaction in levelDB.
-    //
-
-
-    // NOTE: this is what I believe the hack is, as suggested by the user.
-    // HOWEVER, THIS CODE CURRENTLY ISN't WORKING !!!!
-    
-    // logTrace("Forcing a compaction (or trying to, at least). Opening DB...");
-    // const request = window.indexedDB.open(FORCE_COMPACTION_STORE_NAME, 1);
-    // request.onerror = (e) => {
-    //     console.error("Error requesting db for compaction - ", e, request.error);
-    // }
-    // request.onupgradeneeded = () => {
-    //     logTrace("Creating temp store...");
-    //
-    //     const db = request.result;
-    //     db.createObjectStore("tempStore", { keyPath: "k" });
-    //
-    //     logTrace("Created temp store");
-    // }
-    // request.onsuccess = () => {
-    //     logTrace("Deleting temp store...");
-    //     const db = request.result;
-    //     db.close();
-    //
-    //     const request2 = indexedDB.deleteDatabase(FORCE_COMPACTION_STORE_NAME);
-    //     request2.onsuccess = () => {
-    //         logTrace("Deleted temp store!");
-    //     }
-    //     request2.onerror = (e) => {
-    //         console.error("Error deleting db for compaction - ", e, request2.error);
-    //     }
-    //
-    // }
-}
