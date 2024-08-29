@@ -124,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.999";
+const VERSION_NUMBER = "v1.1.9991";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1198,8 +1198,16 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
         setInputValue(whenEditing, note.data.text);
         lastNote = note;
 
+        // We need our root's height to temporarily be the same as whenEditing, 
+        // so that the document's size doesn't reduce drastically, causing scrolling to reset
+        // with long text areas.
+        const currentHeight = whenEditing.el.clientHeight;
+        root.el.style.height = currentHeight + "px";
+
         whenEditing.el.style.height = "0";
         whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
+
+        root.el.style.height = "";
     }
 
     rg.preRenderFn(function renderNoteRowText(s) {
@@ -3836,11 +3844,14 @@ appendChild(
 
 const rerenderApp = (shouldScroll = true, isTimer = false) => {
     renderOptions.isTimer = isTimer;
+
     if (!isTimer) {
         // there are actually very few times when we don't want to scroll to the current note
         renderOptions.shouldScroll = shouldScroll;
     }
     app.render(null);
+
+    resetAppRenderInterval();
 }
 
 let renderNextFrameTimeout = 0;
@@ -3849,9 +3860,9 @@ function rerenderAppNextFrame() {
     renderNextFrameTimeout = setTimeout(rerenderApp, 1);
 }
 
-
-initState(() => {
-    autoInsertBreakIfRequired();
+let appRerenderingInterval = 0;
+function resetAppRenderInterval() {
+    clearInterval(appRerenderingInterval);
 
     // A lot of UI relies on the current date/time to render it's contents
     // In order for this UI to always be up-to-date, I'm just re-rendering the entire application somewhat frequently.
@@ -3861,9 +3872,14 @@ initState(() => {
     // I'm also not convinced that this problem is unsolveable without using create() and dispose() methods. 
     // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
     // (which is apparently very easy to do here)
-    setInterval(() => {
+    appRerenderingInterval = setInterval(() => {
         rerenderApp(false, true);
     }, 500);
+}
+
+
+initState(() => {
+    autoInsertBreakIfRequired();
 
     initKeyboardListeners(rerenderApp);
 
