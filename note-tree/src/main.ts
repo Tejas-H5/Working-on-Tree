@@ -124,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9991";
+const VERSION_NUMBER = "v1.1.9992";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -960,6 +960,7 @@ function LinkNavModal(rg: RenderGroup) {
             return;
         }
 
+
         if (e.key === "ArrowUp") {
             e.preventDefault();
 
@@ -977,7 +978,6 @@ function LinkNavModal(rg: RenderGroup) {
             e.stopImmediatePropagation();
 
             if (e.shiftKey) {
-
                 if (noteId !== state.currentNoteId) {
                     setCurrentNote(state, noteId, true);
                     rerenderApp();
@@ -1198,6 +1198,7 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
         setInputValue(whenEditing, note.data.text);
         lastNote = note;
 
+        // TODO: move into textarea.
         // We need our root's height to temporarily be the same as whenEditing, 
         // so that the document's size doesn't reduce drastically, causing scrolling to reset
         // with long text areas.
@@ -1712,6 +1713,7 @@ function ScratchPadModal(rg: RenderGroup<{
 
             // needs to happen after we render the canvas, since we will be swapping out the output buffer
             resetCanvas(canvasState, false, note.data.text);
+            asciiCanvas.renderWithCurrentState();
         } else if (wasVisible && !open) {
             wasVisible = false;
 
@@ -1728,6 +1730,7 @@ function ScratchPadModal(rg: RenderGroup<{
 
                 // Either way, we have to clear it so that we don't overwrite some other note
                 state.scratchPadCanvasLayers = [];
+                rerenderAppNextFrame();
             }
         }
 

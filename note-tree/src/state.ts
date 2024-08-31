@@ -623,7 +623,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
                 note.parentId === null ||
                 note.data._isUnderCurrent ||
                 (note.data._status !== STATUS_IN_PROGRESS) ||
-                (note.data._status === STATUS_IN_PROGRESS && note.childIds.length > 0 && !note.data._everyChildNoteDone)
+                (note.data._status === STATUS_IN_PROGRESS && note.childIds.length > 0 && note.data._everyChildNoteDone)
             ) {
                 continue;
             }

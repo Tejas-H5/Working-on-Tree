@@ -1,4 +1,8 @@
-/** One liners used to position/layout elements and text. Try to name them as close to their css counterparts */
+/** 
+* One liners used to position/layout elements and text. Try to name them as close to their css counterparts.
+* If there was at least one css file to copy into another project, it would be this one. 
+* This is why I may have added some other critical styling that is unrelated to layouts.
+*/
 
 /** flex positioning */
 
@@ -78,3 +82,9 @@
 .hover-parent:hover .hover-target { display: inherit !important; }
 .hover-parent:hover .hover-target-inverse { display: none !important; }
 
+/** error handling and debugging */
+.catastrophic---error > * { display: none !important; }
+.catastrophic---error::before {
+    content: "An error occured when updating this content. You've found a bug!";
+}
+.debug { border: 1px solid red; }
