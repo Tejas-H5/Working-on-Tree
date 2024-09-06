@@ -1,8 +1,8 @@
-import { isAltPressed, isCtrlPressed, isShiftPressed } from "src/./keyboard-input";
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { Insertable, RenderGroup, div, el, getState, isVisible, newComponent, newComponent2, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 
 const TAB_SIZE = 4;
 
@@ -43,6 +43,7 @@ type UndoLogEntry = {
 type CanvasState = {
     // Input state
     args: () => CanvasArgs;
+    keyboardState: KeyboardState;
     mouseInputState: MouseInputState;
     currentTool: ToolType;
     cursorRowCol: { i: number; j: number; };
@@ -769,7 +770,7 @@ function redoWithinTime(canvas: CanvasState) {
 }
 
 function getTool(canvas: CanvasState): ToolType {
-    return isAltPressed() ? "move-selection" : canvas.currentTool;
+    return canvas.keyboardState.isAltPressed ? "move-selection" : canvas.currentTool;
 }
 
 function getCursorCell(canvas: CanvasState): CanvasCellArgs | undefined {
@@ -1212,9 +1213,9 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         }
 
         if (isMouse) {
-            if (isShiftPressed()) {
+            if (canvasState.keyboardState.isShiftPressed) {
                 toolState.selectionApplyType = "subtractive";
-            } else if (isCtrlPressed()) {
+            } else if (canvasState.keyboardState.isCtrlPressed) {
                 toolState.selectionApplyType = "additive";
             } else {
                 toolState.selectionApplyType = "replace";
@@ -1321,6 +1322,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
     const canvasState: CanvasState = {
         args: () => getState(rg),
+        keyboardState: newKeyboardState(),
         mouseInputState,
         rows: [],
         currentTool: "rect-select",
@@ -1418,6 +1420,8 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
     });
 
     function handleKeyDown(e: KeyboardEvent) {
+        handleKeyDownKeyboardState(canvasState.keyboardState, e);
+
         let cursorCell = getCursorCell(canvasState);
         if (!cursorCell) {
             moveCursor(canvasState, 0, 0);
@@ -1655,6 +1659,8 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
     });
 
     document.addEventListener("keyup", (e) => {
+        handleKeyUpKeyboardState(canvasState.keyboardState, e);
+
         let shouldApply = true;
         if (e.key === "Shift" && canvasState.toolState.keyboardSelectStart) {
             canvasState.toolState.keyboardSelectStart = false;

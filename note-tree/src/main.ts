@@ -44,7 +44,6 @@ import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
 import { TextArea } from "./components/text-area";
 import { InteractiveGraph } from "./interactive-graph";
-import { initKeyboardListeners } from "./keyboard-input";
 import {
     Activity,
     AppTheme,
@@ -124,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9992";
+const VERSION_NUMBER = "v1.1.9993";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1191,18 +1190,33 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
     let isFocused = false;
     let isEditing = false;
 
+    // the updateTextContentAndSize triggers a lot of reflows, making it
+    // expensive to run every time. We need to memoize it
+    let lastText: string | undefined;
     function updateTextContentAndSize() {
         const s = getState(rg);
         const { note } = s;
+        const text = note.data.text;
+        if (
+            // the currently focused note should be updated all the time regardless.
+            !isFocused && 
+            lastText === text
+        ) {
+            return;
+        }
+        lastText = text;
 
-        setInputValue(whenEditing, note.data.text);
-        lastNote = note;
+        setInputValue(whenEditing, text);
 
-        // TODO: move into textarea.
+        // TODO: move into TextInput component
         // We need our root's height to temporarily be the same as whenEditing, 
         // so that the document's size doesn't reduce drastically, causing scrolling to reset
         // with long text areas.
-        const currentHeight = whenEditing.el.clientHeight;
+        const currentHeight = Math.max(
+            // only one is visible at a time. as mentioned, this is ran when editing AND not editing.
+            whenEditing.el.clientHeight,
+            whenNotEditing.el.clientHeight,
+        );
         root.el.style.height = currentHeight + "px";
 
         whenEditing.el.style.height = "0";
@@ -1239,6 +1253,8 @@ function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
         if (lastNote !== note || !isEditing) {
             isFocused = false;
         }
+
+        lastNote = note;
 
         if (setVisible(whenEditing, isEditing)) {
             if (!wasEditing) {
@@ -3876,15 +3892,13 @@ function resetAppRenderInterval() {
     // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
     // (which is apparently very easy to do here)
     appRerenderingInterval = setInterval(() => {
-        rerenderApp(false, true);
+        // rerenderApp(false, true);
     }, 500);
 }
 
 
 initState(() => {
     autoInsertBreakIfRequired();
-
-    initKeyboardListeners(rerenderApp);
 
     rerenderApp();
 });
