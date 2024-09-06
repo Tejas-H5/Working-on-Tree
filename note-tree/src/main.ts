@@ -123,7 +123,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9993";
+const VERSION_NUMBER = "v1.1.9994";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1105,10 +1105,7 @@ function EditableActivityList(rg: RenderGroup<{
             }
         });
 
-        listScrollContainer.render({
-            scrollEl,
-            rescrollMs: 5000,
-        });
+        listScrollContainer.render({ scrollEl });
 
         let statusText = "";
         if (activityIndexes) {
@@ -2274,11 +2271,18 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
             rerenderApp();
         }
     });
+    const scrollActivitiesToOldest = newComponent(Button, {
+        label: "Oldest",
+        onClick: () => {
+            state._currentlyViewingActivityIdx = getOldestIdx();
+            rerenderApp();
+        }
+    });
     const prevActivity = newComponent(Button);
     prevActivity.render({
-        label: "<-",
+        label: "->",
         onClick: () => {
-            const idx = getNextIdx();
+            const idx = getPrevIdx();
             if (idx !== -1) {
                 state._currentlyViewingActivityIdx = idx;
                 rerenderApp();
@@ -2286,9 +2290,9 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
         }
     });
     const nextActivity = newComponent(Button, {
-        label: "->",
+        label: "<-",
         onClick: () => {
-            const idx = getPrevIdx();
+            const idx = getNextIdx();
             if (idx !== -1) {
                 state._currentlyViewingActivityIdx = idx;
                 rerenderApp();
@@ -2328,9 +2332,13 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
             div({ class: "flex-1" }),
             scrollActivitiesToTop,
             scrollActivitiesToMostRecent,
+            scrollActivitiesToOldest,
             div({ style: "width: 10px" }),
-            div({ style: "width: 50px" }, [prevActivity]),
+            // Typically the <- arrow means to go back, but here it feels counter intuitive as
+            // we're going up a list and -> feels more correct, like we're going backwards through the activity list.
+            // Prob because -> is analogous with going down and <- is analogous with going up. 
             div({ style: "width: 50px" }, [nextActivity]),
+            div({ style: "width: 50px" }, [prevActivity]),
         ]),
         div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
         breakInput,
@@ -2347,6 +2355,10 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
 
     function getMostRecentIdx() {
         return findPreviousActiviyIndex(state, state.currentNoteId, state.activities.length - 1);
+    }
+
+    function getOldestIdx() {
+        return findNextActiviyIndex(state, state.currentNoteId, 0);
     }
 
     rg.preRenderFn(function renderActivityListContainer(s) {
@@ -2367,6 +2379,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
 
         setVisible(scrollActivitiesToTop, state._currentlyViewingActivityIdx !== state.activities.length - 1);
         setVisible(scrollActivitiesToMostRecent, state._currentlyViewingActivityIdx !== getMostRecentIdx());
+        setVisible(scrollActivitiesToOldest, state._currentlyViewingActivityIdx !== getOldestIdx());
         setVisible(prevActivity, getPrevIdx() !== -1);
         setVisible(nextActivity, getNextIdx() !== -1);
     });
@@ -3801,14 +3814,23 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
             // A shame we need to do this :(
             navigator.storage.estimate().then((data) => {
+                state.criticalSavingError = "";
+
                 const estimatedMbUsage = bytesToMegabytes(data.usage ?? 0);
+                if (estimatedMbUsage < 100) {
+                    // don't bother showing this warning if we're using way less than 100 mb. it will
+                    // cause unnecessary panic. We're more concerned about when it starts taking up 15gb and
+                    // then locking up/freezing/crashing the site.
+                    return;
+                }
+
                 showStatusText("Saved (" + mb.toFixed(2) + "mb / " + estimatedMbUsage.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
 
                 const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " +
                     estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
 
-                const COMPACTION_THRESHOLD = 10;
-                const CRITICAL_ERROR_THRESHOLD = 20;
+                const COMPACTION_THRESHOLD = 20;
+                const CRITICAL_ERROR_THRESHOLD = 40;
 
                 if (mb * COMPACTION_THRESHOLD < estimatedMbUsage) {
                     console.warn(baseErrorMessage);
@@ -3819,8 +3841,6 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
 
                     state.criticalSavingError = criticalSavingError;
                     console.error(criticalSavingError);
-                } else {
-                    state.criticalSavingError = "";
                 }
             });
 
@@ -3892,7 +3912,7 @@ function resetAppRenderInterval() {
     // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
     // (which is apparently very easy to do here)
     appRerenderingInterval = setInterval(() => {
-        // rerenderApp(false, true);
+        rerenderApp(false, true);
     }, 500);
 }
 
