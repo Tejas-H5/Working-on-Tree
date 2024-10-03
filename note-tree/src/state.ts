@@ -1,10 +1,12 @@
 import { AsciiCanvasLayer } from "src/canvas";
+import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
+import { recursiveShallowCopy } from "src/utils/serialization-utils";
 import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
+
 import { GraphData, newGraphData } from "./interactive-graph";
-import { assert } from "./utils/assert";
 
 export type NoteId = string;
 export type TaskId = string;
@@ -178,10 +180,14 @@ export function getNoteTextWithoutPriority(note: Note): string {
     return note.text.substring(priority).trim();
 }
 
+export function isHigherLevelTask(note: TreeNote): boolean {
+    return getTodoNotePriority(note.data) >= 2;
+}
+
 export function getHltHeader(state: NoteTreeGlobalState, note: TreeNote): string {
     const strBuilder: string[] = [];
     tree.forEachParent(state.notes, note, (note) => {
-        if (getTodoNotePriority(note.data) >= 2) {
+        if (isHigherLevelTask(note)) {
             strBuilder.push(
                 getNoteTextWithoutPriority(note.data)
             );
@@ -897,32 +903,6 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
     }
 
     state.activities.push(activity);
-}
-
-
-// currently:
-//  - drops all properties with '_'
-// NOTE: the state shouldn't be cyclic. do not attempt to make this resistant to cycles,
-// it is _supposed_ to throw that too much recursion exception
-export function recursiveShallowCopy(obj: any): any {
-    if (Array.isArray(obj)) {
-        return obj.map((x) => recursiveShallowCopy(x));
-    }
-
-    if (typeof obj === "object" && obj !== null) {
-        const clone = {};
-        for (const key in obj) {
-            if (key[0] === "_") {
-                continue;
-            }
-
-            // @ts-ignore
-            clone[key] = recursiveShallowCopy(obj[key]);
-        }
-        return clone;
-    }
-
-    return obj;
 }
 
 
@@ -1819,7 +1799,7 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
     let higherLevelNote: TreeNote | undefined;
 
     tree.forEachParent(state.notes, note, (parent) => {
-        if (getTodoNotePriority(parent.data) >= 2) {
+        if (isHigherLevelTask(parent)) {
             higherLevelNote = parent;
             return true;
         }

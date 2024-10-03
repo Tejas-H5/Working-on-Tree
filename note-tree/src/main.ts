@@ -5,7 +5,7 @@ import "src/css/ui.css";
 import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
 import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, filterInPlace, findLastIndex, newArray } from "src/utils/array-utils";
+import { countOccurances, findLastIndex, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -95,6 +95,7 @@ import {
     isCurrentlyTakingABreak,
     isDoneNoteWithExtraInfo,
     isEditableBreak,
+    isHigherLevelTask,
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
@@ -123,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9994";
+const VERSION_NUMBER = "v1.1.9995";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1448,33 +1449,56 @@ function FuzzyFinder(rg: RenderGroup) {
             const rootNote = scopedToCurrentNote ? getCurrentNote(state)
                 : getRootNote(state);
 
+            // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
+            // It's too hard to find them in the todo list, so I'm trying other options.
+            const isHltQuery = query.startsWith(">>");
+            const isInProgressQuery = query.startsWith(">") && !isHltQuery;
+
             dfsPre(state, rootNote, (n) => {
                 if (!n.parentId) {
                     // ignore the root note
                     return;
                 }
-                let text = n.data.text.toLowerCase();
-                let results = fuzzyFind(text, query);
-                if (results.length > 0) {
-                    let score = scoreFuzzyFind(results);
-                    if (n.data._status === STATUS_IN_PROGRESS) {
-                        score *= 2;
-                    }
 
-                    matches.push({
-                        note: n,
-                        ranges: results,
-                        score,
-                    });
+                let text = n.data.text.toLowerCase();
+                
+                let useMinScore = false;
+                if (isHltQuery) {
+                    if (!isHigherLevelTask(n)) {
+                        return;
+                    }
+                } else if (isInProgressQuery) {
+                    if (isHigherLevelTask(n) || n.data._status !== STATUS_IN_PROGRESS) {
+                        return;
+                    }
+                } else {
+                    useMinScore = true;
                 }
+
+                let results = fuzzyFind(text, query);
+                let score = scoreFuzzyFind(results);
+                if (n.data._status === STATUS_IN_PROGRESS) {
+                    score *= 2;
+                }
+
+                if (useMinScore) {
+                    const minScore = getMinFuzzyFindScore(query);
+                    if (score < minScore) {
+                        return;
+                    }
+                }
+
+                matches.push({
+                    note: n,
+                    ranges: results,
+                    score,
+                });
             });
 
             matches.sort((a, b) => {
                 return b.score - a.score;
             });
 
-            const minScore = getMinFuzzyFindScore(query);
-            filterInPlace(matches, (m) => m.score > minScore);
 
             const MAX_MATCHES = 20;
             if (matches.length > MAX_MATCHES) {
