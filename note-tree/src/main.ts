@@ -96,6 +96,7 @@ import {
     isDoneNoteWithExtraInfo,
     isEditableBreak,
     isHigherLevelTask,
+    isNoteRequestingShelf,
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
@@ -124,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9996";
+const VERSION_NUMBER = "v1.1.9997";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1416,16 +1417,27 @@ function FuzzyFinder(rg: RenderGroup) {
         ranges: Range[];
         score: number;
     };
-    const matches: Match[] = [];
-    let currentSelectionIdx = 0;
 
+    let currentSelectionIdx = 0;
     let scopedToCurrentNote = false;
+    let query = "";
+
+    const matches: Match[] = [];
+    const counts = {
+        numInProgress: 0,
+        numFinished: 0,
+        numShelved: 0,
+    };
 
     const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
-    const searchLabel = div({ style: "padding: 10px", class: "nowrap" }, ["Search:"]);
     const root = div({ class: "flex-1 col" }, [
+        div({ style: "padding: 10px; gap: 10px;", class: "nowrap row" }, [
+            rg.text(() => scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
+            div({}, " - "),
+            rg.text(() => counts.numInProgress + " in progress, " + counts.numFinished + " done, " + counts.numShelved + " shelved"),
+        ]),
         div({ class: "row align-items-center", }, [
-            searchLabel,
+            div({ style: "width: 10px" }),
             searchInput,
             div({ style: "width: 10px" }),
         ]),
@@ -1437,22 +1449,43 @@ function FuzzyFinder(rg: RenderGroup) {
 
     let timeoutId = 0;
     const DEBOUNCE_MS = 10;
-    function rerenderSearch() {
-        setText(searchLabel, scopedToCurrentNote ? "Search (Current note):" : "Search (Everywhere):");
-
+    function recomputeMatches() {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             matches.splice(0, matches.length);
 
-            const query = searchInput.el.value.toLowerCase();
+            const SORT_BY_SCORE = 1;
+            const SORT_BY_RECENCY = 2;
+
+            let useMinScore = true;
+            let sortMethod = SORT_BY_SCORE;
 
             const rootNote = scopedToCurrentNote ? getCurrentNote(state)
                 : getRootNote(state);
+
+            // this can chain with the other two queries
+            const isShelvedQuery = query.startsWith("||");
+            if (isShelvedQuery) {
+                query = query.substring(2);
+            }
 
             // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
             // It's too hard to find them in the todo list, so I'm trying other options.
             const isHltQuery = query.startsWith(">>");
             const isInProgressQuery = query.startsWith(">") && !isHltQuery;
+
+            if (isHltQuery) {
+                query = query.substring(2);
+            } else if (isInProgressQuery) {
+                query = query.substring(1);
+            }
+            
+            if (isHltQuery || isInProgressQuery || isShelvedQuery) {
+                if (query.trim().length === 0) {
+                    sortMethod = SORT_BY_RECENCY;
+                    useMinScore = false;
+                }
+            }
 
             dfsPre(state, rootNote, (n) => {
                 if (!n.parentId) {
@@ -1461,24 +1494,44 @@ function FuzzyFinder(rg: RenderGroup) {
                 }
 
                 let text = n.data.text.toLowerCase();
-                
-                let useMinScore = false;
-                if (isHltQuery) {
-                    if (!isHigherLevelTask(n)) {
+
+                if (
+                    isShelvedQuery || 
+                    isHltQuery || 
+                    isInProgressQuery
+                ) {
+                    if (isShelvedQuery !== n.data._shelved) {
                         return;
                     }
-                } else if (isInProgressQuery) {
-                    if (isHigherLevelTask(n) || n.data._status !== STATUS_IN_PROGRESS) {
+                    if (isShelvedQuery && !isNoteRequestingShelf(n.data)) {
                         return;
                     }
-                } else {
-                    useMinScore = true;
+
+                    if (isHltQuery && !isHigherLevelTask(n)) {
+                        return;
+                    }
+
+                    if (isInProgressQuery && isHigherLevelTask(n)) {
+                        return;
+                    }
+
+                    if (isHltQuery || isInProgressQuery) {
+                        if (n.data._status !== STATUS_IN_PROGRESS) {
+                            return;
+                        }
+                    }
                 }
 
                 let results = fuzzyFind(text, query);
-                let score = scoreFuzzyFind(results);
-                if (n.data._status === STATUS_IN_PROGRESS) {
-                    score *= 2;
+                let score = 0;
+
+                if (sortMethod === SORT_BY_RECENCY) {
+                    score -= n.data._activityListMostRecentIdx;
+                } else {
+                    score = scoreFuzzyFind(results);
+                    if (n.data._status === STATUS_IN_PROGRESS) {
+                        score *= 2;
+                    }
                 }
 
                 if (useMinScore) {
@@ -1499,41 +1552,55 @@ function FuzzyFinder(rg: RenderGroup) {
                 return b.score - a.score;
             });
 
-
-            const MAX_MATCHES = 20;
+            const MAX_MATCHES = 1000;
             if (matches.length > MAX_MATCHES) {
                 matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
             }
 
-            if (currentSelectionIdx >= matches.length) {
-                currentSelectionIdx = 0;
+            counts.numFinished = 0;
+            counts.numInProgress = 0;
+            counts.numShelved = 0;
+            for (const match of matches) {
+                if (match.note.data._status === STATUS_IN_PROGRESS) {
+                    counts.numInProgress++;
+                } else {
+                    counts.numFinished++;
+                }
+
+                if (match.note.data._shelved) {
+                    counts.numShelved++;
+                } 
             }
 
-            resultList.render((getNext) => {
-                for (let i = 0; i < matches.length; i++) {
-                    const m = matches[i];
-                    getNext().render({
-                        text: m.note.data.text,
-                        ranges: m.ranges,
-                        hasFocus: i === currentSelectionIdx,
-                    });
-                }
-            });
+            rg.renderWithCurrentState();
         }, DEBOUNCE_MS);
     }
 
-    function rerenderList() {
-        for (let i = 0; i < matches.length; i++) {
-            const c = resultList.components[i];
-            const s = getState(c);
-            s.hasFocus = i === currentSelectionIdx;
-            c.renderWithCurrentState();
-        }
-    }
+    let matchesInvalid = true;
 
     rg.preRenderFn(function renderFuzzyFinder() {
         searchInput.el.focus();
-        rerenderSearch();
+        
+        if (matchesInvalid) {
+            matchesInvalid = false;
+            recomputeMatches();
+            return;
+        }
+
+        if (currentSelectionIdx >= matches.length) {
+            currentSelectionIdx = 0;
+        }
+
+        resultList.render((getNext) => {
+            for (let i = 0; i < matches.length; i++) {
+                const m = matches[i];
+                getNext().render({
+                    text: m.note.data.text,
+                    ranges: m.ranges,
+                    hasFocus: i === currentSelectionIdx,
+                });
+            }
+        });
     });
 
     searchInput.el.addEventListener("keydown", (e) => {
@@ -1543,16 +1610,6 @@ function FuzzyFinder(rg: RenderGroup) {
             setCurrentNote(state, note.id, true);
             setCurrentModal(null);
             rerenderApp();
-            return;
-        }
-
-        if (
-            (e.ctrlKey || e.metaKey)
-            && e.shiftKey
-            && e.key === "F"
-        ) {
-            scopedToCurrentNote = !scopedToCurrentNote;
-            rerenderSearch();
             return;
         }
 
@@ -1567,6 +1624,13 @@ function FuzzyFinder(rg: RenderGroup) {
             currentSelectionIdx--;
         } else if (e.key === "PageUp") {
             currentSelectionIdx -= 10;
+        } else if (
+            (e.ctrlKey || e.metaKey)
+            && e.shiftKey
+            && e.key === "F"
+        ) {
+            scopedToCurrentNote = !scopedToCurrentNote;
+            matchesInvalid = true;
         } else {
             handled = false;
         }
@@ -1575,11 +1639,15 @@ function FuzzyFinder(rg: RenderGroup) {
             e.preventDefault();
             currentSelectionIdx = Math.max(0, currentSelectionIdx);
             currentSelectionIdx = Math.min(currentSelectionIdx, matches.length - 1);
-            rerenderList();
+            rg.renderWithCurrentState();
         }
     });
 
-    searchInput.el.addEventListener("input", rerenderSearch);
+    searchInput.el.addEventListener("input", () => {
+        query = searchInput.el.value.toLowerCase();
+        matchesInvalid = true;
+        rg.renderWithCurrentState();
+    });
 
     return root;
 }
@@ -1864,7 +1932,8 @@ function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
     const noteDuration = newComponent(NoteRowDurationInfo);
     const cursorEl = div({ style: "width: 10px;" });
     const inProgressBar = div({ class: "row align-items-center", style: "padding-right: 4px" }, [
-        noteDuration
+        noteDuration,
+        rg.text(s => s.note.data._shelved ? "[Shelved]" : ""),
     ]);
 
     const progressBar = div({ class: "inverted", style: "height: 4px;" });
@@ -1966,8 +2035,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
 
         // add some root styling
         {
-            root.el.style.color = (note.data._isSelected || note.data._status === STATUS_IN_PROGRESS || note.data.isSticky) ?
-                "var(--fg-color)" : "var(--unfocus-text-color)";
+            root.el.style.color = !note.data._shelved && (
+                    note.data._isSelected || 
+                    note.data._status === STATUS_IN_PROGRESS || 
+                    note.data.isSticky
+                ) ? "var(--fg-color)" : "var(--unfocus-text-color)";
 
             // Dividing line between different levels
             setStyle(root, "borderBottom", !hasDivider ? "" : "1px solid var(--fg-color)");
@@ -3912,7 +3984,11 @@ const rerenderApp = (shouldScroll = true, isTimer = false) => {
         // there are actually very few times when we don't want to scroll to the current note
         renderOptions.shouldScroll = shouldScroll;
     }
+
     app.render(null);
+
+    renderOptions.isTimer = false;
+    renderOptions.shouldScroll = false;
 
     resetAppRenderInterval();
 }

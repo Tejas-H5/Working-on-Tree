@@ -93,6 +93,7 @@ export type Note = {
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
+    _shelved: boolean;
     _everyChildNoteDone: boolean;
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
@@ -101,6 +102,7 @@ export type Note = {
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
     _durationUnranged: number;
     _durationRanged: number;
+    _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
 };
 
 
@@ -177,7 +179,12 @@ export function getTodoNotePriorityId(state: NoteTreeGlobalState, id: NoteId): n
 
 export function getNoteTextWithoutPriority(note: Note): string {
     const priority = getTodoNotePriority(note);
-    return note.text.substring(priority).trim();
+    let idx = priority;
+    const shelved = isNoteRequestingShelf(note);
+    if (shelved) {
+        idx += 2;
+    }
+    return (shelved ? "[Shelved] " : "") + note.text.substring(idx).trim();
 }
 
 export function isHigherLevelTask(note: TreeNote): boolean {
@@ -197,6 +204,11 @@ export function getHltHeader(state: NoteTreeGlobalState, note: TreeNote): string
     return strBuilder.reverse().join(" :: ");
 }
 
+
+export function isNoteRequestingShelf(note: Note): boolean {
+    return note.text.startsWith("||")
+}
+
 export function getTodoNotePriority(note: Note): number {
     // Keep the priority system simple. 
     // Tasks are are always changing priority, and having too many priorities means they will always be assigned the wrong priority.
@@ -206,7 +218,13 @@ export function getTodoNotePriority(note: Note): number {
     let priority = 0;
 
     const text = note.text;
-    for (let i = 0; i < text.length; i++) {
+
+    let start = 0;
+    if (isNoteRequestingShelf(note)) {
+        start += 2;
+    }
+
+    for (let i = start; i < text.length; i++) {
         if (text[i] !== '>') {
             break;
         }
@@ -395,6 +413,7 @@ export function defaultNote(state: NoteTreeGlobalState | null): Note {
         // the following is just visual flags which are frequently recomputed
 
         _status: STATUS_IN_PROGRESS,
+        _shelved: false,
         _everyChildNoteDone: false,
         _higherLevelTaskId: "",
         _isSelected: false,
@@ -403,6 +422,7 @@ export function defaultNote(state: NoteTreeGlobalState | null): Note {
         _task: null,
         _durationUnranged: 0,
         _durationRanged: 0,
+        _activityListMostRecentIdx: 0,
     };
 }
 
@@ -513,10 +533,46 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         dfs(getRootNote(state), -1);
     }
 
+
+    // recompute _shelved
+    {
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._shelved = false;
+        });
+
+        const shelveSubtree = (note: TreeNote) => {
+            for (let i = 0; i < note.childIds.length; i++) {
+                const childId = note.childIds[i];
+                const child = getNote(state, childId);
+                child.data._shelved = true;
+                shelveSubtree(child);
+            }
+        }
+
+        const dfs = (note: TreeNote) => {
+            if (isNoteRequestingShelf(note.data)) {
+                // Don't shelve this root note - if it is still in progress, 
+                // we don't want to forget about it
+                note.data._shelved = true;
+                shelveSubtree(note);
+                return;
+            }
+
+            for (let i = 0; i < note.childIds.length; i++) {
+                const childId = note.childIds[i];
+                const child = getNote(state, childId);
+                dfs(child);
+            }
+        }
+        dfs(getRootNote(state));
+    }
+
     // recompute _status, do some sorting
     if (!isTimer) {
         tree.forEachNode(state.notes, (id) => {
-            getNote(state, id).data._status = STATUS_IN_PROGRESS;
+            const note = getNote(state, id);
+            note.data._status = STATUS_IN_PROGRESS;
         });
 
         const dfs = (note: TreeNote) => {
@@ -600,6 +656,35 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         recomputeFlatNotes(state, state._flatNoteIds);
     }
 
+    // recompute the activity list most recent index.
+    if (!isTimer) {
+        tree.forEachNode(state.notes, (id) => {
+            const note = getNote(state, id);
+            note.data._activityListMostRecentIdx = -1;
+        });
+
+        for (let i = state.activities.length - 1; i >= 0; i--) {
+            const noteId = state.activities[i].nId;
+            if (!noteId) {
+                continue;
+            }
+
+            const note = getNoteOrUndefined(state, noteId);
+            if (!note) {
+                continue;
+            }
+
+            if (note.data._activityListMostRecentIdx === -1) {
+                note.data._activityListMostRecentIdx = i;
+            }
+
+            const hlt = getHigherLevelTask(state, note);
+            if (hlt && hlt.data._activityListMostRecentIdx === -1) {
+                hlt.data._activityListMostRecentIdx = i;
+            }
+        }
+    }
+
     // recompute the TODO note list
     if (!isTimer) {
         // Should be somewhat inefficient. but I don't care. 
@@ -667,6 +752,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
                 }
             }
 
+            note.data._activityListMostRecentIdx = state._todoNoteIds.length;
             state._todoNoteIds.push(note.id);
             note.data._isUnderCurrent = true;
 
