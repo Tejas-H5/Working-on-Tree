@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9998";
+const VERSION_NUMBER = "v1.1.9999";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1373,6 +1373,132 @@ function HighlightedText(rg: RenderGroup<{
     return root;
 }
 
+type NoteFuzzyFindMatches = {
+    note: TreeNote;
+    ranges: Range[];
+    score: number;
+};
+
+function fuzzySearchNotes(
+    state: NoteTreeGlobalState,
+    rootNote: TreeNote,
+    query: string,
+    matches: NoteFuzzyFindMatches[],
+) {
+    matches.splice(0, matches.length);
+
+    const SORT_BY_SCORE = 1;
+    const SORT_BY_RECENCY = 2;
+
+    let useMinScore = true;
+    let sortMethod = SORT_BY_SCORE;
+
+    // this can chain with the other two queries
+    const isShelvedQuery = query.startsWith("||");
+    if (isShelvedQuery) {
+        query = query.substring(2);
+    }
+
+    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
+    // It's too hard to find them in the todo list, so I'm trying other options.
+    const isHltQuery = query.startsWith(">>");
+    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
+
+    if (isHltQuery) {
+        query = query.substring(2);
+    } else if (isInProgressQuery) {
+        query = query.substring(1);
+    }
+
+    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
+        if (query.trim().length === 0) {
+            sortMethod = SORT_BY_RECENCY;
+            useMinScore = false;
+        }
+    }
+
+    dfsPre(state, rootNote, (n) => {
+        if (!n.parentId) {
+            // ignore the root note
+            return;
+        }
+
+        let text = n.data.text.toLowerCase();
+
+        if (
+            isShelvedQuery ||
+            isHltQuery ||
+            isInProgressQuery
+        ) {
+            if (isShelvedQuery !== n.data._shelved) {
+                return;
+            }
+
+            if (isShelvedQuery && isHltQuery) {
+                if (!isNoteRequestingShelf(n.data)) {
+                    return;
+                }
+
+                const parent = getNoteOrUndefined(state, n.parentId);
+                if (parent && isNoteRequestingShelf(parent.data)) {
+                    // If `n` wants to be shelved but its parent is already shelved, 
+                    // don't include this in the list of matches
+                    // return;
+                }
+            }
+
+
+            if (isHltQuery && !isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isInProgressQuery && isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isHltQuery || isInProgressQuery) {
+                if (n.data._status !== STATUS_IN_PROGRESS) {
+                    return;
+                }
+            }
+        }
+
+        let results = fuzzyFind(text, query);
+        let score = 0;
+
+        if (sortMethod === SORT_BY_RECENCY) {
+            score -= n.data._activityListMostRecentIdx;
+        } else {
+            score = scoreFuzzyFind(results);
+            if (n.data._status === STATUS_IN_PROGRESS) {
+                score *= 2;
+            }
+        }
+
+        if (useMinScore) {
+            const minScore = getMinFuzzyFindScore(query);
+            if (score < minScore) {
+                return;
+            }
+        }
+
+        if (n.data.isSticky) {
+            score += 999999;
+        }
+
+        matches.push({
+            note: n,
+            ranges: results,
+            score,
+        });
+    });
+
+    matches.sort((a, b) => {
+        return b.score - a.score;
+    });
+}
+
+
 function FuzzyFinder(rg: RenderGroup<{ 
     visible: boolean 
 }>) {
@@ -1431,17 +1557,11 @@ function FuzzyFinder(rg: RenderGroup<{
 
     const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), () => newComponent(FindResultItem));
 
-    type Match = {
-        note: TreeNote;
-        ranges: Range[];
-        score: number;
-    };
-
     let currentSelectionIdx = 0;
     let scopedToCurrentNote = false;
     let query = "";
 
-    const matches: Match[] = [];
+    const matches: NoteFuzzyFindMatches[] = [];
     const counts = {
         numInProgress: 0,
         numFinished: 0,
@@ -1472,113 +1592,15 @@ function FuzzyFinder(rg: RenderGroup<{
 
     let timeoutId = 0;
     const DEBOUNCE_MS = 10;
-    function recomputeMatches() {
+    function recomputeMatches(query: string) {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
-            matches.splice(0, matches.length);
-
-            const SORT_BY_SCORE = 1;
-            const SORT_BY_RECENCY = 2;
-
-            let useMinScore = true;
-            let sortMethod = SORT_BY_SCORE;
-
             const rootNote = scopedToCurrentNote ? getCurrentNote(state)
                 : getRootNote(state);
 
-            // this can chain with the other two queries
-            const isShelvedQuery = query.startsWith("||");
-            if (isShelvedQuery) {
-                query = query.substring(2);
-            }
+            fuzzySearchNotes(state, rootNote, query, matches);
 
-            // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
-            // It's too hard to find them in the todo list, so I'm trying other options.
-            const isHltQuery = query.startsWith(">>");
-            const isInProgressQuery = query.startsWith(">") && !isHltQuery;
-
-            if (isHltQuery) {
-                query = query.substring(2);
-            } else if (isInProgressQuery) {
-                query = query.substring(1);
-            }
             
-            if (isHltQuery || isInProgressQuery || isShelvedQuery) {
-                if (query.trim().length === 0) {
-                    sortMethod = SORT_BY_RECENCY;
-                    useMinScore = false;
-                }
-            }
-
-            dfsPre(state, rootNote, (n) => {
-                if (!n.parentId) {
-                    // ignore the root note
-                    return;
-                }
-
-                let text = n.data.text.toLowerCase();
-
-                if (
-                    isShelvedQuery || 
-                    isHltQuery || 
-                    isInProgressQuery
-                ) {
-                    if (isShelvedQuery !== n.data._shelved) {
-                        return;
-                    }
-                    if (isShelvedQuery && !isNoteRequestingShelf(n.data)) {
-                        return;
-                    }
-
-                    if (isHltQuery && !isHigherLevelTask(n)) {
-                        return;
-                    }
-
-                    if (isInProgressQuery && isHigherLevelTask(n)) {
-                        return;
-                    }
-
-                    if (isHltQuery || isInProgressQuery) {
-                        if (n.data._status !== STATUS_IN_PROGRESS) {
-                            return;
-                        }
-                    }
-                }
-
-                let results = fuzzyFind(text, query);
-                let score = 0;
-
-                if (sortMethod === SORT_BY_RECENCY) {
-                    score -= n.data._activityListMostRecentIdx;
-                } else {
-                    score = scoreFuzzyFind(results);
-                    if (n.data._status === STATUS_IN_PROGRESS) {
-                        score *= 2;
-                    }
-                }
-
-                if (useMinScore) {
-                    const minScore = getMinFuzzyFindScore(query);
-                    if (score < minScore) {
-                        return;
-                    }
-                }
-
-                if (n.data.isSticky) {
-                    score += 999999;
-                }
-
-                matches.push({
-                    note: n,
-                    ranges: results,
-                    score,
-                });
-            });
-
-            matches.sort((a, b) => {
-                return b.score - a.score;
-            });
-
             const MAX_MATCHES = 1000;
             if (matches.length > MAX_MATCHES) {
                 matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
@@ -1597,11 +1619,11 @@ function FuzzyFinder(rg: RenderGroup<{
 
                 if (match.note.data._shelved) {
                     counts.numShelved++;
-                } 
+                }
 
                 if (match.note.data.isSticky) {
                     counts.numPinned++;
-                } 
+                }
             }
 
             rg.renderWithCurrentState();
@@ -1620,7 +1642,7 @@ function FuzzyFinder(rg: RenderGroup<{
 
         if (matchesInvalid || visibleChanged) {
             matchesInvalid = false;
-            recomputeMatches();
+            recomputeMatches(query);
             return;
         }
 
