@@ -81,9 +81,7 @@ export type Note = {
     text: string;
     openedAt: string; // will be populated whenever text goes from empty -> not empty (TODO: ensure this is happening)
     lastSelectedChildIdx: number; // this is now an index into 
-
-    // Should this note be sticky?
-    isSticky: JsonBoolean;
+    isSticky: JsonBoolean; // Should this note be pinned / marked as important?
 
     /** 
      * The ID of this note's parent before it was archived. 

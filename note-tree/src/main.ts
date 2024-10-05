@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9997";
+const VERSION_NUMBER = "v1.1.9998";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1373,14 +1373,31 @@ function HighlightedText(rg: RenderGroup<{
     return root;
 }
 
-function FuzzyFinder(rg: RenderGroup) {
+function FuzzyFinder(rg: RenderGroup<{ 
+    visible: boolean 
+}>) {
     function FindResultItem(rg: RenderGroup<{
         text: string;
         ranges: Range[];
         hasFocus: boolean;
+        isSticky: boolean;
     }>) {
+        const sticky = div({
+            style: "background-color: var(--pinned); color: #FFF; padding: 10px;"
+        }, [" ! "]);
+
         const textDiv = newComponent(HighlightedText);
-        const children = [textDiv];
+        const children = [
+            div({ 
+                class: "row align-items-center justify-content-center",
+                style: "padding-right: 10px"
+            }, [
+                div({ class: "flex-1" }, [
+                    textDiv,
+                ]),
+                sticky
+            ])
+        ];
         const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
 
@@ -1399,7 +1416,9 @@ function FuzzyFinder(rg: RenderGroup) {
                 children,
             });
 
-            textDiv.el.style.padding = hasFocus ? "20px" : "10px";
+            setStyle(textDiv, "padding", "10px 10px 10px " + (hasFocus ? "20px" : "10px"));
+
+            setVisible(sticky, s.isSticky);
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
@@ -1427,6 +1446,7 @@ function FuzzyFinder(rg: RenderGroup) {
         numInProgress: 0,
         numFinished: 0,
         numShelved: 0,
+        numPinned: 0,
     };
 
     const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
@@ -1434,7 +1454,10 @@ function FuzzyFinder(rg: RenderGroup) {
         div({ style: "padding: 10px; gap: 10px;", class: "nowrap row" }, [
             rg.text(() => scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
-            rg.text(() => counts.numInProgress + " in progress, " + counts.numFinished + " done, " + counts.numShelved + " shelved"),
+            rg.text(() => counts.numInProgress + " in progress, " + 
+                counts.numFinished + " done, " + 
+                counts.numShelved + " shelved, " + 
+                counts.numPinned + " pinned"),
         ]),
         div({ class: "row align-items-center", }, [
             div({ style: "width: 10px" }),
@@ -1541,6 +1564,10 @@ function FuzzyFinder(rg: RenderGroup) {
                     }
                 }
 
+                if (n.data.isSticky) {
+                    score += 999999;
+                }
+
                 matches.push({
                     note: n,
                     ranges: results,
@@ -1560,6 +1587,7 @@ function FuzzyFinder(rg: RenderGroup) {
             counts.numFinished = 0;
             counts.numInProgress = 0;
             counts.numShelved = 0;
+            counts.numPinned = 0;
             for (const match of matches) {
                 if (match.note.data._status === STATUS_IN_PROGRESS) {
                     counts.numInProgress++;
@@ -1570,6 +1598,10 @@ function FuzzyFinder(rg: RenderGroup) {
                 if (match.note.data._shelved) {
                     counts.numShelved++;
                 } 
+
+                if (match.note.data.isSticky) {
+                    counts.numPinned++;
+                } 
             }
 
             rg.renderWithCurrentState();
@@ -1577,15 +1609,22 @@ function FuzzyFinder(rg: RenderGroup) {
     }
 
     let matchesInvalid = true;
+    let isVisble = false;
 
-    rg.preRenderFn(function renderFuzzyFinder() {
-        searchInput.el.focus();
-        
-        if (matchesInvalid) {
+    rg.preRenderFn(function renderFuzzyFinder(s) {
+        const visibleChanged = isVisble !== s.visible;
+        isVisble = s.visible;
+        if (!isVisble) {
+            return;
+        }
+
+        if (matchesInvalid || visibleChanged) {
             matchesInvalid = false;
             recomputeMatches();
             return;
         }
+
+        searchInput.el.focus();
 
         if (currentSelectionIdx >= matches.length) {
             currentSelectionIdx = 0;
@@ -1596,6 +1635,7 @@ function FuzzyFinder(rg: RenderGroup) {
                 const m = matches[i];
                 getNext().render({
                     text: m.note.data.text,
+                    isSticky: !!m.note.data.isSticky,
                     ranges: m.ranges,
                     hasFocus: i === currentSelectionIdx,
                 });
@@ -1652,14 +1692,19 @@ function FuzzyFinder(rg: RenderGroup) {
     return root;
 }
 
-function FuzzyFindModal(rg: RenderGroup) {
+function FuzzyFindModal(rg: RenderGroup<{
+    visible: boolean;
+}>) {
     const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
-        rg.cNull(FuzzyFinder),
+        rg.c(FuzzyFinder, (c, s) => c.render(s)),
     ]);
-    return rg.c(Modal, c => c.render({
-        onClose: () => setCurrentModal(null),
-        content: modalContent,
-    }));
+    return rg.if(
+        s => s.visible,
+        rg => rg.c(Modal, c => c.render({
+            onClose: () => setCurrentModal(null),
+            content: modalContent,
+        }))
+    );
 }
 
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
@@ -1928,7 +1973,10 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number;
 function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
     const noteRowText = newComponent(NoteRowText);
 
-    const sticky = div({ class: "row align-items-center", style: "background-color: #0A0; color: #FFF" }, [" ! "]);
+    const sticky = div({ 
+        class: "row align-items-center", 
+        style: "background-color: var(--pinned); color: #FFF" 
+    }, [" ! "]);
     const noteDuration = newComponent(NoteRowDurationInfo);
     const cursorEl = div({ style: "width: 10px;" });
     const inProgressBar = div({ class: "row align-items-center", style: "padding-right: 4px" }, [
@@ -3779,9 +3827,7 @@ export function App(rg: RenderGroup) {
                 linkNavModal.render(null);
             }
 
-            if (setVisible(fuzzyFindModal, currentModal === fuzzyFindModal)) {
-                fuzzyFindModal.render(null);
-            }
+            fuzzyFindModal.render({ visible: currentModal === fuzzyFindModal });
 
             if (setVisible(settingsModal, currentModal === settingsModal)) {
                 settingsModal.render(null);
