@@ -215,14 +215,12 @@ export function getTodoNotePriority(note: Note): number {
 
     let priority = 0;
 
-    const text = note.text;
-
-    let start = 0;
+    let text = note.text;
     if (isNoteRequestingShelf(note)) {
-        start += 2;
+        text = text.substring(2).trim();
     }
 
-    for (let i = start; i < text.length; i++) {
+    for (let i = 0; i < text.length; i++) {
         if (text[i] !== '>') {
             break;
         }

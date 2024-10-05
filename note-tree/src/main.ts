@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.9999";
+const VERSION_NUMBER = "v1.1.99991";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1396,7 +1396,7 @@ function fuzzySearchNotes(
     // this can chain with the other two queries
     const isShelvedQuery = query.startsWith("||");
     if (isShelvedQuery) {
-        query = query.substring(2);
+        query = query.substring(2).trim();
     }
 
     // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
@@ -1405,9 +1405,9 @@ function fuzzySearchNotes(
     const isInProgressQuery = query.startsWith(">") && !isHltQuery;
 
     if (isHltQuery) {
-        query = query.substring(2);
+        query = query.substring(2).trim();
     } else if (isInProgressQuery) {
-        query = query.substring(1);
+        query = query.substring(1).trim();
     }
 
     if (isHltQuery || isInProgressQuery || isShelvedQuery) {
@@ -1443,7 +1443,7 @@ function fuzzySearchNotes(
                 if (parent && isNoteRequestingShelf(parent.data)) {
                     // If `n` wants to be shelved but its parent is already shelved, 
                     // don't include this in the list of matches
-                    // return;
+                    return;
                 }
             }
 
