@@ -990,7 +990,7 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
 
 export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
     const note = getNote(state, id);
-    if (!!note.data.text.trim()) {
+    if (note.data.text.length > 0) {
         return false;
     }
 
@@ -1537,24 +1537,6 @@ export function isMultiDay(activity: Activity, nextActivity: Activity | undefine
     );
 }
 
-export function getMostRecentlyWorkedOnChild(state: NoteTreeGlobalState, note: TreeNote): TreeNote {
-    const idx = getMostRecentlyWorkedOnChildActivityIdx(state, note);
-    if (idx === -1) {
-        return note;
-    }
-
-    if (!idx) {
-        return note;
-    }
-
-    const activity = state.activities[idx];
-    if (!activity.nId) {
-        return note;
-    }
-
-    return getNote(state, activity.nId);
-}
-
 // This is recursive
 export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalState, note: TreeNote): number | undefined {
     recomputeNoteIsUnderFlag(state, note);
@@ -1756,9 +1738,8 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
     return -1;
 }
 
-export function toggleCurrentNoteSticky(state: NoteTreeGlobalState) {
-    const currentNote = getCurrentNote(state);
-    currentNote.data.isSticky = (!currentNote.data.isSticky) || undefined;
+export function toggleNoteSticky(state: NoteTreeGlobalState, note: TreeNote) {
+    note.data.isSticky = (!note.data.isSticky) || undefined;
 }
 
 export function resetState() {

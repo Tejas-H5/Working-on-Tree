@@ -1,4 +1,4 @@
-import { TextArea } from "./components/text-area";
+import { newTextArea } from "./components/text-area";
 import { Insertable, RenderGroup, addChildren, div, el, getState, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
@@ -889,7 +889,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     const className = "pre w-100 h-100";
     const styles = "padding: 0; position: absolute;";
-    const textArea = setAttrs(TextArea(), {
+    const textArea = setAttrs(newTextArea(), {
         class: className,
         style: styles + "cursor: text;",
         spellcheck: "false",

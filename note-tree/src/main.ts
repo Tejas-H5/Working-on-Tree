@@ -42,7 +42,7 @@ import * as tree from "src/utils/tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
-import { TextArea } from "./components/text-area";
+import { EditableTextArea } from "./components/text-area";
 import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
@@ -115,7 +115,7 @@ import {
     setStateFromJSON,
     state,
     toggleActivityScopedNote,
-    toggleCurrentNoteSticky,
+    toggleNoteSticky,
 } from "./state";
 import { assert } from "./utils/assert";
 
@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99991";
+const VERSION_NUMBER = "v1.1.99992";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1131,10 +1131,9 @@ function EditableActivityList(rg: RenderGroup<{
 }
 
 type NoteRowArgs = {
+    readOnly: boolean;
     note: TreeNote;
     stickyOffset?: number;
-    duration: number;
-    totalDuration: number;
     hasDivider: boolean;
     scrollParent: HTMLElement | null;
 };
@@ -1167,152 +1166,6 @@ function getNoteProgressCountText(note: TreeNote): string {
     }
 
     return progressText;
-}
-
-function NoteRowText(rg: RenderGroup<NoteRowArgs>) {
-    const indentWidthEl = div({ class: "pre", style: "padding-right: 5px" });
-    const indentEl = div({ class: "pre sb1l h-100", style: "padding-left: 5px; " });
-
-    const whenNotEditing = div({ class: "handle-long-words", style: "" });
-    const whenEditing = TextArea();
-    setAttr(whenEditing, "rows", "1");
-    setAttr(whenEditing, "class", "flex-1");
-    setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
-
-    const root = div({ class: "flex-1", style: "overflow-y: hidden;" }, [
-        div({ class: "row h-100" }, [
-            indentWidthEl, indentEl, whenNotEditing, whenEditing
-        ])
-    ]);
-
-    let lastNote: TreeNote | undefined = undefined;
-    let isFocused = false;
-    let isEditing = false;
-
-    // the updateTextContentAndSize triggers a lot of reflows, making it
-    // expensive to run every time. We need to memoize it
-    let lastText: string | undefined;
-    function updateTextContentAndSize() {
-        const s = getState(rg);
-        const { note } = s;
-        const text = note.data.text;
-        if (
-            // the currently focused note should be updated all the time regardless.
-            !isFocused && 
-            lastText === text
-        ) {
-            return;
-        }
-        lastText = text;
-
-        setInputValue(whenEditing, text);
-
-        // TODO: move into TextInput component
-        // We need our root's height to temporarily be the same as whenEditing, 
-        // so that the document's size doesn't reduce drastically, causing scrolling to reset
-        // with long text areas.
-        const currentHeight = Math.max(
-            // only one is visible at a time. as mentioned, this is ran when editing AND not editing.
-            whenEditing.el.clientHeight,
-            whenNotEditing.el.clientHeight,
-        );
-        root.el.style.height = currentHeight + "px";
-
-        whenEditing.el.style.height = "0";
-        whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
-
-        root.el.style.height = "";
-    }
-
-    rg.preRenderFn(function renderNoteRowText(s) {
-        const { note } = s;
-
-        const currentNote = getCurrentNote(state);
-        const isOnSameLevel = currentNote.parentId === note.parentId;
-
-        // This is mainly so that multi-line notes won't take up so much space as a parent note
-        setStyle(root, "whiteSpace", isOnSameLevel ? "pre-wrap" : "nowrap");
-
-        const indentText = noteStatusToString(note.data._status);
-        setText(indentEl, indentText + getNoteProgressCountText(note) + " - ");
-        const INDENT = 1;
-        const INDENT2 = 4;
-        const indent1 = INDENT * note.data._depth;
-        const depth = isOnSameLevel ? (
-            // the current level gets indented a bit more, for visual clarity,
-            // and the parent notes won't get indented as much so that we aren't wasting space
-            indent1 - INDENT + INDENT2
-        ) : indent1;
-        setStyle(indentWidthEl, "minWidth", depth + "ch");
-
-        isFocused = state.currentNoteId === note.id && currentModal === null;
-
-        const wasEditing = isEditing;
-        isEditing = isFocused && state._isEditingFocusedNote;
-        if (lastNote !== note || !isEditing) {
-            isFocused = false;
-        }
-
-        lastNote = note;
-
-        if (setVisible(whenEditing, isEditing)) {
-            if (!wasEditing) {
-                whenEditing.el.focus({ preventScroll: true });
-            }
-        }
-
-        if (setVisible(whenNotEditing, !isEditing)) {
-            setText(whenNotEditing, note.data.text);
-        }
-
-        // Actually quite important that this runs even when we aren't editing, because when we eventually
-        // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
-        updateTextContentAndSize();
-    });
-
-    whenEditing.el.addEventListener("input", () => {
-        const s = getState(rg);
-        const { note } = s;
-
-        // Perform a partial update on the state, to just the thing we're editing
-
-        note.data.text = whenEditing.el.value;
-
-        updateTextContentAndSize();
-
-        debouncedSave();
-
-        rerenderApp();
-    });
-
-    whenEditing.el.addEventListener("keydown", (e) => {
-        const currentNote = getCurrentNote(state);
-
-        const shiftPressed = e.shiftKey;
-        const ctrlPressed = e.ctrlKey || e.metaKey;
-
-        let needsRerender = true;
-        let shouldPreventDefault = true;
-
-        if (e.key === "Enter" && handleEnterPress(ctrlPressed, shiftPressed)) {
-            // it was handled
-        } else if (e.key === "Backspace") {
-            deleteNoteIfEmpty(state, currentNote.id);
-            shouldPreventDefault = false;
-        } else {
-            needsRerender = false;
-        }
-
-        if (needsRerender) {
-            if (shouldPreventDefault) {
-                e.preventDefault();
-            }
-
-            rerenderApp();
-        }
-    });
-
-    return root;
 }
 
 
@@ -1503,36 +1356,43 @@ function FuzzyFinder(rg: RenderGroup<{
     visible: boolean 
 }>) {
     function FindResultItem(rg: RenderGroup<{
-        text: string;
+        note: TreeNote;
         ranges: Range[];
         hasFocus: boolean;
-        isSticky: boolean;
     }>) {
-        const sticky = div({
-            style: "background-color: var(--pinned); color: #FFF; padding: 10px;"
-        }, [" ! "]);
-
         const textDiv = newComponent(HighlightedText);
         const children = [
             div({ 
-                class: "row align-items-center justify-content-center",
-                style: "padding-right: 10px"
+                class: "row justify-content-start",
+                style: "padding-right: 20px; padding: 10px;"
             }, [
+                div({ class: "pre",  }, [
+                    rg.text(({ note }) => {
+                        return getNoteProgressCountText(note) + " - ";
+                    })
+                ]),
                 div({ class: "flex-1" }, [
                     textDiv,
                 ]),
-                sticky
+                rg.if(
+                    s => !!s.note.data.isSticky,
+                    rg => div({
+                        class: "row align-items-center pre",
+                        style: "background-color: var(--pinned); color: #FFF"
+                    }, [" ! "]),
+                ),
+                rg.c(NoteRowDurationInfo, (c, s) => c.render({ note: s.note })),
             ])
         ];
         const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
 
         rg.preRenderFn(function renderFindResultItem(s) {
-            const { text, ranges, hasFocus } = s;
+            const { ranges, hasFocus, note } = s;
 
             // This is basically the same as the React code, to render a diff list, actually, useMemo and all
             if (ranges !== lastRanges) {
-                textDiv.render({ text: text, highlightedRanges: ranges });
+                textDiv.render({ text: note.data.text, highlightedRanges: ranges });
             }
 
             root.render({
@@ -1541,10 +1401,6 @@ function FuzzyFinder(rg: RenderGroup<{
                 isCursorActive: true,
                 children,
             });
-
-            setStyle(textDiv, "padding", "10px 10px 10px " + (hasFocus ? "20px" : "10px"));
-
-            setVisible(sticky, s.isSticky);
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
@@ -1656,8 +1512,7 @@ function FuzzyFinder(rg: RenderGroup<{
             for (let i = 0; i < matches.length; i++) {
                 const m = matches[i];
                 getNext().render({
-                    text: m.note.data.text,
-                    isSticky: !!m.note.data.isSticky,
+                    note: m.note,
                     ranges: m.ranges,
                     hasFocus: i === currentSelectionIdx,
                 });
@@ -1666,11 +1521,17 @@ function FuzzyFinder(rg: RenderGroup<{
     });
 
     searchInput.el.addEventListener("keydown", (e) => {
+        const note = matches[currentSelectionIdx].note;
+        
         if (e.key === "Enter") {
             e.preventDefault();
-            const note = matches[currentSelectionIdx].note;
-            setCurrentNote(state, note.id, true);
+            const lastSelectedChild = getLastSelectedNote(state, note);
+            setCurrentNote(state, (lastSelectedChild ?? note).id, true);
             setCurrentModal(null);
+            rerenderApp();
+            return;
+        } else if (handleToggleNoteSticky(e, note)) {
+            // no need to re-sort the results. better if we don't actually
             rerenderApp();
             return;
         }
@@ -1731,6 +1592,20 @@ function FuzzyFindModal(rg: RenderGroup<{
 
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
     return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
+}
+
+function handleToggleNoteSticky(e: KeyboardEvent, note: TreeNote): boolean {
+    const shiftPressed = e.shiftKey;
+    const ctrlPressed = e.ctrlKey || e.metaKey;
+    if (
+        ctrlPressed &&
+        shiftPressed &&
+        (e.key === "1" || e.key === "!")
+    ) {
+        toggleNoteSticky(state, note);
+        return true;
+    }
+    return false;
 }
 
 function LoadBackupModal(rg: RenderGroup<{
@@ -1917,7 +1792,7 @@ function ScratchPadModal(rg: RenderGroup<{
     return modalComponent;
 }
 
-function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number; }>) {
+function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
     const durationEl = span();
     const divider = span({}, ", ");
     const estimateContainer = span();
@@ -1934,7 +1809,9 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number;
     ]);
 
     rg.preRenderFn(function renderNoteRowDurationInfo(s) {
-        const { note, duration } = s;
+        const { note } = s;
+
+        const duration = getNoteDurationUsingCurrentRange(state, note);
 
         const hasDuration = duration > 0;
         if (setVisible(durationEl, hasDuration)) {
@@ -1993,32 +1870,50 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; duration: number;
 }
 
 function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
-    const noteRowText = newComponent(NoteRowText);
+    function onInput(text: string) {
+        const s = getState(rg);
+        const { note } = s;
 
-    const sticky = div({ 
-        class: "row align-items-center", 
-        style: "background-color: var(--pinned); color: #FFF" 
-    }, [" ! "]);
-    const noteDuration = newComponent(NoteRowDurationInfo);
-    const cursorEl = div({ style: "width: 10px;" });
-    const inProgressBar = div({ class: "row align-items-center", style: "padding-right: 4px" }, [
-        noteDuration,
-        rg.text(s => s.note.data._shelved ? "[Shelved]" : ""),
-    ]);
+        // Perform a partial update on the state, to just the thing we're editing
 
-    const progressBar = div({ class: "inverted", style: "height: 4px;" });
+        note.data.text = text;
 
-    const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
-        div({ class: "flex-1" }, [
-            div({ class: "row align-items-stretch", style: "" }, [
-                cursorEl,
-                noteRowText,
-                sticky,
-                inProgressBar,
-            ]),
-            progressBar,
-        ]),
-    ]);
+        debouncedSave();
+
+        rerenderApp();
+    }
+
+    function onInputKeyDown(e: KeyboardEvent) {
+        const currentNote = getCurrentNote(state);
+
+        const shiftPressed = e.shiftKey;
+        const ctrlPressed = e.ctrlKey || e.metaKey;
+
+        let needsRerender = true;
+        let shouldPreventDefault = true;
+
+        if (e.key === "Enter" && handleEnterPress(ctrlPressed, shiftPressed)) {
+            // it was handled
+        } else if (e.key === "Backspace") {
+            deleteNoteIfEmpty(state, currentNote.id);
+            shouldPreventDefault = false;
+        } else {
+            needsRerender = false;
+        }
+
+        if (needsRerender) {
+            if (shouldPreventDefault) {
+                e.preventDefault();
+            }
+
+            rerenderApp();
+        }
+    }
+
+    let isOnSameLevel = false;
+    let isFocused = false;
+    let isEditing = false;
+    let isShowingDurations = false;
 
     function setStickyOffset() {
         const s = getState(rg);
@@ -2038,14 +1933,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
         root.el.style.top = "";
     }
 
-    function scrollComponentToView() {
-        const s = getState(rg);
-        const { scrollParent } = s;
-
-        if (!scrollParent) {
-            return;
-        }
-
+    function scrollComponentToView(scrollParent: HTMLElement) {
         // Clearing and setting the sticky style allows for scrolling to work.
 
         clearStickyOffset();
@@ -2056,100 +1944,144 @@ function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
         setStickyOffset();
     }
 
-    let isFocused = false;
-    let isShowingDurations = false;
-
-    rg.preRenderFn(function renderNoteRowInput(s) {
-        const { note, duration, totalDuration, hasDivider } = s;
+    rg.preRenderFn(function renderNoteRowInput({
+        note, 
+        scrollParent,
+        readOnly
+    }) {
         const currentNote = getCurrentNote(state);
+        isOnSameLevel = currentNote.parentId === note.parentId;
 
         const wasFocused = isFocused;
-        isFocused = state.currentNoteId === note.id;
+        isFocused = state.currentNoteId === note.id && currentModal === null;
+        isEditing = !readOnly && (
+            isFocused && state._isEditingFocusedNote
+        );
+
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
 
-        // render cursor 
-        {
-            const lastActivity = getLastActivityWithNote(state);
-            const isLastEditedNote = lastActivity?.nId === note.id;
-            let isFocusedAndEditing = isLastEditedNote && !isCurrentlyTakingABreak(state);
 
-            let col = "";
-            if (isFocusedAndEditing) {
-                col = "#F00";
-            } else if (isFocused) {
-                if (!isInTodoList && !isInHotlist) {
-                    col = "var(--fg-color)";
-                } else {
-                    col = "var(--bg-color-focus-2)";
-                }
-            } else if (isLastEditedNote) {
-                col = "#00F";
-            }
+        setStickyOffset();
 
-            setStyle(cursorEl, "backgroundColor", col);
-        }
+        // render the histogram bar if needed
+        if (setVisible(durationHistogramBar, isShowingDurations)) {
+            const duration = getNoteDurationUsingCurrentRange(state, note);
 
-
-        // render progress text
-        {
-            noteDuration.render({ note, duration });
-        }
-
-        // render the sticky indicator
-        {
-            setVisible(sticky, note.data.isSticky);
-            setStickyOffset();
-        }
-
-
-        // add some root styling
-        {
-            root.el.style.color = !note.data._shelved && (
-                    note.data._isSelected || 
-                    note.data._status === STATUS_IN_PROGRESS || 
-                    note.data.isSticky
-                ) ? "var(--fg-color)" : "var(--unfocus-text-color)";
-
-            // Dividing line between different levels
-            setStyle(root, "borderBottom", !hasDivider ? "" : "1px solid var(--fg-color)");
-            setStyle(root, "backgroundColor", isFocused ? "var(--bg-color-focus)" : "var(--bg-color)");
-        }
-
-
-        // render the progress bar if needed
-        if (setVisible(progressBar, isShowingDurations)) {
+            assert(note.parentId, "Note didn't have a parent!");
+            const parentNote = getNote(state, note.parentId);
+            const totalDuration = getNoteDurationUsingCurrentRange(state, parentNote);
             const isOnCurrentLevel = note.parentId === currentNote.parentId;
-            let percent = totalDuration < 0.000001 ? 0 : 100 * duration! / totalDuration!;
+            let percent = totalDuration < 0.000001 ? 0 : 100 * duration / totalDuration;
 
-            setStyle(progressBar, "width", percent + "%")
-            setStyle(progressBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
+            setStyle(durationHistogramBar, "width", percent + "%")
+            setStyle(durationHistogramBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
         }
-
-        // render the text input
-        noteRowText.render(s);
 
         // do auto-scrolling
-        {
-            if (renderOptions.shouldScroll && isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
-                if (renderOptions.shouldScroll) {
-                    // without setTimeout here, calling focus won't work as soon as the page loads.
-                    setTimeout(() => {
-                        scrollComponentToView();
-                    }, 1);
-                }
+        if (renderOptions.shouldScroll && scrollParent) {
+            if (isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
+                // without setTimeout here, calling focus won't work as soon as the page loads.
+                setTimeout(() => {
+                    scrollComponentToView(scrollParent);
+                }, 1);
             }
         }
     });
 
-    root.el.addEventListener("click", () => {
-        const s = getState(rg);
-        const { note } = s;
+    const cursorElement = div({ style: "width: 10px;" }, [
+        rg.style("backgroundColor", (s) => {
+            const lastActivity = getLastActivityWithNote(state);
+            const isLastEditedNote = lastActivity?.nId === s.note.id;
+            let isFocusedAndEditing = isLastEditedNote && !isCurrentlyTakingABreak(state);
 
-        setCurrentNote(state, note.id);
-        rerenderApp();
-    });
+            if (isFocusedAndEditing) {
+                return "#F00";
+            }
 
+            if (isFocused) {
+                if (!isInTodoList && !isInHotlist) {
+                    return "var(--fg-color)";
+                }
+
+                return "var(--bg-color-focus-2)";;
+            }
+
+            if (isLastEditedNote) {
+                return "#00F";
+            }
+
+            return "";
+        })
+    ]);
+
+    const indentation = div({ class: "pre", style: "padding-right: 5px" }, [
+        rg.style("minWidth", ({ note }) => {
+            const INDENT = 1;
+            const INDENT2 = 4;
+            const indent1 = INDENT * note.data._depth;
+            const depth = isOnSameLevel ? (
+                // the current level gets indented a bit more, for visual clarity,
+                // and the parent notes won't get indented as much so that we aren't wasting space
+                indent1 - INDENT + INDENT2
+            ) : indent1;
+
+            return depth + "ch";
+        })
+    ]);
+
+    const durationHistogramBar = div({ class: "inverted", style: "height: 4px;" });
+
+    const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
+        rg.on("click", ({ note }) => {
+            setCurrentNote(state, note.id);
+            rerenderApp();
+        }),
+        rg.style("color", ({ note }) => {
+            return !note.data._shelved && (
+                note.data._isSelected ||
+                note.data._status === STATUS_IN_PROGRESS ||
+                note.data.isSticky
+            ) ? "var(--fg-color)" : "var(--unfocus-text-color)";
+        }),
+        rg.style("backgroundColor", s => isFocused ? "var(--bg-color-focus)" : "var(--bg-color)"),
+        // Dividing line between different levels
+        rg.style("borderBottom", s => !s.hasDivider ? "" : "1px solid var(--fg-color)"),
+        div({ class: "flex-1" }, [
+            div({ class: "row align-items-stretch", style: "" }, [
+                // This is mainly so that multi-line parent notes won't take up a large amount of space
+                rg.style("whiteSpace", () => isOnSameLevel ? "pre-wrap" : "nowrap"),
+                // cursor element
+                cursorElement,
+                indentation,
+                div({ class: "pre sb1l", style: "padding-left: 5px; " }, [
+                    rg.text(({ note }) => {
+                        return noteStatusToString(note.data._status) + getNoteProgressCountText(note) + " - ";
+                    })
+                ]),
+                rg.c(EditableTextArea, (c, s) => c.render({
+                    text: s.note.data.text,
+                    isEditing,
+                    onInputKeyDown,
+                    onInput
+                })),
+                rg.if(
+                    s => !!s.note.data.isSticky,
+                    rg => div({
+                        class: "row align-items-center pre",
+                        style: "background-color: var(--pinned); color: #FFF"
+                    }, [" ! "]),
+                ),
+                div({ class: "row align-items-center", style: "padding-right: 4px" }, [
+                    rg.c(NoteRowDurationInfo, (c, { note }) => {
+                        c.render({ note });
+                    }),
+                    rg.text(s => s.note.data._shelved ? "[Shelved]" : ""),
+                ])
+            ]),
+            durationHistogramBar,
+        ]),
+    ]);
     return root;
 }
 
@@ -2181,19 +2113,12 @@ function NoteListInternal(rg: RenderGroup<{
                     note.data.isSticky
                 );
 
-                const durationMs = getNoteDurationUsingCurrentRange(state, note);
-
-                assert(note.parentId, "Note didn't have a parent!");
-                const parentNote = getNote(state, note.parentId);
-                const parentDurationMs = getNoteDurationUsingCurrentRange(state, parentNote);
-
                 component.render({
                     note,
                     stickyOffset: isSticky ? stickyOffset : undefined,
-                    duration: durationMs,
                     hasDivider: !isOnCurrentLevel,
-                    totalDuration: parentDurationMs,
                     scrollParent,
+                    readOnly: false,
                 });
 
                 // I have no idea how I would do this in React, tbh.
@@ -3592,12 +3517,7 @@ export function App(rg: RenderGroup) {
             e.preventDefault();
             setCurrentModal(linkNavModal);
             return;
-        } else if (
-            ctrlPressed &&
-            shiftPressed &&
-            (e.key === "1" || e.key === "!")
-        ) {
-            toggleCurrentNoteSticky(state);
+        } else if (handleToggleNoteSticky(e, currentNote)) {
             rerenderApp();
             return;
         }

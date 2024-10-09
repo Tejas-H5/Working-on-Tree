@@ -522,10 +522,8 @@ export function isEditingInput(component: Insertable): boolean {
 export function setInputValue<T extends TextElement>(component: Insertable<T>, text: string) {
     const inputElement = component.el;
 
-    // Yeah, its up to you to call it on the right component. 
-    // I don't want to add proper types here, because I can't infer the type `htmlf` will return
     if (inputElement.value === text) {
-        // might be a huge performance speedup! ?
+        // performance speedup
         return;
     }
 
