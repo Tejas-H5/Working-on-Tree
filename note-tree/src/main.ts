@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99992";
+const VERSION_NUMBER = "v1.1.99993";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -853,14 +853,16 @@ function LinkNavModal(rg: RenderGroup) {
         return root;
     }
 
-    const linkList = newListRenderer(div(), () => newComponent(LinkItem));
-    const content = div({ style: "padding: 20px" }, [
+    const scrollView = newComponent(ScrollContainer);
+    const linkList = newListRenderer(scrollView, () => newComponent(LinkItem));
+    const content = div({ class: "col flex-1", style: "padding: 20px" }, [
         el("H2", {}, ["URLs above or under the current note"]),
         linkList,
     ]);
     const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
     const root = newComponent(Modal);
-    const modalContent = div({}, [
+    
+    const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
         content,
         empty,
     ]);
@@ -880,7 +882,6 @@ function LinkNavModal(rg: RenderGroup) {
             onClose: () => setCurrentModal(null),
             content: modalContent,
         });
-
 
         idx = 0;
         linkList.render((getNext) => {
@@ -947,12 +948,22 @@ function LinkNavModal(rg: RenderGroup) {
     });
 
     function rerenderItems() {
+        let scrollEl: Insertable<HTMLElement> | null = null;
         for (let i = 0; i < linkList.components.length; i++) {
             const c = linkList.components[i];
             const s = getState(c);
             s.isFocused = i === idx;
             c.renderWithCurrentState();
+            if (s.isFocused) {
+                scrollEl = c;
+            }
         }
+        scrollView.render({ scrollEl });
+    }
+
+    function moveIndex(amount: number) {
+        idx = Math.max(0, Math.min(linkList.components.length - 1, idx + amount));
+        rerenderItems();
     }
 
     document.addEventListener("keydown", (e) => {
@@ -964,14 +975,16 @@ function LinkNavModal(rg: RenderGroup) {
 
         if (e.key === "ArrowUp") {
             e.preventDefault();
-
-            idx = Math.max(0, idx - 1);
-            rerenderItems();
+            moveIndex(-1);
+        } else if (e.key === "PageUp") {
+            e.preventDefault();
+            moveIndex(-10);
         } else if (e.key === "ArrowDown") {
             e.preventDefault();
-
-            idx = Math.min(linkList.components.length - 1, idx + 1);
-            rerenderItems();
+            moveIndex(1);
+        } else if (e.key === "PageDown") {
+            e.preventDefault();
+            moveIndex(10);
         } else if (e.key === "Enter") {
             e.preventDefault();
 
