@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99993";
+const VERSION_NUMBER = "v1.1.99994";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1534,16 +1534,16 @@ function FuzzyFinder(rg: RenderGroup<{
     });
 
     searchInput.el.addEventListener("keydown", (e) => {
-        const note = matches[currentSelectionIdx].note;
+        const note = matches[currentSelectionIdx]?.note as TreeNote | undefined;
         
-        if (e.key === "Enter") {
+        if (note && e.key === "Enter") {
             e.preventDefault();
             const lastSelectedChild = getLastSelectedNote(state, note);
             setCurrentNote(state, (lastSelectedChild ?? note).id, true);
             setCurrentModal(null);
             rerenderApp();
             return;
-        } else if (handleToggleNoteSticky(e, note)) {
+        } else if (note && handleToggleNoteSticky(e, note)) {
             // no need to re-sort the results. better if we don't actually
             rerenderApp();
             return;
