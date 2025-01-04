@@ -2995,7 +2995,12 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             hltMap.set(hltText, block);
         }
 
-        hltSorted = [...hltMap.entries()].sort((a, b) => b[1].times[7] - a[1].times[7]);
+        function getTotalTime(b: Block): number {
+            return b.times[b.times.length - 1];
+        }
+
+        hltSorted = [...hltMap.entries()]
+            .sort((a, b) => getTotalTime(b[1]) - getTotalTime(a[1]));
     });
 
     return div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
