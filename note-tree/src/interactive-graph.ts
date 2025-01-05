@@ -1,5 +1,5 @@
 import { newTextArea } from "./components/text-area";
-import { Insertable, RenderGroup, addChildren, div, el, getState, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible, setVisibleGroup } from "./utils/dom-utils";
+import { Insertable, RenderGroup, addChildren, div, el, getState, isVisible, newComponent, newListRenderer, newStyleGenerator, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
 
@@ -963,10 +963,11 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     rg.preRenderFn(function renderGraphNodeUI(s) {
         const { node, isSelected, isEditing, graphState, relativeContainer, graphArgs } = s;
 
-        if (setVisibleGroup(
-            !graphState.isDragging || node.id !== graphState.currentEdgeDragStartNodeIdx,
-            edgeDragStartRegions
-        )) {
+        const dragStartRegionsVisble = !graphState.isDragging || node.id !== graphState.currentEdgeDragStartNodeIdx;
+        for (const region of edgeDragStartRegions) {
+            setVisible(region, dragStartRegionsVisble)
+        }
+        if (dragStartRegionsVisble) {
             updateDragRegionStyles(s);
         }
 

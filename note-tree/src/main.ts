@@ -2,7 +2,7 @@ import "src/css/colours.css";
 import "src/css/layout.css";
 import "src/css/ui.css";
 
-import { AsciiCanvas, AsciiCanvasArgs, getLayersString, resetCanvas, } from "src/canvas";
+import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, findLastIndex, newArray } from "src/utils/array-utils";
@@ -19,7 +19,6 @@ import {
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
-    newComponent2,
     newInsertable,
     newListRenderer,
     newStyleGenerator,
@@ -1143,15 +1142,6 @@ function EditableActivityList(rg: RenderGroup<{
     return root;
 }
 
-type NoteRowArgs = {
-    readOnly: boolean;
-    note: TreeNote;
-    stickyOffset?: number;
-    hasDivider: boolean;
-    scrollParent: HTMLElement | null;
-};
-
-
 function getNoteProgressCountText(note: TreeNote): string {
     const totalCount = note.childIds.length;
     const doneCount = countOccurances(note.childIds, (id) => {
@@ -1202,41 +1192,34 @@ function HighlightedText(rg: RenderGroup<{
         text: string;
     }>) {
         return span({}, [
-            rg.text((s) => s.text),
             rg.class("unfocused-text-color", (s) => !s.highlighted),
+            rg.text((s) => s.text),
         ]);
     }
 
-    const root = div({});
-    const list = newListRenderer(root, () => newComponent(Span));
-
-    rg.preRenderFn(function renderHighlightedText(s) {
+    return rg.list(div(), Span, (getNext, s) => {
         const { highlightedRanges: ranges, text } = s;
 
-        list.render((getNext) => {
-            let last = 0;
-            for (const [start, end] of ranges) {
-                const part1 = text.substring(last, start);
-                if (part1) {
-                    getNext().render({ text: part1, highlighted: false });
-                }
-
-                const part2 = text.substring(start, end);
-                if (part2) {
-                    getNext().render({ text: part2, highlighted: true });
-                }
-
-                last = end;
+        let last = 0;
+        for (const [start, end] of ranges) {
+            const part1 = text.substring(last, start);
+            if (part1) {
+                getNext().render({ text: part1, highlighted: false });
             }
 
-            const lastPart = text.substring(last);
-            if (lastPart) {
-                getNext().render({ text: lastPart, highlighted: false });
+            const part2 = text.substring(start, end);
+            if (part2) {
+                getNext().render({ text: part2, highlighted: true });
             }
-        });
+
+            last = end;
+        }
+
+        const lastPart = text.substring(last);
+        if (lastPart) {
+            getNext().render({ text: lastPart, highlighted: false });
+        }
     });
-
-    return root;
 }
 
 type NoteFuzzyFindMatches = {
@@ -1743,9 +1726,9 @@ function SettingsModal(rg: RenderGroup) {
 
 function ScratchPadModal(rg: RenderGroup<{
     open: boolean;
-    canvasArgs: AsciiCanvasArgs;
 }>) {
-    const [asciiCanvas, canvasState] = newComponent2(AsciiCanvas);
+    const canvasState = newCanvasState();
+    const asciiCanvas = newComponent(AsciiCanvas);
     const modalComponent = newComponent(Modal);
     const modalContent = (
         div({ style: modalPaddingStyles(10) }, [
@@ -1769,7 +1752,14 @@ function ScratchPadModal(rg: RenderGroup<{
             wasVisible = true;
 
             const note = getCurrentNote(state);
-            asciiCanvas.render(s.canvasArgs);
+            asciiCanvas.render({ 
+                canvasState,
+                outputLayers: state.scratchPadCanvasLayers,
+                onInput() { },
+                onWrite() {
+                    debouncedSave();
+                }
+            });
 
             // needs to happen after we render the canvas, since we will be swapping out the output buffer
             resetCanvas(canvasState, false, note.data.text);
@@ -1882,7 +1872,13 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
     return root;
 }
 
-function NoteRowInput(rg: RenderGroup<NoteRowArgs>) {
+function NoteRowInput(rg: RenderGroup<{
+    readOnly: boolean;
+    note: TreeNote;
+    stickyOffset?: number;
+    hasDivider: boolean;
+    scrollParent: HTMLElement | null;
+}>) {
     function onInput(text: string) {
         const s = getState(rg);
         const { note } = s;
@@ -3802,13 +3798,6 @@ export function App(rg: RenderGroup) {
             }
 
             scratchPadModal.render({
-                canvasArgs: {
-                    outputLayers: state.scratchPadCanvasLayers,
-                    onInput() { },
-                    onWrite() {
-                        debouncedSave();
-                    }
-                },
                 open: currentModal === scratchPadModal
             });
 

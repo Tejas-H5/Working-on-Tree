@@ -1,4 +1,4 @@
-import { RenderGroup, div, getState, newComponent } from "src/utils/dom-utils";
+import { RenderGroup, div, getState } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
 import { Button } from "./button";
 
@@ -45,24 +45,24 @@ export function PaginationControl(rg: RenderGroup<{
 
     return div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
         div({ style: "" }, [
-            rg.text((s) => "Page " + (page + 1) + " (" + start + " - " + end + " / " + s.pagination.totalCount + ")"),
+            rg.text((s) => `Page ${page + 1} (${start}) - ${end} / ${s.pagination.totalCount})`)
         ]),
         div({ class: "flex-1" }),
         div({ style: "width: 100px", class: "row" }, [
             rg.if(() => page !== 0,
-                rg => newComponent(Button, { label: "<<", onClick: firstPage }),
+                rg => rg.c(Button, c => c.render({ label: "<<", onClick: firstPage })),
             ),
             rg.if(() => page !== 0,
-                rg => newComponent(Button, { label: "<", onClick: previousPage })
+                rg => rg.c(Button, c => c.render({ label: "<", onClick: previousPage }))
             )
         ]),
         div({ style: "width: 100px", class: "row justify-content-right" }, [
             rg.if(() => page !== maxPages,
-                rg => newComponent(Button, { label: ">", onClick: nextPage })
+                rg => rg.c(Button, c => c.render({ label: ">", onClick: nextPage }))
             ),
             rg.if(() => page !== maxPages,
-                rg => newComponent(Button, { label: ">>", onClick: lastPage })
+                rg => rg.c(Button, c => c.render({ label: ">>", onClick: lastPage }))
             ),
         ]),
-    ])
+    ]);
 }

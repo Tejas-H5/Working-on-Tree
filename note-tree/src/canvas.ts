@@ -1,15 +1,13 @@
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, div, el, getState, isVisible, newComponent, newComponent2, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, div, el, getState, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 
 const TAB_SIZE = 4;
 
 type CanvasArgs = {
-    onInput(): void;
-    onWrite(): void;
-    outputLayers: AsciiCanvasLayer[] | undefined;
+    state: CanvasState;
 };
 
 type MouseInputState = {
@@ -41,8 +39,12 @@ type UndoLogEntry = {
 }
 
 type CanvasState = {
+    // Callbacks, publically settable state
+    onInput(): void;
+    onWrite(): void;
+    layers: AsciiCanvasLayer[];
+
     // Input state
-    args: () => CanvasArgs;
     keyboardState: KeyboardState;
     mouseInputState: MouseInputState;
     currentTool: ToolType;
@@ -50,7 +52,6 @@ type CanvasState = {
 
     // Data state
     rows: RowArgs[];
-    layers: AsciiCanvasLayer[];
     currentLayer: number;
     toolState: {
         startedAction: ToolType | undefined;
@@ -70,6 +71,45 @@ type CanvasState = {
     undoLog: UndoLogEntry[];
     // This will always point to the last change that was _applied_. Should default to -1 if nothing in the undo log
     undoLogPosition: number;
+}
+
+
+function newMouseInputState(): MouseInputState {
+    return {
+        x: -1, y: -1,
+        lbDown: false,
+        _lbWasDown: false,
+        _prevX: 0, _prevY: 0,
+    };
+}
+
+export function newCanvasState(): CanvasState {
+    return {
+        onInput() {},
+        onWrite() {},
+        layers: [],
+        keyboardState: newKeyboardState(),
+        mouseInputState: newMouseInputState(),
+        rows: [],
+        currentTool: "rect-select",
+        undoLog: [],
+        cursorRowCol: { i: 0, j: 0 },
+        undoLogPosition: -1,
+        currentLayer: 0,
+        toolState: {
+            startedMove: false,
+            startedAction: undefined,
+            selectionApplyType: "replace",
+            iPrev: 0,
+            jPrev: 0,
+            moveOffsetI: 0,
+            moveOffsetJ: 0,
+            jSelectStart: 0,
+            iSelectStart: 0,
+            keyboardSelectStart: false,
+            keyboardMoveStart: false,
+        },
+    };
 }
 
 type ToolType = "freeform-select" |
@@ -336,7 +376,7 @@ function setCharOnLayer(
     }
 
     if (layerIdx !== -1) {
-        canvas.args().onWrite();
+        canvas.onWrite();
     }
 
     layer.data[i][j] = char;
@@ -913,7 +953,14 @@ function getVisualChar(canvas: CanvasState, i: number, j: number, outInfo: Visua
 
 function Canvas(rg: RenderGroup<CanvasArgs>) {
     let currentCursorEl: Insertable | null = null;
+    let canvasState: CanvasState;
+    let mouseInputState: MouseInputState;
     let shouldScroll = false;
+
+    rg.preRenderFn(s => {
+        canvasState = s.state;
+        mouseInputState = canvasState.mouseInputState;
+    });
 
     const scrollContainer = newComponent(ScrollContainer);
     const root = setAttrs(scrollContainer, {
@@ -1277,8 +1324,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
     function onMouseInputStateChange() {
         if (mouseInputState.x === -1 || mouseInputState.y === -1) {
-            const s = getState(rg);
-            s.onInput();
+            canvasState.onInput();
             return;
         }
 
@@ -1309,55 +1355,12 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         mouseInputState._prevY = mouseInputState.y;
         mouseInputState._lbWasDown = mouseInputState.lbDown;
 
-        const s = getState(rg);
-        s.onInput();
+        canvasState.onInput();
     }
 
-    const mouseInputState: MouseInputState = {
-        x: -1, y: -1,
-        lbDown: false,
-        _lbWasDown: false,
-        _prevX: 0, _prevY: 0,
-    };
-
-    const canvasState: CanvasState = {
-        args: () => getState(rg),
-        keyboardState: newKeyboardState(),
-        mouseInputState,
-        rows: [],
-        currentTool: "rect-select",
-        undoLog: [],
-        cursorRowCol: { i: 0, j: 0 },
-        undoLogPosition: -1,
-        layers: [
-            // main layer. right now it's the only layer
-            newLayer(),
-        ],
-        currentLayer: 0,
-        toolState: {
-            startedMove: false,
-            startedAction: undefined,
-            selectionApplyType: "replace",
-            iPrev: 0,
-            jPrev: 0,
-            moveOffsetI: 0,
-            moveOffsetJ: 0,
-            jSelectStart: 0,
-            iSelectStart: 0,
-            keyboardSelectStart: false,
-            keyboardMoveStart: false,
-        },
-    };
-
     rg.preRenderFn(function renderCanvas(s) {
-        const { outputLayers } = s;
-
-        if (outputLayers) {
-            // Allows writing to an array that lives outside of this component
-            canvasState.layers = outputLayers;
-            if (outputLayers.length < 1) {
-                outputLayers.push(newLayer());
-            }
+        if (canvasState.layers.length < 1) {
+            canvasState.layers.push(newLayer());
         }
 
         if (getNumRows(canvasState) === 0) {
@@ -1415,8 +1418,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             return;
         }
 
-        const s = getState(rg);
-        s.onInput();
+        canvasState.onInput();
     });
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -1652,8 +1654,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
         handleKeyDown(e);
 
-        const s = getState(rg);
-        s.onInput();
+        canvasState.onInput();
 
         rg.renderWithCurrentState();
     });
@@ -1676,7 +1677,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         }
     });
 
-    return [root, canvasState] as const;
+    return root;
 }
 
 // TODO: figure out hwo to delete this fn. lol.
@@ -1700,6 +1701,7 @@ const NUM_COLUMNS_INCR_AMOUNT = 8;
 const MIN_NUM_COLS = 64;
 
 export type AsciiCanvasArgs = {
+    canvasState: CanvasState;
     outputLayers: AsciiCanvasLayer[];
     /** 
      * NOTE: these events will fire very very often. Don't do any even remotely non-performant things in here - debounce them instead 
@@ -1711,6 +1713,7 @@ export type AsciiCanvasArgs = {
 export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     // NOTE: This component is tightly coupled to AsciiCanvas, and shouldn't be moved out
     function ToolbarButton(rg: RenderGroup<{
+        canvasState: CanvasState;
         name: string;
         onClick(e: MouseEvent): void;
         tool?: ToolType;
@@ -1738,7 +1741,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
                 }
             });
 
-            const isCurrentTool = getTool(canvasState) === tool;
+            const isCurrentTool = getTool(s.canvasState) === tool;
             setClass(button, "inverted", !!selected || isCurrentTool);
             setClass(button, "unfocused-text-color", !!disabled);
         });
@@ -1755,9 +1758,9 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         rerenderLocal();
     }
 
-    const [canvasComponent, canvasState] = newComponent2(Canvas);
     const buttons = {
         moreRows: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "+",
             onClick: () => {
                 resizeLayers(canvasState, getNumRows(canvasState) + NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
@@ -1765,6 +1768,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             },
         })),
         lessRows: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "-",
             onClick: () => {
                 resizeLayers(canvasState, getNumRows(canvasState) - NUM_ROWS_INCR_AMOUNT, getNumCols(canvasState));
@@ -1772,6 +1776,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             },
         })),
         moreCols: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "+",
             onClick: () => {
                 const wantedCols = Math.max(
@@ -1783,6 +1788,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             },
         })),
         lessCols: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "-",
             onClick: () => {
                 resizeLayers(canvasState, getNumRows(canvasState), getNumCols(canvasState) - NUM_COLUMNS_INCR_AMOUNT);
@@ -1790,41 +1796,49 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             },
         })),
         freeformSelect: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Draw",
             onClick: rerenderLocal,
             tool: "freeform-select" satisfies ToolType,
         })),
         lineSelect: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Line",
             onClick: rerenderLocal,
             tool: "line-select",
         })),
         rectOutlineSelect: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Rect Outline",
             onClick: rerenderLocal,
             tool: "rect-outline-select",
         })),
         rectSelect: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Rect",
             onClick: rerenderLocal,
             tool: "rect-select",
         })),
         bucketFillSelect: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Fill",
             onClick: rerenderLocal,
             tool: "fill-select",
         })),
         bucketFillSelectOutline: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Fill Outline",
             onClick: rerenderLocal,
             tool: "fill-select-outline",
         })),
         bucketFillSelectConnected: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Fill Connected",
             onClick: rerenderLocal,
             tool: "fill-select-connected",
         })),
         invertSelection: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Invert Selection",
             onClick: () => {
                 forEachCell(canvasState, (c) => selectCell(canvasState, c.i, c.j, !c.isSelected));
@@ -1833,6 +1847,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         })),
         copyToClipboard: rg.c(ToolbarButton, (button) => {
             button.render({
+                canvasState,
                 name: "Copy",
                 onClick: copyCanvasToClipboard,
                 selected: copied,
@@ -1840,6 +1855,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }),
         pasteFromClipboard: rg.c(ToolbarButton, (button) => {
             button.render({
+                canvasState,
                 name: "Paste",
                 onClick: () => {
                     pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
@@ -1851,6 +1867,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }),
         pasteFromClipboardTransparent: rg.c(ToolbarButton, (button) => {
             button.render({
+                canvasState,
                 name: "Paste (transparent)",
                 onClick: () => {
                     pasteClipboardToCanvas(cursorCell?.i || 0, cursorCell?.j || 0, false);
@@ -1861,6 +1878,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             });
         }),
         linesFromSelection: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Draw Lines",
             onClick: () => {
                 generateLines(canvasState);
@@ -1868,12 +1886,14 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             }
         })),
         undoButton: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Undo",
             selected: undoDone,
             disabled: !canUndo(canvasState),
             onClick: undo,
         })),
         redoButton: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
             name: "Redo",
             selected: redoDone,
             disabled: !canRedo(canvasState),
@@ -1942,17 +1962,21 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         return div({ class: "inline-block", style: "width: 30px" });
     }
 
-    const root = div({ class: "relative h-100 row" }, [
-        div({ class: "flex-1 col justify-content-center align-items-center", style: "overflow: auto;" }, [
-            div({ class: "flex-1" }),
-            canvasComponent,
-            statusText,
-            performanceWarning,
-            div({ class: "flex-1" }),
-            toolbar,
-        ]),
-        div({ style: "width: 20px" }),
-    ]);
+    const canvasComponent = newComponent(Canvas);
+    let canvasState: CanvasState;
+    rg.preRenderFn(function renderAsciiCanvas(s) {
+        canvasState = s.canvasState;
+        canvasState.layers = s.outputLayers;
+        canvasState.onInput = rerenderLocal;
+        canvasState.onWrite = s.onWrite;
+
+        const cursorCell = getCursorCell(s.canvasState);
+        canPaste = !!cursorCell;
+
+        canvasComponent.render({ state: s.canvasState });
+
+        updateCanvasStausText(canvasState);
+    });
 
     function updateCanvasStausText(canvas: CanvasState) {
         const stringBuilder = [
@@ -1977,12 +2001,6 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         setText(statusText, stringBuilder.join(" | "));
         setVisible(performanceWarning, getNumRows(canvas) * getNumCols(canvas) > MIN_NUM_COLS * 128);
     }
-
-    const canvasArgs: CanvasArgs = {
-        onInput: rerenderLocal,
-        onWrite: () => { },
-        outputLayers: [],
-    };
 
     let copied = false;
     let pastedNoTransparency = false;
@@ -2040,18 +2058,6 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         const s = getState(rg);
         s.onInput();
     }
-
-    rg.preRenderFn(function renderAsciiCanvas(s) {
-        canvasArgs.outputLayers = s.outputLayers;
-        canvasArgs.onWrite = s.onWrite;
-
-        const cursorCell = getCursorCell(canvasState);
-        canPaste = !!cursorCell;
-
-        canvasComponent.render(canvasArgs);
-
-        updateCanvasStausText(canvasState);
-    });
 
     function prevTool() {
         let idx = mouseScrollList.findIndex((button) => {
@@ -2153,6 +2159,17 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }
     });
 
-    return [root, canvasState] as const;
+    const root = div({ class: "relative h-100 row" }, [
+        div({ class: "flex-1 col justify-content-center align-items-center", style: "overflow: auto;" }, [
+            div({ class: "flex-1" }),
+            canvasComponent,
+            statusText,
+            performanceWarning,
+            div({ class: "flex-1" }),
+            toolbar,
+        ]),
+        div({ style: "width: 20px" }),
+    ]);
+    return root;
 }
 
