@@ -124,7 +124,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99994";
+const VERSION_NUMBER = "v1.1.99995";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2175,26 +2175,26 @@ function setTheme(theme: AppTheme) {
     state.currentTheme = theme;
 
     if (theme === "Light") {
-        setCssVars([
-            ["--bg-in-progress", "rgb(255, 0, 0, 1"],
-            ["--fg-in-progress", "#FFF"],
-            ["--bg-color", "#FFF"],
-            ["--bg-color-focus", "#CCC"],
-            ["--bg-color-focus-2", "rgb(0, 0, 0, 0.4)"],
-            ["--fg-color", "#000"],
-            ["--unfocus-text-color", "#A0A0A0"],
-        ]);
+        setCssVars({
+            "--bg-in-progress": "rgb(255, 0, 0, 1",
+            "--fg-in-progress": "#FFF",
+            "--bg-color": "#FFF",
+            "--bg-color-focus": "#CCC",
+            "--bg-color-focus-2": "rgb(0, 0, 0, 0.4)",
+            "--fg-color": "#000",
+            "--unfocus-text-color": "#A0A0A0",
+        });
     } else {
         // assume dark theme
-        setCssVars([
-            ["--bg-in-progress", "rgba(255, 0, 0, 1)"],
-            ["--fg-in-progress", "#FFF"],
-            ["--bg-color", "#000"],
-            ["--bg-color-focus", "#333"],
-            ["--bg-color-focus-2", "rgba(255, 255, 255, 0.4)"],
-            ["--fg-color", "#EEE"],
-            ["--unfocus-text-color", "#707070"],
-        ]);
+        setCssVars({
+            "--bg-in-progress": "rgba(255, 0, 0, 1)",
+            "--fg-in-progress": "#FFF",
+            "--bg-color": "#000",
+            "--bg-color-focus": "#333",
+            "--bg-color-focus-2": "rgb(255, 255, 25, 0.4)",
+            "--fg-color": "#EEE",
+            "--unfocus-text-color": "#07070",
+        });
     }
 };
 
@@ -3359,7 +3359,10 @@ export function App(rg: RenderGroup) {
         div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: "row flex-1" }, [
                 div({ class: "col flex-1 overflow-y-auto" }, [
-                    rg.if(() => currentHelpInfo === 2, (rg) => rg.cNull(CheatSheet)),
+                    rg.if(
+                        () => currentHelpInfo === 2, 
+                        (rg) => rg.c(CheatSheet, c => c.render(null))
+                    ),
                     div({ class: "row align-items-center", style: "padding: 10px;" }, [
                         div({ class: "flex-1" }, [
                             el("H2", {}, [
@@ -3367,11 +3370,13 @@ export function App(rg: RenderGroup) {
                             ]),
                         ]),
                         cheatSheetButton,
-                        rg.cNull(DarkModeToggle),
+                        rg.c(DarkModeToggle, c => c.render(null)),
                     ]),
                     errorBanner,
                     notesList,
-                    rg.if(() => state._isShowingDurations, (rg) => rg.cNull(HighLevelTaskDurations)),
+                    rg.if(() => state._isShowingDurations, 
+                        (rg) => rg.c(HighLevelTaskDurations, c => c.render(null))
+                    ),
                     div({ class: "row ", style: "" }, [
                         bottomLeftArea,
                         bottomRightArea,
