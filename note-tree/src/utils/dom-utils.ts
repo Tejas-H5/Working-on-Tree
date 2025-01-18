@@ -1,4 +1,4 @@
-// DOM-utils v0.1.0 - @elTejaso
+// DOM-utils v0.1.0 - @elTejasodomu
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -6,10 +6,11 @@ const stlyeStringBuilder: string[] = [];
 const allClassNames = new Set<string>();
 
 /**
- * A util allowing components to register styles that they need to function to dom-utils.
- * The styles will be added under a single DOM node when dom-utils is initialized.
+ * A util allowing components to register styles that they need to function.
+ * All styles in the entire bundle are collected into one large string as soon as the JavaScript runs,
+ * and they will get added under a single DOM node when dom-utils is initialized.
  *
- * The object allows us to apply a prefix to every class added by a particular builder.
+ * Using an object here instead of a global function, so that we can apply a prefix to every class added by a particular builder.
  */
 export function newCssBuilder(prefix: string = "") {
     return {
@@ -64,7 +65,8 @@ sb.s(`
 `);
 
 // Some super common classes that I use in all my programs all the time.
-// It becomes a bit easier to make reuseable UI components if their styling dependencies are all in dom-utils itself.
+// It becomes a bit easier to make reuseable UI components  and keep them in sync accross projects
+// if their styling dependencies are all in dom-utils itself.
 export const cn = Object.freeze({
     row: sb.cn("row", [` { display: flex; flex-direction: row; }`]),
     col: sb.cn("col", [` { display: flex; flex-direction: column; }`]),
@@ -476,7 +478,6 @@ export function setChildAtEl(mountPointEl: Element, child: Insertable<any>, i: n
     }
 
     mountPointEl.replaceChild(child.el, children[i]);
-    console.log("replaced child!");
 }
 
 /**
@@ -874,7 +875,7 @@ export class RenderGroup<S = null> {
      * The component rerenders with {@link renderFn} each render.
      *
      * @example
-     * ```
+     * ```ts
      * function CExample(rg: RenderGroup<{ state: State }>) {
      *      return div({
      *          class: ....
@@ -1043,7 +1044,7 @@ export class RenderGroup<S = null> {
      * It will rerender with {@link renderFn} each render.
      *
      * @example
-     * ```
+     * ```ts
      * function CExample(rg: RenderGroup<{ state: State }>) {
      *      return div({
      *          class: ....
@@ -1113,7 +1114,7 @@ export class RenderGroup<S = null> {
      * 
      * Code here always runs before DOM render functions, and postRenderFunctions on this component.
      *
-     * ```
+     * ```ts
      * function App(rg: RenderGroup<GameState>) {
      *      let x = 0;
      *      let alpha = 0;
