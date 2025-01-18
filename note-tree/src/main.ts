@@ -1,7 +1,3 @@
-import "src/css/colours.css";
-import "src/css/layout.css";
-import "src/css/ui.css";
-
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
@@ -13,21 +9,21 @@ import {
     RenderGroup,
     addChildren,
     appendChild,
+    cn,
     div,
     el,
-    getState,
+    initializeDomUtils,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
+    newCssBuilder,
     newInsertable,
     newListRenderer,
-    newStyleGenerator,
     replaceChildren,
     scrollIntoView,
     setAttr,
     setAttrs,
     setClass,
-    setCssVars,
     setInputValue,
     setStyle,
     setText,
@@ -112,26 +108,28 @@ import {
     setCurrentNote,
     setIsEditingCurrentNote,
     setStateFromJSON,
+    setTheme,
     state,
     toggleActivityScopedNote,
     toggleNoteSticky,
 } from "./state";
+import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
-
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
+
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "v1.1.99995";
+const VERSION_NUMBER = "1.00.001";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
 
-const sg = newStyleGenerator();
+const cssb = newCssBuilder();
 
-const cnHoverLink = sg.makeClass("hover-link", [
+const cnHoverLink = cssb.cn("hover-link", [
     `:hover{ cursor: pointer; }`,
     `:hover::after { content: " -->"; }`,
 ]);
@@ -142,12 +140,12 @@ function NoteLink(rg: RenderGroup<{
     noteId?: NoteId;
     preventScroll?: boolean;
 }>) {
-    return div({ style: "padding:5px; ", class: "handle-long-words" }, [
+    return div({ style: "padding:5px; ", class: [cn.handleLongWords] }, [
         rg.class(cnHoverLink, (s) => !!s.noteId),
         rg.style("backgroundColor", (s) => (!!s.focusAnyway || state.currentNoteId === s.noteId) ? (
-            "var(--bg-color-focus)"
+            `${cssVars.bgColorFocus}`
         ) : (
-            "var(--bg-color)"
+            `${cssVars.bgColor}`
         )),
         rg.text((s) => truncate(s.text, 500)),
         rg.on("click", ({ noteId, preventScroll }, e) => {
@@ -173,18 +171,18 @@ function ScrollNavItem(rg: RenderGroup<{
     isFocused: boolean;
     children: Insertable[];
 }>) {
-    return div({ class: "row align-items-stretch" }, [
-        rg.style("backgroundColor", (s) => s.isFocused ? "var(--bg-color-focus)" : ""),
-        rg.style("color", (s) => s.isGreyedOut ? "var(--unfocus-text-color)" : ""),
+    return div({ class: [cn.row, cn.alignItemsStretch] }, [
+        rg.style(`backgroundColor`, (s) => s.isFocused ? `${cssVars.bgColorFocus}` : ``),
+        rg.style(`color`, (s) => s.isGreyedOut ? `${cssVars.unfocusTextColor}` : ``),
         rg.if(
             (s) => s.isCursorVisible,
             rg => div({ style: "min-width: 5px;" }, [
                 rg.style("backgroundColor", (s) => {
-                    return s.isCursorActive ? "var(--fg-color)" : "var(--bg-color-focus-2)"
+                    return s.isCursorActive ? `${cssVars.fgColor}` : cssVars.bgColorFocus2
                 }),
             ])
         ),
-        div({ class: "flex-1 handle-long-words" }, [
+        div({ class: [cn.flex1, cn.handleLongWords] }, [
             rg.functionality((el, s) => {
                 replaceChildren(el, s.children);
             })
@@ -219,7 +217,7 @@ function TodoListInternal(rg: RenderGroup<{
         cursorNoteId: NoteId | undefined;
     }>) {
         const children = [
-            div({ class: "flex-1", style: "padding-bottom: 10px" }, [
+            div({ class: [cn.flex1], style: "padding-bottom: 10px" }, [
                 rg.c(NoteLink, (noteLink, s) => {
                     const { text, focusAnyway, noteId } = s;
 
@@ -322,10 +320,10 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
         You can only see other TODO notes underneath the current TODO parent note.`
     ]);
     const scrollContainer = newComponent(ScrollContainer);
-    const root = div({ class: "flex-1 col" }, [
+    const root = div({ class: [cn.flex1, cn.col] }, [
         heading,
-        div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
-        addChildren(setAttrs(scrollContainer, { class: "flex-1 col" }, true), [
+        div({ style: `border-bottom: 1px solid ${cssVars.bgColorFocus2}` }),
+        addChildren(setAttrs(scrollContainer, { class: [cn.flex1, cn.col] }, true), [
             empty,
             listInternal,
         ])
@@ -380,7 +378,7 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
 }
 
 function BreakInput(rg: RenderGroup) {
-    const breakInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
+    const breakInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const breakButton = newComponent(Button);
     const root = div({ style: "padding: 5px;" }, [
         // I'm putting it here above the break input because it seems fitting amongst the other activity times, however,
@@ -389,8 +387,8 @@ function BreakInput(rg: RenderGroup) {
         div({}, [
             rg.text(() => formatDate(new Date(), undefined, true, true))
         ]),
-        div({ class: "row align-items-center" }, [
-            div({ class: "flex-1" }, [breakInput]),
+        div({ class: [cn.row, cn.alignItemsCenter] }, [
+            div({ class: [cn.flex1] }, [breakInput]),
             div({}, [breakButton]),
         ]),
     ]);
@@ -444,11 +442,11 @@ function ActivityListItem(rg: RenderGroup<{
     hasCursor: boolean;
 }>) {
     const breakEdit = el<HTMLInputElement>(
-        "INPUT", { class: "pre-wrap w-100 solid-border-sm-rounded", style: "padding-left: 5px" }
+        "INPUT", { class: [cn.preWrap, cn.w100, cnApp.solidBorderSmRounded ], style: "padding-left: 5px" }
     );
 
     function deleteBreak() {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity } = s;
 
         if (!isEditableBreak(activity)) {
@@ -466,7 +464,7 @@ function ActivityListItem(rg: RenderGroup<{
     };
 
     function insertBreak() {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity, nextActivity } = s;
 
         const idx = state.activities.indexOf(activity);
@@ -486,23 +484,23 @@ function ActivityListItem(rg: RenderGroup<{
     };
 
     const breakInsertRow = newComponent((rg) => {
-        return div({ class: "align-items-center justify-content-center row" }, [
+        return div({ class: [cn.alignItemsCenter, cn.justifyContentCenter, cn.row] }, [
             rg.on("mouseleave", () => {
                 isInsertBreakRowOpen = false;
                 rg.renderWithCurrentState();
             }),
-            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+            div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
             rg.c(Button, c => c.render({
                 label: "+ Insert break here",
                 onClick: insertBreak,
             })),
-            div({ class: "flex-1", style: "border-bottom: 1px solid var(--fg-color)" }),
+            div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
         ]);
     });
 
     // TODO: CSS for this plz
     let isInsertBreakRowOpen = false;
-    const breakInsertRowHitbox = div({ class: "hover-parent", style: "min-height: 10px" }, [
+    const breakInsertRowHitbox = div({ class: [cn.hoverParent], style: "min-height: 10px" }, [
         rg.on("mouseenter", () => {
             isInsertBreakRowOpen = true;
             rg.renderWithCurrentState();
@@ -518,10 +516,10 @@ function ActivityListItem(rg: RenderGroup<{
 
     const cursorRowContents = [
         breakInsertRowHitbox,
-        div({ class: "row", style: "gap: 20px; padding: 5px 0;" }, [
-            div({ class: "flex-1" }, [
+        div({ class: [cn.row], style: "gap: 20px; padding: 5px 0;" }, [
+            div({ class: [cn.flex1] }, [
                 timestampWrapper,
-                div({ class: "row align-items-center", style: "padding-left: 20px" }, [
+                div({ class: [cn.row, cn.alignItemsCenter], style: "padding-left: 20px" }, [
                     noteLink,
                     breakEdit,
                     rg.if(
@@ -542,13 +540,13 @@ function ActivityListItem(rg: RenderGroup<{
     ]);
 
     function isEditable() {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity, greyedOut } = s;
         return !greyedOut && isEditableBreak(activity);
     }
 
     function renderDuration() {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity, nextActivity, showDuration, } = s;
 
         // The idea is that only breaks we insert ourselves retroactively are editable, as these times
@@ -625,7 +623,7 @@ function ActivityListItem(rg: RenderGroup<{
             return;
         }
 
-        const s = getState(rg);
+        const s = rg.s;
         const { previousActivity, activity, nextActivity } = s;
 
         if (previousActivity) {
@@ -649,7 +647,7 @@ function ActivityListItem(rg: RenderGroup<{
     }
 
     noteLink.el.addEventListener("click", () => {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity } = s;
         if (!activity.nId) {
             return;
@@ -660,7 +658,7 @@ function ActivityListItem(rg: RenderGroup<{
     });
 
     function handleBreakTextEdit() {
-        const s = getState(rg);
+        const s = rg.s;
         const { activity } = s;
 
         // 'prevent' clearing it out
@@ -685,7 +683,7 @@ function ActivityListItem(rg: RenderGroup<{
 }
 
 function ExportModal(rg: RenderGroup) {
-    const modalContent = div({ class: "col", style: "align-items: stretch" }, [
+    const modalContent = div({ class: [cn.col], style: "align-items: stretch" }, [
         rg.c(Button, c => c.render({
             label: "Clear all",
             onClick: () => {
@@ -758,7 +756,7 @@ function DeleteModal(rg: RenderGroup) {
         timeEl,
         recentEl,
         div({ style: "height: 20px" }),
-        div({ class: "row justify-content-center" }, [
+        div({ class: [cn.row, cn.justifyContentCenter] }, [
             deleteButton,
             cantDelete,
         ]),
@@ -854,14 +852,14 @@ function LinkNavModal(rg: RenderGroup) {
 
     const scrollView = newComponent(ScrollContainer);
     const linkList = newListRenderer(scrollView, () => newComponent(LinkItem));
-    const content = div({ class: "col flex-1", style: "padding: 20px" }, [
+    const content = div({ class: [cn.col, cn.flex1], style: "padding: 20px" }, [
         el("H2", {}, ["URLs above or under the current note"]),
         linkList,
     ]);
     const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
     const root = newComponent(Modal);
     
-    const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
+    const modalContent = div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
         content,
         empty,
     ]);
@@ -950,7 +948,7 @@ function LinkNavModal(rg: RenderGroup) {
         let scrollEl: Insertable<HTMLElement> | null = null;
         for (let i = 0; i < linkList.components.length; i++) {
             const c = linkList.components[i];
-            const s = getState(c);
+            const s = c.s;
             s.isFocused = i === idx;
             c.renderWithCurrentState();
             if (s.isFocused) {
@@ -987,7 +985,7 @@ function LinkNavModal(rg: RenderGroup) {
         } else if (e.key === "Enter") {
             e.preventDefault();
 
-            const { url, noteId } = getState(linkList.components[idx]);
+            const { url, noteId } = linkList.components[idx].s;
             e.stopImmediatePropagation();
 
             if (e.shiftKey) {
@@ -1016,11 +1014,11 @@ function EditableActivityList(rg: RenderGroup<{
 
     const listRoot = newListRenderer(div({ style: "" }), () => newComponent(ActivityListItem));
     const listScrollContainer = newComponent(ScrollContainer);
-    addChildren(setAttrs(listScrollContainer, { class: "flex-1" }, true), [
+    addChildren(setAttrs(listScrollContainer, { class: [cn.flex1] }, true), [
         listRoot,
     ]);
-    const statusTextEl = div({ class: "text-align-center" }, []);
-    const root = div({ class: "w-100 flex-1 col", style: "" }, [
+    const statusTextEl = div({ class: [cn.textAlignCenter] }, []);
+    const root = div({ class: [cn.w100, cn.flex1, cn.col], style: "" }, [
         statusTextEl,
         listScrollContainer,
         paginationControl,
@@ -1359,26 +1357,38 @@ function FuzzyFinder(rg: RenderGroup<{
         const textDiv = newComponent(HighlightedText);
         const children = [
             div({ 
-                class: "row justify-content-start",
+                class: [cn.row, cn.justifyContentStart],
                 style: "padding-right: 20px; padding: 10px;"
             }, [
-                div({ class: "pre",  }, [
+                div({ class: [cn.pre]  }, [
                     rg.text(({ note }) => {
                         return getNoteProgressCountText(note) + " - ";
                     })
                 ]),
-                div({ class: "flex-1" }, [
+                div({ class: [cn.flex1] }, [
                     textDiv,
                 ]),
                 rg.if(
                     s => !!s.note.data.isSticky,
                     rg => div({
-                        class: "row align-items-center pre",
-                        style: "background-color: var(--pinned); color: #FFF"
+                        class: [cn.row, cn.alignItemsCenter, cn.pre],
+                        style: `background-color: ${cssVars.pinned}; color: #FFF`
                     }, [" ! "]),
                 ),
                 rg.c(NoteRowDurationInfo, (c, s) => c.render({ note: s.note })),
-            ])
+            ]),
+            rg.if(s => s.hasFocus, rg => 
+                rg.with(s => getLastSelectedNote(state, s.note) || undefined, rg => 
+                    div({
+                        class: [cn.row, cn.justifyContentStart, cn.preWrap],
+                        style: "padding: 10px 10px 10px 100px;"
+                    }, [
+                        div({ class: [cn.flex1], style: `border: 1px solid ${cssVars.fgColor}; padding: 10px;` }, [
+                            rg.text(s => s.data.text)
+                        ])
+                    ])
+                )
+            ),
         ];
         const root = newComponent(ScrollNavItem);
         let lastRanges: any = null;
@@ -1407,7 +1417,7 @@ function FuzzyFinder(rg: RenderGroup<{
         return root;
     };
 
-    const resultList = newListRenderer(div({ class: "h-100 overflow-y-auto" }), () => newComponent(FindResultItem));
+    const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FindResultItem));
 
     let currentSelectionIdx = 0;
     let scopedToCurrentNote = false;
@@ -1421,9 +1431,9 @@ function FuzzyFinder(rg: RenderGroup<{
         numPinned: 0,
     };
 
-    const searchInput = el<HTMLInputElement>("INPUT", { class: "w-100" });
-    const root = div({ class: "flex-1 col" }, [
-        div({ style: "padding: 10px; gap: 10px;", class: "nowrap row" }, [
+    const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
+    const root = div({ class: [cn.flex1, cn.col] }, [
+        div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
             rg.text(() => scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
             rg.text(() => counts.numInProgress + " in progress, " + 
@@ -1431,13 +1441,13 @@ function FuzzyFinder(rg: RenderGroup<{
                 counts.numShelved + " shelved, " + 
                 counts.numPinned + " pinned"),
         ]),
-        div({ class: "row align-items-center", }, [
+        div({ class: [cn.row, cn.alignItemsCenter], }, [
             div({ style: "width: 10px" }),
             searchInput,
             div({ style: "width: 10px" }),
         ]),
         div({ style: "height: 10px" }),
-        div({ class: "flex-1" }, [
+        div({ class: [cn.flex1] }, [
             resultList
         ]),
     ]);
@@ -1574,7 +1584,7 @@ function FuzzyFinder(rg: RenderGroup<{
 function FuzzyFindModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
-    const modalContent = div({ class: "col h-100", style: modalPaddingStyles(0) }, [
+    const modalContent = div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
         rg.c(FuzzyFinder, (c, s) => c.render(s)),
     ]);
     return rg.if(
@@ -1613,7 +1623,7 @@ function LoadBackupModal(rg: RenderGroup<{
     const loadBackupButton = newComponent(Button, {
         label: "Load this backup",
         onClick: () => {
-            const s = getState(rg);
+            const s = rg.s;
             if (!canLoad || !s.text) {
                 return;
             }
@@ -1632,7 +1642,7 @@ function LoadBackupModal(rg: RenderGroup<{
         }
     });
     const modal = newComponent(Modal);
-    const modalContent = div({ class: "col", style: modalPaddingStyles(10, 40, 40) }, [
+    const modalContent = div({ class: [cn.col], style: modalPaddingStyles(10, 40, 40) }, [
         fileNameDiv,
         infoDiv,
         loadBackupButton,
@@ -1710,9 +1720,9 @@ function SettingsModal(rg: RenderGroup) {
         debouncedSave();
     }
 
-    const modalContent = div({ class: "col", style: "align-items: stretch; padding: 10px;" }, [
-        el("H3", { class: "text-align-center" }, "Settings"),
-        div({ class: "row" }, [
+    const modalContent = div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
+        el("H3", { class: [cn.textAlignCenter] }, "Settings"),
+        div({ class: [cn.row] }, [
             // Add and then remove feature flags here as we need to
             div({}, [`No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!`]),
         ])
@@ -1801,7 +1811,7 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
     const estimateContainer = span();
     const estimateEl = span();
     const root = div({
-        class: "row",
+        class: [cn.row],
         style: "text-align: right; gap: 5px; padding-left: 10px;"
     }, [
         durationEl,
@@ -1880,7 +1890,7 @@ function NoteRowInput(rg: RenderGroup<{
     scrollParent: HTMLElement | null;
 }>) {
     function onInput(text: string) {
-        const s = getState(rg);
+        const s = rg.s;
         const { note } = s;
 
         // Perform a partial update on the state, to just the thing we're editing
@@ -1925,7 +1935,7 @@ function NoteRowInput(rg: RenderGroup<{
     let isShowingDurations = false;
 
     function setStickyOffset() {
-        const s = getState(rg);
+        const s = rg.s;
         const { stickyOffset } = s;
 
         if (stickyOffset !== undefined) {
@@ -1984,7 +1994,7 @@ function NoteRowInput(rg: RenderGroup<{
             let percent = totalDuration < 0.000001 ? 0 : 100 * duration / totalDuration;
 
             setStyle(durationHistogramBar, "width", percent + "%")
-            setStyle(durationHistogramBar, "backgroundColor", isOnCurrentLevel ? "var(--fg-color)" : "var(--unfocus-text-color)");
+            setStyle(durationHistogramBar, `backgroundColor`, isOnCurrentLevel ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`);
         }
 
         // do auto-scrolling
@@ -2010,10 +2020,10 @@ function NoteRowInput(rg: RenderGroup<{
 
             if (isFocused) {
                 if (!isInTodoList && !isInHotlist) {
-                    return "var(--fg-color)";
+                    return `${cssVars.fgColor}`;
                 }
 
-                return "var(--bg-color-focus-2)";;
+                return `${cssVars.bgColorFocus2}`;;
             }
 
             if (isLastEditedNote) {
@@ -2024,7 +2034,7 @@ function NoteRowInput(rg: RenderGroup<{
         })
     ]);
 
-    const indentation = div({ class: "pre", style: "padding-right: 5px" }, [
+    const indentation = div({ class: [cn.pre], style: "padding-right: 5px" }, [
         rg.style("minWidth", ({ note }) => {
             const INDENT = 1;
             const INDENT2 = 4;
@@ -2039,9 +2049,9 @@ function NoteRowInput(rg: RenderGroup<{
         })
     ]);
 
-    const durationHistogramBar = div({ class: "inverted", style: "height: 4px;" });
+    const durationHistogramBar = div({ class: [cnApp.inverted], style: "height: 4px;" });
 
-    const root = div({ class: "row pre", style: "background-color: var(--bg-color)" }, [
+    const root = div({ class: [cn.row, cn.pre], style: `background-color: ${cssVars.bgColor}` }, [
         rg.on("click", ({ note }) => {
             setCurrentNote(state, note.id);
             rerenderApp();
@@ -2051,19 +2061,19 @@ function NoteRowInput(rg: RenderGroup<{
                 note.data._isSelected ||
                 note.data._status === STATUS_IN_PROGRESS ||
                 note.data.isSticky
-            ) ? "var(--fg-color)" : "var(--unfocus-text-color)";
+            ) ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`;
         }),
-        rg.style("backgroundColor", s => isFocused ? "var(--bg-color-focus)" : "var(--bg-color)"),
+        rg.style(`backgroundColor`, s => isFocused ? `${cssVars.bgColorFocus}` : `${cssVars.bgColor}`),
         // Dividing line between different levels
-        rg.style("borderBottom", s => !s.hasDivider ? "" : "1px solid var(--fg-color)"),
-        div({ class: "flex-1" }, [
-            div({ class: "row align-items-stretch", style: "" }, [
+        rg.style(`borderBottom`, s => !s.hasDivider ? `` : `1px solid ${cssVars.fgColor}`),
+        div({ class: [cn.flex1] }, [
+            div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // This is mainly so that multi-line parent notes won't take up a large amount of space
                 rg.style("whiteSpace", () => isOnSameLevel ? "pre-wrap" : "nowrap"),
                 // cursor element
                 cursorElement,
                 indentation,
-                div({ class: "pre sb1l", style: "padding-left: 5px; " }, [
+                div({ class: [cn.pre, cnApp.sb1l], style: "padding-left: 5px; " }, [
                     rg.text(({ note }) => {
                         return noteStatusToString(note.data._status) + getNoteProgressCountText(note) + " - ";
                     })
@@ -2077,11 +2087,11 @@ function NoteRowInput(rg: RenderGroup<{
                 rg.if(
                     s => !!s.note.data.isSticky,
                     rg => div({
-                        class: "row align-items-center pre",
-                        style: "background-color: var(--pinned); color: #FFF"
+                        class: [cn.row, cn.alignItemsCenter, cn.pre],
+                        style: `background-color: ${cssVars.pinned}; color: #FFF`
                     }, [" ! "]),
                 ),
-                div({ class: "row align-items-center", style: "padding-right: 4px" }, [
+                div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
                     rg.c(NoteRowDurationInfo, (c, { note }) => {
                         c.render({ note });
                     }),
@@ -2099,7 +2109,7 @@ function NoteListInternal(rg: RenderGroup<{
     scrollParent: HTMLElement | null;
 }>) {
     const root = div({
-        class: "w-100 sb1b sb1t",
+        class: [cn.w100, cnApp.sb1b, cnApp.sb1t],
     });
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
@@ -2171,33 +2181,6 @@ function getTheme(): AppTheme {
     return "Light";
 };
 
-function setTheme(theme: AppTheme) {
-    state.currentTheme = theme;
-
-    if (theme === "Light") {
-        setCssVars({
-            "--bg-in-progress": "rgb(255, 0, 0, 1",
-            "--fg-in-progress": "#FFF",
-            "--bg-color": "#FFF",
-            "--bg-color-focus": "#CCC",
-            "--bg-color-focus-2": "rgb(0, 0, 0, 0.4)",
-            "--fg-color": "#000",
-            "--unfocus-text-color": "#A0A0A0",
-        });
-    } else {
-        // assume dark theme
-        setCssVars({
-            "--bg-in-progress": "rgba(255, 0, 0, 1)",
-            "--fg-in-progress": "#FFF",
-            "--bg-color": "#000",
-            "--bg-color-focus": "#333",
-            "--bg-color-focus-2": "rgb(255, 255, 25, 0.4)",
-            "--fg-color": "#EEE",
-            "--unfocus-text-color": "#07070",
-        });
-    }
-};
-
 
 function AsciiIcon(rg: RenderGroup<AsciiIconData>) {
     const icon = div();
@@ -2207,7 +2190,7 @@ function AsciiIcon(rg: RenderGroup<AsciiIconData>) {
     icon.el.style.fontSize = "6px";
     icon.el.style.fontFamily = "Courier";
     icon.el.style.fontWeight = "bold";
-    icon.el.style.textShadow = "1px 1px 0px var(--fg-color)";
+    icon.el.style.textShadow = `1px 1px 0px ${cssVars.fgColor}`;
 
     rg.preRenderFn(function renderAsciiIcon(s) {
         const { data } = s;
@@ -2411,8 +2394,8 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
 
     const activityList = newComponent(EditableActivityList);
     const breakInput = newComponent(BreakInput);
-    const root = div({ class: "flex-1 col" }, [
-        div({ class: "flex row align-items-center", style: "user-select: none; padding-left: 10px;" }, [
+    const root = div({ class: [cn.flex1, cn.col] }, [
+        div({ class: [cn.flex, cn.row, cn.alignItemsCenter], style: "user-select: none; padding-left: 10px;" }, [
             el("H3", { style: "margin: 0; padding: 1em 0;", }, [
                 rg.text(() => {
                     const note = getNoteOrUndefined(state, state._currentActivityScopedNote);
@@ -2424,12 +2407,12 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
                 }),
             ]),
         ]),
-        div({ class: "row" }, [
+        div({ class: [cn.row] }, [
             rg.c(Button, c => c.render({
                 label: state._currentActivityScopedNote ? "Unlock" : "Lock to selected",
                 onClick: handleLockUnlockActivitiesToNote,
             })),
-            div({ class: "flex-1" }),
+            div({ class: [cn.flex1] }),
             scrollActivitiesToTop,
             scrollActivitiesToMostRecent,
             scrollActivitiesToOldest,
@@ -2440,7 +2423,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
             div({ style: "width: 50px" }, [nextActivity]),
             div({ style: "width: 50px" }, [prevActivity]),
         ]),
-        div({ style: "border-bottom: 1px solid var(--bg-color-focus-2)" }),
+        div({ style: `border-bottom: 1px solid ${cssVars.bgColorFocus2}` }),
         breakInput,
         activityList,
     ]);
@@ -2493,9 +2476,9 @@ function makeUnorderedList(text: (string | Insertable)[]) {
 
 function CheatSheet(_rg: RenderGroup) {
     function keymapDivs(keymap: string, desc: string) {
-        return div({ class: "row" }, [
+        return div({ class: [cn.row] }, [
             div({ style: "width: 500px; padding-right: 50px;" }, [keymap]),
-            div({ class: "flex-1" }, [desc]),
+            div({ class: [cn.flex1] }, [desc]),
         ])
     }
 
@@ -2510,7 +2493,7 @@ function CheatSheet(_rg: RenderGroup) {
             ])
         ) : (
             div({}, [
-                div({ class: "row align-items-center", style: "gap: 30px" }, [
+                div({ class: [cn.row, cn.alignItemsCenter], style: "gap: 30px" }, [
                     ` This web page can be saved to your computer and ran offline!`,
                     makeDownloadThisPageButton(),
                 ]),
@@ -2999,10 +2982,10 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             .sort((a, b) => getTotalTime(b[1]) - getTotalTime(a[1]));
     });
 
-    return div({ class: "sb1b col align-items-center", style: "padding: 10px" }, [
+    return div({ class: [cnApp.sb1b, cn.col, cn.alignItemsCenter], style: "padding: 10px" }, [
         rg.on("click", () => { state._currentDateScopeWeekDay = -1; rerenderApp(); }),
-        div({ class: "row", style: "gap: 10px; padding-bottom: 10px" }, [
-            div({ class: "row", }, [
+        div({ class: [cn.row], style: "gap: 10px; padding-bottom: 10px" }, [
+            div({ class: [cn.row] }, [
                 rg.c(Button, c => c.render({
                     label: "<-",
                     onClick: () => moveDateWindow(true),
@@ -3048,7 +3031,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 value: state._activitiesTo,
                 onChange: handleActivitiesToChange,
             })),
-            div({ class: "flex-1" }),
+            div({ class: [cn.flex1] }),
             rg.c(Button, c => c.render({
                 label: "Week",
                 onClick: () => state._currentDateScope !== "week" ? setScope("week") : setScope("any"),
@@ -3064,7 +3047,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 toggled: over1Min,
                 onClick: () => { over1Min = !over1Min; rerenderApp(); }
             })),
-            div({ class: "flex-1" }),
+            div({ class: [cn.flex1] }),
         ]),
         rg.list(div(), DayRow, (getNext) => {
             // Only need the header for a week
@@ -3150,15 +3133,15 @@ function HighLevelTaskDurations(rg: RenderGroup) {
         currentFocusCol: number;
         currentHoverCol: number;
     }>) {
-        return div({ class: "row sb1b" }, [
+        return div({ class: [cn.row, cnApp.sb1b] }, [
             rg.on("mouseleave", (s) => s.onColEnter?.(-1)),
             rg.style("backgroundColor", (s) => (state.currentNoteId === s.nId) ? (
-                "var(--bg-color-focus)"
+                `${cssVars.bgColorFocus}`
             ) : (
-                "var(--bg-color)"
+                `${cssVars.bgColor}`
             )),
             rg.style("fontWeight", s => s.bold ? "bold" : ""),
-            div({ class: "flex-1" }, [
+            div({ class: [cn.flex1] }, [
                 rg.c(NoteLink, (nl, s) => {
                     nl.render({
                         preventScroll: true,
@@ -3169,10 +3152,10 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                 })
             ]),
             div({ style: "min-width: 100px" }),
-            rg.list(div({ class: "row" }), TimeItem, (getNext, s) => {
+            rg.list(div({ class: [cn.row] }), TimeItem, (getNext, s) => {
                 for (let i = 0; i < s.text.length; i++) {
-                    const bgColor = s.currentHoverCol === i ? "var(--bg-color-focus-2)" :
-                        s.currentFocusCol === i ? "var(--bg-color-focus)" :
+                    const bgColor = s.currentHoverCol === i ? `${cssVars.bgColorFocus2}` :
+                        s.currentFocusCol === i ? `${cssVars.bgColorFocus}` :
                             "";
 
                     getNext().render({
@@ -3193,7 +3176,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             onColClick?(i: number): void;
             bgColor: string;
         }>) {
-            return div({ class: "text-align-center", style: "width: 10ch" }, [
+            return div({ class: [cn.textAlignCenter], style: "width: 10ch" }, [
                 rg.style("cursor", (s) => s.onColEnter ? "pointer" : ""),
                 rg.style("backgroundColor", s => s.bgColor),
                 rg.on("mouseenter", (s) => s.onColEnter?.(s.i)),
@@ -3204,7 +3187,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     }
 }
 
-const cnInfoButton = sg.makeClass("info-button", [` { 
+const cnInfoButton = cssb.cn("info-button", [` { 
     display: inline-block;
     text-align: center;
     font-style: italic;
@@ -3213,7 +3196,7 @@ const cnInfoButton = sg.makeClass("info-button", [` {
     border-radius: 10px;
 }`,
     `:hover { background-color: #AAF; }`,
-    `:active { background-color: #00F; color: var(--bg-color); }`
+    `:active { background-color: #00F; color: ${cssVars.bgColor}; }`
 ]);
 
 // NOTE: We should only ever have one of these ever.
@@ -3222,7 +3205,7 @@ const cnInfoButton = sg.makeClass("info-button", [` {
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
 export function App(rg: RenderGroup) {
-    const cheatSheetButton = el("BUTTON", { class: cnInfoButton, title: "click for a list of keyboard shortcuts and functionality" }, [
+    const cheatSheetButton = el("BUTTON", { class: [cnInfoButton], title: "click for a list of keyboard shortcuts and functionality" }, [
         div({}, "Note tree " + VERSION_NUMBER),
         div({}, "cheatsheet"),
     ]);
@@ -3234,12 +3217,12 @@ export function App(rg: RenderGroup) {
 
     const notesList = newComponent(NotesList);
     const todoList = newComponent(TodoList);
-    const rightPanelArea = div({ style: "width: 30%", class: "col sb1l" });
-    const bottomLeftArea = div({ class: "flex-1 col", style: "padding: 0" });
-    const bottomRightArea = div({ class: "flex-1 col sb1l", style: "padding: 0" })
+    const rightPanelArea = div({ style: "width: 30%", class: [cn.col, cnApp.sb1l] });
+    const bottomLeftArea = div({ class: [cn.flex1, cn.col], style: "padding: 0" });
+    const bottomRightArea = div({ class: [cn.flex1, cn.col, cnApp.sb1l], style: "padding: 0" })
 
     const activityListContainer = newComponent(ActivityListContainer);
-    const todoListContainer = div({ class: "flex-1 col" }, [
+    const todoListContainer = div({ class: [cn.flex1, cn.col] }, [
         todoList
     ]);
 
@@ -3281,8 +3264,8 @@ export function App(rg: RenderGroup) {
 
     let backupText = "";
     let backupFilename = "";
-    const bottomButtons = div({ class: "row align-items-end sb1t" }, [
-        div({ class: "row align-items-end" }, [
+    const bottomButtons = div({ class: [cn.row, cn.alignItemsEnd, cnApp.sb1t] }, [
+        div({ class: [cn.row, cn.alignItemsEnd] }, [
             rg.c(Button, c => c.render({
                 label: "Scratch Pad",
                 onClick: () => {
@@ -3290,7 +3273,7 @@ export function App(rg: RenderGroup) {
                 }
             })),
         ]),
-        div({ class: "row align-items-end" }, [
+        div({ class: [cn.row, cn.alignItemsEnd] }, [
             rg.c(Button, c => c.render({
                 label: "Graph",
                 onClick: () => {
@@ -3298,8 +3281,8 @@ export function App(rg: RenderGroup) {
                 }
             }))
         ]),
-        div({ class: "flex-1 text-align-center" }, [statusTextIndicator]),
-        div({ class: "row" }, [
+        div({ class: [cn.flex1, cn.textAlignCenter] }, [statusTextIndicator]),
+        div({ class: [cn.row] }, [
             isRunningFromFile() ? (
                 div()
             ) : (
@@ -3355,16 +3338,16 @@ export function App(rg: RenderGroup) {
 
     const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
 
-    const appRoot = div({ class: "relative", style: "padding-bottom: 100px" }, [
-        div({ class: "col", style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
-            div({ class: "row flex-1" }, [
-                div({ class: "col flex-1 overflow-y-auto" }, [
+    const appRoot = div({ class: [cn.relative], style: "padding-bottom: 100px" }, [
+        div({ class: [cn.col], style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
+            div({ class: [cn.row, cn.flex1] }, [
+                div({ class: [cn.col, cn.flex1, cn.overflowYAuto] }, [
                     rg.if(
                         () => currentHelpInfo === 2, 
                         (rg) => rg.c(CheatSheet, c => c.render(null))
                     ),
-                    div({ class: "row align-items-center", style: "padding: 10px;" }, [
-                        div({ class: "flex-1" }, [
+                    div({ class: [cn.row, cn.alignItemsCenter], style: "padding: 10px;" }, [
+                        div({ class: [cn.flex1] }, [
                             el("H2", {}, [
                                 rg.text(() => currentAppHeader),
                             ]),
@@ -3377,7 +3360,7 @@ export function App(rg: RenderGroup) {
                     rg.if(() => state._isShowingDurations, 
                         (rg) => rg.c(HighLevelTaskDurations, c => c.render(null))
                     ),
-                    div({ class: "row ", style: "" }, [
+                    div({ class: [cn.row], style: "" }, [
                         bottomLeftArea,
                         bottomRightArea,
                     ]),
@@ -3872,8 +3855,8 @@ export function App(rg: RenderGroup) {
 };
 
 let statusTextClearTimeout = 0;
-const statusTextIndicator = div({ class: "pre-wrap", style: "background-color: var(--bg-color)" })
-const showStatusText = (text: string, color: string = "var(--fg-color)", timeout: number = STATUS_TEXT_PERSIST_TIME) => {
+const statusTextIndicator = div({ class: [cn.preWrap], style: `background-color: ${cssVars.bgColor}` })
+const showStatusText = (text: string, color: string = `${cssVars.fgColor}`, timeout: number = STATUS_TEXT_PERSIST_TIME) => {
     if (statusTextClearTimeout) {
         clearTimeout(statusTextClearTimeout);
     }
@@ -3906,7 +3889,7 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
             const mb = bytesToMegabytes(bytes);
 
             // in case the storage.estimate().then never happens, lets just show something.
-            showStatusText("Saved (" + mb.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
+            showStatusText(`Saved (` + mb.toFixed(2) + `mb)`, `${cssVars.fgColor}`, SAVE_DEBOUNCE);
 
             // A shame we need to do this :(
             navigator.storage.estimate().then((data) => {
@@ -3920,7 +3903,7 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
                     return;
                 }
 
-                showStatusText("Saved (" + mb.toFixed(2) + "mb / " + estimatedMbUsage.toFixed(2) + "mb)", "var(--fg-color)", SAVE_DEBOUNCE);
+                showStatusText(`Saved (` + mb.toFixed(2) + `mb / ` + estimatedMbUsage.toFixed(2) + `mb)`, `${cssVars.fgColor}`, SAVE_DEBOUNCE);
 
                 const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " +
                     estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
@@ -3952,7 +3935,7 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
         clearTimeout(saveTimeout);
     }
 
-    showStatusText("Saving...", "var(--fg-color)", -1);
+    showStatusText(`Saving...`, `${cssVars.fgColor}`, -1);
     saveTimeout = setTimeout(() => {
         save();
     }, SAVE_DEBOUNCE);
@@ -3965,17 +3948,14 @@ const debouncedSave = () => {
 };
 
 let currentAppHeader = "Currently working on";
-const titleEl = newInsertable(document.querySelector("title")!);
 function setAppHeader(newHeader: string) {
     currentAppHeader = newHeader;
-    setText(titleEl, newHeader);
 }
 
+const root = newInsertable(document.body);
+initializeDomUtils(root);
 const app = newComponent(App);
-appendChild(
-    newInsertable(document.body),
-    app
-);
+appendChild(root, app);
 
 const rerenderApp = (shouldScroll = true, isTimer = false) => {
     renderOptions.isTimer = isTimer;
@@ -4019,6 +3999,5 @@ function resetAppRenderInterval() {
 
 initState(() => {
     autoInsertBreakIfRequired();
-
     rerenderApp();
 });

@@ -1,8 +1,9 @@
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, div, el, getState, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
+import { cssVars } from "./styling";
 
 const TAB_SIZE = 4;
 
@@ -964,14 +965,14 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
     const scrollContainer = newComponent(ScrollContainer);
     const root = setAttrs(scrollContainer, {
-        class: "flex-1",
+        class: [cn.flex1],
         style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
-            "border: 1px solid var(--fg-color);"
+            `border: 1px solid ${cssVars.fgColor};`
     }, true);
 
     const rowList = newListRenderer(root, () => newComponent((rg: RenderGroup<RowArgs>) => {
         const root = div({
-            class: "row justify-content-center",
+            class: [cn.row, cn.justifyContentCenter],
             style: "width: fit-content;"
         });
 
@@ -987,8 +988,8 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             };
 
             const root = el("SPAN", {
-                class: "pre inline-block border-box",
-                style: "font-size: 24px; width: 1ch;user-select: none; cursor: crosshair;"
+                class: [cn.pre, cn.inlineBlock, cn.borderBox],
+                style: "font-size: 24px; width: 1ch; user-select: none; cursor: crosshair;"
             });
 
             rg.preRenderFn(function renderCanvasCell(s) {
@@ -1007,7 +1008,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
                 if (isCursor !== lastIsCursor) {
                     lastIsCursor = isCursor;
 
-                    setStyle(root, "outline", !isCursor ? "" : "2px solid var(--fg-color)");
+                    setStyle(root, `outline`, !isCursor ? `` : `2px solid ${cssVars.fgColor}`);
                     setStyle(root, "zIndex", !isCursor ? "0" : "1");
                 }
 
@@ -1032,7 +1033,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
                     setStyle(
                         root,
                         "backgroundColor",
-                        state === 1 ? "var(--bg-color-focus)" :
+                        state === 1 ? `${cssVars.bgColorFocus}` :
                             state === 2 ? "#0078D7" :
                                 state === 3 ? "#888" :
                                     ""
@@ -1048,7 +1049,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             function handleMouseMovement(e: MouseEvent) {
                 e.stopImmediatePropagation();
 
-                const s = getState(rg);
+                const s = rg.s;
                 const mouseInputState = s.canvasState.mouseInputState;
                 mouseInputState.x = s.j;
                 mouseInputState.y = s.i;
@@ -1380,7 +1381,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         });
 
         if (!scrollContainer.s) {
-            scrollContainer.s = {
+            scrollContainer._s = {
                 scrollEl: null,
                 axes: "hv",
             };
@@ -1660,6 +1661,10 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
     });
 
     document.addEventListener("keyup", (e) => {
+        if (!isVisible(root)) {
+            return;
+        }
+
         handleKeyUpKeyboardState(canvasState.keyboardState, e);
 
         let shouldApply = true;
@@ -1920,9 +1925,9 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     ];
 
     const toolbar = div({ style: "justify-content: center; gap: 5px;" }, [
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             buttons.lessRows,
-            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            div({ style: "display: inline-block; min-width: 3ch; text-align: center;", class: ["", ""] }, [
                 rg.text(() => "rows: " + getNumRows(canvasState)),
             ]),
             buttons.moreRows,
@@ -1933,25 +1938,25 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             buttons.moreCols,
         ]),
         spacer(),
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             rg.text(() => "Selection (Ctrl + [Q/E]): "),
             ...mouseScrollList,
         ]),
         spacer(),
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             buttons.invertSelection,
         ]),
         spacer(),
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             buttons.copyToClipboard,
             buttons.pasteFromClipboard,
             buttons.pasteFromClipboardTransparent,
         ]),
         spacer(),
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             buttons.linesFromSelection,
         ]),
-        div({ class: "inline-block" }, [
+        div({ class: [cn.inlineBlock] }, [
             buttons.undoButton,
             rg.text(() => (1 + canvasState.undoLogPosition) + " / " + canvasState.undoLog.length),
             buttons.redoButton,
@@ -1959,7 +1964,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     ]);
 
     function spacer() {
-        return div({ class: "inline-block", style: "width: 30px" });
+        return div({ class: [cn.inlineBlock], style: "width: 30px" });
     }
 
     const canvasComponent = newComponent(Canvas);
@@ -2055,7 +2060,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
 
     function rerenderLocal() {
         rg.renderWithCurrentState();
-        const s = getState(rg);
+        const s = rg.s;
         s.onInput();
     }
 
@@ -2070,7 +2075,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             idx = mouseScrollList.length - 1;
         }
 
-        const s = getState(mouseScrollList[idx]);
+        const s = mouseScrollList[idx].s;
         changeTool(s.tool);
     }
 
@@ -2085,7 +2090,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             idx = 0;
         }
 
-        const s = getState(mouseScrollList[idx]);
+        const s = mouseScrollList[idx].s;
         changeTool(s.tool);
     }
 
@@ -2159,13 +2164,13 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }
     });
 
-    const root = div({ class: "relative h-100 row" }, [
-        div({ class: "flex-1 col justify-content-center align-items-center", style: "overflow: auto;" }, [
-            div({ class: "flex-1" }),
+    const root = div({ class: [cn.relative, cn.h100, cn.row] }, [
+        div({ class: [cn.flex1, cn.col, cn.justifyContentCenter, cn.alignItemsCenter, cn.overflowAuto ]}, [
+            div({ class: [cn.flex1] }),
             canvasComponent,
             statusText,
             performanceWarning,
-            div({ class: "flex-1" }),
+            div({ class: [cn.flex1] }),
             toolbar,
         ]),
         div({ style: "width: 20px" }),

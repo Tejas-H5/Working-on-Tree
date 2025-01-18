@@ -1,9 +1,10 @@
-import { Insertable, RenderGroup, div, el, getState, on, setAttr, setInputValue, setText, setVisible } from "src/utils/dom-utils";
+import { cssVars } from "src/styling";
+import { Insertable, RenderGroup, cn, div, el, setAttr, setInputValue, setText, setVisible } from "src/utils/dom-utils";
 
 export function newTextArea(): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", {
-        class: "pre-wrap w-100 h-100",
-        style: "border: 1px var(--fg-color) solid; padding: 0;"
+        class: [cn.preWrap, cn.w100, cn.h100],
+        style: `border: 1px ${cssVars.fgColor} solid; padding: 0;`
     });
 
     textArea.el.addEventListener("keydown", (e) => {
@@ -30,10 +31,10 @@ export type EditableTextAreaArgs = {
 };
 
 export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
-    const whenNotEditing = div({ class: "handle-long-words", style: "" });
+    const whenNotEditing = div({ class: [cn.handleLongWords], style: "" });
     const whenEditing = newTextArea();
     setAttr(whenEditing, "rows", "1");
-    setAttr(whenEditing, "class", "flex-1");
+    setAttr(whenEditing, "class", cn.flex1);
     setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
     // the updateTextContentAndSize triggers a lot of reflows, making it
@@ -41,7 +42,7 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
     let lastText: string | undefined;
     let lastIsEditing: boolean;
     function updateTextContentAndSize() {
-        const s = getState(rg);
+        const s = rg.s;
         if (lastText === s.text && lastIsEditing === s.isEditing) {
             return;
         }
@@ -88,19 +89,19 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
         updateTextContentAndSize();
     });
 
-    const root = div({ class: "flex-1 row h-100", style: "overflow-y: hidden;" }, [
+    const root = div({ class: [cn.flex1, cn.row, cn.h100], style: "overflow-y: hidden;" }, [
         whenNotEditing, 
         whenEditing
     ]);
 
     whenEditing.el.addEventListener("input", () => {
-        const s = getState(rg);
+        const s = rg.s;
 
         s.onInput(whenEditing.el.value);
     });
 
     whenEditing.el.addEventListener("keydown", (e) => {
-        const s = getState(rg);
+        const s = rg.s;
         s.onInputKeyDown(e);
     });
 

@@ -7,6 +7,41 @@ import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
 
 import { GraphData, newGraphData } from "./interactive-graph";
+import { newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
+import { Theme } from "./styling";
+
+const lightThemeColours: Theme = {
+    bgInProgress: newColor(1, 0, 0, 0.1),
+    fgInProgress: newColorFromHex("#FFF"),
+    bgColor: newColorFromHex("#FFF"),
+    bgColorFocus: newColorFromHex("#CCC"),
+    bgColorFocus2: newColor(0, 0, 0, 0.4),
+    fgColor: newColorFromHex("#000"),
+    unfocusTextColor: newColorFromHex("#A0A0A0"),
+    pinned: newColorFromHex("#0A0"),
+};
+
+const darkThemeColours: Theme = {
+    bgInProgress: newColor(1, 0, 0, 0.1),
+    fgInProgress: newColorFromHex("#FFF"),
+    bgColor: newColorFromHex("#000"),
+    bgColorFocus: newColorFromHex("#333"),
+    bgColorFocus2: newColor(1, 1, 25 / 255, 0.4),
+    fgColor: newColorFromHex("#EEE"),
+    unfocusTextColor: newColorFromHex("#070707"),
+    pinned: newColorFromHex("#0A0"),
+};
+
+export function setTheme(newTheme: AppTheme) {
+    state.currentTheme = newTheme;
+
+    if (newTheme === "Light") {
+        setCssVars(lightThemeColours);
+    } else {
+        setCssVars(darkThemeColours);
+    }
+};
+
 
 export type NoteId = string;
 export type TaskId = string;
@@ -1908,5 +1943,4 @@ export function loadStateFromBackup(text: string) {
     logTrace("Loading backup format v2");
     return migrateState(obj as NoteTreeGlobalState);
 }
-
 

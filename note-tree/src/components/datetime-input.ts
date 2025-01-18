@@ -1,5 +1,6 @@
+import { cssVars } from "src/styling";
 import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
-import { RenderGroup, div, el, getState, isEditingInput, newComponent, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { cn, div, el, isEditingInput, newComponent, RenderGroup, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
 export function DateTimeInput(rg: RenderGroup<{
@@ -10,12 +11,12 @@ export function DateTimeInput(rg: RenderGroup<{
     onChange(val: Date | null): void;
 }>) {
     const show = div();
-    const edit = el<HTMLInputElement>("INPUT", { class: "pre-wrap" });
+    const edit = el<HTMLInputElement>("INPUT", { class: [cn.preWrap] });
     const checkbox = newComponent(Checkbox);
-    const root = div({ class: "row", style: "" }, [
+    const root = div({ class: [cn.row], style: "" }, [
         checkbox,
         div(
-            { class: "row align-items-center", style: "width: 100%; height: 100%; padding-left: 5px; padding-right: 5px" },
+            { class: [cn.row, cn.alignItemsCenter], style: "width: 100%; height: 100%; padding-left: 5px; padding-right: 5px" },
             [
                 show, 
                 edit,
@@ -54,11 +55,11 @@ export function DateTimeInput(rg: RenderGroup<{
             lastDate = value;
         }
 
-        setStyle(root, "color", !!value ? "" : "var(--unfocus-text-color)");
+        setStyle(root, `color`, !!value ? `` : `${cssVars.unfocusTextColor}`);
     });
     
     function onCheckOrUncheck(b: boolean) {
-        const s = getState(rg);
+        const s = rg.s;
         const { onChange } = s;
 
         if (b) {
@@ -69,7 +70,7 @@ export function DateTimeInput(rg: RenderGroup<{
     }
 
     function handleTextfieldEdit() {
-        const s = getState(rg);
+        const s = rg.s;
         const { onChange } = s;
         const value = edit.el.value;
 

@@ -1,11 +1,11 @@
-import { Insertable, RenderGroup, div, getState, on, scrollIntoView } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, on, scrollIntoView } from "src/utils/dom-utils";
 
 export function ScrollContainer(rg: RenderGroup<{
     rescrollMs?: number;
     axes?: "h" | "v" | "hv";
     scrollEl: Insertable<HTMLElement> | null;
 }>) {
-    const root = div({ class: "flex-1", style: "overflow-y: auto;" });
+    const root = div({ class: [cn.flex1, cn.overflowYAuto], style: "overflow-y: auto;" });
 
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;
@@ -13,13 +13,13 @@ export function ScrollContainer(rg: RenderGroup<{
     let lastHeight = 0;
 
     function isH() {
-        const s = getState(rg);
+        const s = rg.s;
         return s.axes === "h" || s.axes === "hv";
     }
 
     function isV() {
         // default to vertical
-        const s = getState(rg);
+        const s = rg.s;
         return s.axes === "v" || s.axes === "hv" || !s.axes;
     }
 
@@ -44,7 +44,7 @@ export function ScrollContainer(rg: RenderGroup<{
     }
 
     function shouldRerender() {
-        const s = getState(rg);
+        const s = rg.s;
         let shouldRerender = false;
 
         const { scrollEl } = s;
@@ -86,7 +86,7 @@ export function ScrollContainer(rg: RenderGroup<{
     });
 
     on(root, "scroll", () => {
-        const s = getState(rg);
+        const s = rg.s;
         const { rescrollMs } = s;
 
         if (!rescrollMs) {

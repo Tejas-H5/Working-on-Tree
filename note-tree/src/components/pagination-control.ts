@@ -1,4 +1,4 @@
-import { RenderGroup, div, getState } from "src/utils/dom-utils";
+import { RenderGroup, cn, div } from "src/utils/dom-utils";
 import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
 import { Button } from "./button";
 
@@ -8,25 +8,25 @@ export function PaginationControl(rg: RenderGroup<{
     rerender(): void;
 }>) {
     function previousPage() {
-        const { pagination, rerender } = getState(rg);
+        const { pagination, rerender } = rg.s;
         setPage(pagination, getPage(pagination) - 1);
         rerender();
     }
 
     function firstPage() {
-        const { pagination, rerender } = getState(rg);
+        const { pagination, rerender } = rg.s;
         pagination.start = 0;
         rerender();
     }
 
     function nextPage() {
-        const { pagination, rerender } = getState(rg);
+        const { pagination, rerender } = rg.s;
         setPage(pagination, getPage(pagination) + 1);
         rerender();
     }
 
     function lastPage() {
-        const { pagination, rerender } = getState(rg);
+        const { pagination, rerender } = rg.s;
         pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
         rerender();
     }
@@ -43,25 +43,25 @@ export function PaginationControl(rg: RenderGroup<{
         maxPages = getMaxPages(pagination);
     });
 
-    return div({ style: "border-top: 1px solid var(--fg-color);", class: "row align-items-center" }, [
+    return div({ style: `border-top: 1px solid currentColor;`, class: [cn.row, cn.alignItemsCenter] }, [
         div({ style: "" }, [
             rg.text((s) => `Page ${page + 1} (${start}) - ${end} / ${s.pagination.totalCount})`)
         ]),
-        div({ class: "flex-1" }),
-        div({ style: "width: 100px", class: "row" }, [
-            rg.if(() => page !== 0,
-                rg => rg.c(Button, c => c.render({ label: "<<", onClick: firstPage })),
+        div({ class: [cn.flex1] }),
+        div({ style: "width: 100px", class: [cn.row] }, [
+            rg.if(() => page !== 0, rg => 
+                rg.c(Button, c => c.render({ label: "<<", onClick: firstPage })),
             ),
-            rg.if(() => page !== 0,
-                rg => rg.c(Button, c => c.render({ label: "<", onClick: previousPage }))
+            rg.if(() => page !== 0, rg => 
+                rg.c(Button, c => c.render({ label: "<", onClick: previousPage }))
             )
         ]),
-        div({ style: "width: 100px", class: "row justify-content-right" }, [
-            rg.if(() => page !== maxPages,
-                rg => rg.c(Button, c => c.render({ label: ">", onClick: nextPage }))
+        div({ style: "width: 100px", class: [cn.row, cn.justifyContentRight] }, [
+            rg.if(() => page !== maxPages, rg => 
+                rg.c(Button, c => c.render({ label: ">", onClick: nextPage }))
             ),
-            rg.if(() => page !== maxPages,
-                rg => rg.c(Button, c => c.render({ label: ">>", onClick: lastPage }))
+            rg.if(() => page !== maxPages, rg => 
+                rg.c(Button, c => c.render({ label: ">>", onClick: lastPage }))
             ),
         ]),
     ]);
