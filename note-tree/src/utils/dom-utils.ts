@@ -1136,6 +1136,7 @@ export class RenderGroup<S = null> {
      */
     preRenderFn(fn: (s: S) => void, errorRoot?: Insertable<any>) {
         this.pushRenderFn(this.preRenderFnList, fn, errorRoot);
+
     }
 
     /** 

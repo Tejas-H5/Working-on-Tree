@@ -119,3 +119,7 @@ export function findLastIndex<T>(arr: T[], fn: (val: T) => boolean, start = -1):
 
     return -1;
 }
+
+export function clearArray(arr: unknown[]) {
+    arr.splice(0, arr.length);
+}

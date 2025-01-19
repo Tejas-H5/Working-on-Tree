@@ -9,6 +9,7 @@ import { uuid } from "src/utils/uuid";
 import { GraphData, newGraphData } from "./interactive-graph";
 import { newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { Theme } from "./styling";
+import { clearArray } from "./utils/array-utils";
 
 const lightThemeColours: Theme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
@@ -136,6 +137,7 @@ export type Note = {
     _durationUnranged: number;
     _durationRanged: number;
     _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
+    _index: number; // which position is this in the current child list?
 };
 
 
@@ -454,6 +456,7 @@ export function defaultNote(state: NoteTreeGlobalState | null): Note {
         _durationUnranged: 0,
         _durationRanged: 0,
         _activityListMostRecentIdx: 0,
+        _index: 0,
     };
 }
 
@@ -476,26 +479,32 @@ export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
     return noteIds;
 }
 
-export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId[]) {
-    flatNotes.splice(0, flatNotes.length);
-
-    const currentNote = getCurrentNote(state);
-    if (!currentNote.parentId) {
+export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId[], currentNoteId: NoteId | null, includeParents: boolean) {
+    clearArray(flatNotes);
+    if (!currentNoteId) {
         return;
     }
+
+    const currentNote = getNoteOrUndefined(state, currentNoteId);
+    if (!currentNote?.parentId) {
+        return;
+    }
+
+    if (includeParents) {
+        // Add the parents to the top of the list
+        tree.forEachParent(state.notes, currentNote, (note) => {
+            if (note.id === currentNote.id) {
+                return;
+            }
+
+            flatNotes.push(note.id);
+        });
+        flatNotes.reverse();
+    }
+
     const parent = getNote(state, currentNote.parentId);
-
-    tree.forEachParent(state.notes, currentNote, (note) => {
-        if (note.id === currentNote.id) {
-            return;
-        }
-
-        flatNotes.push(note.id);
-    });
-
-    flatNotes.reverse();
     for (const childId of parent.childIds) {
-        flatNotes.push(childId);
+        flatNotes.push(childId)
     }
 }
 
@@ -549,19 +558,20 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         });
     }
 
-    // recompute _depth, _parent, _localIndex, _localList. Somewhat required for a lot of things after to work.
+    // recompute _depth, _parent, _index. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
     if (!isTimer) {
-        const dfs = (note: TreeNote, depth: number) => {
+        const dfs = (note: TreeNote, depth: number, index: number) => {
             note.data._depth = depth;
+            note.data._index = index;
 
             for (let i = 0; i < note.childIds.length; i++) {
                 const c = getNote(state, note.childIds[i]);
-                dfs(c, depth + 1);
+                dfs(c, depth + 1, i);
             }
         };
 
-        dfs(getRootNote(state), -1);
+        dfs(getRootNote(state), -1, 0);
     }
 
 
@@ -678,13 +688,13 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         });
     }
 
-    // recompute _flatNoteIds (after deleting things)
+    // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
     if (!isTimer) {
         if (!state._flatNoteIds) {
             state._flatNoteIds = [];
         }
 
-        recomputeFlatNotes(state, state._flatNoteIds);
+        recomputeFlatNotes(state, state._flatNoteIds, state.currentNoteId, true);
     }
 
     // recompute the activity list most recent index.
@@ -1622,6 +1632,22 @@ export function getLastSelectedNote(state: NoteTreeGlobalState, note: TreeNote):
     const selNoteId = note.childIds[idx]
 
     return getNote(state, selNoteId);
+}
+
+export function noteParentContainsNotesWithChildren(state: NoteTreeGlobalState, note: TreeNote): boolean {
+    const parent = getNoteOrUndefined(state, note.parentId);
+    if (!parent) {
+        return false;
+    }
+
+    for (const id of parent.childIds) {
+        const note = getNote(state, id);
+        if (note.childIds.length > 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 

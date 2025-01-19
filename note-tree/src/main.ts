@@ -44,6 +44,7 @@ import {
     AppTheme,
     CurrentDateScope,
     DockableMenu,
+    Note,
     NoteId,
     NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
@@ -716,7 +717,7 @@ function ExportModal(rg: RenderGroup) {
             onClick: () => {
                 handleErrors(() => {
                     const flatNotes: NoteId[] = [];
-                    recomputeFlatNotes(state, flatNotes);
+                    recomputeFlatNotes(state, flatNotes, state.currentNoteId, true);
 
                     copyToClipboard(exportAsText(state, flatNotes));
                     showStatusText("Copied current open notes as text");
@@ -1888,8 +1889,20 @@ function NoteRowInput(rg: RenderGroup<{
     stickyOffset?: number;
     hasDivider: boolean;
     scrollParent: HTMLElement | null;
+    currentNote: TreeNote;
+    listHasFocus: boolean;
 }>) {
+    let indent2Amount = 0;
+    let isFocused = false;
+    let isEditing = false;
+    let isShowingDurations = false;
+
+
     function onInput(text: string) {
+        if (!rg.s.listHasFocus) {
+            return;
+        }
+
         const s = rg.s;
         const { note } = s;
 
@@ -1903,8 +1916,11 @@ function NoteRowInput(rg: RenderGroup<{
     }
 
     function onInputKeyDown(e: KeyboardEvent) {
-        const currentNote = getCurrentNote(state);
+        if (!rg.s.listHasFocus) {
+            return;
+        }
 
+        const currentNote = rg.s.currentNote;
         const shiftPressed = e.shiftKey;
         const ctrlPressed = e.ctrlKey || e.metaKey;
 
@@ -1928,11 +1944,6 @@ function NoteRowInput(rg: RenderGroup<{
             rerenderApp();
         }
     }
-
-    let isOnSameLevel = false;
-    let isFocused = false;
-    let isEditing = false;
-    let isShowingDurations = false;
 
     function setStickyOffset() {
         const s = rg.s;
@@ -1966,15 +1977,20 @@ function NoteRowInput(rg: RenderGroup<{
     rg.preRenderFn(function renderNoteRowInput({
         note, 
         scrollParent,
-        readOnly
+        readOnly,
+        currentNote,
+        listHasFocus,
     }) {
-        const currentNote = getCurrentNote(state);
-        isOnSameLevel = currentNote.parentId === note.parentId;
+
+        // Notes on the current level or deeper get indented a bit more, for visual clarity,
+        // and the parent notes won't get indented as much so that we aren't wasting space
+        const difference = note.data._depth - currentNote.data._depth;
+        indent2Amount = Math.max(0, difference + 1);
 
         const wasFocused = isFocused;
-        isFocused = state.currentNoteId === note.id && currentModal === null;
+        isFocused = currentNote.id === note.id && currentModal === null;
         isEditing = !readOnly && (
-            isFocused && state._isEditingFocusedNote
+            listHasFocus && isFocused && state._isEditingFocusedNote
         );
 
         const wasShowingDurations = isShowingDurations;
@@ -1998,7 +2014,7 @@ function NoteRowInput(rg: RenderGroup<{
         }
 
         // do auto-scrolling
-        if (renderOptions.shouldScroll && scrollParent) {
+        if (renderOptions.shouldScroll && scrollParent && listHasFocus) {
             if (isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
                 // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
@@ -2018,38 +2034,28 @@ function NoteRowInput(rg: RenderGroup<{
                 return "#F00";
             }
 
-            if (isFocused) {
-                if (!isInTodoList && !isInHotlist) {
-                    return `${cssVars.fgColor}`;
+            if (s.listHasFocus) {
+                if (isFocused) {
+                    if (!isInTodoList && !isInHotlist) {
+                        return `${cssVars.fgColor}`;
+                    }
+
+                    return `${cssVars.bgColorFocus2}`;;
                 }
 
-                return `${cssVars.bgColorFocus2}`;;
-            }
-
-            if (isLastEditedNote) {
-                return "#00F";
+                if (isLastEditedNote) {
+                    return "#00F";
+                }
             }
 
             return "";
         })
     ]);
 
-    const indentation = div({ class: [cn.pre], style: "padding-right: 5px" }, [
-        rg.style("minWidth", ({ note }) => {
-            const INDENT = 1;
-            const INDENT2 = 4;
-            const indent1 = INDENT * note.data._depth;
-            const depth = isOnSameLevel ? (
-                // the current level gets indented a bit more, for visual clarity,
-                // and the parent notes won't get indented as much so that we aren't wasting space
-                indent1 - INDENT + INDENT2
-            ) : indent1;
-
-            return depth + "ch";
-        })
-    ]);
-
     const durationHistogramBar = div({ class: [cnApp.inverted], style: "height: 4px;" });
+
+    const INDENT1 = 1;
+    const INDENT2 = 3;
 
     const root = div({ class: [cn.row, cn.pre], style: `background-color: ${cssVars.bgColor}` }, [
         rg.on("click", ({ note }) => {
@@ -2069,11 +2075,28 @@ function NoteRowInput(rg: RenderGroup<{
         div({ class: [cn.flex1] }, [
             div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // This is mainly so that multi-line parent notes won't take up a large amount of space
-                rg.style("whiteSpace", () => isOnSameLevel ? "pre-wrap" : "nowrap"),
+                rg.style("whiteSpace", () => indent2Amount >= 0 ? "pre-wrap" : "nowrap"),
                 // cursor element
                 cursorElement,
-                indentation,
-                div({ class: [cn.pre, cnApp.sb1l], style: "padding-left: 5px; " }, [
+                // indentation - before vertical line
+                div({ class: [cn.pre], style: "padding-right: 5px" }, [
+                    rg.style("minWidth", ({ note, currentNote }) => {
+                        const indent1 = INDENT1 * Math.min(note.data._depth, currentNote.data._depth);
+                        // only indent2 once. the rest of indent2Amount must occur after the vertical line.
+                        const indent2 = INDENT2 * Math.min(Math.max(indent2Amount, 0), 1);
+
+                        return (indent1 + indent2) + "ch";
+                    })
+                ]),
+                div({ style: `width: 1px; background-color: ${cssVars.fgColor}` }),
+                // indentation - after vertical line.
+                div({ class: [cn.pre] }, [
+                    rg.style("width", ({ note }) => {
+                        const indent2 = (INDENT1 + INDENT2) * Math.max(indent2Amount - 1, 0);
+                        return (indent2) + "ch";
+                    })
+                ]),
+                div({ class: [cn.pre], style: "padding-left: 5px; " }, [
                     rg.text(({ note }) => {
                         return noteStatusToString(note.data._status) + getNoteProgressCountText(note) + " - ";
                     })
@@ -2104,40 +2127,61 @@ function NoteRowInput(rg: RenderGroup<{
     return root;
 }
 
-function NoteListInternal(rg: RenderGroup<{
-    flatNotes: NoteId[];
+function NotesList(rg: RenderGroup<{
+    flatNoteIds: NoteId[];
     scrollParent: HTMLElement | null;
+    currentNoteId: NoteId | null;
+    hasFocus: boolean;
+    ratio: number;
 }>) {
     const root = div({
-        class: [cn.w100, cnApp.sb1b, cnApp.sb1t],
+        class: [cn.flex1, cn.w100, cnApp.sb1b, cnApp.sb1t],
     });
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
     rg.preRenderFn(function renderNoteListInteral(s) {
-        const { flatNotes, scrollParent } = s;
+        const { flatNoteIds, scrollParent, currentNoteId, hasFocus } = s;
+
+        if (!setVisible(root, flatNoteIds.length > 0)) {
+            return;
+        }
+
+        setStyle(root, "flex", "" + s.ratio);
 
         noteList.render((getNext) => {
             let stickyOffset = 0;
 
-            const currentNote = getCurrentNote(state);
+            if (!currentNoteId) {
+                return;
+            }
 
-            for (let i = 0; i < flatNotes.length; i++) {
-                const id = flatNotes[i];
+            const currentNote = getNote(state, currentNoteId);
+
+            for (let i = 0; i < flatNoteIds.length; i++) {
+                const id = flatNoteIds[i];
                 const note = getNote(state, id);
                 const component = getNext();
 
-                const isOnCurrentLevel = currentNote.parentId === note.parentId;
-                let isSticky = (note.id !== currentNote.id && note.data._isSelected) || (
-                    isOnCurrentLevel &&
-                    note.data.isSticky
-                );
+                const isOnCurrentLevelOrDeeper = note.data._depth >= currentNote.data._depth;
+                const isOnCurrentLevel = note.data._depth === currentNote.data._depth;
+                let isSticky = note.data.isSticky ||
+                    !isOnCurrentLevel ||
+                    // We should really have 2 separate scroll containers with individual autoscrolling, but for now, I'm hacking it like this - 
+                    // The notes that we aren't autoscrolling to with list focus will have all their notes be sticky, so that
+                    // We can see them.
+                    (!hasFocus && (
+                        currentNote.data._index - 5 <= note.data._index && 
+                            note.data._index <= currentNote.data._index + 5 
+                    ));
 
                 component.render({
                     note,
                     stickyOffset: isSticky ? stickyOffset : undefined,
-                    hasDivider: !isOnCurrentLevel,
+                    hasDivider: !isOnCurrentLevelOrDeeper,
                     scrollParent,
                     readOnly: false,
+                    currentNote,
+                    listHasFocus: hasFocus,
                 });
 
                 // I have no idea how I would do this in React, tbh.
@@ -2148,22 +2192,6 @@ function NoteListInternal(rg: RenderGroup<{
             }
         });
     })
-
-    return root;
-}
-
-function NotesList(rg: RenderGroup) {
-    const list1 = newComponent(NoteListInternal);
-    const root = div({}, [
-        list1,
-    ]);
-
-    rg.preRenderFn(function renderNotesList() {
-        list1.render({
-            flatNotes: state._flatNoteIds,
-            scrollParent: root.el.parentElement,
-        });
-    });
 
     return root;
 }
@@ -3337,11 +3365,12 @@ export function App(rg: RenderGroup) {
     ]);
 
     const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
+    const notesScrollRoot = div({ class: [cn.col, cn.flex1, cn.overflowYAuto] });
 
     const appRoot = div({ class: [cn.relative], style: "padding-bottom: 100px" }, [
         div({ class: [cn.col], style: "position: fixed; top: 0; bottom: 0px; left: 0; right: 0;" }, [
             div({ class: [cn.row, cn.flex1] }, [
-                div({ class: [cn.col, cn.flex1, cn.overflowYAuto] }, [
+                addChildren(notesScrollRoot, [
                     rg.if(
                         () => currentHelpInfo === 2, 
                         (rg) => rg.c(CheatSheet, c => c.render(null))
@@ -3356,7 +3385,9 @@ export function App(rg: RenderGroup) {
                         rg.c(DarkModeToggle, c => c.render(null)),
                     ]),
                     errorBanner,
-                    notesList,
+                    div({ class: [cn.row] }, [
+                        notesList,
+                    ]),
                     rg.if(() => state._isShowingDurations, 
                         (rg) => rg.c(HighLevelTaskDurations, c => c.render(null))
                     ),
@@ -3741,6 +3772,7 @@ export function App(rg: RenderGroup) {
         console.error("Webworker error: ", e);
     }
 
+    // Legacy code do be like this sometimes ...
     rg.preRenderFn(function rerenderAppComponent() {
         recomputeState(state, renderOptions.isTimer);
 
@@ -3810,27 +3842,36 @@ export function App(rg: RenderGroup) {
             currentDockedMenu = null;
         }
 
-        setVisible(rightPanelArea, currentDockedMenu !== null);
-
         // Render the list after rendering the right dock, so that the sticky offsets have the correct heights.
         // The right panel can cause lines to wrap when they otherwise wouldn't have, resulting in incorrect heights
-        notesList.render(null);
+        notesList.render({ 
+            flatNoteIds: state._flatNoteIds,
+            scrollParent: notesScrollRoot.el,
+            currentNoteId: state.currentNoteId,
+            hasFocus: true,
+            ratio: 2,
+        });
+
 
         if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
             // Render activities in their normal spot
+            setVisible(rightPanelArea, false);
             appendChild(bottomRightArea, activityListContainer);
             activityListContainer.render({ docked: false });
         } else {
             // Render activities in the side panel
+            setVisible(rightPanelArea, true);
             appendChild(rightPanelArea, activityListContainer);
             activityListContainer.render({ docked: true });
         }
 
         if (setVisible(bottomLeftArea, currentDockedMenu !== "todoLists")) {
             // Render todo list in their normal spot
+            setVisible(rightPanelArea, false);
             appendChild(bottomLeftArea, todoListContainer);
         } else {
             // Render todo list in the right panel
+            setVisible(rightPanelArea, true);
             appendChild(rightPanelArea, todoListContainer);
         }
         todoList.render({
