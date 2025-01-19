@@ -5,6 +5,7 @@ import { countOccurances, findLastIndex, newArray } from "src/utils/array-utils"
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
+    Component,
     Insertable,
     RenderGroup,
     addChildren,
@@ -44,7 +45,6 @@ import {
     AppTheme,
     CurrentDateScope,
     DockableMenu,
-    Note,
     NoteId,
     NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
@@ -75,8 +75,8 @@ import {
     getNoteDurationUsingCurrentRange,
     getNoteDurationWithoutRange,
     getNoteEstimate,
-    getNoteNDown,
-    getNoteNUp,
+    getNoteNDownForMovement,
+    getNoteNUpForMovement,
     getNoteOneDownLocally,
     getNoteOneUpLocally,
     getNoteOrUndefined,
@@ -89,7 +89,6 @@ import {
     insertNoteAfterCurrent,
     isBreak,
     isCurrentlyTakingABreak,
-    isDoneNoteWithExtraInfo,
     isEditableBreak,
     isHigherLevelTask,
     isNoteRequestingShelf,
@@ -112,7 +111,7 @@ import {
     setTheme,
     state,
     toggleActivityScopedNote,
-    toggleNoteSticky,
+    toggleNoteSticky
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -717,7 +716,8 @@ function ExportModal(rg: RenderGroup) {
             onClick: () => {
                 handleErrors(() => {
                     const flatNotes: NoteId[] = [];
-                    recomputeFlatNotes(state, flatNotes, state.currentNoteId, true);
+                    const currentNote = getCurrentNote(state);
+                    recomputeFlatNotes(state, flatNotes, currentNote, true);
 
                     copyToClipboard(exportAsText(state, flatNotes));
                     showStatusText("Copied current open notes as text");
@@ -1150,21 +1150,9 @@ function getNoteProgressCountText(note: TreeNote): string {
 
 
     let progressText = "";
+
     if (totalCount !== 0) {
-        // We want to ignore notes 1 just 1 note, and that note is just something like DONE.
-        // Otherwise there will just be too much noise.
-
-        let shouldIgnore = false;
-        if (doneCount === 1 && totalCount === 1) {
-            const child = getNote(state, note.childIds[0]);
-            if (!isDoneNoteWithExtraInfo(child.data)) {
-                shouldIgnore = true;
-            }
-        }
-
-        if (!shouldIgnore) {
-            progressText = ` (${doneCount}/${totalCount})`;
-        }
+        progressText = ` (${doneCount}/${totalCount})`;;
     }
 
     return progressText;
@@ -1883,15 +1871,19 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
     return root;
 }
 
-function NoteRowInput(rg: RenderGroup<{
+type NoteRowInputArgs = {
     readOnly: boolean;
     note: TreeNote;
     stickyOffset?: number;
     hasDivider: boolean;
+    hasLightDivider: boolean;
     scrollParent: HTMLElement | null;
     currentNote: TreeNote;
     listHasFocus: boolean;
-}>) {
+};
+
+function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
+    let startDepth = 0;
     let indent2Amount = 0;
     let isFocused = false;
     let isEditing = false;
@@ -1981,10 +1973,12 @@ function NoteRowInput(rg: RenderGroup<{
         currentNote,
         listHasFocus,
     }) {
+        const flatNotesRoot = getNoteOrUndefined(state, state._currentFlatNotesRootId);
+        startDepth = flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth;
 
         // Notes on the current level or deeper get indented a bit more, for visual clarity,
         // and the parent notes won't get indented as much so that we aren't wasting space
-        const difference = note.data._depth - currentNote.data._depth;
+        const difference = note.data._depth - startDepth;
         indent2Amount = Math.max(0, difference + 1);
 
         const wasFocused = isFocused;
@@ -1995,7 +1989,6 @@ function NoteRowInput(rg: RenderGroup<{
 
         const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
-
 
         setStickyOffset();
 
@@ -2049,13 +2042,13 @@ function NoteRowInput(rg: RenderGroup<{
             }
 
             return "";
-        })
+        }),
     ]);
 
     const durationHistogramBar = div({ class: [cnApp.inverted], style: "height: 4px;" });
 
     const INDENT1 = 1;
-    const INDENT2 = 3;
+    const INDENT2 = 4;
 
     const root = div({ class: [cn.row, cn.pre], style: `background-color: ${cssVars.bgColor}` }, [
         rg.on("click", ({ note }) => {
@@ -2071,7 +2064,9 @@ function NoteRowInput(rg: RenderGroup<{
         }),
         rg.style(`backgroundColor`, s => isFocused ? `${cssVars.bgColorFocus}` : `${cssVars.bgColor}`),
         // Dividing line between different levels
-        rg.style(`borderBottom`, s => !s.hasDivider ? `` : `1px solid ${cssVars.fgColor}`),
+        rg.style(`borderBottom`, s => s.hasDivider ? `1px solid ${cssVars.fgColor}`
+            : s.hasLightDivider ? `1px solid ${cssVars.bgColorFocus}` : ``
+        ),
         div({ class: [cn.flex1] }, [
             div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // This is mainly so that multi-line parent notes won't take up a large amount of space
@@ -2079,26 +2074,17 @@ function NoteRowInput(rg: RenderGroup<{
                 // cursor element
                 cursorElement,
                 // indentation - before vertical line
-                div({ class: [cn.pre], style: "padding-right: 5px" }, [
+                div({ class: [cn.h100], style: "padding-right: 5px" }, [
                     rg.style("minWidth", ({ note, currentNote }) => {
-                        const indent1 = INDENT1 * Math.min(note.data._depth, currentNote.data._depth);
-                        // only indent2 once. the rest of indent2Amount must occur after the vertical line.
-                        const indent2 = INDENT2 * Math.min(Math.max(indent2Amount, 0), 1);
+                        const indent1 = INDENT1 * Math.min(startDepth, note.data._depth);
+                        const indent2 = INDENT2 * Math.max(indent2Amount, 0);
 
                         return (indent1 + indent2) + "ch";
-                    })
+                    }),
                 ]),
-                div({ style: `width: 1px; background-color: ${cssVars.fgColor}` }),
-                // indentation - after vertical line.
-                div({ class: [cn.pre] }, [
-                    rg.style("width", ({ note }) => {
-                        const indent2 = (INDENT1 + INDENT2) * Math.max(indent2Amount - 1, 0);
-                        return (indent2) + "ch";
-                    })
-                ]),
-                div({ class: [cn.pre], style: "padding-left: 5px; " }, [
+                div({ class: [cn.pre], style: "padding-left: 10px; padding-right: 10px " }, [
                     rg.text(({ note }) => {
-                        return noteStatusToString(note.data._status) + getNoteProgressCountText(note) + " - ";
+                        return noteStatusToString(note.data._status) + " - " + getNoteProgressCountText(note);
                     })
                 ]),
                 rg.c(EditableTextArea, (c, s) => c.render({
@@ -2157,32 +2143,46 @@ function NotesList(rg: RenderGroup<{
 
             const currentNote = getNote(state, currentNoteId);
 
+            let lastStuckComponent: Component<NoteRowInputArgs, HTMLDivElement> | undefined;
+
             for (let i = 0; i < flatNoteIds.length; i++) {
                 const id = flatNoteIds[i];
                 const note = getNote(state, id);
+                const nextNote = getNoteOrUndefined(state, flatNoteIds[i + 1]);
                 const component = getNext();
 
-                const isOnCurrentLevelOrDeeper = note.data._depth >= currentNote.data._depth;
-                const isOnCurrentLevel = note.data._depth === currentNote.data._depth;
-                let isSticky = note.data.isSticky ||
-                    !isOnCurrentLevel ||
-                    // We should really have 2 separate scroll containers with individual autoscrolling, but for now, I'm hacking it like this - 
-                    // The notes that we aren't autoscrolling to with list focus will have all their notes be sticky, so that
-                    // We can see them.
-                    (!hasFocus && (
-                        currentNote.data._index - 5 <= note.data._index && 
-                            note.data._index <= currentNote.data._index + 5 
-                    ));
+                const flatNotesRoot = getNote(state, state._currentFlatNotesRootId);
 
-                component.render({
+                const isSticky = note.data.isSticky ||
+                    (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
+
+                const hasDivider = (!!nextNote && !!flatNotesRoot) && (
+                    (note.data._depth < flatNotesRoot.data._depth)
+                );
+
+                // Rendering the component once without sticky and then a second time with sticky, so that
+                // we can determine if a note has 'stuck' to the top of the page and apply a divider conditionally.
+
+                const args: NoteRowInputArgs = {
                     note,
-                    stickyOffset: isSticky ? stickyOffset : undefined,
-                    hasDivider: !isOnCurrentLevelOrDeeper,
+                    stickyOffset: undefined,
+                    hasDivider,
+                    hasLightDivider: false,
                     scrollParent,
                     readOnly: false,
                     currentNote,
                     listHasFocus: hasFocus,
-                });
+                };
+                component.render(args);
+                const orignalOffsetTop = component.el.offsetTop;
+
+                component.s.stickyOffset = isSticky ? stickyOffset : undefined;
+                component.renderWithCurrentState();
+
+                const hasStuck = orignalOffsetTop !== component.el.offsetTop;
+                if (hasStuck) {
+                    lastStuckComponent = component;
+                }
 
                 // I have no idea how I would do this in React, tbh.
                 // But it was really damn easy here lol.
@@ -2190,8 +2190,14 @@ function NotesList(rg: RenderGroup<{
                     stickyOffset += component.el.getBoundingClientRect().height;
                 }
             }
+
+            if (lastStuckComponent) {
+                lastStuckComponent.s.hasDivider = true;
+                lastStuckComponent.renderWithCurrentState();
+            }
         });
-    })
+    });
+
 
     return root;
 }
@@ -3566,18 +3572,40 @@ export function App(rg: RenderGroup) {
         ) {
             // handle movements here
 
-            function handleUpDownMovement(nextNoteId: NoteId | undefined) {
-                if (!nextNoteId) {
+            function handleUpDownMovement(up: boolean, ctrlKey: boolean, amount = 1, end: boolean, home: boolean) {
+                const isMovingNode = e.altKey;
+
+                const useSiblings = isMovingNode;
+                let nextNoteId;
+                if (end) {
+                    nextNoteId = currentNote.childIds[currentNote.childIds.length - 1];
+                } else if (home) {
+                    nextNoteId = currentNote.childIds[0];
+                } else if (up) {
+                    if (ctrlKey) {
+                        nextNoteId = getNoteOneUpLocally(state, currentNote);
+                    } else {
+                        nextNoteId = getNoteNUpForMovement(state, currentNote, useSiblings, amount)
+                    }
+                } else {
+                    if (ctrlKey) {
+                        nextNoteId = getNoteOneDownLocally(state, currentNote);
+                    } else {
+                        nextNoteId = getNoteNDownForMovement(state, currentNote, useSiblings, amount);
+                    } 
+                }
+
+                const nextNote = getNoteOrUndefined(state, nextNoteId);
+                if (!nextNote) {
                     return;
                 }
 
-                if (!e.altKey) {
-                    setCurrentNote(state, nextNoteId);
+                if (!isMovingNode) {
+                    setCurrentNote(state, nextNote.id);
                     debouncedSave();
                     return;
                 }
 
-                const nextNote = getNote(state, nextNoteId);
                 if (
                     currentNote.parentId &&
                     currentNote.parentId === nextNote.parentId
@@ -3647,25 +3675,25 @@ export function App(rg: RenderGroup) {
                     shouldPreventDefault = true;
                     moveInDirectionOverTodoList(1);
                 } else if (ctrlPressed) {
-                    handleUpDownMovement(getNoteOneDownLocally(state, currentNote));
+                    handleUpDownMovement(false, true, 1, false, false);
                 } else {
-                    handleUpDownMovement(getNoteNDown(state, currentNote, true));
+                    handleUpDownMovement(false, false, 1, false, false);
                 }
             } else if (e.key === "ArrowUp") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
                     moveInDirectionOverTodoList(-1);
                 } else if (ctrlPressed) {
-                    handleUpDownMovement(getNoteOneUpLocally(state, currentNote));
+                    handleUpDownMovement(true, true, 1, false, false);
                 } else {
-                    handleUpDownMovement(getNoteNUp(state, currentNote, true));
+                    handleUpDownMovement(true, false, 1, false, false);
                 }
             } else if (e.key === "PageUp") {
                 shouldPreventDefault = true;
-                handleUpDownMovement(getNoteNUp(state, currentNote, true, 10));
+                handleUpDownMovement(true, false, 10, false, false);
             } else if (currentNote.parentId && e.key === "PageDown") {
                 shouldPreventDefault = true;
-                handleUpDownMovement(getNoteNDown(state, currentNote, true, 10));
+                handleUpDownMovement(false, false, 10, false, false);
             } else if (currentNote.parentId && e.key === "End") {
                 if (
                     isInTodoList &&
@@ -3674,9 +3702,7 @@ export function App(rg: RenderGroup) {
                 ) {
                     setTodoListIndex(state._todoNoteIds.length - 1);
                 } else {
-                    const parent = getNote(state, currentNote.parentId);
-                    const siblings = parent.childIds;
-                    handleUpDownMovement(siblings[siblings.length - 1] || undefined);
+                    handleUpDownMovement(true, false, 0, true, false);
                 }
             } else if (currentNote.parentId && e.key === "Home") {
                 if (
@@ -3686,9 +3712,7 @@ export function App(rg: RenderGroup) {
                 ) {
                     setTodoListIndex(0);
                 } else {
-                    const parent = getNote(state, currentNote.parentId);
-                    const siblings = parent.childIds;
-                    handleUpDownMovement(siblings[0] || undefined);
+                    handleUpDownMovement(true, false, 0, false, true);
                 }
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)

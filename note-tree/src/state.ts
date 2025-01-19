@@ -106,6 +106,9 @@ export type NoteTreeGlobalState = {
     _lastNoteId: NoteId | undefined;
     _currentDateScope: CurrentDateScope;
     _currentDateScopeWeekDay: number;
+    // NOTE: this note isn't really the 'flat notes root', it's just one note _before_ the flat note when traversing upwards
+    _currentFlatNotesRootId: NoteId;
+    _currentFlatNotesRootHltId: NoteId | null;
 };
 
 type AppSettings = {}
@@ -342,6 +345,8 @@ export function defaultState(): NoteTreeGlobalState {
         _lastNoteId: undefined,
         _currentDateScope: "week",
         _currentDateScopeWeekDay: -1,
+        _currentFlatNotesRootId: "",
+        _currentFlatNotesRootHltId: null,
     };
 
     setActivityRangeToToday(state);
@@ -479,14 +484,11 @@ export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
     return noteIds;
 }
 
-export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId[], currentNoteId: NoteId | null, includeParents: boolean) {
+export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId[], currentNote: TreeNote, includeParents: boolean) {
     clearArray(flatNotes);
-    if (!currentNoteId) {
-        return;
-    }
 
-    const currentNote = getNoteOrUndefined(state, currentNoteId);
-    if (!currentNote?.parentId) {
+    const parent = getNoteOrUndefined(state, currentNote.parentId);
+    if (!parent) {
         return;
     }
 
@@ -502,9 +504,22 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
         flatNotes.reverse();
     }
 
-    const parent = getNote(state, currentNote.parentId);
+    const dfs = (note: TreeNote) => {
+        flatNotes.push(note.id);
+
+        if (isStoppingPointForNotViewExpansion(note)) {
+            return;
+        }
+
+        for (const childId of note.childIds) {
+            const note = getNote(state, childId);
+            dfs(note);
+        }
+    }
+
     for (const childId of parent.childIds) {
-        flatNotes.push(childId)
+        const note = getNote(state, childId);
+        dfs(note);
     }
 }
 
@@ -686,15 +701,6 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
             note.data._isSelected = true;
             return false;
         });
-    }
-
-    // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
-    if (!isTimer) {
-        if (!state._flatNoteIds) {
-            state._flatNoteIds = [];
-        }
-
-        recomputeFlatNotes(state, state._flatNoteIds, state.currentNoteId, true);
     }
 
     // recompute the activity list most recent index.
@@ -909,6 +915,27 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
             }
         }
     }
+
+    // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
+    if (!isTimer) {
+        if (!state._flatNoteIds) {
+            state._flatNoteIds = [];
+        }
+
+        let startNote = getCurrentNote(state);
+        tree.forEachParent(state.notes, startNote, (note) => {
+            if (note.id !== startNote.id && isStoppingPointForNotViewExpansion(note)) {
+                return true;
+            }
+
+            startNote = note;
+        });
+
+        state._currentFlatNotesRootId = startNote.id;
+        state._currentFlatNotesRootHltId = startNote.parentId;
+
+        recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
+    }
 }
 
 export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
@@ -922,6 +949,14 @@ export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, 
         return note.id === parentId;
     });
 }
+
+// The note that we're in may be an 'expanded' note, and not necessarily the root of the view.
+export function isStoppingPointForNotViewExpansion(note: TreeNote): boolean {
+    return isHigherLevelTask(note)
+        || state.notes.rootId === note.id
+        || note.data._status !== STATUS_IN_PROGRESS;
+}
+
 
 export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity: Activity): string | undefined {
     if (activity.nId === state.notes.rootId) {
@@ -1188,7 +1223,7 @@ export function isCurrentlyTakingABreak(state: NoteTreeGlobalState): boolean {
     return !!last && isBreak(last);
 }
 
-export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
+export function getNoteNDownForMovement(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
     if (!note.parentId) {
         return undefined;
     }
@@ -1202,6 +1237,30 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
     return undefined;
 }
 
+export function getNoteNUpForMovement(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
+    if (!note.parentId) {
+        return undefined;
+    }
+
+    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    let idx = list.indexOf(note.id);
+    if (idx === -1) {
+        return undefined
+    }
+
+    let i = idx;
+    while (i >= 0 && amount > 0) {
+        i--;
+        amount--;
+
+        if (list[i] === state._currentFlatNotesRootHltId) {
+            return list[i + 1];
+        }
+    }
+
+    return list[i];
+}
+
 export function getNoteNUp(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
     if (!note.parentId) {
         return undefined;
@@ -1211,6 +1270,20 @@ export function getNoteNUp(state: NoteTreeGlobalState, note: TreeNote, useSiblin
     let idx = list.indexOf(note.id);
     if (idx > 0) {
         return list[Math.max(0, idx - amount)];
+    }
+
+    return undefined;
+}
+
+export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
+    if (!note.parentId) {
+        return undefined;
+    }
+
+    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const idx = list.indexOf(note.id);
+    if (idx < list.length - 1) {
+        return list[Math.min(list.length - 1, idx + amount)];
     }
 
     return undefined;
