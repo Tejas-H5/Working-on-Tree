@@ -3,7 +3,7 @@ import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
-import { cssVars } from "./styling";
+import { cnApp, cssVars } from "./styling";
 
 const TAB_SIZE = 4;
 
@@ -965,7 +965,6 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
     const scrollContainer = newComponent(ScrollContainer);
     const root = setAttrs(scrollContainer, {
-        class: [cn.flex1],
         style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
             `border: 1px solid ${cssVars.fgColor};`
     }, true);
@@ -1380,7 +1379,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             }
         });
 
-        if (!scrollContainer.s) {
+        if (!scrollContainer._s) {
             scrollContainer._s = {
                 scrollEl: null,
                 axes: "hv",
@@ -1747,8 +1746,8 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             });
 
             const isCurrentTool = getTool(s.canvasState) === tool;
-            setClass(button, "inverted", !!selected || isCurrentTool);
-            setClass(button, "unfocused-text-color", !!disabled);
+            setClass(button, cnApp.inverted, !!selected || isCurrentTool);
+            setClass(button, cnApp.unfocusedTextColor, !!disabled);
         });
 
         return button;
@@ -1924,7 +1923,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         buttons.bucketFillSelectConnected,
     ];
 
-    const toolbar = div({ style: "justify-content: center; gap: 5px;" }, [
+    const toolbar = div({ style: "gap: 5px;" }, [
         div({ class: [cn.inlineBlock] }, [
             buttons.lessRows,
             div({ style: "display: inline-block; min-width: 3ch; text-align: center;", class: ["", ""] }, [
@@ -2165,7 +2164,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
     });
 
     const root = div({ class: [cn.relative, cn.h100, cn.row] }, [
-        div({ class: [cn.flex1, cn.col, cn.justifyContentCenter, cn.alignItemsCenter, cn.overflowAuto ]}, [
+        div({ class: [cn.col, cn.justifyContentCenter, cn.alignItemsCenter, cn.overflowAuto ]}, [
             div({ class: [cn.flex1] }),
             canvasComponent,
             statusText,

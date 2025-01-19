@@ -1,7 +1,7 @@
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, findLastIndex, newArray } from "src/utils/array-utils";
+import { countOccurances, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -32,7 +32,7 @@ import {
     span
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
-import { Range, fuzzyFind, scoreFuzzyFind } from "src/utils/fuzzyfind";
+import { Range } from "src/utils/fuzzyfind";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import * as tree from "src/utils/tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
@@ -45,6 +45,7 @@ import {
     AppTheme,
     CurrentDateScope,
     DockableMenu,
+    FuzzyFindState,
     NoteId,
     NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
@@ -56,6 +57,7 @@ import {
     dfsPre,
     findNextActiviyIndex,
     findPreviousActiviyIndex,
+    fuzzySearchNotes,
     getActivityDurationMs,
     getActivityText,
     getActivityTime,
@@ -82,6 +84,7 @@ import {
     getNoteOrUndefined,
     getNoteTextWithoutPriority,
     getParentNoteWithEstimate,
+    getQuicklistIndex,
     getRootNote,
     getSecondPartOfRow,
     hasNote,
@@ -90,8 +93,6 @@ import {
     isBreak,
     isCurrentlyTakingABreak,
     isEditableBreak,
-    isHigherLevelTask,
-    isNoteRequestingShelf,
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
@@ -106,7 +107,9 @@ import {
     setActivityTime,
     setCurrentActivityIdxToCurrentNote,
     setCurrentNote,
+    setFuzzyFindIndex,
     setIsEditingCurrentNote,
+    setQuicklistIndex,
     setStateFromJSON,
     setTheme,
     state,
@@ -122,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.001";
+const VERSION_NUMBER = "1.00.003";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -207,9 +210,8 @@ function TodoListInternal(rg: RenderGroup<{
     cursorNoteId?: NoteId;
     disableHeaders: boolean;
 }>) {
-    function TodoListItem(rg: RenderGroup<{
-        heading: string | undefined;
-        strikethrough: boolean;
+    function QuicklistItem(rg: RenderGroup<{
+        index: number;
         hasCursor: boolean;
         text: string;
         noteId: string;
@@ -217,7 +219,10 @@ function TodoListInternal(rg: RenderGroup<{
         cursorNoteId: NoteId | undefined;
     }>) {
         const children = [
-            div({ class: [cn.flex1], style: "padding-bottom: 10px" }, [
+            div({ class: [cn.flex1, cn.row], style: "padding-bottom: 10px" }, [
+                div({ class: [cn.noWrap], style: "padding: 10px" }, [
+                    rg.text(s => "" + s.index)
+                ]),
                 rg.c(NoteLink, (noteLink, s) => {
                     const { text, focusAnyway, noteId } = s;
 
@@ -235,37 +240,28 @@ function TodoListInternal(rg: RenderGroup<{
             c.render({
                 isCursorVisible: s.hasCursor,
                 isFocused: s.focusAnyway,
-                isCursorActive: isInTodoList,
+                isCursorActive: isInQuicklist,
                 children: children,
             })
-
-            setClass(navRoot, "strikethrough", s.strikethrough)
         });
 
         return div({}, [
-            rg.with(
-                (s) => s.heading,
-                (rg) => {
-                    return el("H3", { style: "text-align: center; margin: 0; padding: 1em 0;" }, [
-                        rg.text((s) => s)
-                    ])
-                }
-            ),
             navRoot,
         ]);
     }
 
     const root = div();
-    const todoItemsList = newListRenderer(root, () => newComponent(TodoListItem));
+    const quicklistItemsList = newListRenderer(root, () => newComponent(QuicklistItem));
 
     rg.preRenderFn((s) => {
         const { setScrollEl, cursorNoteId, disableHeaders } = s;
         let alreadyScrolled = false;
 
-        todoItemsList.render((getNext) => {
+        quicklistItemsList.render((getNext) => {
             let lastHlt: TreeNote | undefined;
 
-            for (const id of state._todoNoteIds) {
+            for (let i = 0; i < state._quicklistIds.length; i++) {
+                const id = state._quicklistIds[i];
                 const note = getNote(state, id);
                 const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
 
@@ -286,10 +282,9 @@ function TodoListInternal(rg: RenderGroup<{
 
                 const lc = getNext();
                 lc.render({
-                    heading: hltHeading,
+                    index: i,
                     noteId: note.id,
                     text: (progressCountText ? getNoteProgressCountText(note) + " - " : "") + text,
-                    strikethrough: note.data._status === STATUS_DONE,
                     hasCursor: cursorNoteId === note.id,
                     focusAnyway,
                     cursorNoteId
@@ -311,13 +306,13 @@ function TodoListInternal(rg: RenderGroup<{
     return root;
 }
 
-function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
-    const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, ["TODO Lists"]);
+function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
+    const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, [
+        "Search results"
+    ]);
     const listInternal = newComponent(TodoListInternal);
     const empty = div({}, [
-        `Notes starting with '>' get put into the TODO list! 
-        You can navigate the todo list with [Ctrl] + [Shift] + [Up/Down]. 
-        You can only see other TODO notes underneath the current TODO parent note.`
+        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down] !"
     ]);
     const scrollContainer = newComponent(ScrollContainer);
     const root = div({ class: [cn.flex1, cn.col] }, [
@@ -332,27 +327,8 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     rg.preRenderFn((s) => {
         const { cursorNoteId } = s;
 
-        setVisible(empty, state._todoNoteIds.length === 0);
-
-        const leftArrow = isInTodoList ? "<- " : "";
-        const rightArrow = isInTodoList ? " ->" : "";
-
-        let count = " (" + state._todoNoteIds.length + ") ";
-
-        let headingText;
-        if (state._todoNoteFilters === -1) {
-            const note = getCurrentNote(state);
-            const hlt = getHigherLevelTask(state, note);
-            const hltText = hlt ? getHltHeader(state, hlt) : NIL_HLT_HEADING;
-            headingText = "Everything in progress for specific task [" + hltText + "]" + count + rightArrow;
-        } else if (state._todoNoteFilters === 0) {
-            headingText = leftArrow + "Everything in progress for every task" + count + rightArrow;
-        } else if (state._todoNoteFilters === 1) {
-            headingText = leftArrow + "Most recent thing in progress for every task" + count + rightArrow;
-        } else {
-            headingText = leftArrow + "Most recent thing in progress for every task that has an estimate" + count;
-        }
-        setText(heading, headingText);
+        setVisible(empty, state._quicklistIds.length === 0);
+        setText(heading, "Search results");
 
         let scrollEl: Insertable | null = null;
 
@@ -365,7 +341,7 @@ function TodoList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
         listInternal.render({
             setScrollEl,
             cursorNoteId,
-            disableHeaders: state._todoNoteFilters === -1,
+            disableHeaders: false,
         });
 
         scrollContainer.render({
@@ -1159,17 +1135,6 @@ function getNoteProgressCountText(note: TreeNote): string {
 }
 
 
-// yep, doesnt need any info about the matches, total count, etc.
-// Although, I do wonder if this is the right place for it. 
-// This only works because I know the implementation of the fuzzy find scoring algo, since I wrote it
-function getMinFuzzyFindScore(query: string, strict = false) {
-    if (!strict) {
-        return Math.pow(query.length * 0.3, 2);
-    }
-
-    return Math.pow(query.length * 0.7, 2);
-}
-
 function HighlightedText(rg: RenderGroup<{
     text: string;
     highlightedRanges: Range[];
@@ -1179,7 +1144,7 @@ function HighlightedText(rg: RenderGroup<{
         text: string;
     }>) {
         return span({}, [
-            rg.class("unfocused-text-color", (s) => !s.highlighted),
+            rg.class(cnApp.unfocusedTextColor, (s) => !s.highlighted),
             rg.text((s) => s.text),
         ]);
     }
@@ -1209,134 +1174,9 @@ function HighlightedText(rg: RenderGroup<{
     });
 }
 
-type NoteFuzzyFindMatches = {
-    note: TreeNote;
-    ranges: Range[];
-    score: number;
-};
-
-function fuzzySearchNotes(
-    state: NoteTreeGlobalState,
-    rootNote: TreeNote,
-    query: string,
-    matches: NoteFuzzyFindMatches[],
-) {
-    matches.splice(0, matches.length);
-
-    const SORT_BY_SCORE = 1;
-    const SORT_BY_RECENCY = 2;
-
-    let useMinScore = true;
-    let sortMethod = SORT_BY_SCORE;
-
-    // this can chain with the other two queries
-    const isShelvedQuery = query.startsWith("||");
-    if (isShelvedQuery) {
-        query = query.substring(2).trim();
-    }
-
-    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
-    // It's too hard to find them in the todo list, so I'm trying other options.
-    const isHltQuery = query.startsWith(">>");
-    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
-
-    if (isHltQuery) {
-        query = query.substring(2).trim();
-    } else if (isInProgressQuery) {
-        query = query.substring(1).trim();
-    }
-
-    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
-        if (query.trim().length === 0) {
-            sortMethod = SORT_BY_RECENCY;
-            useMinScore = false;
-        }
-    }
-
-    dfsPre(state, rootNote, (n) => {
-        if (!n.parentId) {
-            // ignore the root note
-            return;
-        }
-
-        let text = n.data.text.toLowerCase();
-
-        if (
-            isShelvedQuery ||
-            isHltQuery ||
-            isInProgressQuery
-        ) {
-            if (isShelvedQuery !== n.data._shelved) {
-                return;
-            }
-
-            if (isShelvedQuery && isHltQuery) {
-                if (!isNoteRequestingShelf(n.data)) {
-                    return;
-                }
-
-                const parent = getNoteOrUndefined(state, n.parentId);
-                if (parent && isNoteRequestingShelf(parent.data)) {
-                    // If `n` wants to be shelved but its parent is already shelved, 
-                    // don't include this in the list of matches
-                    return;
-                }
-            }
-
-
-            if (isHltQuery && !isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isInProgressQuery && isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isHltQuery || isInProgressQuery) {
-                if (n.data._status !== STATUS_IN_PROGRESS) {
-                    return;
-                }
-            }
-        }
-
-        let results = fuzzyFind(text, query);
-        let score = 0;
-
-        if (sortMethod === SORT_BY_RECENCY) {
-            score -= n.data._activityListMostRecentIdx;
-        } else {
-            score = scoreFuzzyFind(results);
-            if (n.data._status === STATUS_IN_PROGRESS) {
-                score *= 2;
-            }
-        }
-
-        if (useMinScore) {
-            const minScore = getMinFuzzyFindScore(query);
-            if (score < minScore) {
-                return;
-            }
-        }
-
-        if (n.data.isSticky) {
-            score += 999999;
-        }
-
-        matches.push({
-            note: n,
-            ranges: results,
-            score,
-        });
-    });
-
-    matches.sort((a, b) => {
-        return b.score - a.score;
-    });
-}
-
-
 function FuzzyFinder(rg: RenderGroup<{ 
-    visible: boolean 
+    visible: boolean;
+    state: FuzzyFindState;
 }>) {
     function FindResultItem(rg: RenderGroup<{
         note: TreeNote;
@@ -1408,27 +1248,15 @@ function FuzzyFinder(rg: RenderGroup<{
 
     const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FindResultItem));
 
-    let currentSelectionIdx = 0;
-    let scopedToCurrentNote = false;
-    let query = "";
-
-    const matches: NoteFuzzyFindMatches[] = [];
-    const counts = {
-        numInProgress: 0,
-        numFinished: 0,
-        numShelved: 0,
-        numPinned: 0,
-    };
-
     const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const root = div({ class: [cn.flex1, cn.col] }, [
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
-            rg.text(() => scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
+            rg.text(s => s.state.scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
-            rg.text(() => counts.numInProgress + " in progress, " + 
-                counts.numFinished + " done, " + 
-                counts.numShelved + " shelved, " + 
-                counts.numPinned + " pinned"),
+            rg.text(s => s.state.counts.numInProgress + " in progress, " + 
+                s.state.counts.numFinished + " done, " + 
+                s.state.counts.numShelved + " shelved, " + 
+                s.state.counts.numPinned + " pinned"),
         ]),
         div({ class: [cn.row, cn.alignItemsCenter], }, [
             div({ style: "width: 10px" }),
@@ -1443,19 +1271,30 @@ function FuzzyFinder(rg: RenderGroup<{
 
     let timeoutId = 0;
     const DEBOUNCE_MS = 10;
-    function recomputeMatches(query: string) {
+    function recomputeMatches(query: string, toggle: boolean) {
+        const finderState = rg.s.state;
+
+        let scopedToCurrentNote = finderState.scopedToCurrentNote;
+        if (toggle) {
+            // Might need to rethink this - it's fairly easy to toggle this and not notice...
+            scopedToCurrentNote = !scopedToCurrentNote;
+        }
+
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             const rootNote = scopedToCurrentNote ? getCurrentNote(state)
                 : getRootNote(state);
 
-            fuzzySearchNotes(state, rootNote, query, matches);
+            const matches = finderState.matches;
 
-            
+            fuzzySearchNotes(state, rootNote, query, matches);
+ 
             const MAX_MATCHES = 1000;
             if (matches.length > MAX_MATCHES) {
                 matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
             }
+
+            const counts = finderState.counts;
 
             counts.numFinished = 0;
             counts.numInProgress = 0;
@@ -1477,11 +1316,19 @@ function FuzzyFinder(rg: RenderGroup<{
                 }
             }
 
+            finderState.scopedToCurrentNote = scopedToCurrentNote;
+            if (finderState.scopedToCurrentNote) {
+                finderState.currentIdx = finderState.currentIdxLocal;
+            } else {
+                finderState.currentIdx = finderState.currentIdxGlobal;
+            }
+
             rg.renderWithCurrentState();
         }, DEBOUNCE_MS);
     }
 
     let matchesInvalid = true;
+    let toggleCurrentNoteVsEverywhere = true;
     let isVisble = false;
 
     rg.preRenderFn(function renderFuzzyFinder(s) {
@@ -1491,32 +1338,37 @@ function FuzzyFinder(rg: RenderGroup<{
             return;
         }
 
+        const finderState = s.state;
+
         if (matchesInvalid || visibleChanged) {
             matchesInvalid = false;
-            recomputeMatches(query);
+            recomputeMatches(finderState.query, toggleCurrentNoteVsEverywhere);
+            toggleCurrentNoteVsEverywhere = false;
             return;
         }
 
         searchInput.el.focus();
 
-        if (currentSelectionIdx >= matches.length) {
-            currentSelectionIdx = 0;
+        if (finderState.currentIdx >= finderState.matches.length) {
+            finderState.currentIdx = 0;
         }
 
         resultList.render((getNext) => {
-            for (let i = 0; i < matches.length; i++) {
-                const m = matches[i];
+            for (let i = 0; i < finderState.matches.length; i++) {
+                const m = finderState.matches[i];
                 getNext().render({
                     note: m.note,
                     ranges: m.ranges,
-                    hasFocus: i === currentSelectionIdx,
+                    hasFocus: i === finderState.currentIdx,
                 });
             }
         });
     });
 
     searchInput.el.addEventListener("keydown", (e) => {
-        const note = matches[currentSelectionIdx]?.note as TreeNote | undefined;
+        const finderState = rg.s.state;
+
+        const note = finderState.matches[finderState.currentIdx]?.note as TreeNote | undefined;
         
         if (note && e.key === "Enter") {
             e.preventDefault();
@@ -1535,34 +1387,38 @@ function FuzzyFinder(rg: RenderGroup<{
 
         // NOTE: no home, end, we need that for the search input
         if (e.key === "ArrowDown") {
-            currentSelectionIdx++;
+            finderState.currentIdx++;
         } else if (e.key === "PageDown") {
-            currentSelectionIdx += 10;
+            finderState.currentIdx += 10;
         } else if (e.key === "ArrowUp") {
-            currentSelectionIdx--;
+            finderState.currentIdx--;
         } else if (e.key === "PageUp") {
-            currentSelectionIdx -= 10;
+            finderState.currentIdx -= 10;
         } else if (
             (e.ctrlKey || e.metaKey)
             && e.shiftKey
             && e.key === "F"
         ) {
-            scopedToCurrentNote = !scopedToCurrentNote;
             matchesInvalid = true;
+            toggleCurrentNoteVsEverywhere = true;
         } else {
             handled = false;
         }
 
         if (handled) {
             e.preventDefault();
-            currentSelectionIdx = Math.max(0, currentSelectionIdx);
-            currentSelectionIdx = Math.min(currentSelectionIdx, matches.length - 1);
+            setFuzzyFindIndex(finderState, finderState.currentIdx);
             rg.renderWithCurrentState();
         }
     });
 
     searchInput.el.addEventListener("input", () => {
-        query = searchInput.el.value.toLowerCase();
+        const finderState = rg.s.state;
+
+        finderState.query = searchInput.el.value.toLowerCase();
+        finderState.currentIdx = 0;
+        finderState.currentIdxGlobal = 0;
+        finderState.currentIdxLocal = 0;
         matchesInvalid = true;
         rg.renderWithCurrentState();
     });
@@ -1574,7 +1430,10 @@ function FuzzyFindModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
     const modalContent = div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
-        rg.c(FuzzyFinder, (c, s) => c.render(s)),
+        rg.c(FuzzyFinder, (c, s) => c.render({
+            visible: s.visible,
+            state: state._fuzzyFindState,
+        })),
     ]);
     return rg.if(
         s => s.visible,
@@ -2029,7 +1888,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
             if (s.listHasFocus) {
                 if (isFocused) {
-                    if (!isInTodoList && !isInHotlist) {
+                    if (!isInQuicklist && !isInHotlist) {
                         return `${cssVars.fgColor}`;
                     }
 
@@ -2722,82 +2581,28 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 
 let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
-let isInTodoList = false;
-let todoListIndex = 0;
+let isInQuicklist = false;
 
-function getCurrentTodoNoteIdx(fromTheTop = true): number {
-    // Get the index of the current note, if it's in the TODO list
-    const todoNoteIds = state._todoNoteIds;
-    let idx = todoNoteIds.indexOf(state.currentNoteId);
-    if (idx !== -1) {
-        return idx
-    }
+function moveInDirectionOverQuickList(amount: number) {
+    isInQuicklist = true;
 
-    // If not, get the first (or last) note in the todo list under the current higher level task.
-    // This really helps for the use-case where I just want to quickly review everything under a particcular task.
-    // Might not be very useful, considering we can just filter by ever note under the current HLT...
-    const currentNote = getCurrentNote(state);
-    const currentHlt = getHigherLevelTask(state, currentNote);
-    if (currentHlt) {
-        const predicate = (id: NoteId) => {
-            const todoNote = getNote(state, id);
-            return todoNote.data._higherLevelTaskId === currentHlt.id;
-        }
-        if (fromTheTop) {
-            idx = todoNoteIds.findIndex(predicate);
-        } else {
-            idx = findLastIndex(todoNoteIds, predicate);
-        }
-        if (idx !== -1) {
-            return idx
-        }
-    }
-
-    // If not, get the first (or last) ntoe in the todo list.
-
-    if (fromTheTop) {
-        return 0;
-    }
-
-    return todoNoteIds.length - 1;
-}
-
-function moveInDirectionOverTodoList(amount: number) {
-    const todoNoteIds = state._todoNoteIds;
-
-    let wantedIdx = -1;
-    if (!isInTodoList) {
-        isInTodoList = true;
-        wantedIdx = getCurrentTodoNoteIdx(
-            amount === 1
-        );
-    } else {
-        wantedIdx = Math.max(0, Math.min(todoNoteIds.length - 1, todoListIndex + amount));
-    }
-
-    if (
-        wantedIdx === -1 ||
-        wantedIdx >= todoNoteIds.length
-    ) {
-        // Would rather just not move into the todo list than 
-        // try to do something 'smart' like finding the closest TODO note
-        showStatusText("Couldn't find this note in the TODO list");
-        isInTodoList = false;
+    if (state._quicklistIds.length === 0) {
         return;
     }
 
-    setTodoListIndex(wantedIdx);
+    const idx = Math.max(0, Math.min(state._quicklistIds.length - 1, getQuicklistIndex(state)+ amount));
+    setQuicklistIndexForMove(idx);
 }
 
-function setTodoListIndex(idx: number) {
+function setQuicklistIndexForMove(idx: number) {
     if (idx === -1) {
         return;
     }
 
-    todoListIndex = idx;
+    setQuicklistIndex(state, idx);
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._todoNoteIds[todoListIndex]);
+    setCurrentNote(state, state._quicklistIds[getQuicklistIndex(state)]);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -3250,7 +3055,7 @@ export function App(rg: RenderGroup) {
     });
 
     const notesList = newComponent(NotesList);
-    const todoList = newComponent(TodoList);
+    const todoList = newComponent(QuickList);
     const rightPanelArea = div({ style: "width: 30%", class: [cn.col, cnApp.sb1l] });
     const bottomLeftArea = div({ class: [cn.flex1, cn.col], style: "padding: 0" });
     const bottomRightArea = div({ class: [cn.flex1, cn.col, cnApp.sb1l], style: "padding: 0" })
@@ -3281,11 +3086,11 @@ export function App(rg: RenderGroup) {
             rerenderApp();
         }
     });
-    const todoNotesButton = newComponent(Button);
-    todoNotesButton.render({
-        label: "Todo Notes",
+    const quicklistButton = newComponent(Button);
+    quicklistButton.render({
+        label: "Quicklist",
         onClick: () => {
-            toggleCurrentDockedMenu("todoLists");
+            toggleCurrentDockedMenu("quicklist");
         },
     });
     const activitiesButton = newComponent(Button);
@@ -3334,7 +3139,7 @@ export function App(rg: RenderGroup) {
                     setCurrentModal(settingsModal);
                 }
             })),
-            todoNotesButton,
+            quicklistButton,
             activitiesButton,
             durationsButton,
             rg.c(Button, c => c.render({
@@ -3434,9 +3239,9 @@ export function App(rg: RenderGroup) {
             e.key !== "ArrowRight" &&
             e.key !== "Home" &&
             e.key !== "End" &&
-            isInTodoList
+            isInQuicklist
         ) {
-            isInTodoList = false;
+            isInQuicklist = false;
             state._lastNoteId = lateralMovementStartingNote;
             rerenderApp();
         }
@@ -3470,7 +3275,7 @@ export function App(rg: RenderGroup) {
             !e.repeat
         ) {
             isInHotlist = false;
-            isInTodoList = false;
+            isInQuicklist = false;
             lateralMovementStartingNote = state.currentNoteId;
         }
 
@@ -3528,7 +3333,7 @@ export function App(rg: RenderGroup) {
             if (state.dockedMenu !== "activities") {
                 setCurrentDockedMenu("activities")
             } else {
-                setCurrentDockedMenu("todoLists")
+                setCurrentDockedMenu("quicklist")
             }
             return;
         } else if (
@@ -3673,7 +3478,7 @@ export function App(rg: RenderGroup) {
             } else if (e.key === "ArrowDown") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectionOverTodoList(1);
+                    moveInDirectionOverQuickList(1);
                 } else if (ctrlPressed) {
                     handleUpDownMovement(false, true, 1, false, false);
                 } else {
@@ -3682,7 +3487,7 @@ export function App(rg: RenderGroup) {
             } else if (e.key === "ArrowUp") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectionOverTodoList(-1);
+                    moveInDirectionOverQuickList(-1);
                 } else if (ctrlPressed) {
                     handleUpDownMovement(true, true, 1, false, false);
                 } else {
@@ -3696,21 +3501,21 @@ export function App(rg: RenderGroup) {
                 handleUpDownMovement(false, false, 10, false, false);
             } else if (currentNote.parentId && e.key === "End") {
                 if (
-                    isInTodoList &&
+                    isInQuicklist &&
                     e.ctrlKey &&
                     e.shiftKey
                 ) {
-                    setTodoListIndex(state._todoNoteIds.length - 1);
+                    setQuicklistIndexForMove(state._quicklistIds.length - 1);
                 } else {
                     handleUpDownMovement(true, false, 0, true, false);
                 }
             } else if (currentNote.parentId && e.key === "Home") {
                 if (
-                    isInTodoList &&
+                    isInQuicklist &&
                     e.ctrlKey &&
                     e.shiftKey
                 ) {
-                    setTodoListIndex(0);
+                    setQuicklistIndexForMove(0);
                 } else {
                     handleUpDownMovement(true, false, 0, false, true);
                 }
@@ -3718,23 +3523,15 @@ export function App(rg: RenderGroup) {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
-                    if (isInTodoList) {
-                        state._todoNoteFilters = Math.max(-1, state._todoNoteFilters - 1);
-                    } else {
-                        shouldPreventDefault = true;
-                        moveInDirectonOverHotlist(true);
-                    }
+                    shouldPreventDefault = true;
+                    moveInDirectonOverHotlist(true);
                 } else {
                     handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
-                    if (isInTodoList) {
-                        state._todoNoteFilters = Math.min(2, state._todoNoteFilters + 1);
-                    } else {
-                        shouldPreventDefault = true;
-                        moveInDirectonOverHotlist(false);
-                    }
+                    shouldPreventDefault = true;
+                    moveInDirectonOverHotlist(false);
                 } else {
                     // move into note
                     handleMovingIn();
@@ -3853,15 +3650,15 @@ export function App(rg: RenderGroup) {
         // Rerender interactive components _after_ recomputing the state above
 
         setClass(durationsButton, "inverted", state._isShowingDurations);
-        setClass(todoNotesButton, "inverted", state.dockedMenu === "todoLists" && state.showDockedMenu);
+        setClass(quicklistButton, "inverted", state.dockedMenu === "quicklist" && state.showDockedMenu);
         setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
 
         let currentDockedMenu: DockableMenu | null = state.dockedMenu;
 
         if (isInHotlist) {
             currentDockedMenu = "activities";
-        } else if (isInTodoList) {
-            currentDockedMenu = "todoLists";
+        } else if (isInQuicklist) {
+            currentDockedMenu = "quicklist";
         } else if (!state.showDockedMenu) {
             currentDockedMenu = null;
         }
@@ -3877,29 +3674,31 @@ export function App(rg: RenderGroup) {
         });
 
 
-        if (setVisible(bottomRightArea, currentDockedMenu !== "activities")) {
-            // Render activities in their normal spot
-            setVisible(rightPanelArea, false);
-            appendChild(bottomRightArea, activityListContainer);
-            activityListContainer.render({ docked: false });
-        } else {
+        let hasActivities = false;
+        if (setVisible(rightPanelArea, currentDockedMenu === "activities")) {
             // Render activities in the side panel
-            setVisible(rightPanelArea, true);
+            setVisible(bottomRightArea, false);
             appendChild(rightPanelArea, activityListContainer);
             activityListContainer.render({ docked: true });
+            hasActivities = true;
+        } else {
+            // Render activities in their normal spot
+            setVisible(bottomRightArea, true);
+            appendChild(bottomRightArea, activityListContainer);
+            activityListContainer.render({ docked: false });
         }
 
-        if (setVisible(bottomLeftArea, currentDockedMenu !== "todoLists")) {
-            // Render todo list in their normal spot
-            setVisible(rightPanelArea, false);
-            appendChild(bottomLeftArea, todoListContainer);
-        } else {
+        if (!hasActivities && setVisible(rightPanelArea, currentDockedMenu === "quicklist")) {
             // Render todo list in the right panel
-            setVisible(rightPanelArea, true);
+            setVisible(bottomLeftArea, false);
             appendChild(rightPanelArea, todoListContainer);
+        } else {
+            // Render todo list in their normal spot
+            setVisible(bottomLeftArea, true);
+            appendChild(bottomLeftArea, todoListContainer);
         }
         todoList.render({
-            cursorNoteId: state._todoNoteIds[getCurrentTodoNoteIdx()],
+            cursorNoteId: state._quicklistIds[getQuicklistIndex(state)],
         });
 
         let error = "";

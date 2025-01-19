@@ -9,7 +9,8 @@ import { uuid } from "src/utils/uuid";
 import { GraphData, newGraphData } from "./interactive-graph";
 import { newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { Theme } from "./styling";
-import { clearArray } from "./utils/array-utils";
+import { clearArray, filterInPlace } from "./utils/array-utils";
+import { fuzzyFind, scoreFuzzyFind, Range } from "./utils/fuzzyfind";
 
 const lightThemeColours: Theme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
@@ -49,10 +50,43 @@ export type TaskId = string;
 
 export type TreeNote = tree.TreeNode<Note>;
 
-export type DockableMenu = "activities" | "todoLists";
+export type DockableMenu = "activities" | "quicklist";
 export type AppTheme = "Light" | "Dark";
 
 export type CurrentDateScope = "any" | "week";
+
+export type FuzzyFindState = {
+    query: string;
+    matches: NoteFuzzyFindMatches[];
+    counts: {
+        numInProgress: number;
+        numFinished: number;
+        numShelved: number;
+        numPinned: number;
+    },
+    currentIdx: number;
+    currentIdxLocal: number;
+    currentIdxGlobal: number;
+    scopedToCurrentNote: boolean;
+}
+
+function newFuzzyFindState(): FuzzyFindState {
+    return {
+        query: "",
+        matches: [],
+        counts: {
+            numInProgress: 0,
+            numFinished: 0,
+            numShelved: 0,
+            numPinned: 0,
+        },
+        currentIdx: 0,
+        currentIdxLocal: 0,
+        currentIdxGlobal: 0,
+        scopedToCurrentNote: true,
+    };
+}
+
 
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
@@ -82,20 +116,12 @@ export type NoteTreeGlobalState = {
 
     // non-serializable fields start with _
 
-    // NOTE: these ids are more like 'these are the stuff we worked on last' type ids.
-    _todoNoteIds: NoteId[];
-    /**
-     * -1 -> All tasks under current high level task
-     *  0 -> All tasks under all high level tasks
-     *  1 -> Most recent task under all high level tasks
-     *  2 -> Most recent task under all high level tasks (that have an estimate)
-     */
-    _todoNoteFilters: number;
     _todoRootId: NoteId;
     _currentlyViewingActivityIdx: number;
     _currentActivityScopedNote: NoteId;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
+    _quicklistIds: NoteId[];
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesFromIdx: number;
@@ -109,6 +135,7 @@ export type NoteTreeGlobalState = {
     // NOTE: this note isn't really the 'flat notes root', it's just one note _before_ the flat note when traversing upwards
     _currentFlatNotesRootId: NoteId;
     _currentFlatNotesRootHltId: NoteId | null;
+    _fuzzyFindState: FuzzyFindState;
 };
 
 type AppSettings = {}
@@ -330,9 +357,10 @@ export function defaultState(): NoteTreeGlobalState {
 
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
-        _todoNoteIds: [],
+
+        _quicklistIds: [],
+
         _todoRootId: notes.rootId,
-        _todoNoteFilters: 0,
         _currentlyViewingActivityIdx: 0,
         _currentActivityScopedNote: "",
         _isShowingDurations: false,
@@ -347,6 +375,7 @@ export function defaultState(): NoteTreeGlobalState {
         _currentDateScopeWeekDay: -1,
         _currentFlatNotesRootId: "",
         _currentFlatNotesRootHltId: null,
+        _fuzzyFindState: newFuzzyFindState(),
     };
 
     setActivityRangeToToday(state);
@@ -732,82 +761,6 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         }
     }
 
-    // recompute the TODO note list
-    if (!isTimer) {
-        // Should be somewhat inefficient. but I don't care. 
-        // most of the calculations here suck actually, now that I think about it...
-        // They're really easy to verify the correctness of and change later though.
-
-        state._todoNoteIds.splice(0, state._todoNoteIds.length);
-
-        tree.forEachNode(state.notes, (id) => {
-            const note = getNote(state, id);
-            note.data._isUnderCurrent = false;
-        });
-
-        const currentId = state.currentNoteId;
-        const currentNote = getNote(state, currentId);
-        const currentHLT = getHigherLevelTask(state, currentNote);
-        let showedNilTask = false;
-
-        for (let i = state.activities.length - 1; i >= 0; i--) {
-            const nId = state.activities[i].nId;
-            const note = getNoteOrUndefined(state, nId);
-            if (!note) {
-                continue;
-            }
-
-            if (
-                note.parentId === null ||
-                note.data._isUnderCurrent ||
-                (note.data._status !== STATUS_IN_PROGRESS) ||
-                (note.data._status === STATUS_IN_PROGRESS && note.childIds.length > 0 && note.data._everyChildNoteDone)
-            ) {
-                continue;
-            }
-
-            const hlt = getHigherLevelTask(state, note);
-            note.data._higherLevelTaskId = hlt?.id || "";
-            if (state._todoNoteFilters === -1) {
-                // only show other todo notes with the same higher level task as this one
-                if (hlt !== currentHLT) {
-                    continue;
-                }
-            } else if (
-                state._todoNoteFilters === 1
-                || state._todoNoteFilters === 2
-            ) {
-                if (!hlt || (
-                    state._todoNoteFilters === 2
-                    && getNoteEstimate(hlt) <= 0
-                )) {
-                    // same as _todoNoteFilters === 1 but exclude hlts without an estimate
-                    continue;
-                }
-
-                // only show the most recent of each higher level task.
-                if (hlt) {
-                    if (hlt.data._isUnderCurrent) {
-                        continue;
-                    }
-                    hlt.data._isUnderCurrent = true;
-                } else {
-                    if (showedNilTask) {
-                        continue;
-                    }
-                    showedNilTask = true;
-                }
-            }
-
-            note.data._activityListMostRecentIdx = state._todoNoteIds.length;
-            state._todoNoteIds.push(note.id);
-            note.data._isUnderCurrent = true;
-
-            if (state._todoNoteIds.length > 100) {
-                break;
-            }
-        }
-    }
 
     // compute the duration range as needed
     if (!isTimer) {
@@ -916,6 +869,19 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         }
     }
 
+    // recompute the quicklist from whatever sources are required
+    if (!isTimer) {
+        clearArray(state._quicklistIds);
+        for (const m of state._fuzzyFindState.matches) {
+            state._quicklistIds.push(m.note.id);
+        }
+
+        // remove deleted notes from the quicklist
+        filterInPlace(state._quicklistIds, (id) => {
+            return !!getNoteOrUndefined(state, id);
+        });
+    }
+
     // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
     if (!isTimer) {
         if (!state._flatNoteIds) {
@@ -936,6 +902,30 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
         recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
     }
+}
+
+export function setFuzzyFindIndex(state: FuzzyFindState, idx: number) {
+    if (idx < 0) {
+        idx = 0;
+    }
+    if (idx >= state.matches.length) {
+        idx = state.matches.length - 1;
+    }
+
+    state.currentIdx = idx;
+    if (state.scopedToCurrentNote) {
+        state.currentIdxLocal = state.currentIdx;
+    } else {
+        state.currentIdxGlobal = state.currentIdx;
+    }
+}
+
+export function setQuicklistIndex(state: NoteTreeGlobalState, idx: number) {
+    setFuzzyFindIndex(state._fuzzyFindState, idx);
+}
+
+export function getQuicklistIndex(state: NoteTreeGlobalState): number {
+    return state._fuzzyFindState.currentIdx;
 }
 
 export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
@@ -1879,6 +1869,143 @@ export function toggleNoteSticky(state: NoteTreeGlobalState, note: TreeNote) {
 export function resetState() {
     state = defaultState();
 }
+
+
+type NoteFuzzyFindMatches = {
+    note: TreeNote;
+    ranges: Range[];
+    score: number;
+};
+
+export function fuzzySearchNotes(
+    state: NoteTreeGlobalState,
+    rootNote: TreeNote,
+    query: string,
+    matches: NoteFuzzyFindMatches[],
+) {
+    matches.splice(0, matches.length);
+
+    const SORT_BY_SCORE = 1;
+    const SORT_BY_RECENCY = 2;
+
+    let useMinScore = true;
+    let sortMethod = SORT_BY_SCORE;
+
+    // this can chain with the other two queries
+    const isShelvedQuery = query.startsWith("||");
+    if (isShelvedQuery) {
+        query = query.substring(2).trim();
+    }
+
+    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
+    // It's too hard to find them in the todo list, so I'm trying other options.
+    const isHltQuery = query.startsWith(">>");
+    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
+
+    if (isHltQuery) {
+        query = query.substring(2).trim();
+    } else if (isInProgressQuery) {
+        query = query.substring(1).trim();
+    } 
+
+    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
+        if (query.trim().length === 0) {
+            sortMethod = SORT_BY_RECENCY;
+            useMinScore = false;
+        }
+    }
+
+    dfsPre(state, rootNote, (n) => {
+        if (!n.parentId) {
+            // ignore the root note
+            return;
+        }
+
+        let text = n.data.text.toLowerCase();
+
+        if (
+            isShelvedQuery ||
+            isHltQuery ||
+            isInProgressQuery
+        ) {
+            if (isShelvedQuery !== n.data._shelved) {
+                return;
+            }
+
+            if (isShelvedQuery && isHltQuery) {
+                if (!isNoteRequestingShelf(n.data)) {
+                    return;
+                }
+
+                const parent = getNoteOrUndefined(state, n.parentId);
+                if (parent && isNoteRequestingShelf(parent.data)) {
+                    // If `n` wants to be shelved but its parent is already shelved, 
+                    // don't include this in the list of matches
+                    return;
+                }
+            }
+
+            if (isHltQuery && !isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isInProgressQuery && isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isHltQuery || isInProgressQuery) {
+                if (n.data._status !== STATUS_IN_PROGRESS) {
+                    return;
+                }
+            }
+        }
+
+        let results = fuzzyFind(text, query);
+        let score = 0;
+
+        if (sortMethod === SORT_BY_RECENCY) {
+            score -= n.data._activityListMostRecentIdx;
+        } else {
+            score = scoreFuzzyFind(results);
+            if (n.data._status === STATUS_IN_PROGRESS) {
+                score *= 2;
+            }
+        }
+
+        if (useMinScore) {
+            const minScore = getMinFuzzyFindScore(query);
+            if (score < minScore) {
+                return;
+            }
+        }
+
+        if (n.data.isSticky) {
+            score += 999999;
+        }
+
+        matches.push({
+            note: n,
+            ranges: results,
+            score,
+        });
+    });
+
+    matches.sort((a, b) => {
+        return b.score - a.score;
+    });
+}
+
+// yep, doesnt need any info about the matches, total count, etc.
+// Although, I do wonder if this is the right place for it. 
+// This only works because I know the implementation of the fuzzy find scoring algo, since I wrote it
+function getMinFuzzyFindScore(query: string, strict = false) {
+    if (!strict) {
+        return Math.pow(query.length * 0.3, 2);
+    }
+
+    return Math.pow(query.length * 0.7, 2);
+}
+
 
 // TODO: rename to `globalState`
 export let state = defaultState();

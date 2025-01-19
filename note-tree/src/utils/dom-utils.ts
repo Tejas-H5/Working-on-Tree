@@ -1,4 +1,4 @@
-// DOM-utils v0.1.0 - @elTejasodomu
+// DOM-utils v0.1.1 - @Tejas-H5
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -796,7 +796,7 @@ export class RenderGroup<S = null> {
     readonly templateName: string;
     /**
      * Internal variable that allows getting the root of the component a render group is attached to
-     * without having the root itself. 
+     * without having the root itthis. 
      */
     instantiatedRoot: Insertable<any> | undefined = undefined;
     /* 
@@ -818,6 +818,13 @@ export class RenderGroup<S = null> {
         templateName: string = "unknown",
         skipErrorBoundary = false,
     ) {
+        for (const k in this) {
+            const v = this[k];
+            if (typeof v === "function") {
+                this[k] = v.bind(this);
+            }
+        }
+
         this._s = initialState;
         this.templateName = templateName;
         this.skipErrorBoundary = skipErrorBoundary;
@@ -843,7 +850,7 @@ export class RenderGroup<S = null> {
      * Sets the current state of this render group, and 
      * then immediately calls {@link RenderGroup.renderWithCurrentState}.
      */
-    render(s: S) {
+    readonly render = (s: S) => {
         this.ifStatementOpen = false;
         this._s = s;
         this.renderWithCurrentState();
@@ -853,7 +860,7 @@ export class RenderGroup<S = null> {
      * Calls every render function in the order they were appended to the array using the current state {@link RenderGroup._s}.
      * If this value is undefined, this function will throw.
      */
-    renderWithCurrentState() {
+    readonly renderWithCurrentState = () => {
         this.instantiated = true;
 
         this.renderFunctions(this.preRenderFnList);
@@ -864,7 +871,7 @@ export class RenderGroup<S = null> {
     /**
      * Returns a span which will update it's text with {@link fn} each render.
      */
-    text(fn: (s: S) => string): Insertable<HTMLSpanElement> {
+    readonly text = (fn: (s: S) => string): Insertable<HTMLSpanElement> => {
         const e = span();
         this.pushRenderFn(this.domRenderFnList, (s) => setText(e, fn(s)), e);
         return e;
@@ -889,7 +896,7 @@ export class RenderGroup<S = null> {
      * }
      * ```
      */
-    c<T, U extends ValidElement>(templateFn: TemplateFn<T, U>, renderFn: (c: Component<T, U>, s: S) => void): Component<T, U> {
+    readonly c = <T, U extends ValidElement>(templateFn: TemplateFn<T, U>, renderFn: (c: Component<T, U>, s: S) => void): Component<T, U> => {
         const component = newComponent(templateFn);
         return this.inlineFn(component, (c, s) => renderFn(c, s));
     }
@@ -897,7 +904,7 @@ export class RenderGroup<S = null> {
     /**
      * Returns what you passed in, and will 'rerender' it with {@link renderFn} each render.
      */
-    inlineFn<T extends Insertable<U>, U extends ValidElement>(component: T, renderFn: (c: T, s: S) => void): T {
+    readonly inlineFn = <T extends Insertable<U>, U extends ValidElement>(component: T, renderFn: (c: T, s: S) => void): T => {
         this.pushRenderFn(this.domRenderFnList, (s) => renderFn(component, s), component);
         return component;
     }
@@ -905,7 +912,7 @@ export class RenderGroup<S = null> {
     /** 
      * Same as `else_if(() => true, ...)`,
      */
-    else<U extends ValidElement> (templateFn: TemplateFn<S, U>): Component<S, U> {
+    readonly else = <U extends ValidElement> (templateFn: TemplateFn<S, U>): Component<S, U> => {
         return this.else_if(() => true, templateFn);
     }
 
@@ -913,22 +920,22 @@ export class RenderGroup<S = null> {
      * Display a specific component based on a string value.
      * Doesn't have to be exhaustive.
      **/
-    switch<R extends ValidElement, U extends ValidElement, K extends string | number>(
+    readonly switch = <R extends ValidElement, U extends ValidElement, K extends string | number>(
         root: Insertable<R>,
         predicate: (s: S) => K,
         dispatchTable: Record<K, TemplateFn<S, U>>,
-    ): Component<S, R> {
+    ): Component<S, R> => {
         return this.partial_switch(root, predicate, dispatchTable);
     }
 
     /**
      * Display a specific component based on a string value.
      **/
-    partial_switch<R extends ValidElement, U extends ValidElement, K extends string | number>(
+    readonly partial_switch = <R extends ValidElement, U extends ValidElement, K extends string | number>(
         root: Insertable<R>,
         predicate: (s: S) => K,
         dispatchTable: Partial<Record<K, TemplateFn<S, U>>>,
-    ): Component<S, R> {
+    ): Component<S, R> => {
         const c = newComponent((rg: RenderGroup<S>) => {
             // @ts-ignore trust me bro
             const cache: Record<K, Component<S, U>> = {};
@@ -958,7 +965,7 @@ export class RenderGroup<S = null> {
     /** 
      * Sets a component visible based on a predicate, and only renders it if it is visible 
      **/
-    if<U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> {
+    readonly if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
         return this.inlineFn(newComponent(templateFn), (c, s) => {
             this.ifStatementOpen = true;
             if (setVisible(c, this.ifStatementOpen && predicate(s))) {
@@ -971,7 +978,7 @@ export class RenderGroup<S = null> {
     /** 
      * Same as `if`, but only runs it's predicate if previous predicates were false.
      */
-    else_if<U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> {
+    readonly else_if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
         return this.inlineFn(newComponent(templateFn), (c, s) => {
             if (setVisible(c, this.ifStatementOpen && predicate(s))) {
                 this.ifStatementOpen = false;
@@ -983,7 +990,7 @@ export class RenderGroup<S = null> {
     /** 
      * Same as `if`, but it will hide the component if T is undefined. This allows for some type narrowing.
      */
-    with<U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> {
+    readonly with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
         return this.inlineFn(newComponent(templateFn), (c, s) => {
             this.ifStatementOpen = true;
             const val = predicate(s);
@@ -997,7 +1004,7 @@ export class RenderGroup<S = null> {
     /** 
      * The `with` equivelant of `else_if`
      */
-    else_with<U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> {
+    readonly else_with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
         return this.inlineFn(newComponent(templateFn), (c, s) => {
             if (!this.ifStatementOpen) {
                 setVisible(c, false);
@@ -1018,11 +1025,11 @@ export class RenderGroup<S = null> {
      * Returns functionality that will append an event to the parent component.
      * TODO: (ME) - extend to SVGElement as well. you can still use it for those, but you'll be fighting with TypeScript
      */
-    on<K extends keyof HTMLElementEventMap>(
+    readonly on = <K extends keyof HTMLElementEventMap>(
         type: K,
         listener: (s: S, ev: HTMLElementEventMap[K]) => any,
         options?: boolean | AddEventListenerOptions
-    ): Functionality<HTMLElement> {
+    ): Functionality<HTMLElement> => {
         return (parent) => {
             on(parent, type, (e) => {
                 listener(this.s, e);
@@ -1033,7 +1040,7 @@ export class RenderGroup<S = null> {
     /** 
      * Returns functionality that will set attributes on the parent component each render.
      */
-    attr<U extends ValidElement>(attrName: string, valueFn: (s: S) => string): Functionality<U> {
+    readonly attr = <U extends ValidElement>(attrName: string, valueFn: (s: S) => string): Functionality<U> => {
         return (parent) => {
             this.pushRenderFn(this.domRenderFnList, (s) => setAttr(parent, attrName, valueFn(s)), parent);
         }
@@ -1063,11 +1070,11 @@ export class RenderGroup<S = null> {
      * Hint: you can make a `div({ style: "display: contents" })` div to get a similar effect to React.fragment as far as layout is concerned.
      * You can also use `el("g")` for SVGs.
      */
-    list<R extends ValidElement, T, U extends ValidElement>(
+    readonly list = <R extends ValidElement, T, U extends ValidElement>(
         root: Insertable<R>,
         templateFn: TemplateFn<T, U>,
         renderFn: (getNext: () => Component<T, U>, s: S, listRenderer: ListRenderer<R, T, U>) => void,
-    ): ListRenderer<R, T, U> {
+    ): ListRenderer<R, T, U> => {
         const listRenderer = newListRenderer(root, () => newComponent(templateFn));
         this.pushRenderFn(this.domRenderFnList, (s) => {
             listRenderer.render((getNext) => {
@@ -1081,7 +1088,7 @@ export class RenderGroup<S = null> {
     /** 
      * Returns functionality that will enable/disable a particular class in the classList each render.
      */
-    class<U extends ValidElement>(className: string, predicate: (s: S) => boolean): Functionality<U> {
+    readonly class = <U extends ValidElement>(className: string, predicate: (s: S) => boolean): Functionality<U> => {
         return (parent) => {
             this.pushRenderFn(this.domRenderFnList, (s) => setClass(parent, className, predicate(s)), parent);
         }
@@ -1090,7 +1097,7 @@ export class RenderGroup<S = null> {
     /** 
      * Returns functionality that will sets the current value of an element's style each render.
      */
-    style<U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: (s: S) => U["style"][K]): Functionality<U> {
+    readonly style = <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: (s: S) => U["style"][K]): Functionality<U> => {
         return (parent) => {
             const currentStyle = parent.el.style[val];
             this.pushRenderFn(this.domRenderFnList, (s) => setStyle(parent, val, valueFn(s) || currentStyle), parent);
@@ -1101,7 +1108,7 @@ export class RenderGroup<S = null> {
      * Returns custom functionality, allowing for declaratively specifying a component's behaviour.
      * See the documentation for {@link el} for info on how that works.
      */
-    functionality<U extends ValidElement> (fn: (val: Insertable<U>, s: S) => void): Functionality<U> {
+    readonly functionality = <U extends ValidElement> (fn: (val: Insertable<U>, s: S) => void): Functionality<U> => {
         return (parent) => {
             this.pushRenderFn(this.domRenderFnList, (s) => fn(parent, s), parent);
         };
@@ -1134,7 +1141,7 @@ export class RenderGroup<S = null> {
      * }
      * ```
      */
-    preRenderFn(fn: (s: S) => void, errorRoot?: Insertable<any>) {
+    readonly preRenderFn = (fn: (s: S) => void, errorRoot?: Insertable<any>) => {
         this.pushRenderFn(this.preRenderFnList, fn, errorRoot);
 
     }
@@ -1159,11 +1166,11 @@ export class RenderGroup<S = null> {
      * }
      *
      */
-    postRenderFn(fn: (s: S) => void, errorRoot?: Insertable<any>) {
+    readonly postRenderFn = (fn: (s: S) => void, errorRoot?: Insertable<any>) => {
         this.pushRenderFn(this.postRenderFnList, fn, errorRoot);
     }
 
-    private renderFunctions(renderFns: RenderFn<S>[]) {
+    private readonly renderFunctions = (renderFns: RenderFn<S>[]) => {
         const s = this.s;
         const defaultErrorRoot = this.root;
 
@@ -1202,7 +1209,7 @@ export class RenderGroup<S = null> {
         }
     }
 
-    private pushRenderFn(renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) {
+    private readonly pushRenderFn = (renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) => {
         if (this.instantiated) {
             throw new Error("Can't add event handlers to this template (" + this.templateName + ") after it's been instantiated");
         }

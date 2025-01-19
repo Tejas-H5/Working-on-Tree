@@ -2,7 +2,7 @@ import { newTextArea } from "./components/text-area";
 import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
-import { cssVars } from "./styling";
+import { cnApp, cssVars } from "./styling";
 
 type GraphArgs = {
     graphData?: GraphData;
@@ -243,7 +243,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
                     onContextMenu,
 
                     relativeContainer,
-                    renderGraph: rg.renderWithCurrentState,
+                    renderGraph: rg.renderWithCurrentState.bind(rg),
                 };
             }
 
@@ -902,11 +902,11 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     const [edgeDragStartRegions, updateDragRegionStyles] = makeDragRects((regionDiv) => {
         regionDiv.el.addEventListener("mousemove", (e) => {
             const s = rg.s;
-            const { graphState, node, onMouseMove, renderGraph } = s;
+            const { graphState, node } = s;
 
             e.stopImmediatePropagation();
 
-            onMouseMove(e);
+            s.onMouseMove(e);
 
             if (!graphState.isDragging) {
                 graphState.currentEdgeDragStartNodeIdx = node.id;
@@ -920,30 +920,26 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
                 }
             }
 
-            renderGraph();
+            s.renderGraph();
         });
         regionDiv.el.addEventListener("mouseup", (e) => {
             const s = rg.s;
-            const { onMouseUp, renderGraph } = s;
-
             e.stopImmediatePropagation();
 
-            onMouseUp(e);
-            renderGraph();
+            s.onMouseUp(e);
+            s.renderGraph();
         });
         regionDiv.el.addEventListener("mousedown", (e) => {
             const s = rg.s;
-            const { onMouseDown, renderGraph } = s;
             e.stopImmediatePropagation();
-            onMouseDown(e);
-            renderGraph();
+            s.onMouseDown(e);
+            s.renderGraph();
         });
         regionDiv.el.addEventListener("contextmenu", (e) => {
             const s = rg.s;
-            const { onContextMenu, renderGraph } = s;
             e.stopImmediatePropagation();
-            onContextMenu(e);
-            renderGraph();
+            s.onContextMenu(e);
+            s.renderGraph();
         })
     });
 
@@ -1025,7 +1021,7 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
 
     root.el.addEventListener("click", (e) => {
         const s = rg.s;
-        const { graphState, renderGraph, node } = s;
+        const { graphState, node } = s;
 
         if (s.graphState.isDragging) {
             return;
@@ -1041,13 +1037,13 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
 
         if (graphState.currentSelectedNodeId === node.id && !graphState.isEditing) {
             graphState.isEditing = true;
-            renderGraph();
+            s.renderGraph();
         }
     });
 
     root.el.addEventListener("mousedown", () => {
         const s = rg.s;
-        const { node, graphState, renderGraph, } = s;
+        const { node, graphState, } = s;
 
         // block clicking, so we don't instantly de-select this thing.
         graphState.isClickBlocked = true;
@@ -1055,15 +1051,15 @@ function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
             graphState.currentSelectedNodeId = node.id;
         }
 
-        renderGraph();
+        s.renderGraph();
     });
 
     textArea.el.addEventListener("input", () => {
         const s = rg.s;
-        const { node, renderGraph, graphArgs } = s;
+        const { node, graphArgs } = s;
         node.text = textArea.el.value;
         graphArgs.onInput();
-        renderGraph();
+        s.renderGraph();
     });
 
     return root;
@@ -1116,7 +1112,7 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
     for (const seg of arrowSegments) {
         seg.el.addEventListener("mousemove", (e) => {
             const s = rg.s;
-            const { graphState, edge, onMouseMove, renderGraph, relativeContainer, srcNode, dstNode } = s;
+            const { graphState, edge, onMouseMove, relativeContainer, srcNode, dstNode } = s;
 
             e.stopImmediatePropagation();
             onMouseMove(e);
@@ -1141,30 +1137,24 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
                 graphState.currentEdgeDragStartIsSrc = startAtSrc;
             }
 
-            renderGraph();
+            s.renderGraph();
         });
         seg.el.addEventListener("mouseup", (e) => {
             const s = rg.s;
-            const { onMouseUp, renderGraph } = s;
-
-            e.stopImmediatePropagation();
-            onMouseUp(e);
-            renderGraph();
+            s.onMouseUp(e);
+            s.renderGraph();
         });
         seg.el.addEventListener("mousedown", (e) => {
             const s = rg.s;
-            const { onMouseDown, renderGraph } = s;
-
             e.stopImmediatePropagation();
-            onMouseDown(e);
-            renderGraph();
+            s.onMouseDown(e);
+            s.renderGraph();
         });
         seg.el.addEventListener("contextmenu", (e) => {
             const s = rg.s;
-            const { onContextMenu, renderGraph } = s;
             e.stopImmediatePropagation();
-            onContextMenu(e);
-            renderGraph();
+            s.onContextMenu(e);
+            s.renderGraph();
         });
     }
 
@@ -1191,7 +1181,7 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
             graphArgs.onInput();
         }
 
-        setClass(root, "block-mouse", true || graphState.isDragging);
+        setClass(root, cn.pointerEventsNone, true || graphState.isDragging);
         setClass(root, "redrag", graphState.currentEdgeDragEdgeId === edge.id);
 
         setInputValue(labelInput, edge.text);
