@@ -125,7 +125,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.003";
+const VERSION_NUMBER = "1.00.004";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -213,26 +213,27 @@ function TodoListInternal(rg: RenderGroup<{
     function QuicklistItem(rg: RenderGroup<{
         index: number;
         hasCursor: boolean;
+        note: TreeNote;
         text: string;
-        noteId: string;
+        ranges?: Range[];
         focusAnyway: boolean;
-        cursorNoteId: NoteId | undefined;
     }>) {
         const children = [
             div({ class: [cn.flex1, cn.row], style: "padding-bottom: 10px" }, [
                 div({ class: [cn.noWrap], style: "padding: 10px" }, [
                     rg.text(s => "" + s.index)
                 ]),
-                rg.c(NoteLink, (noteLink, s) => {
-                    const { text, focusAnyway, noteId } = s;
-
-                    noteLink.render({
-                        noteId,
-                        text,
-                        preventScroll: true,
-                        focusAnyway,
-                    });
-                }),
+                rg.c(HighlightedText, (c, s) => c.render({
+                    text: s.text,
+                    highlightedRanges: s.ranges ?? [[0, s.text.length]],
+                })),
+                div({ class: [cn.flex1] }),
+                rg.if(s => !!s.note.data.isSticky, rg =>
+                    rg && div({
+                        class: [cn.row, cn.alignItemsCenter, cn.pre],
+                        style: `background-color: ${cssVars.pinned}; color: #FFF`
+                    }, [" ! "]),
+                )
             ])
         ];
 
@@ -260,12 +261,11 @@ function TodoListInternal(rg: RenderGroup<{
         quicklistItemsList.render((getNext) => {
             let lastHlt: TreeNote | undefined;
 
-            for (let i = 0; i < state._quicklistIds.length; i++) {
-                const id = state._quicklistIds[i];
-                const note = getNote(state, id);
+            for (let i = 0; i < state._fuzzyFindState.matches.length; i++) {
+                const match = state._fuzzyFindState.matches[i];
+                const note = match.note;
                 const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
 
-                let text = note.data.text;
                 const higherLevelTask = getHigherLevelTask(state, note);
                 let hltHeading: string | undefined;
                 if (lastHlt !== higherLevelTask && !disableHeaders) {
@@ -278,16 +278,14 @@ function TodoListInternal(rg: RenderGroup<{
                     }
                 }
 
-                const progressCountText = getNoteProgressCountText(note);
-
                 const lc = getNext();
                 lc.render({
                     index: i,
-                    noteId: note.id,
-                    text: (progressCountText ? getNoteProgressCountText(note) + " - " : "") + text,
+                    note: note,
+                    text: match.note.data.text,
                     hasCursor: cursorNoteId === note.id,
                     focusAnyway,
-                    cursorNoteId
+                    ranges: match.ranges.length >= 1 ? match.ranges : undefined,
                 });
 
                 if (setScrollEl && !alreadyScrolled) {
@@ -307,16 +305,23 @@ function TodoListInternal(rg: RenderGroup<{
 }
 
 function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
-    const heading = el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, [
-        "Search results"
-    ]);
     const listInternal = newComponent(TodoListInternal);
     const empty = div({}, [
-        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down] !"
+        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down] !",
+        "If the query is empty, notes that have been pinned will appear here instead.",
     ]);
     const scrollContainer = newComponent(ScrollContainer);
     const root = div({ class: [cn.flex1, cn.col] }, [
-        heading,
+        el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, [
+            rg.text(() => {
+                const query = state._fuzzyFindState.query;
+                if (!query) {
+                    return "No query - showing pinned notes instead";
+                }
+
+                return `Query: ${query}`;
+            }),
+        ]),
         div({ style: `border-bottom: 1px solid ${cssVars.bgColorFocus2}` }),
         addChildren(setAttrs(scrollContainer, { class: [cn.flex1, cn.col] }, true), [
             empty,
@@ -327,8 +332,7 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     rg.preRenderFn((s) => {
         const { cursorNoteId } = s;
 
-        setVisible(empty, state._quicklistIds.length === 0);
-        setText(heading, "Search results");
+        setVisible(empty, state._fuzzyFindState.matches.length === 0);
 
         let scrollEl: Insertable | null = null;
 
@@ -1135,6 +1139,49 @@ function getNoteProgressCountText(note: TreeNote): string {
 }
 
 
+function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
+    const rootNote = finderState.scopedToCurrentNote ? getCurrentNote(state)
+        : getRootNote(state);
+
+    const matches = finderState.matches;
+
+    fuzzySearchNotes(state, rootNote, finderState.query, matches);
+
+    const MAX_MATCHES = 1000;
+    if (matches.length > MAX_MATCHES) {
+        matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
+    }
+
+    const counts = finderState.counts;
+
+    counts.numFinished = 0;
+    counts.numInProgress = 0;
+    counts.numShelved = 0;
+    counts.numPinned = 0;
+    for (const match of matches) {
+        if (match.note.data._status === STATUS_IN_PROGRESS) {
+            counts.numInProgress++;
+        } else {
+            counts.numFinished++;
+        }
+
+        if (match.note.data._shelved) {
+            counts.numShelved++;
+        }
+
+        if (match.note.data.isSticky) {
+            counts.numPinned++;
+        }
+    }
+
+    if (finderState.scopedToCurrentNote) {
+        finderState.currentIdx = finderState.currentIdxLocal;
+    } else {
+        finderState.currentIdx = finderState.currentIdxGlobal;
+    }
+}
+
+
 function HighlightedText(rg: RenderGroup<{
     text: string;
     highlightedRanges: Range[];
@@ -1174,6 +1221,7 @@ function HighlightedText(rg: RenderGroup<{
     });
 }
 
+
 function FuzzyFinder(rg: RenderGroup<{ 
     visible: boolean;
     state: FuzzyFindState;
@@ -1185,11 +1233,11 @@ function FuzzyFinder(rg: RenderGroup<{
     }>) {
         const textDiv = newComponent(HighlightedText);
         const children = [
-            div({ 
+            div({
                 class: [cn.row, cn.justifyContentStart],
                 style: "padding-right: 20px; padding: 10px;"
             }, [
-                div({ class: [cn.pre]  }, [
+                div({ class: [cn.pre] }, [
                     rg.text(({ note }) => {
                         return getNoteProgressCountText(note) + " - ";
                     })
@@ -1206,8 +1254,8 @@ function FuzzyFinder(rg: RenderGroup<{
                 ),
                 rg.c(NoteRowDurationInfo, (c, s) => c.render({ note: s.note })),
             ]),
-            rg.if(s => s.hasFocus, rg => 
-                rg.with(s => getLastSelectedNote(state, s.note) || undefined, rg => 
+            rg.if(s => s.hasFocus, rg =>
+                rg.with(s => getLastSelectedNote(state, s.note) || undefined, rg =>
                     div({
                         class: [cn.row, cn.justifyContentStart, cn.preWrap],
                         style: "padding: 10px 10px 10px 100px;"
@@ -1247,7 +1295,6 @@ function FuzzyFinder(rg: RenderGroup<{
     };
 
     const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FindResultItem));
-
     const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const root = div({ class: [cn.flex1, cn.col] }, [
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
@@ -1274,55 +1321,16 @@ function FuzzyFinder(rg: RenderGroup<{
     function recomputeMatches(query: string, toggle: boolean) {
         const finderState = rg.s.state;
 
-        let scopedToCurrentNote = finderState.scopedToCurrentNote;
         if (toggle) {
             // Might need to rethink this - it's fairly easy to toggle this and not notice...
-            scopedToCurrentNote = !scopedToCurrentNote;
+            finderState.scopedToCurrentNote = !finderState.scopedToCurrentNote;
         }
 
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
-            const rootNote = scopedToCurrentNote ? getCurrentNote(state)
-                : getRootNote(state);
-
-            const matches = finderState.matches;
-
-            fuzzySearchNotes(state, rootNote, query, matches);
- 
-            const MAX_MATCHES = 1000;
-            if (matches.length > MAX_MATCHES) {
-                matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
-            }
-
-            const counts = finderState.counts;
-
-            counts.numFinished = 0;
-            counts.numInProgress = 0;
-            counts.numShelved = 0;
-            counts.numPinned = 0;
-            for (const match of matches) {
-                if (match.note.data._status === STATUS_IN_PROGRESS) {
-                    counts.numInProgress++;
-                } else {
-                    counts.numFinished++;
-                }
-
-                if (match.note.data._shelved) {
-                    counts.numShelved++;
-                }
-
-                if (match.note.data.isSticky) {
-                    counts.numPinned++;
-                }
-            }
-
-            finderState.scopedToCurrentNote = scopedToCurrentNote;
-            if (finderState.scopedToCurrentNote) {
-                finderState.currentIdx = finderState.currentIdxLocal;
-            } else {
-                finderState.currentIdx = finderState.currentIdxGlobal;
-            }
-
+            state._fuzzyFindState.query = query;
+            recomputeFuzzyFinderMatches(state._fuzzyFindState)
+            
             rg.renderWithCurrentState();
         }, DEBOUNCE_MS);
     }
@@ -2584,13 +2592,16 @@ let isInHotlist = false;
 let isInQuicklist = false;
 
 function moveInDirectionOverQuickList(amount: number) {
-    isInQuicklist = true;
+    if (!isInQuicklist) {
+        recomputeFuzzyFinderMatches(state._fuzzyFindState);
+        isInQuicklist = true;
+    }
 
-    if (state._quicklistIds.length === 0) {
+    if (state._fuzzyFindState.matches.length === 0) {
         return;
     }
 
-    const idx = Math.max(0, Math.min(state._quicklistIds.length - 1, getQuicklistIndex(state)+ amount));
+    const idx = Math.max(0, Math.min(state._fuzzyFindState.matches.length - 1, getQuicklistIndex(state)+ amount));
     setQuicklistIndexForMove(idx);
 }
 
@@ -2602,7 +2613,7 @@ function setQuicklistIndexForMove(idx: number) {
     setQuicklistIndex(state, idx);
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._quicklistIds[getQuicklistIndex(state)]);
+    setCurrentNote(state, state._fuzzyFindState.matches[getQuicklistIndex(state)].note.id);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -3505,7 +3516,7 @@ export function App(rg: RenderGroup) {
                     e.ctrlKey &&
                     e.shiftKey
                 ) {
-                    setQuicklistIndexForMove(state._quicklistIds.length - 1);
+                    setQuicklistIndexForMove(state._fuzzyFindState.matches.length - 1);
                 } else {
                     handleUpDownMovement(true, false, 0, true, false);
                 }
@@ -3698,7 +3709,7 @@ export function App(rg: RenderGroup) {
             appendChild(bottomLeftArea, todoListContainer);
         }
         todoList.render({
-            cursorNoteId: state._quicklistIds[getQuicklistIndex(state)],
+            cursorNoteId: state._fuzzyFindState.matches[getQuicklistIndex(state)]?.note?.id,
         });
 
         let error = "";

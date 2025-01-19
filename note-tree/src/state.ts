@@ -28,9 +28,9 @@ const darkThemeColours: Theme = {
     fgInProgress: newColorFromHex("#FFF"),
     bgColor: newColorFromHex("#000"),
     bgColorFocus: newColorFromHex("#333"),
-    bgColorFocus2: newColor(1, 1, 25 / 255, 0.4),
+    bgColorFocus2: newColor(1, 1, 1, 0.4),
     fgColor: newColorFromHex("#EEE"),
-    unfocusTextColor: newColorFromHex("#070707"),
+    unfocusTextColor: newColorFromHex("#707070"),
     pinned: newColorFromHex("#0A0"),
 };
 
@@ -121,7 +121,6 @@ export type NoteTreeGlobalState = {
     _currentActivityScopedNote: NoteId;
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
-    _quicklistIds: NoteId[];
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
     _activitiesFromIdx: number;
@@ -357,8 +356,6 @@ export function defaultState(): NoteTreeGlobalState {
 
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
-
-        _quicklistIds: [],
 
         _todoRootId: notes.rootId,
         _currentlyViewingActivityIdx: 0,
@@ -869,16 +866,10 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         }
     }
 
-    // recompute the quicklist from whatever sources are required
     if (!isTimer) {
-        clearArray(state._quicklistIds);
-        for (const m of state._fuzzyFindState.matches) {
-            state._quicklistIds.push(m.note.id);
-        }
-
         // remove deleted notes from the quicklist
-        filterInPlace(state._quicklistIds, (id) => {
-            return !!getNoteOrUndefined(state, id);
+        filterInPlace(state._fuzzyFindState.matches, (match) => {
+            return !!getNoteOrUndefined(state, match.note.id);
         });
     }
 
@@ -1884,6 +1875,23 @@ export function fuzzySearchNotes(
     matches: NoteFuzzyFindMatches[],
 ) {
     matches.splice(0, matches.length);
+
+    if (query.length === 0) {
+        // if no query, default to just the pinned items.
+
+        dfsPre(state, rootNote, (note) => {
+            if (note.data.isSticky) {
+                matches.push({
+                    note,
+                    ranges: [],
+                    score: note.data._activityListMostRecentIdx,
+                });
+            }
+        });
+
+        matches.sort((a, b) => b.score - a.score);
+        return;
+    }
 
     const SORT_BY_SCORE = 1;
     const SORT_BY_RECENCY = 2;
