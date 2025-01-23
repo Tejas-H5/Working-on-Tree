@@ -11,6 +11,7 @@ import {
     addChildren,
     appendChild,
     cn,
+    contentsDiv,
     div,
     el,
     initializeDomUtils,
@@ -82,6 +83,7 @@ import {
     getNoteOneDownLocally,
     getNoteOneUpLocally,
     getNoteOrUndefined,
+    getNoteTextTruncated,
     getNoteTextWithoutPriority,
     getParentNoteWithEstimate,
     getQuicklistIndex,
@@ -125,7 +127,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.004";
+const VERSION_NUMBER = "1.00.005";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -307,19 +309,29 @@ function TodoListInternal(rg: RenderGroup<{
 function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     const listInternal = newComponent(TodoListInternal);
     const empty = div({}, [
-        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down] !",
+        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down]. ",
         "If the query is empty, notes that have been pinned will appear here instead.",
     ]);
     const scrollContainer = newComponent(ScrollContainer);
     const root = div({ class: [cn.flex1, cn.col] }, [
         el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, [
             rg.text(() => {
-                const query = state._fuzzyFindState.query;
-                if (!query) {
-                    return "No query - showing pinned notes instead";
+                let query = "";
+                if (state._fuzzyFindState.query) {
+                    query = `"${state._fuzzyFindState.query}"`;
+                } else {
+                    query = "Pinned notes"
                 }
 
-                return `Query: ${query}`;
+                let scope = "Global";
+                if (state._fuzzyFindState.scopedToNoteId) {
+                    const note = getNoteOrUndefined(state, state._fuzzyFindState.scopedToNoteId);
+                    if (note) {
+                        scope = getNoteTextTruncated(note.data);
+                    }
+                }
+
+                return `${query} - [${scope}]`;
             }),
         ]),
         div({ style: `border-bottom: 1px solid ${cssVars.bgColorFocus2}` }),
@@ -1140,7 +1152,7 @@ function getNoteProgressCountText(note: TreeNote): string {
 
 
 function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
-    const rootNote = finderState.scopedToCurrentNote ? getCurrentNote(state)
+    const rootNote = finderState.scopedToNoteId ? getNote(state, finderState.scopedToNoteId)
         : getRootNote(state);
 
     const matches = finderState.matches;
@@ -1174,7 +1186,7 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
         }
     }
 
-    if (finderState.scopedToCurrentNote) {
+    if (finderState.scopedToNoteId) {
         finderState.currentIdx = finderState.currentIdxLocal;
     } else {
         finderState.currentIdx = finderState.currentIdxGlobal;
@@ -1298,7 +1310,7 @@ function FuzzyFinder(rg: RenderGroup<{
     const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const root = div({ class: [cn.flex1, cn.col] }, [
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
-            rg.text(s => s.state.scopedToCurrentNote ? "Search (Current note)" : "Search (Everywhere)"),
+            rg.text(s => s.state.scopedToNoteId ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
             rg.text(s => s.state.counts.numInProgress + " in progress, " + 
                 s.state.counts.numFinished + " done, " + 
@@ -1318,18 +1330,13 @@ function FuzzyFinder(rg: RenderGroup<{
 
     let timeoutId = 0;
     const DEBOUNCE_MS = 10;
-    function recomputeMatches(query: string, toggle: boolean) {
+    function recomputeMatches(query: string) {
         const finderState = rg.s.state;
-
-        if (toggle) {
-            // Might need to rethink this - it's fairly easy to toggle this and not notice...
-            finderState.scopedToCurrentNote = !finderState.scopedToCurrentNote;
-        }
 
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
             state._fuzzyFindState.query = query;
-            recomputeFuzzyFinderMatches(state._fuzzyFindState)
+            recomputeFuzzyFinderMatches(finderState)
             
             rg.renderWithCurrentState();
         }, DEBOUNCE_MS);
@@ -1350,7 +1357,13 @@ function FuzzyFinder(rg: RenderGroup<{
 
         if (matchesInvalid || visibleChanged) {
             matchesInvalid = false;
-            recomputeMatches(finderState.query, toggleCurrentNoteVsEverywhere);
+            if (visibleChanged) {
+                finderState.scopedToNoteId = null;
+            } else if (toggleCurrentNoteVsEverywhere) {
+                finderState.scopedToNoteId = state.currentNoteId;
+            }
+
+            recomputeMatches(finderState.query);
             toggleCurrentNoteVsEverywhere = false;
             return;
         }
@@ -1747,11 +1760,16 @@ type NoteRowInputArgs = {
     scrollParent: HTMLElement | null;
     currentNote: TreeNote;
     listHasFocus: boolean;
+
+    orignalOffsetTop: number;
 };
 
 function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
+    const INDENT = 4.5;
     let startDepth = 0;
+    let indent1 = 0, indent2 = 0;
     let indent2Amount = 0;
+
     let isFocused = false;
     let isEditing = false;
     let isShowingDurations = false;
@@ -1846,7 +1864,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         // Notes on the current level or deeper get indented a bit more, for visual clarity,
         // and the parent notes won't get indented as much so that we aren't wasting space
         const difference = note.data._depth - startDepth;
-        indent2Amount = Math.max(0, difference + 1);
+        indent2Amount = Math.max(0, difference);
+
+        // TODO: remove redundancy. These used to be different levels of indentation, but not any more...
+        indent1 = INDENT * Math.min(startDepth, note.data._depth);
+        indent2 = INDENT * Math.max(indent2Amount, 0);
 
         const wasFocused = isFocused;
         isFocused = currentNote.id === note.id && currentModal === null;
@@ -1884,6 +1906,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         }
     });
 
+    rg.postRenderFn(s => {
+        const hasStuck = s.orignalOffsetTop !== -420 && s.orignalOffsetTop !== root.el.offsetTop;
+        setStyle(root, "zIndex", hasStuck ? "10" : "")
+    });
+
     const cursorElement = div({ style: "width: 10px;" }, [
         rg.style("backgroundColor", (s) => {
             const lastActivity = getLastActivityWithNote(state);
@@ -1914,10 +1941,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
     const durationHistogramBar = div({ class: [cnApp.inverted], style: "height: 4px;" });
 
-    const INDENT1 = 1;
-    const INDENT2 = 4;
-
-    const root = div({ class: [cn.row, cn.pre], style: `background-color: ${cssVars.bgColor}` }, [
+    const root = div({ 
+        class: [cn.row, cn.pre], 
+        // need padding to make room for the scroll bar :sad:
+        style: `background-color: ${cssVars.bgColor}; padding-right: 10px;` 
+    }, [
         rg.on("click", ({ note }) => {
             setCurrentNote(state, note.id);
             rerenderApp();
@@ -1940,14 +1968,85 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 rg.style("whiteSpace", () => indent2Amount >= 0 ? "pre-wrap" : "nowrap"),
                 // cursor element
                 cursorElement,
+                div({ style: "width: 10px" }),
+                div({
+                    class: [cn.row, cn.alignItemsCenter, cn.pre],
+                    style: `background-color: ${cssVars.pinned}; color: #FFF`
+                }, [
+                    rg.style("opacity", s => !!s.note.data.isSticky ? "1" : "0"),
+                    " ! "
+                ]),
+                div({ style: "width: 10px" }),
                 // indentation - before vertical line
-                div({ class: [cn.h100], style: "padding-right: 5px" }, [
+                div({ class: [cn.relative] }, [
                     rg.style("minWidth", ({ note, currentNote }) => {
-                        const indent1 = INDENT1 * Math.min(startDepth, note.data._depth);
-                        const indent2 = INDENT2 * Math.max(indent2Amount, 0);
-
                         return (indent1 + indent2) + "ch";
                     }),
+                    () => {
+                        function VerticalStroke(rg: RenderGroup<[number, boolean, boolean, boolean, boolean]>) {
+                            const aboveHorizontal = div({ 
+                                class: [cn.absolute], 
+                                style: `background-color: ${cssVars.fgColor}; width: 1px; top: 0; height: 1ch;`
+                            }, [
+                                rg.style("left", s => s[0] + "ch"),
+                            ]);
+
+                            const belowHorizontal = div({ 
+                                    class: [cn.absolute], 
+                                    style: `background-color: ${cssVars.fgColor}; width: 1px; top: 1ch; bottom: 0;` 
+                            }, [
+                                rg.style("left", s => s[0] + "ch"),
+                            ]);
+
+                            // a performance optimization so I don't have to use rg.if
+                            rg.preRenderFn(s => {
+                                const [_depth, isAboveLineVisible, aboveFocused, isBelowLineVisible, belowFocused] = s;
+                                if (setVisible(aboveHorizontal, isAboveLineVisible)) {
+                                    setStyle(
+                                        aboveHorizontal, "width", 
+                                        aboveFocused ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth
+                                    );
+                                }
+                                if (setVisible(belowHorizontal, isBelowLineVisible)) {
+                                    setStyle(
+                                        belowHorizontal, "width",
+                                        belowFocused ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth
+                                    );
+                                }
+                            })
+
+                            return contentsDiv({}, [belowHorizontal, aboveHorizontal]);
+                        }
+                        
+                        return rg.list(contentsDiv(), VerticalStroke, (getNext, s) => {
+
+                            const depth = s.note.data._depth;;
+                            let currentDepth = depth;
+                            tree.forEachParent(state.notes, s.note, (parent) => {
+                                const isParentLastNote = parent.data._index === parent.data._numSiblings - 1;
+                                const isTopFocused = s.note.data._selectedPathDepth === currentDepth;
+                                const isBottomFocused = s.note.data._selectedPathDepth === currentDepth
+                                        && !s.note.data._selectedPathDepthIsFirst;
+
+                                getNext().render([
+                                    INDENT * currentDepth, 
+                                    currentDepth === depth || !isParentLastNote, isTopFocused,
+                                    !isParentLastNote, isBottomFocused,
+                                ]);
+
+                                currentDepth--;
+                            });
+                        });
+                    },
+                ]),
+                div({ class: [cn.relative], style: "padding-right: 5px; min-width: 5px;" }, [
+                    div({
+                        class: [cn.absolute],
+                        style: `background-color: ${cssVars.fgColor}; height: 1px; top: 1ch; right: 0px; left: 0px`
+                    }, [
+                        rg.style("height", s => s.note.data._selectedPathDepthIsFirst ?
+                            cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth)
+                    ]),
                 ]),
                 div({ class: [cn.pre], style: "padding-left: 10px; padding-right: 10px " }, [
                     rg.text(({ note }) => {
@@ -1960,13 +2059,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     onInputKeyDown,
                     onInput
                 })),
-                rg.if(
-                    s => !!s.note.data.isSticky,
-                    rg => div({
-                        class: [cn.row, cn.alignItemsCenter, cn.pre],
-                        style: `background-color: ${cssVars.pinned}; color: #FFF`
-                    }, [" ! "]),
-                ),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
                     rg.c(NoteRowDurationInfo, (c, { note }) => {
                         c.render({ note });
@@ -2039,11 +2131,13 @@ function NotesList(rg: RenderGroup<{
                     readOnly: false,
                     currentNote,
                     listHasFocus: hasFocus,
+                    orignalOffsetTop: -420,
                 };
                 component.render(args);
                 const orignalOffsetTop = component.el.offsetTop;
 
                 component.s.stickyOffset = isSticky ? stickyOffset : undefined;
+                component.s.orignalOffsetTop = orignalOffsetTop;
                 component.renderWithCurrentState();
 
                 const hasStuck = orignalOffsetTop !== component.el.offsetTop;

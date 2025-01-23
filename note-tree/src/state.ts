@@ -21,6 +21,8 @@ const lightThemeColours: Theme = {
     fgColor: newColorFromHex("#000"),
     unfocusTextColor: newColorFromHex("#A0A0A0"),
     pinned: newColorFromHex("#0A0"),
+    focusedTreePathWidth: "2px",
+    unfocusedTreePathWidth: "1px",
 };
 
 const darkThemeColours: Theme = {
@@ -32,6 +34,8 @@ const darkThemeColours: Theme = {
     fgColor: newColorFromHex("#EEE"),
     unfocusTextColor: newColorFromHex("#707070"),
     pinned: newColorFromHex("#0A0"),
+    focusedTreePathWidth: "2px",
+    unfocusedTreePathWidth: "1px",
 };
 
 export function setTheme(newTheme: AppTheme) {
@@ -67,7 +71,7 @@ export type FuzzyFindState = {
     currentIdx: number;
     currentIdxLocal: number;
     currentIdxGlobal: number;
-    scopedToCurrentNote: boolean;
+    scopedToNoteId: NoteId | null;
 }
 
 function newFuzzyFindState(): FuzzyFindState {
@@ -83,7 +87,7 @@ function newFuzzyFindState(): FuzzyFindState {
         currentIdx: 0,
         currentIdxLocal: 0,
         currentIdxGlobal: 0,
-        scopedToCurrentNote: true,
+        scopedToNoteId: null,
     };
 }
 
@@ -167,6 +171,12 @@ export type Note = {
     _durationRanged: number;
     _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
     _index: number; // which position is this in the current child list?
+    _numSiblings: number;
+
+    // for the tree visuals
+    _isVisualLeaf: boolean; // Does this note have it's children expanded in the tree note view?
+    _selectedPathDepth: number;  // NOTE - not set if it isn't being displayed
+    _selectedPathDepthIsFirst: boolean;  // Is this the first note on the selected path at this depth? (Nothing to do with Depth first search xD)
 };
 
 
@@ -249,6 +259,18 @@ export function getNoteTextWithoutPriority(note: Note): string {
         idx += 2;
     }
     return (shelved ? "[Shelved] " : "") + note.text.substring(idx).trim();
+}
+
+export function getNoteTextTruncated(note: Note): string {
+    return truncate(getNoteTextWithoutPriority(note), 50);
+}
+
+function truncate(str: string, len: number): string {
+    if (str.length > len) {
+        return str.substring(0, len - 3) + "...";
+    }
+
+    return str;
 }
 
 export function isHigherLevelTask(note: TreeNote): boolean {
@@ -488,6 +510,10 @@ export function defaultNote(state: NoteTreeGlobalState | null): Note {
         _durationRanged: 0,
         _activityListMostRecentIdx: 0,
         _index: 0,
+        _numSiblings: 0,
+        _isVisualLeaf: false,
+        _selectedPathDepth: -1,
+        _selectedPathDepthIsFirst: false,
     };
 }
 
@@ -533,7 +559,9 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
     const dfs = (note: TreeNote) => {
         flatNotes.push(note.id);
 
-        if (isStoppingPointForNotViewExpansion(note)) {
+        note.data._isVisualLeaf = note.childIds.length === 0 || 
+            isStoppingPointForNotViewExpansion(note, false);
+        if (note.data._isVisualLeaf) {
             return;
         }
 
@@ -602,17 +630,18 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     // recompute _depth, _parent, _index. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
     if (!isTimer) {
-        const dfs = (note: TreeNote, depth: number, index: number) => {
+        const dfs = (note: TreeNote, depth: number, index: number, numSiblings: number) => {
             note.data._depth = depth;
             note.data._index = index;
+            note.data._numSiblings = numSiblings;
 
             for (let i = 0; i < note.childIds.length; i++) {
                 const c = getNote(state, note.childIds[i]);
-                dfs(c, depth + 1, i);
+                dfs(c, depth + 1, i, note.childIds.length);
             }
         };
 
-        dfs(getRootNote(state), -1, 0);
+        dfs(getRootNote(state), -1, 0, 1);
     }
 
 
@@ -881,7 +910,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
         let startNote = getCurrentNote(state);
         tree.forEachParent(state.notes, startNote, (note) => {
-            if (note.id !== startNote.id && isStoppingPointForNotViewExpansion(note)) {
+            if (note.id !== startNote.id && isStoppingPointForNotViewExpansion(note, true)) {
                 return true;
             }
 
@@ -892,6 +921,35 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         state._currentFlatNotesRootHltId = startNote.parentId;
 
         recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
+    }
+
+    // recompute tree visual path _selectedPathDepth, _selectedPathDepthIsFirst from _flatNoteIds
+    {
+        for (const id of state._flatNoteIds) {
+            const note = getNote(state, id);
+            note.data._selectedPathDepth = -1;
+            note.data._selectedPathDepthIsFirst = false;
+        }
+
+        const currentNote = getCurrentNote(state);
+        const currentNoteIdx = state._flatNoteIds.indexOf(currentNote.id);
+        if (currentNoteIdx !== -1) {
+            // If you take a picture of the tree diagram and then trace out
+            // the 'focused' path, then this code will actually make sense
+            let currentFocusedDepth = currentNote.data._depth;
+            for (let i = currentNoteIdx; i >= 0; i--) {
+                const id = state._flatNoteIds[i];
+                const note = getNote(state, id);
+
+                let newDepth = Math.min(currentFocusedDepth, note.data._depth);
+
+                note.data._selectedPathDepth = newDepth;
+                note.data._selectedPathDepthIsFirst = i === currentNoteIdx || 
+                    currentFocusedDepth !== newDepth;
+
+                currentFocusedDepth = newDepth;
+            }
+        }
     }
 }
 
@@ -904,7 +962,7 @@ export function setFuzzyFindIndex(state: FuzzyFindState, idx: number) {
     }
 
     state.currentIdx = idx;
-    if (state.scopedToCurrentNote) {
+    if (state.scopedToNoteId) {
         state.currentIdxLocal = state.currentIdx;
     } else {
         state.currentIdxGlobal = state.currentIdx;
@@ -932,9 +990,13 @@ export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, 
 }
 
 // The note that we're in may be an 'expanded' note, and not necessarily the root of the view.
-export function isStoppingPointForNotViewExpansion(note: TreeNote): boolean {
+// The `upwards` param allows it to be assymetrical with respect to uwpards and downwards traversals.
+export function isStoppingPointForNotViewExpansion(note: TreeNote, upwards: boolean): boolean {
+    const downwards = !upwards;
+
     return isHigherLevelTask(note)
         || state.notes.rootId === note.id
+        || note.data._status !== STATUS_IN_PROGRESS
         || note.data._status !== STATUS_IN_PROGRESS;
 }
 

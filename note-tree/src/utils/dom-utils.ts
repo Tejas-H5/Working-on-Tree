@@ -1,4 +1,4 @@
-// DOM-utils v0.1.1 - @Tejas-H5
+// DOM-utils v0.1.11 - @Tejas-H5
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -355,8 +355,8 @@ export function div(attrs?: Attrs, children?: InsertableInitializerListOrItem<HT
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 
-export function contentsDiv() {
-    return div({ style: "display: contents !important;" });
+export function contentsDiv(attrs?: Attrs, children?: InsertableInitializerListOrItem<HTMLDivElement>) {
+    return div({ ...attrs, style: (attrs?.style ?? "") + ";display: contents !important;" }, children);
 }
 
 export function span(attrs?: Attrs, children?: InsertableInitializerListOrItem<HTMLSpanElement>) {

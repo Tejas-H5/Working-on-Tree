@@ -9,9 +9,11 @@ export const cssVars = {
     fgColor: "var(--fgColor)",
     unfocusTextColor: "var(--unfocusTextColor)",
     pinned: "var(--pinned)",
+    focusedTreePathWidth: "var(--focusedTreePathWidth)",
+    unfocusedTreePathWidth: "var(--unfocusedTreePathWidth)",
 } as const;
 
-export type Theme = Record<keyof typeof cssVars, Color>;
+export type Theme = Record<keyof typeof cssVars, string | Color>;
 
 const cssb = newCssBuilder();
 

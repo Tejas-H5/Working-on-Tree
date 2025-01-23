@@ -123,3 +123,8 @@ export function findLastIndex<T>(arr: T[], fn: (val: T) => boolean, start = -1):
 export function clearArray(arr: unknown[]) {
     arr.splice(0, arr.length);
 }
+
+// Mainly for correct typing - use it when you know it could be out of bounds
+export function arrayAt<T>(arr: T[], i: number): T | undefined {
+    return arr[i];
+}
