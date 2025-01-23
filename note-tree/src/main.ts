@@ -127,7 +127,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.007";
+const VERSION_NUMBER = "1.00.008";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2058,7 +2058,10 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         //            |    <- like it does here
                         //            |
                         //            +--
-                        return noteStatusToString(note.data._status) + " - " + getNoteProgressCountText(note);
+                        
+                        const charCount = note.data.text.length < 150 ? "" : `[${note.data.text.length}ch]`;
+
+                        return `${noteStatusToString(note.data._status)} - ${getNoteProgressCountText(note)} ${charCount}`;
                     })
                 ]),
                 rg.c(EditableTextArea, (c, s) => c.render({
