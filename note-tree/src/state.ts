@@ -21,7 +21,7 @@ const lightThemeColours: Theme = {
     fgColor: newColorFromHex("#000"),
     unfocusTextColor: newColorFromHex("#A0A0A0"),
     pinned: newColorFromHex("#0A0"),
-    focusedTreePathWidth: "2px",
+    focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 };
 
@@ -34,7 +34,7 @@ const darkThemeColours: Theme = {
     fgColor: newColorFromHex("#EEE"),
     unfocusTextColor: newColorFromHex("#707070"),
     pinned: newColorFromHex("#0A0"),
-    focusedTreePathWidth: "2px",
+    focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 };
 
@@ -340,11 +340,11 @@ export const STATUS_DONE: NoteStatus = 3;
 export function noteStatusToString(noteStatus: NoteStatus) {
     switch (noteStatus) {
         case STATUS_IN_PROGRESS:
-            return "[...]";
+            return "...";
         case STATUS_ASSUMED_DONE:
-            return "[ * ]";
+            return " * ";
         case STATUS_DONE:
-            return "[ x ]";
+            return "[x]";
     }
 
     return "??";

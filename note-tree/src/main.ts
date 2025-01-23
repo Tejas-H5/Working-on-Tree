@@ -127,7 +127,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.006";
+const VERSION_NUMBER = "1.00.007";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1765,10 +1765,18 @@ type NoteRowInputArgs = {
 };
 
 function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
-    const INDENT = 4.5;
+    const INDENT1 = 3;
+    const INDENT2 = INDENT1;
     let startDepth = 0;
-    let indent1 = 0, indent2 = 0;
-    let indent2Amount = 0;
+    const getIndentation = (depth: number) => {
+        const difference = depth - startDepth;
+        // Notes on the current level or deeper get indented a bit more, for visual clarity,
+        // and the parent notes won't get indented as much so that we aren't wasting space
+        const indent2Amount = Math.max(0, difference);
+        const indent1 = INDENT1 * Math.min(startDepth, depth);
+        const indent2 = INDENT2 * Math.max(indent2Amount, 0);
+        return indent1 + indent2;
+    }
 
     let isFocused = false;
     let isEditing = false;
@@ -1860,15 +1868,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     }) {
         const flatNotesRoot = getNoteOrUndefined(state, state._currentFlatNotesRootId);
         startDepth = flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth;
-
-        // Notes on the current level or deeper get indented a bit more, for visual clarity,
-        // and the parent notes won't get indented as much so that we aren't wasting space
-        const difference = note.data._depth - startDepth;
-        indent2Amount = Math.max(0, difference);
-
-        // TODO: remove redundancy. These used to be different levels of indentation, but not any more...
-        indent1 = INDENT * Math.min(startDepth, note.data._depth);
-        indent2 = INDENT * Math.max(indent2Amount, 0);
 
         const wasFocused = isFocused;
         isFocused = currentNote.id === note.id && currentModal === null;
@@ -1965,7 +1964,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         div({ class: [cn.flex1] }, [
             div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // This is mainly so that multi-line parent notes won't take up a large amount of space
-                rg.style("whiteSpace", () => indent2Amount >= 0 ? "pre-wrap" : "nowrap"),
+                rg.style("whiteSpace", s => (s.note.data._depth < startDepth) ? "pre-wrap" : "nowrap"),
                 // cursor element
                 cursorElement,
                 div({ style: "width: 10px" }),
@@ -1979,8 +1978,8 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 div({ style: "width: 10px" }),
                 // indentation - before vertical line
                 div({ class: [cn.relative] }, [
-                    rg.style("minWidth", ({ note, currentNote }) => {
-                        return (indent1 + indent2) + "ch";
+                    rg.style("minWidth", ({ note }) => {
+                        return getIndentation(note.data._depth) + "ch";
                     }),
                     () => {
                         function VerticalStroke(rg: RenderGroup<[number, boolean, boolean, boolean, boolean]>) {
@@ -2029,7 +2028,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                                         && !s.note.data._selectedPathDepthIsFirst;
 
                                 getNext().render([
-                                    INDENT * currentDepth, 
+                                    getIndentation(currentDepth),
                                     currentDepth === depth || !isParentLastNote, isTopFocused,
                                     !isParentLastNote, isBottomFocused,
                                 ]);
@@ -2048,8 +2047,17 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                             cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth)
                     ]),
                 ]),
-                div({ class: [cn.pre], style: "padding-left: 10px; padding-right: 10px " }, [
+                div({ class: [cn.pre], style: "padding-left: 0.5ch; padding-right: 1ch; " }, [
                     rg.text(({ note }) => {
+                        // The design onf this note status and the tree lines are inextricably linked, but you wouldn't see
+                        // that from the code - the lines need to look as if they were exiting from below the middle of this status text:
+                        //      |
+                        //      +-- [ x ] >> blah blah blah
+                        //      +--  ...  >> blah blah blah 2
+                        //            |
+                        //            |    <- like it does here
+                        //            |
+                        //            +--
                         return noteStatusToString(note.data._status) + " - " + getNoteProgressCountText(note);
                     })
                 ]),
