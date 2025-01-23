@@ -127,7 +127,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.005";
+const VERSION_NUMBER = "1.00.006";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -2115,17 +2115,13 @@ function NotesList(rg: RenderGroup<{
                 const isSticky = note.data.isSticky ||
                     (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
 
-                const hasDivider = (!!nextNote && !!flatNotesRoot) && (
-                    (note.data._depth < flatNotesRoot.data._depth)
-                );
-
                 // Rendering the component once without sticky and then a second time with sticky, so that
                 // we can determine if a note has 'stuck' to the top of the page and apply a divider conditionally.
 
                 const args: NoteRowInputArgs = {
                     note,
                     stickyOffset: undefined,
-                    hasDivider,
+                    hasDivider: false,
                     hasLightDivider: false,
                     scrollParent,
                     readOnly: false,
