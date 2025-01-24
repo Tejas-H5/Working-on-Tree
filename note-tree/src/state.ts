@@ -560,7 +560,7 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
         flatNotes.push(note.id);
 
         note.data._isVisualLeaf = note.childIds.length === 0 || 
-            isStoppingPointForNotViewExpansion(note, false);
+            isStoppingPointForNotViewExpansion(state, note);
         if (note.data._isVisualLeaf) {
             return;
         }
@@ -910,7 +910,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
         let startNote = getCurrentNote(state);
         tree.forEachParent(state.notes, startNote, (note) => {
-            if (note.id !== startNote.id && isStoppingPointForNotViewExpansion(note, true)) {
+            if (note.id !== startNote.id && isStoppingPointForNotViewExpansion(state, note)) {
                 return true;
             }
 
@@ -991,13 +991,13 @@ export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, 
 
 // The note that we're in may be an 'expanded' note, and not necessarily the root of the view.
 // The `upwards` param allows it to be assymetrical with respect to uwpards and downwards traversals.
-export function isStoppingPointForNotViewExpansion(note: TreeNote, upwards: boolean): boolean {
-    const downwards = !upwards;
-
+export function isStoppingPointForNotViewExpansion(state: NoteTreeGlobalState, note: TreeNote): boolean {
     return isHigherLevelTask(note)
         || state.notes.rootId === note.id
-        || note.data._status !== STATUS_IN_PROGRESS
-        || note.data._status !== STATUS_IN_PROGRESS;
+        || (
+            note.data._status !== STATUS_IN_PROGRESS && 
+            !(note.data._isSelected && note.id !== state.currentNoteId)
+        );
 }
 
 
@@ -1773,6 +1773,7 @@ export function setActivityRangeToToday(state: NoteTreeGlobalState) {
     addDays(dateTo, 1);
     floorDateLocalTime(dateFrom);
     floorDateLocalTime(dateTo);
+    state._currentDateScope = "any";
     state._activitiesFrom = dateFrom;
     state._activitiesTo = dateTo;
 }

@@ -127,7 +127,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.008";
+const VERSION_NUMBER = "1.00.009";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -1907,7 +1907,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
     rg.postRenderFn(s => {
         const hasStuck = s.orignalOffsetTop !== -420 && s.orignalOffsetTop !== root.el.offsetTop;
-        setStyle(root, "zIndex", hasStuck ? "10" : "")
+        setStyle(root, "zIndex", hasStuck ? `${200 - s.note.data._depth}` : "")
     });
 
     const cursorElement = div({ style: "width: 10px;" }, [
@@ -2113,7 +2113,7 @@ function NotesList(rg: RenderGroup<{
 
             const currentNote = getNote(state, currentNoteId);
 
-            let lastStuckComponent: Component<NoteRowInputArgs, HTMLDivElement> | undefined;
+            let lastStuckComponentThatCanHaveADivider: Component<NoteRowInputArgs, HTMLDivElement> | undefined;
 
             for (let i = 0; i < flatNoteIds.length; i++) {
                 const id = flatNoteIds[i];
@@ -2149,7 +2149,10 @@ function NotesList(rg: RenderGroup<{
 
                 const hasStuck = orignalOffsetTop !== component.el.offsetTop;
                 if (hasStuck) {
-                    lastStuckComponent = component;
+                    const canHaveDivider = note.data._depth < flatNotesRoot?.data._depth;
+                    if (canHaveDivider) {
+                        lastStuckComponentThatCanHaveADivider = component;
+                    }
                 }
 
                 // I have no idea how I would do this in React, tbh.
@@ -2159,9 +2162,9 @@ function NotesList(rg: RenderGroup<{
                 }
             }
 
-            if (lastStuckComponent) {
-                lastStuckComponent.s.hasDivider = true;
-                lastStuckComponent.renderWithCurrentState();
+            if (lastStuckComponentThatCanHaveADivider) {
+                lastStuckComponentThatCanHaveADivider.s.hasDivider = true;
+                lastStuckComponentThatCanHaveADivider.renderWithCurrentState();
             }
         });
     });
