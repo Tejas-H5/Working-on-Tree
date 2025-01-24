@@ -168,7 +168,9 @@ export type Note = {
     _depth: number; // used to visually indent the notes
     _task: TaskId | null;  // What higher level task does this note/task belong to ? Typically inherited
     _durationUnranged: number;
+    _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
     _durationRanged: number;
+    _durationRangedOpenSince?: Date;
     _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
     _index: number; // which position is this in the current child list?
     _numSiblings: number;
@@ -614,11 +616,11 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
-export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = false) {
+export function recomputeState(state: NoteTreeGlobalState) {
     assert(!!state, "WTF");
 
     // delete the empty notes
-    if (!isTimer) {
+    {
         tree.forEachNode(state.notes, (id) => {
             const n = getNote(state, id);
             if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
@@ -629,7 +631,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
 
     // recompute _depth, _parent, _index. Somewhat required for a lot of things after to work.
     // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
-    if (!isTimer) {
+    {
         const dfs = (note: TreeNote, depth: number, index: number, numSiblings: number) => {
             note.data._depth = depth;
             note.data._index = index;
@@ -680,7 +682,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     }
 
     // recompute _status, do some sorting
-    if (!isTimer) {
+    {
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
             note.data._status = STATUS_IN_PROGRESS;
@@ -745,7 +747,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     }
 
     // recompute _isSelected to just be the current note + all parent notes 
-    if (!isTimer) {
+    {
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
             note.data._isSelected = false;
@@ -759,7 +761,7 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
     }
 
     // recompute the activity list most recent index.
-    if (!isTimer) {
+    {
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
             note.data._activityListMostRecentIdx = -1;
@@ -787,9 +789,8 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         }
     }
 
-
     // compute the duration range as needed
-    if (!isTimer) {
+    {
         // Once we leave the duration view, ensure that activitiesTo resets to today if it doesn't already include today.
         // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
         // this reset to today only happens if today isn't in that time range
@@ -831,7 +832,9 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         tree.forEachNode(state.notes, (id) => {
             const note = getNote(state, id);
             note.data._durationUnranged = 0;
+            note.data._durationUnrangedOpenSince = undefined;
             note.data._durationRanged = 0;
+            note.data._durationRangedOpenSince = undefined;
         });
 
         const activities = state.activities;
@@ -846,8 +849,14 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
             const a1 = activities[i + 1] as Activity | undefined;
             const duration = getActivityDurationMs(a0, a1);
 
+            const isCurrentActivity = !a1;
+
             tree.forEachParent(state.notes, note, (note) => {
-                note.data._durationUnranged += duration;
+                if (!isCurrentActivity) {
+                    note.data._durationUnranged += duration;
+                } else {
+                    note.data._durationUnrangedOpenSince = getActivityTime(a0);
+                }
             });
 
             // TODO: update this to work for activities with start/end times that overlap into the current range
@@ -861,14 +870,18 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
                 state._activitiesToIdx = i;
 
                 tree.forEachParent(state.notes, note, (note) => {
-                    note.data._durationRanged += duration;
+                    if (!isCurrentActivity) {
+                        note.data._durationRanged += duration;
+                    } else {
+                        note.data._durationRangedOpenSince = getActivityTime(a0);
+                    }
                 });
             }
         }
     }
 
     // recompute the current filtered activities
-    if (!isTimer) {
+    {
         state._useActivityIndices = false;
         const hasValidRange = state._activitiesFromIdx !== -1;
         const useDurations = state._isShowingDurations && hasValidRange;
@@ -895,15 +908,15 @@ export function recomputeState(state: NoteTreeGlobalState, isTimer: boolean = fa
         }
     }
 
-    if (!isTimer) {
-        // remove deleted notes from the quicklist
+    // remove deleted notes from the quicklist
+    {
         filterInPlace(state._fuzzyFindState.matches, (match) => {
             return !!getNoteOrUndefined(state, match.note.id);
         });
     }
 
     // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
-    if (!isTimer) {
+    {
         if (!state._flatNoteIds) {
             state._flatNoteIds = [];
         }
@@ -1507,11 +1520,19 @@ export function getIndentStr(note: Note) {
 }
 
 export function getNoteDurationUsingCurrentRange(_state: NoteTreeGlobalState, note: TreeNote) {
-    return note.data._durationRanged;
+    let duration = note.data._durationRanged;
+    if (note.data._durationRangedOpenSince) {
+        duration += Date.now() - note.data._durationRangedOpenSince.getTime();
+    }
+    return duration;
 }
 
 export function getNoteDurationWithoutRange(_state: NoteTreeGlobalState, note: TreeNote) {
-    return note.data._durationUnranged;
+    let duration = note.data._durationUnranged;
+    if (note.data._durationUnrangedOpenSince) {
+        duration += Date.now() - note.data._durationUnrangedOpenSince.getTime();
+    }
+    return duration;
 }
 
 // NOTE: doesn't detect the 'h'. so it might be inaccurate.

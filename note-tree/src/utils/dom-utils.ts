@@ -786,6 +786,8 @@ export class RenderGroup<S = null> {
     readonly domRenderFnList: RenderFn<S>[] = [];
     readonly postRenderFnList: RenderFn<S>[] = [];
 
+    readonly animationsList: RenderPersistentAnimationFn<S>[] = [];
+
     /**
      * The current state of this render group, passed to every render function.
      */
@@ -798,7 +800,7 @@ export class RenderGroup<S = null> {
      * Internal variable that allows getting the root of the component a render group is attached to
      * without having the root itthis. 
      */
-    instantiatedRoot: Insertable<any> | undefined = undefined;
+    instantiatedRoot: Insertable<ValidElement> | undefined = undefined;
     /* 
      * Has this component rendered once? 
      * Used to detect bugs where a render function may continue to add more handlers during the render part
@@ -863,10 +865,50 @@ export class RenderGroup<S = null> {
     readonly renderWithCurrentState = () => {
         this.instantiated = true;
 
-        this.renderFunctions(this.preRenderFnList);
-        this.renderFunctions(this.domRenderFnList);
-        this.renderFunctions(this.postRenderFnList);
+        if (this.renderFunctions(this.preRenderFnList)) {
+            if (this.renderFunctions(this.domRenderFnList)) {
+                // Let's also restart all our animations! TODO: handle errors properly
+                if (this.animationsList.length > 0) {
+                    addAnimationToQueue(this.persistentAnimationInstance);
+                }
+
+                // finally, post render.
+                this.renderFunctions(this.postRenderFnList);
+            }
+        }
     }
+
+    readonly canAnimate = (): boolean => {
+        const root = this.instantiatedRoot;
+        if (!root) {
+            return false;
+        }
+        if (root._isHidden) {
+            return false;
+        }
+        if ((root.el as HTMLElement).offsetParent === null) {
+            return false;
+        }
+        // https://developer.mozilla.org/en-US/docs/Web/API/Node/isConnected
+        if (!root.el.isConnected) {
+            return false;
+        }
+
+        return true;
+    }
+
+    readonly persistentAnimationInstance = newAnimation((dt: number): boolean => {
+        if (!this.canAnimate()) {
+            return false;
+        }
+
+        const s = this.s;
+        for (let i = 0; i < this.animationsList.length; i++) {
+            this.animationsList[i](s, dt);
+        }
+
+        return true;
+    });
 
     /**
      * Returns a span which will update it's text with {@link fn} each render.
@@ -1170,7 +1212,94 @@ export class RenderGroup<S = null> {
         this.pushRenderFn(this.postRenderFnList, fn, errorRoot);
     }
 
-    private readonly renderFunctions = (renderFns: RenderFn<S>[]) => {
+    /**
+     * Pushes an animation to the realtime animation queue
+     * that persists for the lifetime of this component.
+     *
+     * The animation is suspended when :
+     * - the component's _isHidden flag is set to false 
+     *      - see {@link setVisible} - every visibility toggling function here will call into that, 
+     *      so this will only matter if you're doing some custom visibility code that isn't calling into it), 
+     * - the component or any component above it becomes display:none via css
+     * - the component is no-longer in the DOM for any reason.
+     *
+     * The animation gets restarted as soon as the component is rendered again.
+     */
+    readonly realtimeFn = (fn: RenderPersistentAnimationFn<S>) => {
+        this.assertNotInstantiatedYet();
+        this.animationsList.push(fn);
+    }
+
+
+    /**
+     * Instantiates a template, and places it's render function onto the realtime animation queue!
+     * Some templates might do this themselves, so you should double check if it's needed before calling this.
+     */
+    readonly realtime = <U extends ValidElement>(templateFn: TemplateFn<S, U>) => {
+        const [component, rg] = newComponent2(templateFn)
+
+        // our component needs to render this component to restart it's animations
+        this.inlineFn(component, (c, s) => c.render(s));
+
+        rg.realtimeFn(rg.render);
+        return component;
+    }
+
+    /**
+     * This function is actually a wrapper around {@link realtimeFn}.
+     */
+    readonly intermittentFn = (fn: RenderPersistentAnimationFn<S>, interval: number) => {
+        this.assertNotInstantiatedYet();
+
+        let timer = 0;
+        this.animationsList.push((s, dt) => {
+            // game devs hate it when you use this one simple trick
+            timer += dt;
+            if (timer < interval) {
+                return;
+            }
+            timer = 0;
+
+            fn(s, dt);
+        });
+    }
+
+    /**
+     * This function is to {@link intermittentFn} what {@link realtime} is to {@link realtimeFn}.
+     */
+    readonly intermittent = <U extends ValidElement>(templateFn: TemplateFn<S, U>, interval: number) => {
+        const [component, rg] = newComponent2(templateFn)
+
+        // our component needs to render this component to restart it's animations
+        this.inlineFn(component, (c, s) => c.render(s));
+
+        rg.intermittentFn(rg.render, interval);
+        return component;
+    }
+
+    /**
+     * Returns an animation that you can push yourself to the realtime animation queue that won't be restarted.
+     * You can only call this function after the component has rendered once.
+     *
+     * TODO: test out this API
+     */
+    readonly oneShotAnimation = (fn: RenderOneShotAnimationFn<S>): AnimationHandle => {
+        return newAnimation((dt) => {
+            if (!this.canAnimate()) {
+                return false;
+            }
+
+            return fn(this.s, dt);
+        });
+    }
+
+    /**
+     * Adds specific components to a realtime animation queue that runs animation functions at 60FPS.
+     * This is really usefull for things that depend on `Date.now()` that need to stay up to date with time, for example.
+     * Before this API was introduced, the only way I could do this was by rerendering the ENTIRE APP in setInterval around 10 times a second!
+     * And it took a really long time for me to add this too!
+     */
+    private readonly renderFunctions = (renderFns: RenderFn<S>[]): boolean => {
         const s = this.s;
         const defaultErrorRoot = this.root;
 
@@ -1180,7 +1309,7 @@ export class RenderGroup<S = null> {
             for (let i = 0; i < renderFns.length; i++) {
                 renderFns[i].fn(s);
             }
-            return;
+            return true;
         }
 
         for (let i = 0; i < renderFns.length; i++) {
@@ -1204,16 +1333,22 @@ export class RenderGroup<S = null> {
                 console.error("An error occured while rendering your component:", e);
 
                 // don't run more functions for this component if one of them errored
-                break;
+                return false;
             }
         }
+
+        return true;
     }
 
     private readonly pushRenderFn = (renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) => {
+        this.assertNotInstantiatedYet();
+        renderFns.push({ root, fn });
+    }
+
+    private readonly assertNotInstantiatedYet = () => {
         if (this.instantiated) {
             throw new Error("Can't add event handlers to this template (" + this.templateName + ") after it's been instantiated");
         }
-        renderFns.push({ root, fn });
     }
 }
 
@@ -1305,6 +1440,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
         }
 
         // Setting this value this late allows the this to render once before it's ever inserted.
+        // We also get to do additional post-initialization on a component that some other function returned, for example.
         this.instantiated = true;
 
         this.rendering = true;
@@ -1318,6 +1454,8 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
 }
 
 type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined; error?: any };
+type RenderPersistentAnimationFn<S> = (s: S, dt: number) => void; 
+type RenderOneShotAnimationFn<S> = (s: S, dt: number) => boolean;
 type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup<T>) => Insertable<U>;
 
 /**
@@ -1327,6 +1465,15 @@ type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup<T>) => Insertable<
  * If {@link initialState} is specified, the component will be rendered once here itself.
  */
 export function newComponent<T, U extends ValidElement, Si extends T>(
+    templateFn: TemplateFn<T, U>,
+    initialState?: Si,
+    skipErrorBoundary = false
+) {
+    const [component, _rg] = newComponent2(templateFn, initialState, skipErrorBoundary);
+    return component;
+}
+
+export function newComponent2<T, U extends ValidElement, Si extends T>(
     templateFn: TemplateFn<T, U>,
     initialState?: Si,
     skipErrorBoundary = false
@@ -1346,7 +1493,7 @@ export function newComponent<T, U extends ValidElement, Si extends T>(
         component.renderWithCurrentState();
     }
 
-    return component;
+    return [component, rg] as const;
 }
 
 // ---- List rendering API
@@ -1407,6 +1554,73 @@ export function newListRenderer<R extends ValidElement, T, U extends ValidElemen
     };
 
     return renderer;
+}
+
+// ---- animation utils. The vast majority of apps will need animation, so I figured I'd add these in as well
+
+export type AnimateFunction = (dt: number) => boolean;
+
+export type AnimationHandle = {
+    fn: AnimateFunction;
+    isRunning: boolean;
+    isInQueue: boolean;
+}
+
+const queue: AnimationHandle[] = [];
+
+const MAX_DT = 100;
+
+let lastTime = 0;
+function runAnimation(time: DOMHighResTimeStamp) {
+    const dtMs = time - lastTime;
+    lastTime = time;
+
+    if (dtMs < MAX_DT) {
+        for (let i = 0; i < queue.length; i++) {
+            const handle = queue[i];
+
+            handle.isRunning = handle.fn(dtMs);
+
+            if (!handle.isRunning) {
+                // O(1) fast-remove
+                queue[i] = queue[queue.length - 1];
+                queue.pop();
+                handle.isInQueue = false;
+                i--;
+            }
+        }
+    }
+
+    if (queue.length > 0) {
+        requestAnimationFrame(runAnimation);
+    }
+}
+
+export function newAnimation(fn: AnimateFunction): AnimationHandle {
+    return { fn, isRunning: false, isInQueue: false };
+}
+
+/**
+ * Adds an animation to the realtime animation queue that runs with `requestAnimationFrame`.
+ * See {@link newAnimation}.
+ */
+export function addAnimationToQueue(handle: AnimationHandle) {
+    if (handle.isInQueue) {
+        return;
+    }
+
+    const restartQueue = queue.length === 0;
+
+    queue.push(handle);
+    handle.isInQueue = true;
+
+    if (restartQueue) {
+        requestAnimationFrame(runAnimation);
+    }
+}
+
+export function getCurrentNumAnimations() {
+    return queue.length;
 }
 
 

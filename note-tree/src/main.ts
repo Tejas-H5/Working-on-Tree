@@ -14,6 +14,7 @@ import {
     contentsDiv,
     div,
     el,
+    getCurrentNumAnimations,
     initializeDomUtils,
     isEditingInput,
     isEditingTextSomewhereInDocument,
@@ -127,7 +128,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.009";
+const VERSION_NUMBER = "1.00.010";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -377,7 +378,9 @@ function BreakInput(rg: RenderGroup) {
         // this clock is really just a way for me to know that my app hasn't frozen.
         // So if I ever want to delete it, I _must_ put it somewhere else.
         div({}, [
-            rg.text(() => formatDate(new Date(), undefined, true, true))
+            rg.realtime(rg =>
+                rg.text(() => formatDate(new Date(), undefined, true, true))
+            )
         ]),
         div({ class: [cn.row, cn.alignItemsCenter] }, [
             div({ class: [cn.flex1] }, [breakInput]),
@@ -501,7 +504,6 @@ function ActivityListItem(rg: RenderGroup<{
 
 
     const noteLink = newComponent(NoteLink);
-    const durationEl = div({ style: "padding-left: 10px; padding-right: 10px;" });
     const timestamp = newComponent(DateTimeInput);
     const timestampWrapper = div({ style: "" }, [timestamp]);
     const cursorRow = newComponent(ScrollNavItem);
@@ -523,7 +525,24 @@ function ActivityListItem(rg: RenderGroup<{
                     ),
                 ]),
             ]),
-            durationEl,
+            rg.if(s => s.activity === state.activities[state.activities.length - 1], rg =>
+                rg.realtime(rg =>
+                    rg.inlineFn(
+                        div({ style: "padding-left: 10px; padding-right: 10px;" }),
+                        (c, s) => {
+                            renderDuration(c);
+                        }
+                    )
+                )
+            ),
+            rg.else(rg =>
+                rg.inlineFn(
+                    div({ style: "padding-left: 10px; padding-right: 10px;" }),
+                    (c, s) => {
+                        renderDuration(c);
+                    }
+                )
+            )
         ])
     ];
 
@@ -537,7 +556,7 @@ function ActivityListItem(rg: RenderGroup<{
         return !greyedOut && isEditableBreak(activity);
     }
 
-    function renderDuration() {
+    function renderDuration(el: Insertable<HTMLElement>) {
         const s = rg.s;
         const { activity, nextActivity, showDuration, } = s;
 
@@ -545,9 +564,9 @@ function ActivityListItem(rg: RenderGroup<{
         // did not come from the computer's sytem time but our own subjective memory
         const isAnApproximation = isEditable();
 
-        if (setVisible(durationEl, showDuration)) {
-            const durationStr = (isAnApproximation ? "~" : "") + formatDurationAsHours(getActivityDurationMs(activity, nextActivity));
-            setText(durationEl, durationStr);
+        if (setVisible(el, showDuration)) {
+            const durationStr = (isAnApproximation ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
+            setText(el, durationStr);
         }
     }
 
@@ -595,8 +614,6 @@ function ActivityListItem(rg: RenderGroup<{
             readOnly: false,
             nullable: false,
         });
-
-        renderDuration();
 
         if (!!breakInsertRow.el.parentNode && !breakInsertRow.el.matches(":hover")) {
             isInsertBreakRowOpen = false;
@@ -1690,7 +1707,7 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
         ])
     ]);
 
-    rg.preRenderFn(function renderNoteRowDurationInfo(s) {
+    rg.intermittentFn(function renderNoteRowDurationInfo(s) {
         const { note } = s;
 
         const duration = getNoteDurationUsingCurrentRange(state, note);
@@ -1746,7 +1763,7 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
         }
 
         setVisible(divider, hasDuration && !!parentWithEstimate);
-    });
+    }, 100);
 
     return root;
 }
@@ -1880,20 +1897,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
         setStickyOffset();
 
-        // render the histogram bar if needed
-        if (setVisible(durationHistogramBar, isShowingDurations)) {
-            const duration = getNoteDurationUsingCurrentRange(state, note);
-
-            assert(note.parentId, "Note didn't have a parent!");
-            const parentNote = getNote(state, note.parentId);
-            const totalDuration = getNoteDurationUsingCurrentRange(state, parentNote);
-            const isOnCurrentLevel = note.parentId === currentNote.parentId;
-            let percent = totalDuration < 0.000001 ? 0 : 100 * duration / totalDuration;
-
-            setStyle(durationHistogramBar, "width", percent + "%")
-            setStyle(durationHistogramBar, `backgroundColor`, isOnCurrentLevel ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`);
-        }
-
         // do auto-scrolling
         if (renderOptions.shouldScroll && scrollParent && listHasFocus) {
             if (isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
@@ -1938,7 +1941,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         }),
     ]);
 
-    const durationHistogramBar = div({ class: [cnApp.inverted], style: "height: 4px;" });
 
     const root = div({ 
         class: [cn.row, cn.pre], 
@@ -1962,9 +1964,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
             : s.hasLightDivider ? `1px solid ${cssVars.bgColorFocus}` : ``
         ),
         div({ class: [cn.flex1] }, [
-            div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
-                // This is mainly so that multi-line parent notes won't take up a large amount of space
-                rg.style("whiteSpace", s => (s.note.data._depth < startDepth) ? "pre-wrap" : "nowrap"),
+            div({ class: [cn.row, cn.alignItemsStretch, cn.noWrap], style: "" }, [
                 // cursor element
                 cursorElement,
                 div({ style: "width: 10px" }),
@@ -2077,7 +2077,28 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     rg.text(s => s.note.data._shelved ? "[Shelved]" : ""),
                 ])
             ]),
-            durationHistogramBar,
+            rg.if(() => isShowingDurations, rg =>
+                rg.realtime(rg => 
+                    rg.inlineFn(
+                        div({ class: [cnApp.inverted], style: "height: 4px;" }),
+                        (c, s) => {
+                            const note = s.note;
+                            const currentNote = s.currentNote;
+                            const duration = getNoteDurationUsingCurrentRange(state, note);
+
+                            assert(note.parentId, "Note didn't have a parent!");
+                            const parentNote = getNote(state, note.parentId);
+                            const totalDuration = getNoteDurationUsingCurrentRange(state, parentNote);
+                            let percent = totalDuration < 0.000001 ? 0 : 100 * duration / totalDuration;
+
+                            setStyle(c, "width", percent + "%")
+
+                            const isOnCurrentLevel = note.parentId === currentNote.parentId;
+                            setStyle(c, `backgroundColor`, isOnCurrentLevel ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`);
+                        }
+                    )
+                )
+            ),
         ]),
     ]);
     return root;
@@ -2175,7 +2196,6 @@ function NotesList(rg: RenderGroup<{
 
 const renderOptions: RenderOptions = {
     shouldScroll: false,
-    isTimer: false,
 };
 
 function getTheme(): AppTheme {
@@ -2307,8 +2327,6 @@ function exportAsText(state: NoteTreeGlobalState, flatNotes: NoteId[]) {
 
 type RenderOptions = {
     shouldScroll: boolean;
-    // We want to detect certain bugs that the timer is hiding, so we use this to prevent rerendering in those cases
-    isTimer: boolean;
 }
 
 let currentModal: Insertable | null = null;
@@ -3218,7 +3236,7 @@ export function App(rg: RenderGroup) {
 
     let backupText = "";
     let backupFilename = "";
-    const bottomButtons = div({ class: [cn.row, cn.alignItemsEnd, cnApp.sb1t] }, [
+    const bottomButtons = div({ class: [cn.row, cn.alignItemsStretch, cnApp.sb1t] }, [
         div({ class: [cn.row, cn.alignItemsEnd] }, [
             rg.c(Button, c => c.render({
                 label: "Scratch Pad",
@@ -3235,7 +3253,9 @@ export function App(rg: RenderGroup) {
                 }
             }))
         ]),
-        div({ class: [cn.flex1, cn.textAlignCenter] }, [statusTextIndicator]),
+        div({ class: [cn.flex1, cn.row, cn.alignItemsCenter, cn.justifyContentCenter] }, [
+            statusTextIndicator,
+        ]),
         div({ class: [cn.row] }, [
             isRunningFromFile() ? (
                 div()
@@ -3710,7 +3730,7 @@ export function App(rg: RenderGroup) {
 
     // Legacy code do be like this sometimes ...
     rg.preRenderFn(function rerenderAppComponent() {
-        recomputeState(state, renderOptions.isTimer);
+        recomputeState(state);
 
         // recompute the app title
         {
@@ -3936,20 +3956,13 @@ initializeDomUtils(root);
 const app = newComponent(App);
 appendChild(root, app);
 
-const rerenderApp = (shouldScroll = true, isTimer = false) => {
-    renderOptions.isTimer = isTimer;
-
-    if (!isTimer) {
-        // there are actually very few times when we don't want to scroll to the current note
-        renderOptions.shouldScroll = shouldScroll;
-    }
+const rerenderApp = (shouldScroll = true) => {
+    renderOptions.shouldScroll = shouldScroll;
 
     app.render(null);
 
-    renderOptions.isTimer = false;
+    // other rerenders shouldn't cause the app to scroll!
     renderOptions.shouldScroll = false;
-
-    resetAppRenderInterval();
 }
 
 let renderNextFrameTimeout = 0;
@@ -3957,24 +3970,6 @@ function rerenderAppNextFrame() {
     clearTimeout(renderNextFrameTimeout);
     renderNextFrameTimeout = setTimeout(rerenderApp, 1);
 }
-
-let appRerenderingInterval = 0;
-function resetAppRenderInterval() {
-    clearInterval(appRerenderingInterval);
-
-    // A lot of UI relies on the current date/time to render it's contents
-    // In order for this UI to always be up-to-date, I'm just re-rendering the entire application somewhat frequently.
-    // I have decided that this is a viable approach, and is probably the easiest and simplest way to handle this for now.
-    // Components should just be designed to work despite excessive re-renders anyway.
-    // I'm still not convinced that rerendering the ENTIRE page is a good solution.
-    // I'm also not convinced that this problem is unsolveable without using create() and dispose() methods. 
-    // For now I'll just limit this to twice a second, and then profile and fix any performance bottlenecks 
-    // (which is apparently very easy to do here)
-    appRerenderingInterval = setInterval(() => {
-        rerenderApp(false, true);
-    }, 500);
-}
-
 
 initState(() => {
     autoInsertBreakIfRequired();
