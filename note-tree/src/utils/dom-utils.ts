@@ -1,4 +1,4 @@
-// DOM-utils v0.1.11 - @Tejas-H5
+// DOM-utils v0.1.12 - @Tejas-H5
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -116,7 +116,6 @@ export const cn = Object.freeze({
 
     /** common spacings */
 
-    gap5: sb.cn("gap5", [` { gap: 5px; }`]),
     w100: sb.cn("w100", [` { width: 100%; }`]),
     h100: sb.cn("h100", [` { height: 100%; }`]),
 

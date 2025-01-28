@@ -102,4 +102,7 @@ export const cnApp = {
     sb1b: cssb.cn("sb1b", [` { border-bottom: 1px solid ${cssVars.fgColor}; }`]),
     solidBorderSm: cssb.cn("solidBorderSm", [` { border: 1px solid ${cssVars.fgColor}; }`]),
     solidBorderSmRounded: cssb.cn("solidBorderSmRounded", [` { border: 1px solid ${cssVars.fgColor}; border-radius: 3px; }`]),
+
+    gap5: cssb.cn("gap5", [` { gap: 5px; }`]),
+    gap10: cssb.cn("gap10", [` { gap: 10px; }`]),
 };

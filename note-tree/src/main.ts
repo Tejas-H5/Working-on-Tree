@@ -1,5 +1,5 @@
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
-import { Button, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
+import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { countOccurances, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
@@ -14,7 +14,6 @@ import {
     contentsDiv,
     div,
     el,
-    getCurrentNumAnimations,
     initializeDomUtils,
     isEditingInput,
     isEditingTextSomewhereInDocument,
@@ -1608,10 +1607,30 @@ function SettingsModal(rg: RenderGroup) {
 
     const modalContent = div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
         el("H3", { class: [cn.textAlignCenter] }, "Settings"),
-        div({ class: [cn.row] }, [
-            // Add and then remove feature flags here as we need to
-            div({}, [`No settings are available in the ${VERSION_NUMBER} version of this web-app. Come back later!`]),
-        ])
+        div({ class: [cn.col, cnApp.gap10] }, [
+            div({}, [
+                rg.c(Checkbox, (c) => c.render({
+                    label: "Force notes that aren't being edited to be a single line",
+                    value: state.settings.nonEditingNotesOnOneLine,
+                    onChange(val) {
+                        state.settings.nonEditingNotesOnOneLine = val;
+                        rerenderApp();
+                    }
+                })),
+                rg.if(() => !state.settings.nonEditingNotesOnOneLine, rg =>
+                    div({ style: "padding-left: 20px" }, [
+                        rg.c(Checkbox, (c) => c.render({
+                            label: "Force parent notes to be a single line",
+                            value: state.settings.parentNotesOnOneLine,
+                            onChange(val) {
+                                state.settings.parentNotesOnOneLine = val;
+                                rerenderApp();
+                            }
+                        })),
+                    ])
+                )
+            ])
+        ]),
     ]);
 
     return rg.c(Modal, c => c.render({
@@ -1777,6 +1796,7 @@ type NoteRowInputArgs = {
     scrollParent: HTMLElement | null;
     currentNote: TreeNote;
     listHasFocus: boolean;
+    forceOneLine: boolean;
 
     orignalOffsetTop: number;
 };
@@ -1964,7 +1984,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
             : s.hasLightDivider ? `1px solid ${cssVars.bgColorFocus}` : ``
         ),
         div({ class: [cn.flex1] }, [
-            div({ class: [cn.row, cn.alignItemsStretch, cn.noWrap], style: "" }, [
+            div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // cursor element
                 cursorElement,
                 div({ style: "width: 10px" }),
@@ -2048,7 +2068,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     ]),
                 ]),
                 div({ class: [cn.pre], style: "padding-left: 0.5ch; padding-right: 1ch; " }, [
-                    rg.text(({ note }) => {
+                    rg.text(({ note, forceOneLine }) => {
                         // The design onf this note status and the tree lines are inextricably linked, but you wouldn't see
                         // that from the code - the lines need to look as if they were exiting from below the middle of this status text:
                         //      |
@@ -2059,7 +2079,9 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         //            |
                         //            +--
                         
-                        const charCount = note.data.text.length < 150 ? "" : `[${note.data.text.length}ch]`;
+                        const charCount = !forceOneLine ? "" : (
+                                note.data.text.length < 150 ? "" : `[${note.data.text.length}ch]`
+                        );
 
                         return `${noteStatusToString(note.data._status)} - ${getNoteProgressCountText(note)} ${charCount}`;
                     })
@@ -2068,6 +2090,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     text: s.note.data.text,
                     isEditing,
                     onInputKeyDown,
+                    isOneLineWhenNotEditing: s.forceOneLine,
                     onInput
                 })),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
@@ -2139,10 +2162,10 @@ function NotesList(rg: RenderGroup<{
             for (let i = 0; i < flatNoteIds.length; i++) {
                 const id = flatNoteIds[i];
                 const note = getNote(state, id);
-                const nextNote = getNoteOrUndefined(state, flatNoteIds[i + 1]);
                 const component = getNext();
 
                 const flatNotesRoot = getNote(state, state._currentFlatNotesRootId);
+                const isParentNote = note.data._depth < flatNotesRoot?.data._depth;
 
                 const isSticky = note.data.isSticky ||
                     (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
@@ -2160,6 +2183,9 @@ function NotesList(rg: RenderGroup<{
                     currentNote,
                     listHasFocus: hasFocus,
                     orignalOffsetTop: -420,
+                    forceOneLine: state.settings.nonEditingNotesOnOneLine ? true : (
+                        state.settings.parentNotesOnOneLine ? isParentNote : false
+                    ),
                 };
                 component.render(args);
                 const orignalOffsetTop = component.el.offsetTop;

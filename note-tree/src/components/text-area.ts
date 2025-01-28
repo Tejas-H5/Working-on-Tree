@@ -26,12 +26,17 @@ export function newTextArea(): Insertable<HTMLTextAreaElement> {
 export type EditableTextAreaArgs = {
     text: string;
     isEditing: boolean;
+    isOneLineWhenNotEditing?: boolean;
     onInput(text: string): void;
     onInputKeyDown(e: KeyboardEvent): void;
 };
 
 export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
-    const whenNotEditing = div({ class: [cn.handleLongWords], style: "" });
+    const whenNotEditing = div({ class: [cn.handleLongWords], style: "" }, [
+        rg.class(cn.preWrap, s => !s.isOneLineWhenNotEditing),
+        rg.class(cn.overflowHidden, s => !!s.isOneLineWhenNotEditing),
+        rg.class(cn.noWrap, s => !!s.isOneLineWhenNotEditing),
+    ]);
     const whenEditing = newTextArea();
     setAttr(whenEditing, "rows", "1");
     setAttr(whenEditing, "class", cn.flex1);

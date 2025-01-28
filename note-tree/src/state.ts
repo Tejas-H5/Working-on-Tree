@@ -126,9 +126,9 @@ export type NoteTreeGlobalState = {
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
     _isShowingDurations: boolean;
-    _activitiesFrom: Date | null;       // NOTE: Date isn't JSON serializable
+    _activitiesFrom: Date | null;
     _activitiesFromIdx: number;
-    _activitiesTo: Date | null;         // NOTE: Date isn't JSON serializable
+    _activitiesTo: Date | null;
     _activitiesToIdx: number;
     _useActivityIndices: boolean;
     _activityIndices: number[];
@@ -141,7 +141,10 @@ export type NoteTreeGlobalState = {
     _fuzzyFindState: FuzzyFindState;
 };
 
-type AppSettings = {}
+type AppSettings = {
+    nonEditingNotesOnOneLine: boolean;
+    parentNotesOnOneLine: boolean;
+};
 
 type JsonBoolean = true | undefined;
 
@@ -373,7 +376,10 @@ export function defaultState(): NoteTreeGlobalState {
         activities: [],
         scratchPadCanvasLayers: [],
         mainGraphData: newGraphData(),
-        settings: {},
+        settings: {
+            nonEditingNotesOnOneLine: true,
+            parentNotesOnOneLine: true,
+        },
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
@@ -1672,10 +1678,28 @@ export function isEditableBreak(activity: Activity) {
     return true;
 }
 
+
+const fieldsToMigrate = new Set(["settings"]);
+
 function autoMigrate<T extends object>(loadedData: T, defaultSchema: T) {
     for (const k in defaultSchema) {
+        const defaultValue = defaultSchema[k];
         if (!(k in loadedData)) {
-            loadedData[k] = defaultSchema[k];
+            loadedData[k] = defaultValue;
+            continue;
+        }
+
+        // Migrate nested objects.
+        // TODO: less hardcoded solution, this only works for 1 level deep
+        if (
+            typeof defaultValue === "object" && 
+            defaultValue !== null &&
+            fieldsToMigrate.has(k)
+        ) {
+            autoMigrate(
+                loadedData[k] as Record<string, object>, 
+                defaultValue as Record<string, object>,
+            );
         }
     }
 
