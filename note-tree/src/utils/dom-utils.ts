@@ -873,14 +873,16 @@ export class RenderGroup<S = null> {
         this.instantiated = true;
 
         if (this.renderFunctions(this.preRenderFnList)) {
-            if (this.renderFunctions(this.domRenderFnList)) {
-                // Let's also restart all our animations! TODO: handle errors properly
-                if (this.animationsList.length > 0) {
-                    addAnimationToQueue(this.persistentAnimationInstance);
-                }
+            if (this.canAnimate()) {
+                if (this.renderFunctions(this.domRenderFnList)) {
+                    // Let's also restart all our animations! TODO: handle errors properly
+                    if (this.animationsList.length > 0) {
+                        addAnimationToQueue(this.persistentAnimationInstance);
+                    }
 
-                // finally, post render.
-                this.renderFunctions(this.postRenderFnList);
+                    // finally, post render.
+                    this.renderFunctions(this.postRenderFnList);
+                }
             }
         }
     }
@@ -893,9 +895,9 @@ export class RenderGroup<S = null> {
         if (root._isHidden) {
             return false;
         }
-        if ((root.el as HTMLElement).offsetParent === null) {
-            return false;
-        }
+        // if ((root.el as HTMLElement).offsetParent === null) {
+        //     return false;
+        // }
         // https://developer.mozilla.org/en-US/docs/Web/API/Node/isConnected
         if (!root.el.isConnected) {
             return false;
@@ -1205,6 +1207,8 @@ export class RenderGroup<S = null> {
      * or don't allow or look down upon imperative code, which is what prompted me to make a custom framework that embraces it).
      * 
      * Code here always runs before DOM render functions, and postRenderFunctions on this component.
+     *
+     * Also note that setting a component's visibility here will prevent it's DOM functions from running.
      *
      * ```ts
      * function App(rg: RenderGroup<GameState>) {

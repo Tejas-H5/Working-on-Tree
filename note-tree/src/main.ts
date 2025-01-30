@@ -14,6 +14,7 @@ import {
     contentsDiv,
     div,
     el,
+    getCurrentNumAnimations,
     initializeDomUtils,
     isEditingInput,
     isEditingTextSomewhereInDocument,
@@ -1554,6 +1555,8 @@ function InteractiveGraphModal(rg: RenderGroup) {
     ]);
 }
 
+const lastRenderTimes: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+let lastRenderTimesPos = 0;
 function SettingsModal(rg: RenderGroup) {
     function onClose() {
         setCurrentModalAndRerenderApp(null);
@@ -1564,6 +1567,36 @@ function SettingsModal(rg: RenderGroup) {
         div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
             el("H3", { class: [cn.textAlignCenter] }, "Settings"),
             div({ class: [cn.col, cnApp.gap10] }, [
+                div({}, [
+                    div({}, "Diagnostics"),
+                    div({ class: [cn.row]}, [
+                        "Render timings: ",
+                        div({ class: [cnApp.gap10, cn.row] }, [
+                            () => {
+                                function RenderTime(rg: RenderGroup<[number, boolean]>) {
+                                    return span({}, [
+                                        rg.style("borderBottom", s => s[1] ? `3px solid ${cssVars.fgColor}` : ""),
+                                        rg.text(s => s[0] + "ms")
+                                    ]);
+                                }
+
+                                return rg.list(contentsDiv(), RenderTime, (getNext) => {
+                                    for (let i = 0; i < lastRenderTimes.length; i++) {
+                                        getNext().render([
+                                            lastRenderTimes[i],
+                                            i === lastRenderTimesPos
+                                        ]);
+                                    }
+                                })
+                            },
+                        ]),
+                    ]),
+                    div({}, [
+                        rg.realtime(rg =>
+                            rg.text(() => `Realtime animations in progresss: ${getCurrentNumAnimations()}`),
+                        )
+                    ]),
+                ]),
                 div({}, [
                     rg.c(Checkbox, (c) => c.render({
                         label: "Force notes that aren't being edited to be a single line",
@@ -3143,6 +3176,10 @@ function HighLevelTaskDurations(rg: RenderGroup) {
 function HelpModal(rg: RenderGroup<{ open: boolean; }>) {
     const scrollContainer = newComponent(ScrollContainer);
 
+    rg.preRenderFn(s => {
+        setVisible(rg.root, s.open);
+    });
+
     return rg.cArgs(Modal, (c) => c.render({
         onClose() {
             setCurrentModalAndRerenderApp(null);
@@ -3191,6 +3228,19 @@ const exportModal = newComponent(ExportModal);
 // auto-inserts a break. This might break automated tests, if we ever
 // decide to start using those
 export function App(rg: RenderGroup) {
+    let t0 = 0;
+    rg.preRenderFn(() => {
+        t0 = performance.now();
+    });
+
+    rg.postRenderFn(() => {
+        lastRenderTimes[lastRenderTimesPos] = performance.now() - t0;
+        lastRenderTimesPos++;
+        if (lastRenderTimesPos >= lastRenderTimes.length) {
+            lastRenderTimesPos = 0;
+        }
+    });
+
     const cheatSheetButton = el("BUTTON", { class: [cnInfoButton], title: "click for a list of keyboard shortcuts and functionality" }, [
         div({}, "Note tree " + VERSION_NUMBER),
         div({}, "cheatsheet"),
