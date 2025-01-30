@@ -1,7 +1,7 @@
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, newArray } from "src/utils/array-utils";
+import { clearArray, countOccurances, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -18,6 +18,7 @@ import {
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
+    newComponentArgs,
     newCssBuilder,
     newInsertable,
     newListRenderer,
@@ -174,8 +175,7 @@ function ScrollNavItem(rg: RenderGroup<{
     isCursorActive: boolean;
     isGreyedOut?: boolean;
     isFocused: boolean;
-    children: Insertable[];
-}>) {
+}>, children: Insertable[]) {
     return div({ class: [cn.row, cn.alignItemsStretch] }, [
         rg.style(`backgroundColor`, (s) => s.isFocused ? `${cssVars.bgColorFocus}` : ``),
         rg.style(`color`, (s) => s.isGreyedOut ? `${cssVars.unfocusTextColor}` : ``),
@@ -188,9 +188,7 @@ function ScrollNavItem(rg: RenderGroup<{
             ])
         ),
         div({ class: [cn.flex1, cn.handleLongWords] }, [
-            rg.functionality((el, s) => {
-                replaceChildren(el, s.children);
-            })
+            ...children,
         ]),
     ]);
 }
@@ -220,36 +218,29 @@ function TodoListInternal(rg: RenderGroup<{
         ranges?: Range[];
         focusAnyway: boolean;
     }>) {
-        const children = [
-            div({ class: [cn.flex1, cn.row], style: "padding-bottom: 10px" }, [
-                div({ class: [cn.noWrap], style: "padding: 10px" }, [
-                    rg.text(s => "" + s.index)
-                ]),
-                rg.c(HighlightedText, (c, s) => c.render({
-                    text: s.text,
-                    highlightedRanges: s.ranges ?? [[0, s.text.length]],
-                })),
-                div({ class: [cn.flex1] }),
-                rg.if(s => !!s.note.data.isSticky, rg =>
-                    rg && div({
-                        class: [cn.row, cn.alignItemsCenter, cn.pre],
-                        style: `background-color: ${cssVars.pinned}; color: #FFF`
-                    }, [" ! "]),
-                )
-            ])
-        ];
-
-        const navRoot = rg.c(ScrollNavItem, (c, s) => {
-            c.render({
+        return div({}, [
+            rg.cArgs(ScrollNavItem, (c, s) => c.render({
                 isCursorVisible: s.hasCursor,
                 isFocused: s.focusAnyway,
                 isCursorActive: isInQuicklist,
-                children: children,
-            })
-        });
-
-        return div({}, [
-            navRoot,
+            }), [
+                div({ class: [cn.flex1, cn.row], style: "padding-bottom: 10px" }, [
+                    div({ class: [cn.noWrap], style: "padding: 10px" }, [
+                        rg.text(s => "" + s.index)
+                    ]),
+                    rg.c(HighlightedText, (c, s) => c.render({
+                        text: s.text,
+                        highlightedRanges: s.ranges ?? [[0, s.text.length]],
+                    })),
+                    div({ class: [cn.flex1] }),
+                    rg.if(s => !!s.note.data.isSticky, rg =>
+                        rg && div({
+                            class: [cn.row, cn.alignItemsCenter, cn.pre],
+                            style: `background-color: ${cssVars.pinned}; color: #FFF`
+                        }, [" ! "]),
+                    )
+                ])
+            ])
         ]);
     }
 
@@ -477,38 +468,22 @@ function ActivityListItem(rg: RenderGroup<{
         rerenderApp(false);
     };
 
-    const breakInsertRow = newComponent((rg) => {
-        return div({ class: [cn.alignItemsCenter, cn.justifyContentCenter, cn.row] }, [
-            rg.on("mouseleave", () => {
-                isInsertBreakRowOpen = false;
-                rg.renderWithCurrentState();
-            }),
-            div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
-            rg.c(Button, c => c.render({
-                label: "+ Insert break here",
-                onClick: insertBreak,
-            })),
-            div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
-        ]);
-    });
-
-    // TODO: CSS for this plz
-    let isInsertBreakRowOpen = false;
-    const breakInsertRowHitbox = div({ class: [cn.hoverParent], style: "min-height: 10px" }, [
-        rg.on("mouseenter", () => {
-            isInsertBreakRowOpen = true;
-            rg.renderWithCurrentState();
-        }),
-    ]);
-
-
     const noteLink = newComponent(NoteLink);
     const timestamp = newComponent(DateTimeInput);
     const timestampWrapper = div({ style: "" }, [timestamp]);
-    const cursorRow = newComponent(ScrollNavItem);
-
-    const cursorRowContents = [
-        breakInsertRowHitbox,
+    const cursorRow = newComponentArgs(ScrollNavItem, [[
+        div({ class: [cn.hoverParent, cn.borderBox], style: "min-height: 10px" }, [
+            div({ class: [cn.hoverTarget] }, [
+                div({ class: [cn.row, cn.alignItemsCenter, cn.justifyContentCenter] }, [
+                    div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
+                    rg.c(Button, c => c.render({
+                        label: "+ Insert break here",
+                        onClick: insertBreak,
+                    })),
+                    div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
+                ])
+            ]),
+        ]),
         div({ class: [cn.row], style: "gap: 20px; padding: 5px 0;" }, [
             div({ class: [cn.flex1] }, [
                 timestampWrapper,
@@ -543,7 +518,7 @@ function ActivityListItem(rg: RenderGroup<{
                 )
             )
         ])
-    ];
+    ]]);
 
     const root = div({}, [
         cursorRow,
@@ -577,7 +552,6 @@ function ActivityListItem(rg: RenderGroup<{
             isCursorActive: isInHotlist,
             isFocused: focus,
             isGreyedOut: greyedOut,
-            children: cursorRowContents
         });
 
         // I think all break text should just be editable...
@@ -613,17 +587,6 @@ function ActivityListItem(rg: RenderGroup<{
             readOnly: false,
             nullable: false,
         });
-
-        if (!!breakInsertRow.el.parentNode && !breakInsertRow.el.matches(":hover")) {
-            isInsertBreakRowOpen = false;
-        }
-
-        if (isInsertBreakRowOpen && !breakInsertRow.el.parentNode) {
-            root.el.prepend(breakInsertRow.el);
-            breakInsertRow.render(null);
-        } else if (!isInsertBreakRowOpen && !!breakInsertRow.el.parentNode) {
-            breakInsertRow.el.remove();
-        }
     });
 
     function updateActivityTime(date: Date | null) {
@@ -691,61 +654,60 @@ function ActivityListItem(rg: RenderGroup<{
 }
 
 function ExportModal(rg: RenderGroup) {
-    const modalContent = div({ class: [cn.col], style: "align-items: stretch" }, [
-        rg.c(Button, c => c.render({
-            label: "Clear all",
-            onClick: () => {
-                if (!confirm("Are you sure you want to clear your note tree?")) {
-                    return;
+    return rg.cArgs(Modal, (c, s) => c.render({
+        onClose: () => setCurrentModalAndRerenderApp(null),
+    }), [
+        div({ class: [cn.col], style: "align-items: stretch" }, [
+            rg.c(Button, c => c.render({
+                label: "Clear all",
+                onClick: () => {
+                    if (!confirm("Are you sure you want to clear your note tree?")) {
+                        return;
+                    }
+
+                    resetState();
+                    rerenderApp();
+
+                    showStatusText("Cleared notes");
                 }
-
-                resetState();
-                rerenderApp();
-
-                showStatusText("Cleared notes");
-            }
-        })),
-        rg.c(Button, c => c.render({
-            label: "Download TXT",
-            onClick: () => {
-                handleErrors(() => {
-                    const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
-                    const text = exportAsText(state, flatNotes);
+            })),
+            rg.c(Button, c => c.render({
+                label: "Download TXT",
+                onClick: () => {
                     handleErrors(() => {
-                        saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                        const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
+                        const text = exportAsText(state, flatNotes);
+                        handleErrors(() => {
+                            saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
+                        });
+
+                        showStatusText("Download TXT");
                     });
+                }
+            })),
+            rg.c(Button, c => c.render({
+                label: "Copy open notes",
+                onClick: () => {
+                    handleErrors(() => {
+                        const flatNotes: NoteId[] = [];
+                        const currentNote = getCurrentNote(state);
+                        recomputeFlatNotes(state, flatNotes, currentNote, true);
 
-                    showStatusText("Download TXT");
-                });
-            }
-        })),
-        rg.c(Button, c => c.render({
-            label: "Copy open notes",
-            onClick: () => {
-                handleErrors(() => {
-                    const flatNotes: NoteId[] = [];
-                    const currentNote = getCurrentNote(state);
-                    recomputeFlatNotes(state, flatNotes, currentNote, true);
-
-                    copyToClipboard(exportAsText(state, flatNotes));
-                    showStatusText("Copied current open notes as text");
-                });
-            }
-        })),
-        rg.c(Button, c => c.render({
-            label: "Download JSON",
-            onClick: () => {
-                handleErrors(() => {
-                    saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
-                });
-            }
-        }))
+                        copyToClipboard(exportAsText(state, flatNotes));
+                        showStatusText("Copied current open notes as text");
+                    });
+                }
+            })),
+            rg.c(Button, c => c.render({
+                label: "Download JSON",
+                onClick: () => {
+                    handleErrors(() => {
+                        saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
+                    });
+                }
+            }))
+        ])
     ]);
-
-    return rg.c(Modal, c => c.render({
-        onClose: () => setCurrentModal(null),
-        content: modalContent,
-    }));
 }
 
 function DeleteModal(rg: RenderGroup) {
@@ -756,24 +718,25 @@ function DeleteModal(rg: RenderGroup) {
     const recentEl = div();
     const deleteButton = newComponent(Button);
     const cantDelete = div({}, ["Can't delete notes that are still in progress..."]);
-    const root = newComponent(Modal);
-    const modalContent = div({ style: modalPaddingStyles(10, 70, 50) }, [
-        heading,
-        textEl,
-        div({ style: "height: 20px" }),
-        countEl,
-        timeEl,
-        recentEl,
-        div({ style: "height: 20px" }),
-        div({ class: [cn.row, cn.justifyContentCenter] }, [
-            deleteButton,
-            cantDelete,
-        ]),
-        div({ style: "height: 20px" }),
-        div({ style: "text-align: center" }, [
-            "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
+    const root = newComponentArgs(Modal, [[
+        div({ style: modalPaddingStyles(10, 70, 50) }, [
+            heading,
+            textEl,
+            div({ style: "height: 20px" }),
+            countEl,
+            timeEl,
+            recentEl,
+            div({ style: "height: 20px" }),
+            div({ class: [cn.row, cn.justifyContentCenter] }, [
+                deleteButton,
+                cantDelete,
+            ]),
+            div({ style: "height: 20px" }),
+            div({ style: "text-align: center" }, [
+                "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
+            ])
         ])
-    ]);
+    ]]);
 
     function deleteNote(e: MouseEvent) {
         e.preventDefault();
@@ -784,7 +747,7 @@ function DeleteModal(rg: RenderGroup) {
         }
 
         deleteDoneNote(state, currentNote);
-        setCurrentModal(null);
+        setCurrentModalAndRerenderApp(null);
         showStatusText(
             "Deleted!" +
             (Math.random() < 0.05 ? " - Good riddance..." : "")
@@ -795,8 +758,7 @@ function DeleteModal(rg: RenderGroup) {
         const currentNote = getCurrentNote(state);
 
         root.render({
-            onClose: () => setCurrentModal(null),
-            content: modalContent,
+            onClose: () => setCurrentModalAndRerenderApp(null),
         });
 
         setText(textEl, currentNote.data.text);
@@ -837,8 +799,7 @@ function LinkNavModal(rg: RenderGroup) {
         isFocused: boolean;
     }>) {
         const textEl = newComponent(HighlightedText);
-        const children = [textEl];
-        const root = newComponent(ScrollNavItem);
+        const root = newComponentArgs(ScrollNavItem, [[textEl]]);
 
         rg.preRenderFn(function renderLinkItem(s) {
             const { text, range, isFocused } = s;
@@ -852,7 +813,6 @@ function LinkNavModal(rg: RenderGroup) {
                 isCursorVisible: isFocused,
                 isCursorActive: true,
                 isFocused: isFocused,
-                children: children,
             });
         });
 
@@ -866,13 +826,13 @@ function LinkNavModal(rg: RenderGroup) {
         linkList,
     ]);
     const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
-    const root = newComponent(Modal);
+    const root = newComponentArgs(Modal, [[
+        div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
+            content,
+            empty,
+        ])
+    ]]);
     
-    const modalContent = div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
-        content,
-        empty,
-    ]);
-
     let idx = 0;
     let lastNote: TreeNote | undefined;
 
@@ -885,8 +845,7 @@ function LinkNavModal(rg: RenderGroup) {
         lastNote = currentNote;
 
         root.render({
-            onClose: () => setCurrentModal(null),
-            content: modalContent,
+            onClose: () => setCurrentModalAndRerenderApp(null),
         });
 
         idx = 0;
@@ -973,7 +932,7 @@ function LinkNavModal(rg: RenderGroup) {
     }
 
     document.addEventListener("keydown", (e) => {
-        if (currentModal?.el !== root.el) {
+        if (state._currentModal?.el !== root.el) {
             // Don't let this code execute  when this modal is closed...
             return;
         }
@@ -1005,7 +964,7 @@ function LinkNavModal(rg: RenderGroup) {
             } else {
 
                 openUrlInNewTab(url);
-                setCurrentModal(null);
+                setCurrentModalAndRerenderApp(null);
             }
         }
     });
@@ -1295,7 +1254,7 @@ function FuzzyFinder(rg: RenderGroup<{
                 )
             ),
         ];
-        const root = newComponent(ScrollNavItem);
+        const root = newComponentArgs(ScrollNavItem, [children]);
         let lastRanges: any = null;
 
         rg.preRenderFn(function renderFindResultItem(s) {
@@ -1310,7 +1269,6 @@ function FuzzyFinder(rg: RenderGroup<{
                 isFocused: hasFocus,
                 isCursorVisible: hasFocus,
                 isCursorActive: true,
-                children,
             });
 
             if (hasFocus) {
@@ -1411,7 +1369,7 @@ function FuzzyFinder(rg: RenderGroup<{
             e.preventDefault();
             const lastSelectedChild = getLastSelectedNote(state, note);
             setCurrentNote(state, (lastSelectedChild ?? note).id, true);
-            setCurrentModal(null);
+            setCurrentModalAndRerenderApp(null);
             rerenderApp();
             return;
         } else if (note && handleToggleNoteSticky(e, note)) {
@@ -1466,18 +1424,18 @@ function FuzzyFinder(rg: RenderGroup<{
 function FuzzyFindModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
-    const modalContent = div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
-        rg.c(FuzzyFinder, (c, s) => c.render({
-            visible: s.visible,
-            state: state._fuzzyFindState,
-        })),
-    ]);
     return rg.if(
         s => s.visible,
-        rg => rg.c(Modal, c => c.render({
-            onClose: () => setCurrentModal(null),
-            content: modalContent,
-        }))
+        rg => rg.cArgs(Modal, c => c.render({
+            onClose: () => setCurrentModalAndRerenderApp(null),
+        }), [
+            div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
+                rg.c(FuzzyFinder, (c, s) => c.render({
+                    visible: s.visible,
+                    state: state._fuzzyFindState,
+                })),
+            ])
+        ])
     );
 }
 
@@ -1521,24 +1479,24 @@ function LoadBackupModal(rg: RenderGroup<{
                 saveCurrentState({ debounced: false });
 
                 initState(() => {
-                    setCurrentModal(null);
+                    setCurrentModalAndRerenderApp(null);
                 });
             }
         }
     });
-    const modal = newComponent(Modal);
-    const modalContent = div({ class: [cn.col], style: modalPaddingStyles(10, 40, 40) }, [
-        fileNameDiv,
-        infoDiv,
-        loadBackupButton,
-    ]);
+    const modal = newComponentArgs(Modal, [[
+        div({ class: [cn.col], style: modalPaddingStyles(10, 40, 40) }, [
+            fileNameDiv,
+            infoDiv,
+            loadBackupButton,
+        ])
+    ]]);
 
     let canLoad = false;
 
     rg.preRenderFn(function renderBackupModal(s) {
         modal.render({
-            onClose: () => setCurrentModal(null),
-            content: modalContent,
+            onClose: () => setCurrentModalAndRerenderApp(null),
         });
 
         const { text, fileName } = s;
@@ -1579,64 +1537,58 @@ function LoadBackupModal(rg: RenderGroup<{
 
 function InteractiveGraphModal(rg: RenderGroup) {
     function onClose() {
-        setCurrentModal(null);
+        setCurrentModalAndRerenderApp(null);
         debouncedSave();
     }
 
-    const modalContent = div({ style: modalPaddingStyles(10) }, [
-        rg.c(InteractiveGraph, (c) => c.render({
-            onClose,
-            graphData: state.mainGraphData,
-            onInput() {
-                debouncedSave();
-            }
-        }))
+    return rg.cArgs(Modal, c => c.render({ onClose, }), [
+        div({ style: modalPaddingStyles(10) }, [
+            rg.c(InteractiveGraph, (c) => c.render({
+                onClose,
+                graphData: state.mainGraphData,
+                onInput() {
+                    debouncedSave();
+                }
+            }))
+        ])
     ]);
-
-    return rg.c(Modal, c => c.render({
-        onClose,
-        content: modalContent,
-    }));
 }
 
 function SettingsModal(rg: RenderGroup) {
     function onClose() {
-        setCurrentModal(null);
+        setCurrentModalAndRerenderApp(null);
         debouncedSave();
     }
 
-    const modalContent = div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
-        el("H3", { class: [cn.textAlignCenter] }, "Settings"),
-        div({ class: [cn.col, cnApp.gap10] }, [
-            div({}, [
-                rg.c(Checkbox, (c) => c.render({
-                    label: "Force notes that aren't being edited to be a single line",
-                    value: state.settings.nonEditingNotesOnOneLine,
-                    onChange(val) {
-                        state.settings.nonEditingNotesOnOneLine = val;
-                        rerenderApp();
-                    }
-                })),
-                rg.if(() => !state.settings.nonEditingNotesOnOneLine, rg =>
-                    div({ style: "padding-left: 20px" }, [
-                        rg.c(Checkbox, (c) => c.render({
-                            label: "Force parent notes to be a single line",
-                            value: state.settings.parentNotesOnOneLine,
-                            onChange(val) {
-                                state.settings.parentNotesOnOneLine = val;
-                                rerenderApp();
-                            }
-                        })),
-                    ])
-                )
-            ])
-        ]),
+    return rg.cArgs(Modal, c => c.render({ onClose }), [
+        div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
+            el("H3", { class: [cn.textAlignCenter] }, "Settings"),
+            div({ class: [cn.col, cnApp.gap10] }, [
+                div({}, [
+                    rg.c(Checkbox, (c) => c.render({
+                        label: "Force notes that aren't being edited to be a single line",
+                        value: state.settings.nonEditingNotesOnOneLine,
+                        onChange(val) {
+                            state.settings.nonEditingNotesOnOneLine = val;
+                            rerenderApp();
+                        }
+                    })),
+                    rg.if(() => !state.settings.nonEditingNotesOnOneLine, rg =>
+                        div({ style: "padding-left: 20px" }, [
+                            rg.c(Checkbox, (c) => c.render({
+                                label: "Force parent notes to be a single line",
+                                value: state.settings.parentNotesOnOneLine,
+                                onChange(val) {
+                                    state.settings.parentNotesOnOneLine = val;
+                                    rerenderApp();
+                                }
+                            })),
+                        ])
+                    )
+                ])
+            ]),
+        ])
     ]);
-
-    return rg.c(Modal, c => c.render({
-        onClose,
-        content: modalContent,
-    }));
 }
 
 function ScratchPadModal(rg: RenderGroup<{
@@ -1644,12 +1596,11 @@ function ScratchPadModal(rg: RenderGroup<{
 }>) {
     const canvasState = newCanvasState();
     const asciiCanvas = newComponent(AsciiCanvas);
-    const modalComponent = newComponent(Modal);
-    const modalContent = (
+    const modalComponent = newComponentArgs(Modal, [[
         div({ style: modalPaddingStyles(10) }, [
             asciiCanvas
         ])
-    );
+    ]]);
 
     let wasVisible = false;
 
@@ -1701,9 +1652,8 @@ function ScratchPadModal(rg: RenderGroup<{
 
         modalComponent.render({
             onClose() {
-                setCurrentModal(null);
+                setCurrentModalAndRerenderApp(null);
             },
-            content: modalContent,
         });
     });
 
@@ -1907,7 +1857,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         startDepth = flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth;
 
         const wasFocused = isFocused;
-        isFocused = currentNote.id === note.id && currentModal === null;
+        isFocused = currentNote.id === note.id && state._currentModal === null;
         isEditing = !readOnly && (
             listHasFocus && isFocused && state._isEditingFocusedNote
         );
@@ -1961,6 +1911,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         }),
     ]);
 
+    const DURATION_BAR_HEIGHT = 4;
 
     const root = div({ 
         class: [cn.row, cn.pre], 
@@ -1983,7 +1934,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         rg.style(`borderBottom`, s => s.hasDivider ? `1px solid ${cssVars.fgColor}`
             : s.hasLightDivider ? `1px solid ${cssVars.bgColorFocus}` : ``
         ),
-        div({ class: [cn.flex1] }, [
+        div({ class: [cn.flex1, cn.relative] }, [
             div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
                 // cursor element
                 cursorElement,
@@ -1998,6 +1949,8 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 div({ style: "width: 10px" }),
                 // indentation - before vertical line
                 div({ class: [cn.relative] }, [
+                    // HACK - tree lines shouldn't be broken by the duration bars
+                    rg.style("marginBottom", () => isShowingDurations ? `-${DURATION_BAR_HEIGHT}px` : ""),
                     rg.style("minWidth", ({ note }) => {
                         return getIndentation(note.data._depth) + "ch";
                     }),
@@ -2103,7 +2056,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
             rg.if(() => isShowingDurations, rg =>
                 rg.realtime(rg => 
                     rg.inlineFn(
-                        div({ class: [cnApp.inverted], style: "height: 4px;" }),
+                        div({ class: [cnApp.inverted], style: `height: ${DURATION_BAR_HEIGHT}px;` }),
                         (c, s) => {
                             const note = s.note;
                             const currentNote = s.currentNote;
@@ -2355,14 +2308,16 @@ type RenderOptions = {
     shouldScroll: boolean;
 }
 
-let currentModal: Insertable | null = null;
-const setCurrentModal = (modal: Insertable | null) => {
-    if (currentModal === modal) {
+function setCurrentModal(modal: Insertable | null) {
+    if (state._currentModal === modal) {
         return;
     }
 
-    currentModal = modal;
+    state._currentModal = modal;
+}
 
+const setCurrentModalAndRerenderApp = (modal: Insertable | null) => {
+    setCurrentModal(modal);
     rerenderApp();
 }
 
@@ -3185,6 +3140,28 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     }
 }
 
+function HelpModal(rg: RenderGroup<{ open: boolean; }>) {
+    const scrollContainer = newComponent(ScrollContainer);
+
+    return rg.cArgs(Modal, (c) => c.render({
+        onClose() {
+            setCurrentModalAndRerenderApp(null);
+        },
+    }), [
+        div({ style: modalPaddingStyles(10) }, [ 
+            div({ class: [cn.col, cn.alignItemsStretch, cn.h100] }, [
+                el("H3", {}, `Note tree ${VERSION_NUMBER} - help`),
+                    // TODO: scroll container
+                addChildren(setAttrs(scrollContainer, { scroll: "no" }), [
+                    "This program is mainly driven by keyboard shortcuts. ",
+                    "There are still a couple buttons you have to click on, but in an ideal world, I would have added keyboard shortcuts for them. ",
+                    "This help view is a work in progress"
+                ]),
+            ])
+        ])
+    ]);
+}
+
 const cnInfoButton = cssb.cn("info-button", [` { 
     display: inline-block;
     text-align: center;
@@ -3197,6 +3174,17 @@ const cnInfoButton = cssb.cn("info-button", [` {
     `:active { background-color: #00F; color: ${cssVars.bgColor}; }`
 ]);
 
+// Singleton modals
+const helpModal = newComponent(HelpModal);
+const scratchPadModal = newComponent(ScratchPadModal);
+const interactiveGraphModal = newComponent(InteractiveGraphModal);
+const settingsModal = newComponent(SettingsModal);
+const fuzzyFindModal = newComponent(FuzzyFindModal);
+const deleteModal = newComponent(DeleteModal);
+const loadBackupModal = newComponent(LoadBackupModal);
+const linkNavModal = newComponent(LinkNavModal);
+const exportModal = newComponent(ExportModal);
+
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
 // setInterval in a webworker won't run when a computer goes to sleep, or a tab is closed, and
@@ -3207,6 +3195,7 @@ export function App(rg: RenderGroup) {
         div({}, "Note tree " + VERSION_NUMBER),
         div({}, "cheatsheet"),
     ]);
+
     let currentHelpInfo = 1;
     cheatSheetButton.el.addEventListener("click", () => {
         currentHelpInfo = currentHelpInfo !== 2 ? 2 : 0;
@@ -3224,14 +3213,6 @@ export function App(rg: RenderGroup) {
         todoList
     ]);
 
-    const scratchPadModal = newComponent(ScratchPadModal);
-    const interactiveGraphModal = newComponent(InteractiveGraphModal);
-    const settingsModal = newComponent(SettingsModal);
-    const fuzzyFindModal = newComponent(FuzzyFindModal);
-    const deleteModal = newComponent(DeleteModal);
-    const loadBackupModal = newComponent(LoadBackupModal);
-    const linkNavModal = newComponent(LinkNavModal);
-    const exportModal = newComponent(ExportModal);
 
     function setShowingDurations(enabled: boolean) {
         state._isShowingDurations = enabled;
@@ -3267,7 +3248,7 @@ export function App(rg: RenderGroup) {
             rg.c(Button, c => c.render({
                 label: "Scratch Pad",
                 onClick: () => {
-                    setCurrentModal(scratchPadModal);
+                    setCurrentModalAndRerenderApp(scratchPadModal);
                 }
             })),
         ]),
@@ -3275,7 +3256,7 @@ export function App(rg: RenderGroup) {
             rg.c(Button, c => c.render({
                 label: "Graph",
                 onClick: () => {
-                    setCurrentModal(interactiveGraphModal);
+                    setCurrentModalAndRerenderApp(interactiveGraphModal);
                 }
             }))
         ]),
@@ -3291,13 +3272,13 @@ export function App(rg: RenderGroup) {
             rg.c(Button, c => c.render({
                 label: "Delete current",
                 onClick: () => {
-                    setCurrentModal(deleteModal);
+                    setCurrentModalAndRerenderApp(deleteModal);
                 }
             })),
             rg.c(Button, c => c.render({
                 label: "Settings",
                 onClick: () => {
-                    setCurrentModal(settingsModal);
+                    setCurrentModalAndRerenderApp(settingsModal);
                 }
             })),
             quicklistButton,
@@ -3306,14 +3287,14 @@ export function App(rg: RenderGroup) {
             rg.c(Button, c => c.render({
                 label: "Search",
                 onClick: () => {
-                    setCurrentModal(fuzzyFindModal);
+                    setCurrentModalAndRerenderApp(fuzzyFindModal);
                 }
             })),
             rg.c(Button, c => c.render({
                 label: "Export",
                 onClick: () => {
                     handleErrors(() => {
-                        setCurrentModal(exportModal);
+                        setCurrentModalAndRerenderApp(exportModal);
                     });
                 }
             })),
@@ -3328,7 +3309,7 @@ export function App(rg: RenderGroup) {
                         file.text().then((text) => {
                             backupFilename = file.name;
                             backupText = text;
-                            setCurrentModal(loadBackupModal);
+                            setCurrentModalAndRerenderApp(loadBackupModal);
                         });
                     });
                 }
@@ -3372,6 +3353,7 @@ export function App(rg: RenderGroup) {
             ]),
             bottomButtons,
         ]),
+        helpModal,
         scratchPadModal,
         interactiveGraphModal,
         fuzzyFindModal,
@@ -3408,20 +3390,31 @@ export function App(rg: RenderGroup) {
         }
     });
 
+
     document.addEventListener("keydown", (e) => {
+        if (e.key === "F1") {
+            if (state._currentModal !== helpModal) {
+                setCurrentModalAndRerenderApp(helpModal);
+            } else {
+                setCurrentModalAndRerenderApp(null);
+            }
+            return;
+        }
+
+
         // returns true if we need a rerender
         const ctrlPressed = e.ctrlKey || e.metaKey;
         const shiftPressed = e.shiftKey;
         const currentNote = getCurrentNote(state);
 
-        if (currentModal !== null) {
+        if (state._currentModal !== null) {
             if (e.key === "Escape") {
                 // Somewhat hacky to make this kind of carve out for specific modals but not a big deal for now
                 if (
-                    currentModal !== interactiveGraphModal
+                    state._currentModal !== interactiveGraphModal
                 ) {
                     e.preventDefault();
-                    setCurrentModal(null);
+                    setCurrentModalAndRerenderApp(null);
                 }
             }
 
@@ -3443,7 +3436,7 @@ export function App(rg: RenderGroup) {
         // handle modals or gloabl key shortcuts
         if (e.key === "Delete") {
             e.preventDefault();
-            setCurrentModal(deleteModal);
+            setCurrentModalAndRerenderApp(deleteModal);
             return;
         } else if (
             e.key === "F" &&
@@ -3451,7 +3444,7 @@ export function App(rg: RenderGroup) {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(fuzzyFindModal);
+            setCurrentModalAndRerenderApp(fuzzyFindModal);
             return;
         } else if (
             e.key === "S" &&
@@ -3459,7 +3452,7 @@ export function App(rg: RenderGroup) {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(scratchPadModal);
+            setCurrentModalAndRerenderApp(scratchPadModal);
             return;
         } else if (
             e.key === "G" &&
@@ -3467,7 +3460,7 @@ export function App(rg: RenderGroup) {
             shiftPressed
         ) {
             e.preventDefault();
-            setCurrentModal(interactiveGraphModal);
+            setCurrentModalAndRerenderApp(interactiveGraphModal);
             return;
         } else if (
             e.key === "L" &&
@@ -3483,7 +3476,7 @@ export function App(rg: RenderGroup) {
             ctrlPressed
         ) {
             e.preventDefault();
-            setCurrentModal(settingsModal);
+            setCurrentModalAndRerenderApp(settingsModal);
             return;
         } else if (
             e.key === "A" &&
@@ -3520,7 +3513,7 @@ export function App(rg: RenderGroup) {
             ctrlPressed
         ) {
             e.preventDefault();
-            setCurrentModal(linkNavModal);
+            setCurrentModalAndRerenderApp(linkNavModal);
             return;
         } else if (handleToggleNoteSticky(e, currentNote)) {
             rerenderApp();
@@ -3534,7 +3527,7 @@ export function App(rg: RenderGroup) {
         if (
             !state._isEditingFocusedNote &&
             !isEditingSomeText &&
-            currentModal === null
+            state._currentModal === null
         ) {
             // handle movements here
 
@@ -3717,7 +3710,7 @@ export function App(rg: RenderGroup) {
             if (isEditingSomeText) {
                 setIsEditingCurrentNote(state, false);
             } else {
-                setCurrentModal(null);
+                setCurrentModalAndRerenderApp(null);
                 needsRerender = false;
             }
         } else {
@@ -3772,7 +3765,7 @@ export function App(rg: RenderGroup) {
 
         // render modals
         {
-            if (setVisible(loadBackupModal, currentModal === loadBackupModal)) {
+            if (setVisible(loadBackupModal, state._currentModal === loadBackupModal)) {
                 loadBackupModal.render({
                     text: backupText,
                     fileName: backupFilename,
@@ -3781,29 +3774,33 @@ export function App(rg: RenderGroup) {
                 backupText = "";
             }
 
-            if (setVisible(linkNavModal, currentModal === linkNavModal)) {
+            if (setVisible(linkNavModal, state._currentModal === linkNavModal)) {
                 linkNavModal.render(null);
             }
 
-            fuzzyFindModal.render({ visible: currentModal === fuzzyFindModal });
+            fuzzyFindModal.render({ visible: state._currentModal === fuzzyFindModal });
 
-            if (setVisible(settingsModal, currentModal === settingsModal)) {
+            if (setVisible(settingsModal, state._currentModal === settingsModal)) {
                 settingsModal.render(null);
             }
 
-            if (setVisible(deleteModal, currentModal === deleteModal)) {
+            if (setVisible(deleteModal, state._currentModal === deleteModal)) {
                 deleteModal.render(null);
             }
 
-            if (setVisible(exportModal, currentModal === exportModal)) {
+            if (setVisible(exportModal, state._currentModal === exportModal)) {
                 exportModal.render(null);
             }
 
             scratchPadModal.render({
-                open: currentModal === scratchPadModal
+                open: state._currentModal === scratchPadModal
             });
 
-            if (setVisible(interactiveGraphModal, currentModal === interactiveGraphModal)) {
+            helpModal.render({
+                open: state._currentModal === helpModal
+            });
+
+            if (setVisible(interactiveGraphModal, state._currentModal === interactiveGraphModal)) {
                 interactiveGraphModal.render(null)
             }
         }
@@ -3892,7 +3889,7 @@ const showStatusText = (text: string, color: string = `${cssVars.fgColor}`, time
     const timeoutAmount = timeout;
     if (timeoutAmount > 0) {
         statusTextClearTimeout = setTimeout(() => {
-            statusTextIndicator.el.textContent = "";
+            statusTextIndicator.el.textContent = "[Press F1 for help]";
         }, timeoutAmount);
     }
 };

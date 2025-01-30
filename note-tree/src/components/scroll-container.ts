@@ -5,7 +5,7 @@ export function ScrollContainer(rg: RenderGroup<{
     axes?: "h" | "v" | "hv";
     scrollEl: Insertable<HTMLElement> | null;
 }>) {
-    const root = div({ class: [cn.overflowYAuto], style: "overflow-y: auto;" });
+    const root = div({ class: [cn.overflowYAuto] });
 
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;

@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { Insertable, RenderGroup, div, newCssBuilder, setChildAt } from "src/utils/dom-utils";
+import { InsertableInitializerList, RenderGroup, div, newCssBuilder } from "src/utils/dom-utils";
 
 const BG_COLOR = cssVars.bgColor;
 const UNDERLAY_COLOR = "rgba(0, 0, 0, 0.5)";
@@ -12,9 +12,9 @@ const cnModal = sg.cn("cnModal", [` {
     display: flex; flex-direction: row; align-items: center; justify-content: center;
 }`]);
 
-export function Modal(rg: RenderGroup<{ onClose(): void; content: Insertable; }>) {
+export function Modal(rg: RenderGroup<{ onClose(): void; }>, children: InsertableInitializerList) {
     const bgRect = div({ style: `background-color: ${BG_COLOR}` }, [
-        rg.functionality((div, s) => setChildAt(div, s.content, 0)),
+        ...children,
     ]);
 
     const root = div({ class: [cnModal], }, [bgRect]);

@@ -1,4 +1,4 @@
-// DOM-utils v0.1.12 - @Tejas-H5
+// DOM-utils v0.1.14 - @Tejas-H5
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -53,16 +53,9 @@ sb.s(`
 .debug { border: 1px solid red; }
 `);
 
-const hoverParent = sb.getClassName("hoverParent");
-const hoverTarget = sb.getClassName("hoverTarget");
+const cnHoverParent = sb.getClassName("hoverParent");
+const cnHoverTarget = sb.getClassName("hoverTarget");
 const cnHoverTargetInverse = sb.getClassName("hoverTargetInverse");
-
-sb.s(`
-.${hoverParent} .${hoverTarget} { display: none !important; }
-.${hoverParent} .${cnHoverTargetInverse} { display: inherit !important; }
-.${hoverParent}:hover ${hoverTarget}  { display: inherit !important; }
-.${hoverParent}:hover ${cnHoverTargetInverse}  { display: none !important; }
-`);
 
 // Some super common classes that I use in all my programs all the time.
 // It becomes a bit easier to make reuseable UI components  and keep them in sync accross projects
@@ -100,6 +93,10 @@ export const cn = Object.freeze({
     pointerEventsNone: sb.cn("pointerEventsNone", [` { pointer-events: none; }`]),
     pointerEventsAll: sb.cn("pointerEventsAll", [` { pointer-events: all; }`]),
 
+    table: sb.cn("table", [` { display: table; }`]),
+    tableRow: sb.cn("tableRow", [` { display: table-row; }`]),
+    tableCell: sb.cn("tableCell", [` { display: table-cell; }`]),
+
     /** we have React.Fragment at home */
     contents: sb.cn("contents", [` { display: contents; }`]),
 
@@ -127,9 +124,20 @@ export const cn = Object.freeze({
     overflowHidden: sb.cn("overflowHidden", [` { overflow: hidden; }`]),
 
     /** hover utils */
-    hoverParent,
-    hoverTarget,
+    hoverParent: cnHoverParent,
+    hoverTarget: cnHoverTarget,
+    hoverTargetInverse: cnHoverTargetInverse,
+
+    /** debug utils */
+    debug1pxSolidRed: sb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]),
 });
+
+sb.s(`
+.${cnHoverParent} .${cnHoverTarget} { display: none !important; }
+.${cnHoverParent} .${cnHoverTargetInverse} { display: inherit !important; }
+.${cnHoverParent}:hover .${cnHoverTarget}  { display: inherit !important; }
+.${cnHoverParent}:hover .${cnHoverTargetInverse}  { display: none !important; }
+`);
 
 export function setCssVars(vars: Record<string, string | Color>, cssRoot?: HTMLElement) {
     if (!cssRoot) {
@@ -281,7 +289,7 @@ export function initializeDomUtils(root: Insertable) {
 
 // ---- DOM node and Insertable<T> creation
 
-type ValidElement = HTMLElement | SVGElement;
+export type ValidElement = HTMLElement | SVGElement;
 export interface Insertable<T extends ValidElement = HTMLElement> {
     el: T;
     _isHidden: boolean;
@@ -943,6 +951,42 @@ export class RenderGroup<S = null> {
     }
 
     /**
+     * Kinda like c, but you can pass additional static content to the template
+     * at initialisation time after the render function. 
+     * The most common use case for this is to initialize a container component with 
+     * children.
+     *
+     * ```
+     *
+     * function Modal(rg: RenderGroup<{ ... }>, children: InsertableInitializerList) {
+     *      return div({ ... }, [
+     *          ...,
+     *          ...children,
+     *      ]);
+     * }
+     *
+     * function Consumer(rg: RenderGroup<App>) {
+     *      return div({ ... }, [
+     *          rg.cArgs(Modal, (c, s) => c.render({
+     *              ...
+     *          }, [        // remaining static arguments go here
+     *              div([cn.flex1], {}, "Inner content")
+     *          ]);
+     *      ]);
+     * }
+     *
+     * ```
+     */
+    readonly cArgs = <T, U extends ValidElement, A extends unknown[]>(
+        templateFn: TemplateFnVariadic<T, U, A>, 
+        renderFn: (c: Component<T, U>, s: S) => void,
+        ...args: A
+    ): Component<T, U> => {
+        const component = newComponent<T, U, T>(rg => templateFn(rg, ...args));
+        return this.inlineFn(component, (c, s) => renderFn(c, s));
+    }
+
+    /**
      * Returns what you passed in, and will 'rerender' it with {@link renderFn} each render.
      */
     readonly inlineFn = <T extends Insertable<U>, U extends ValidElement>(component: T, renderFn: (c: T, s: S) => void): T => {
@@ -1456,6 +1500,7 @@ type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined; erro
 type RenderPersistentAnimationFn<S> = (s: S, dt: number) => void; 
 type RenderOneShotAnimationFn<S> = (s: S, dt: number) => boolean;
 type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup<T>) => Insertable<U>;
+type TemplateFnVariadic<T, U extends ValidElement, A extends unknown[]> = (rg: RenderGroup<T>, ...args: A) => Insertable<U>;
 
 /**
  * Instantiates a {@link TemplateFn} into a useable component 
@@ -1470,6 +1515,25 @@ export function newComponent<T, U extends ValidElement, Si extends T>(
 ) {
     const [component, _rg] = newComponent2(templateFn, initialState, skipErrorBoundary);
     return component;
+}
+
+export function newComponentArgs<T, U extends ValidElement, A extends unknown[]>(
+    templateFn: TemplateFnVariadic<T, U, A>,
+    args: A,
+    initialState?: T,
+    skipErrorBoundary = false
+) {
+    const [component, _rg] = newComponentArgs2(templateFn, args, initialState, skipErrorBoundary);
+    return component;
+}
+
+export function newComponentArgs2<T, U extends ValidElement, A extends unknown[]>(
+    templateFn: TemplateFnVariadic<T, U, A>,
+    args: A,
+    initialState?: T,
+    skipErrorBoundary = false,
+) {
+    return newComponent2<T, U, T>(rg => templateFn(rg, ...args), initialState, skipErrorBoundary);
 }
 
 export function newComponent2<T, U extends ValidElement, Si extends T>(
@@ -1504,6 +1568,8 @@ export type ListRenderer<R extends ValidElement, T, U extends ValidElement> = In
     render: (renderFn: (getNext: () => Component<T, U>) => void) => void;
 };
 
+// TODO: make this keyed. We used a crappy benchmark to decide not to key this by default, and I think
+// it's a pretty bad idea.
 export function newListRenderer<R extends ValidElement, T, U extends ValidElement>(
     root: Insertable<R>,
     // TODO: templateFn?

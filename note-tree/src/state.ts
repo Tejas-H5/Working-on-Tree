@@ -7,7 +7,7 @@ import * as tree from "src/utils/tree";
 import { uuid } from "src/utils/uuid";
 
 import { GraphData, newGraphData } from "./interactive-graph";
-import { newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
+import { Insertable, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { Theme } from "./styling";
 import { clearArray, filterInPlace } from "./utils/array-utils";
 import { fuzzyFind, scoreFuzzyFind, Range } from "./utils/fuzzyfind";
@@ -139,6 +139,9 @@ export type NoteTreeGlobalState = {
     _currentFlatNotesRootId: NoteId;
     _currentFlatNotesRootHltId: NoteId | null;
     _fuzzyFindState: FuzzyFindState;
+
+    // App state
+    _currentModal: Insertable | null;
 };
 
 type AppSettings = {
@@ -403,6 +406,8 @@ export function defaultState(): NoteTreeGlobalState {
         _currentFlatNotesRootId: "",
         _currentFlatNotesRootHltId: null,
         _fuzzyFindState: newFuzzyFindState(),
+
+        _currentModal: null,
     };
 
     setActivityRangeToToday(state);
