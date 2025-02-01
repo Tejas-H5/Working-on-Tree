@@ -1,4 +1,4 @@
-// DOM-utils v0.1.15 - @Tejas-H5
+// DOM-utils v0.1.16 - @Tejas-H5
 
 // ---- initialize the 'framework'
 
@@ -457,7 +457,7 @@ export function appendChildEl(mountPointEl: Element, child: Insertable<any>) {
  * Sets {@link mountPoint}'s ith child to {@link child}.
  * Does nothing if it's already there.
  */
-export function setChildAt(mountPoint: Insertable<any>, child: Insertable<any>, i: number,) {
+export function setChildAt(mountPoint: Insertable<any>, i: number, child: Insertable<any>) {
     setChildAtEl(mountPoint.el, child, i);
 }
 
@@ -470,6 +470,7 @@ export function setChildAtEl(mountPointEl: Element, child: Insertable<any>, i: n
 
     if (i === children.length) {
         appendChildEl(mountPointEl, child);
+        return;
     }
 
     mountPointEl.replaceChild(child.el, children[i]);
@@ -1063,7 +1064,7 @@ export class RenderGroup<S = null> {
                     return;
                 }
 
-                setChildAt(root, component, 0);
+                setChildAt(root, 0, component);
                 component.render(s);
             })
         });
@@ -1154,6 +1155,10 @@ export class RenderGroup<S = null> {
         }
     }
 
+    // So far, every attempt of mine at making this keyed has only led to a worse API with more complex code 
+    // and more bugs in the usage code. For that reason, I've decided to just not make one.
+    // Your UI should just be a function of your state anyway.
+
     /** 
      * Returns a new {@link ListRenderer} rooted with {@link root}, and {@link templateFn} as the repeating component.
      * It will rerender with {@link renderFn} each render.
@@ -1166,8 +1171,6 @@ export class RenderGroup<S = null> {
      *      }, [ 
      *          div({ class: cn.displayContents }, TodoItem, (getNext, s) => {
      *              for (const item of s.todoList) {
-     *                  TODO: getNext(item.id).render(item);
-     *
      *                  getNext().render(item);
      *              }
      *          }),
@@ -1596,7 +1599,6 @@ export function newComponent2<T, U extends ValidElement, Si extends T>(
 
 export class ListRenderer<R extends ValidElement, T, U extends ValidElement> implements Insertable<R> {
     root: Insertable<R>;
-    // TODO: templateFn?
     createFn: () => Component<T, U>;
 
     components: Component<T, U>[] = [];
@@ -1625,11 +1627,6 @@ export class ListRenderer<R extends ValidElement, T, U extends ValidElement> imp
         return this.components[this.lastIdx++];
     }
 
-    getIdx() {
-        // (We want to get the index of the current iteration, not the literal value of lastIdx)
-        return this.lastIdx - 1;
-    }
-
     readonly render = (renderFn: (getNext: () => Component<T, U>) => void) => {
         this.lastIdx = 0;
 
@@ -1644,7 +1641,6 @@ export class ListRenderer<R extends ValidElement, T, U extends ValidElement> imp
 
 export function newListRenderer<R extends ValidElement, T, U extends ValidElement>(
     root: Insertable<R>,
-    // TODO: templateFn?
     createFn: () => Component<T, U>,
 ) {
     return new ListRenderer(root, createFn);

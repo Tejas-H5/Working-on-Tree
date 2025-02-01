@@ -34,7 +34,7 @@ import {
     setVisible,
     span,
     isDebugging,
-    setDebugMode
+    setDebugMode,
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range } from "src/utils/fuzzyfind";
