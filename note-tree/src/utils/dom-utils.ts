@@ -1594,64 +1594,60 @@ export function newComponent2<T, U extends ValidElement, Si extends T>(
 
 // ---- List rendering API
 
-export type ListRenderer<R extends ValidElement, T, U extends ValidElement> = Insertable<R> & {
-    components: Component<T, U>[];
-    lastIdx: number;
-    getIdx(): number;
-    render: (renderFn: (getNext: () => Component<T, U>) => void) => void;
+export class ListRenderer<R extends ValidElement, T, U extends ValidElement> implements Insertable<R> {
+    root: Insertable<R>;
+    // TODO: templateFn?
+    createFn: () => Component<T, U>;
+
+    components: Component<T, U>[] = [];
+    lastIdx = 0;
+
+    get el() { return this.root.el; }
+    get _isHidden() { return this.root._isHidden; }
+    set _isHidden(val: boolean) { this.root._isHidden = val; }
+
+    constructor(root: Insertable<R>, createFn: () => Component<T, U>) {
+        this.root = root;
+        this.createFn = createFn;
+    }
+
+    private readonly getNext = () => {
+        if (this.lastIdx > this.components.length) {
+            throw new Error("Something strange happened when resizing the component pool");
+        }
+
+        if (this.lastIdx === this.components.length) {
+            const component = this.createFn();
+            this.components.push(component);
+            appendChild(this.root, component);
+        }
+
+        return this.components[this.lastIdx++];
+    }
+
+    getIdx() {
+        // (We want to get the index of the current iteration, not the literal value of lastIdx)
+        return this.lastIdx - 1;
+    }
+
+    readonly render = (renderFn: (getNext: () => Component<T, U>) => void) => {
+        this.lastIdx = 0;
+
+        renderFn(this.getNext);
+
+        while (this.components.length > this.lastIdx) {
+            const component = this.components.pop()!;
+            component.el.remove();
+        }
+    }
 };
 
-// TODO: make this keyed. We used a crappy benchmark to decide not to key this by default, and I think
-// it's a pretty bad idea.
 export function newListRenderer<R extends ValidElement, T, U extends ValidElement>(
     root: Insertable<R>,
     // TODO: templateFn?
     createFn: () => Component<T, U>,
-): ListRenderer<R, T, U> {
-    function getNext() {
-        if (renderer.lastIdx > renderer.components.length) {
-            throw new Error("Something strange happened when resizing the component pool");
-        }
-
-        if (renderer.lastIdx === renderer.components.length) {
-            const component = createFn();
-            renderer.components.push(component);
-            appendChild(root, component);
-        }
-
-        return renderer.components[renderer.lastIdx++];
-    }
-
-    let renderFn: ((getNext: () => Component<T, U>) => void) | undefined;
-    function renderFnBinded() {
-        renderFn?.(getNext);
-    }
-
-    const renderer: ListRenderer<R, T, U> = {
-        el: root.el,
-        get _isHidden() { return root._isHidden; },
-        set _isHidden(val: boolean) { root._isHidden = val; },
-        components: [],
-        lastIdx: 0,
-        getIdx() {
-            // (We want to get the index of the current iteration, not the literal value of lastIdx)
-            return renderer.lastIdx - 1;
-        },
-        render(renderFnIn) {
-            renderer.lastIdx = 0;
-
-            renderFn = renderFnIn;
-
-            renderFnBinded();
-
-            while (renderer.components.length > renderer.lastIdx) {
-                const component = renderer.components.pop()!;
-                component.el.remove();
-            }
-        },
-    };
-
-    return renderer;
+) {
+    return new ListRenderer(root, createFn);
 }
 
 // ---- animation utils. The vast majority of apps will need animation, so I figured I'd just merge this into dom-utils itself
