@@ -25,7 +25,7 @@ export function ScrollContainer(rg: RenderGroup<{
 
     function scrollToLastElement() {
         clearTimeout(scrollTimeout);
-        setTimeout(() => {
+        scrollTimeout = setTimeout(() => {
             const scrollParent = root.el;
             if (lastScrollEl) {
                 // The same scroll container can be used for both or either axis!
@@ -81,7 +81,6 @@ export function ScrollContainer(rg: RenderGroup<{
         const { scrollEl } = s;
 
         lastScrollEl = scrollEl;
-        lastWidth = length;
         scrollToLastElement();
     });
 

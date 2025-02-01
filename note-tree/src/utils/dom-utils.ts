@@ -1,4 +1,18 @@
-// DOM-utils v0.1.14 - @Tejas-H5
+// DOM-utils v0.1.15 - @Tejas-H5
+
+// ---- initialize the 'framework'
+
+export function initializeDomUtils(root: Insertable) {
+    // Insert some CSS styles that this framework uses for error handling and debugging.
+
+    if (stlyeStringBuilder.length > 0) {
+        const text = stlyeStringBuilder.join("");
+        stlyeStringBuilder.length = 0;
+
+        const styleNode = el<HTMLStyleElement>("style", { type: "text/css" }, "\n\n" + text + "\n\n");
+        appendChild(root, styleNode);
+    }
+}
 
 // ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
@@ -6,20 +20,20 @@ const stlyeStringBuilder: string[] = [];
 const allClassNames = new Set<string>();
 
 /**
- * A util allowing components to register styles that they need to function.
- * All styles in the entire bundle are collected into one large string as soon as the JavaScript runs,
- * and they will get added under a single DOM node when dom-utils is initialized.
+ * A util allowing components to register styles that they need to an inline stylesheet.
+ * All styles in the entire bundle are string-built and appended in a `<style />` node as soon as
+ * dom-utils is initialized. See {@link initializeDomUtils}
  *
- * Using an object here instead of a global function, so that we can apply a prefix to every class added by a particular builder.
+ * The object approach allows us to add a prefix to all the class names we make.
  */
 export function newCssBuilder(prefix: string = "") {
     return {
-        // makes a new style. for when you can't make a class.
+        /** Appends a CSS style to the builder. The prefix is not used. */
         s(string: string) {
             stlyeStringBuilder.push(string);
         },
-        /** Throws if this class name clashes with an existing one */
-        getClassName(className: string) {
+        /** Returns `prefix + className`. Throws if it somehow clashes with an existing class someone else made. */
+        newClassName(className: string) {
             let name = prefix + className;
             if (allClassNames.has(name)) {
                 throw new Error("We've already made a class with this name: " + name + " - consider adding a prefix");
@@ -29,7 +43,7 @@ export function newCssBuilder(prefix: string = "") {
         },
         // makes a new class, it's variants, and returns the class name
         cn(className: string, styles: string[] | string): string {
-            const name = this.getClassName(className);
+            const name = this.newClassName(className);
 
             for (let style of styles) {
                 const finalStyle = `.${name}${style}`;
@@ -53,13 +67,19 @@ sb.s(`
 .debug { border: 1px solid red; }
 `);
 
-const cnHoverParent = sb.getClassName("hoverParent");
-const cnHoverTarget = sb.getClassName("hoverTarget");
-const cnHoverTargetInverse = sb.getClassName("hoverTargetInverse");
+const cnHoverParent = sb.newClassName("hoverParent");
+const cnHoverTarget = sb.newClassName("hoverTarget");
+const cnHoverTargetInverse = sb.newClassName("hoverTargetInverse");
 
-// Some super common classes that I use in all my programs all the time.
-// It becomes a bit easier to make reuseable UI components  and keep them in sync accross projects
-// if their styling dependencies are all in dom-utils itself.
+sb.s(`
+.${cnHoverParent} .${cnHoverTarget} { display: none !important; }
+.${cnHoverParent} .${cnHoverTargetInverse} { display: inherit !important; }
+.${cnHoverParent}:hover .${cnHoverTarget}  { display: inherit !important; }
+.${cnHoverParent}:hover .${cnHoverTargetInverse}  { display: none !important; }
+`);
+
+// Here are some common classes that are used so often that I've just put them into dom-utils.
+// Shared UI components also don't need to depend on app-specific styles if those styles just come with their UI framework.
 export const cn = Object.freeze({
     row: sb.cn("row", [` { display: flex; flex-direction: row; }`]),
     col: sb.cn("col", [` { display: flex; flex-direction: column; }`]),
@@ -67,6 +87,7 @@ export const cn = Object.freeze({
 
     /** The min-width and min-height here is the secret sauce. Now the flex containers won't keep overflowing lmao */
     flex1: sb.cn("flex1", [` { flex: 1; min-width: 0; min-height: 0; }`]),
+
     alignItemsCenter: sb.cn("alignItemsCenter", [` { align-items: center; }`]),
     justifyContentLeft: sb.cn("justifyContentLeft", [` { justify-content: left; }`]),
     justifyContentRight: sb.cn("justifyContentRight", [` { justify-content: right; }`]),
@@ -131,13 +152,6 @@ export const cn = Object.freeze({
     /** debug utils */
     debug1pxSolidRed: sb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]),
 });
-
-sb.s(`
-.${cnHoverParent} .${cnHoverTarget} { display: none !important; }
-.${cnHoverParent} .${cnHoverTargetInverse} { display: inherit !important; }
-.${cnHoverParent}:hover .${cnHoverTarget}  { display: inherit !important; }
-.${cnHoverParent}:hover .${cnHoverTargetInverse}  { display: none !important; }
-`);
 
 export function setCssVars(vars: Record<string, string | Color>, cssRoot?: HTMLElement) {
     if (!cssRoot) {
@@ -211,16 +225,6 @@ export function newColorFromHex(hex: string): Color {
 
 /**
  * Taken from https://gist.github.com/mjackson/5311256
- *
- * Converts an HSL color value to RGB. Conversion formula
- * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
- * Assumes h, s, and l are contained in the set [0, 1] and
- * returns r, g, and b in the set [0, 1].
- *
- * @param   Number  h       The hue
- * @param   Number  s       The saturation
- * @param   Number  l       The lightness
- * @return  Array           The RGB representation
  */
 export function newColorFromHsv(h: number, s: number, v: number): Color {
     let r = 0, g = 0, b = 0;
@@ -262,29 +266,13 @@ function lerp(a: number, b: number, factor: number) {
 }
 
 /**
- * NOTE: try to use a css transition on the colour style before you reach for this!
+ * NOTE to self: try to use a CSS transition on the colour style before you reach for this!
  **/
 export function lerpColor(c1: Color, c2: Color, factor: number, dst: Color) {
     dst.r = lerp(c1.r, c2.r, factor);
     dst.g = lerp(c1.g, c2.g, factor);
     dst.b = lerp(c1.b, c2.b, factor);
     dst.a = lerp(c1.a, c2.a, factor);
-}
-
-
-
-// ---- initialize the 'framework'
-
-export function initializeDomUtils(root: Insertable) {
-    // Insert some CSS styles that this framework uses for error handling and debugging.
-
-    if (stlyeStringBuilder.length > 0) {
-        const text = stlyeStringBuilder.join("");
-        stlyeStringBuilder.length = 0;
-
-        const styleNode = el<HTMLStyleElement>("style", { type: "text/css" }, "\n\n" + text + "\n\n");
-        appendChild(root, styleNode);
-    }
 }
 
 // ---- DOM node and Insertable<T> creation
@@ -517,7 +505,7 @@ export function clearChildren(mountPoint: Insertable<any>) {
     mountPoint.el.replaceChildren();
 };
 
-// ---- DOM node attribute management, and various functions that actually end up being very useful
+// ---- DOM node attribute management, and various seemingly random/arbitrary functions that actually end up being very useful
 
 type StyleObject<U extends ValidElement> = (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"]);
 
@@ -672,8 +660,10 @@ export function on<K extends keyof HTMLElementEventMap>(
 }
 
 /** 
- * shorthand for `removeEventListener`. I never use this tbh - I've just never found a reason to totally remove an event handler - 
- * I find it much easier to just write code that early-returns out of events as needed. But it's here for completeness's sake.
+ * shorthand for `removeEventListener`. I never use this tbh - I've just never found a reason to remove an event handler - 
+ * I find it much easier to just write code that adds the handler once, and either early-returns out of events as needed,
+ * or throws away the entire component when I'm done with it, which should in theory garbage collect the component and it's events.
+ * This allows me to sidestep all the bugs where handlers get added multiple times, or get removed but not re-added, etc. 
  */
 export function off<K extends keyof HTMLElementEventMap>(
     ins: Insertable<HTMLElement>,
@@ -822,6 +812,13 @@ export class RenderGroup<S = null> {
      */
     ifStatementOpen = false;
 
+    /**
+     * Enable debug mode to see what this does!
+     * Or you can also read the code... that works too...
+     */
+    debugAnimation: RealtimeAnimation;
+    tDebugAnimation = 0;
+
     constructor(
         initialState: S | undefined,
         templateName: string = "unknown",
@@ -837,6 +834,24 @@ export class RenderGroup<S = null> {
         this._s = initialState;
         this.templateName = templateName;
         this.skipErrorBoundary = skipErrorBoundary;
+
+        this.debugAnimation = this.newAnimation((s, dt) => {
+            if (
+                // complex components made of thousands of small parts 
+                // will hopefully this to true on those smaller parts, so that they don't lag
+                // in debug mode
+                this.skipErrorBoundary ||
+                this.tDebugAnimation >= 1 ||
+                !isDebugging()
+            ) {
+                setStyle(this.root, "outline", "");
+                return false;
+            }
+
+            this.tDebugAnimation += dt * 3;
+            setStyle(this.root, "outline", "1px solid rgba(255, 0, 0, " + Math.max(0, 1 - this.tDebugAnimation) + ")");
+            return true;
+        });
     }
 
     get s(): S {
@@ -865,6 +880,14 @@ export class RenderGroup<S = null> {
         this.renderWithCurrentState();
     }
 
+    readonly restartAnimations = () => {
+        if (this.animationsList.length === 0 || this.persistentAnimationInstance.isInQueue) {
+            return;
+        }
+
+        startAnimation(this.persistentAnimationInstance);
+    }
+
     /**
      * Calls every render function in the order they were appended to the array using the current state {@link RenderGroup._s}.
      * If this value is undefined, this function will throw.
@@ -872,17 +895,15 @@ export class RenderGroup<S = null> {
     readonly renderWithCurrentState = () => {
         this.instantiated = true;
 
-        if (this.renderFunctions(this.preRenderFnList)) {
-            if (this.canAnimate()) {
-                if (this.renderFunctions(this.domRenderFnList)) {
-                    // Let's also restart all our animations! TODO: handle errors properly
-                    if (this.animationsList.length > 0) {
-                        addAnimationToQueue(this.persistentAnimationInstance);
-                    }
+        if (isDebugging()) {
+            this.tDebugAnimation = 0;
+            startAnimation(this.debugAnimation);
+        }
 
-                    // finally, post render.
-                    this.renderFunctions(this.postRenderFnList);
-                }
+        if (this.renderFunctions(this.preRenderFnList)) {
+            if (this.renderFunctions(this.domRenderFnList)) {
+                this.restartAnimations()
+                this.renderFunctions(this.postRenderFnList);
             }
         }
     }
@@ -1232,7 +1253,6 @@ export class RenderGroup<S = null> {
      */
     readonly preRenderFn = (fn: (s: S) => void, errorRoot?: Insertable<any>) => {
         this.pushRenderFn(this.preRenderFnList, fn, errorRoot);
-
     }
 
     /** 
@@ -1301,7 +1321,7 @@ export class RenderGroup<S = null> {
         let timer = 0;
         this.animationsList.push((s, dt) => {
             // game devs hate it when you use this one simple trick
-            timer += dt;
+            timer += dt * 1000;
             if (timer < interval) {
                 return;
             }
@@ -1325,19 +1345,22 @@ export class RenderGroup<S = null> {
     }
 
     /**
-     * Returns an animation that you can push yourself to the realtime animation queue that won't be restarted.
-     * You can only call this function after the component has rendered once.
+     * Returns an animation that can be pushed to the queue as needed, that will stop animating when this component
+     * is disabled.
      *
-     * TODO: test out this API
+     * Although you probably wished that this function would just add the animation to the queue directly, 
+     * this design avoid bugs where you add animations to the queue faster than the old animations end.
      */
-    readonly oneShotAnimation = (fn: RenderOneShotAnimationFn<S>): AnimationHandle => {
-        return newAnimation((dt) => {
+    readonly newAnimation = (fn: RenderOneShotAnimationFn<S>): RealtimeAnimation => {
+        const animation = newAnimation((dt) => {
             if (!this.canAnimate()) {
                 return false;
             }
 
             return fn(this.s, dt);
         });
+
+        return animation;
     }
 
     /**
@@ -1348,7 +1371,6 @@ export class RenderGroup<S = null> {
      */
     private readonly renderFunctions = (renderFns: RenderFn<S>[]): boolean => {
         const s = this.s;
-        const defaultErrorRoot = this.root;
 
         countRender(this.templateName, this, renderFns.length);
 
@@ -1360,31 +1382,47 @@ export class RenderGroup<S = null> {
         }
 
         for (let i = 0; i < renderFns.length; i++) {
-            const errorRoot = renderFns[i].root || defaultErrorRoot;
-            const fn = renderFns[i].fn;
-
             // While this still won't catch errors with callbacks, it is still extremely helpful.
             // By catching the error at this component and logging it, we allow all other components to render as expected, and
             // It becomes a lot easier to spot the cause of a bug.
-            //
-            // TODO: consider doing this for callbacks as well, it shouldn't be too hard.
 
+            // TODO: improve this error logging mechanism. there are way better ways of doing this
+
+            const errorRoot = renderFns[i].root ?? this.root;
             try {
-                setErrorClass(errorRoot, false, this.templateName);
-                fn(s);
+                this.clearErrorClass(errorRoot);
+                renderFns[i].fn(s);
             } catch (e) {
-                setErrorClass(errorRoot, true, this.templateName);
-
                 // TODO: do something with these errors we're collecting. lmao.
+                
                 renderFns[i].error = e;
-                console.error("An error occured while rendering your component:", e);
+
+                this.setErrorClass(errorRoot, e);
 
                 // don't run more functions for this component if one of them errored
+
                 return false;
             }
         }
 
         return true;
+    }
+
+    private readonly clearErrorClass = (errorRoot : Insertable<any>) => {
+        errorRoot.el.style.removeProperty("--error-text");
+    }
+
+    private readonly setErrorClass = (errorRoot : Insertable<any>, e: any) => {
+        errorRoot = errorRoot;
+
+        setClass(errorRoot, "catastrophic---error", true);
+
+        // We could include the actual error message here if we wanted to. But I'm not sure that's a good idea
+        const message = `An error occured while updating the ${this.templateName ?? "???"} component`;
+        errorRoot.el.style.setProperty("--error-text", JSON.stringify(`${message}. You've found a bug!`));
+
+        console.error("An error occured while rendering your component:", e);
+        return;
     }
 
     private readonly pushRenderFn = (renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) => {
@@ -1400,15 +1438,6 @@ export class RenderGroup<S = null> {
 }
 
 
-function setErrorClass<T extends ValidElement>(root: Insertable<T> | Component<any, any>, state: boolean, templateName: string) {
-    if (setClass(root, "catastrophic---error", state)) {
-        const message = templateName ? `An error occured while updating the ${templateName} component`  :
-            "An error occured while updating an element";
-        root.el.style.setProperty("--error-text", JSON.stringify(`${message}. You've found a bug!`));
-    } else {
-        root.el.style.removeProperty("--error-text");
-    }
-}
 
 function wasHiddenOrUninserted<T extends ValidElement>(ins: Insertable<T>) {
     return ins._isHidden || !ins.el.parentElement;
@@ -1625,17 +1654,17 @@ export function newListRenderer<R extends ValidElement, T, U extends ValidElemen
     return renderer;
 }
 
-// ---- animation utils. The vast majority of apps will need animation, so I figured I'd add these in as well
+// ---- animation utils. The vast majority of apps will need animation, so I figured I'd just merge this into dom-utils itself
 
 export type AnimateFunction = (dt: number) => boolean;
 
-export type AnimationHandle = {
-    fn: AnimateFunction;
+export type RealtimeAnimation = {
     isRunning: boolean;
     isInQueue: boolean;
+    fn: AnimateFunction;
 }
 
-const queue: AnimationHandle[] = [];
+const queue: RealtimeAnimation[] = [];
 
 const MAX_DT = 100;
 
@@ -1648,7 +1677,7 @@ function runAnimation(time: DOMHighResTimeStamp) {
         for (let i = 0; i < queue.length; i++) {
             const handle = queue[i];
 
-            handle.isRunning = handle.fn(dtMs);
+            handle.isRunning = handle.fn(dtMs / 1000);
 
             if (!handle.isRunning) {
                 // O(1) fast-remove
@@ -1665,7 +1694,7 @@ function runAnimation(time: DOMHighResTimeStamp) {
     }
 }
 
-export function newAnimation(fn: AnimateFunction): AnimationHandle {
+export function newAnimation(fn: AnimateFunction): RealtimeAnimation {
     return { fn, isRunning: false, isInQueue: false };
 }
 
@@ -1673,15 +1702,15 @@ export function newAnimation(fn: AnimateFunction): AnimationHandle {
  * Adds an animation to the realtime animation queue that runs with `requestAnimationFrame`.
  * See {@link newAnimation}.
  */
-export function addAnimationToQueue(handle: AnimationHandle) {
-    if (handle.isInQueue) {
+export function startAnimation(animation: RealtimeAnimation) {
+    if (animation.isInQueue) {
         return;
     }
 
     const restartQueue = queue.length === 0;
 
-    queue.push(handle);
-    handle.isInQueue = true;
+    queue.push(animation);
+    animation.isInQueue = true;
 
     if (restartQueue) {
         requestAnimationFrame(runAnimation);
@@ -1696,8 +1725,11 @@ export function getCurrentNumAnimations() {
 // ---- debugging utils
 
 let debug = false;
-export function enableDebugMode() {
-    debug = true;
+export function setDebugMode(state: boolean) {
+    debug = state;
+}
+export function isDebugging() {
+    return debug;
 }
 
 const renderCounts = new Map<string, { c: number, t: number; s: Set<RenderGroup<any>> }>();

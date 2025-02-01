@@ -1,7 +1,7 @@
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { clearArray, countOccurances, newArray } from "src/utils/array-utils";
+import { countOccurances, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -32,12 +32,14 @@ import {
     setStyle,
     setText,
     setVisible,
-    span
+    span,
+    isDebugging,
+    setDebugMode
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range } from "src/utils/fuzzyfind";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
-import * as tree from "src/utils/tree";
+import * as tree from "src/utils/int-tree";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
@@ -92,6 +94,9 @@ import {
     getRootNote,
     getSecondPartOfRow,
     hasNote,
+    idIsNil,
+    idIsNilOrRoot,
+    idIsNilOrUndefined,
     insertChildNote,
     insertNoteAfterCurrent,
     isBreak,
@@ -129,7 +134,10 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.00.010";
+const VERSION_NUMBER = "1.01.00";
+
+const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
+const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -148,7 +156,7 @@ function NoteLink(rg: RenderGroup<{
     preventScroll?: boolean;
 }>) {
     return div({ style: "padding:5px; ", class: [cn.handleLongWords] }, [
-        rg.class(cnHoverLink, (s) => !!s.noteId),
+        rg.class(cnHoverLink, (s) => !idIsNilOrUndefined(s.noteId)),
         rg.style("backgroundColor", (s) => (!!s.focusAnyway || state.currentNoteId === s.noteId) ? (
             `${cssVars.bgColorFocus}`
         ) : (
@@ -162,7 +170,7 @@ function NoteLink(rg: RenderGroup<{
             // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
             // something like this allowed to happen. LOL.
             setTimeout(() => {
-                if (noteId) {
+                if (!idIsNilOrUndefined(noteId)) {
                     setCurrentNote(state, noteId);
                     rerenderApp(!preventScroll);
                 }
@@ -316,7 +324,7 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
                 }
 
                 let scope = "Global";
-                if (state._fuzzyFindState.scopedToNoteId) {
+                if (!idIsNil(state._fuzzyFindState.scopedToNoteId)) {
                     const note = getNoteOrUndefined(state, state._fuzzyFindState.scopedToNoteId);
                     if (note) {
                         scope = getNoteTextTruncated(note.data);
@@ -873,27 +881,28 @@ function LinkNavModal(rg: RenderGroup) {
 
 
             let notes: TreeNote[] = [];
-            let lastNote: TreeNote | undefined;
-            tree.forEachParent(state.notes, currentNote, (note) => {
-                if (note === currentNote) {
-                    lastNote = note;
-                    return;
-                }
-
-                notes.push(note);
-                // Also search children 1 level underneath parents. This is very very helpful.
-                for (let id of note.childIds) {
-                    const note = getNote(state, id);
-                    if (note === lastNote) {
-                        // don't collect urls from the same note twice.
-                        continue;
-                    }
+            let lastNote = currentNote;
+            {
+                let note = currentNote;
+                while (!idIsNilOrRoot(note.parentId)) {
+                    note = getNote(state, note.parentId);
 
                     notes.push(note);
-                }
 
-                lastNote = note;
-            });
+                    // Also search children 1 level underneath parents. This is very very helpful.
+                    for (let id of note.childIds) {
+                        const note = getNote(state, id);
+                        if (note === lastNote) {
+                            // don't collect urls from the same note twice.
+                            continue;
+                        }
+
+                        notes.push(note);
+                    }
+
+                    lastNote = note;
+                }
+            }
 
             // we want the urls to appear highest to lowest.
             idx = 0;
@@ -1093,7 +1102,7 @@ function EditableActivityList(rg: RenderGroup<{
             if (lastIdx === activities.length - 1) {
                 statusText = "Reached most recent activity";
             } else if (activityIndexes.length === 0) {
-                if (state._currentActivityScopedNote) {
+                if (!idIsNil(state._currentActivityScopedNoteId)) {
                     statusText = "0 results under the selected note";
                 } else {
                     statusText = "0 results in this date range";
@@ -1120,7 +1129,7 @@ function getNoteProgressCountText(note: TreeNote): string {
     let progressText = "";
 
     if (totalCount !== 0) {
-        progressText = ` (${doneCount}/${totalCount})`;;
+        progressText = `(${doneCount}/${totalCount})`;;
     }
 
     return progressText;
@@ -1128,14 +1137,14 @@ function getNoteProgressCountText(note: TreeNote): string {
 
 
 function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
-    const rootNote = finderState.scopedToNoteId ? getNote(state, finderState.scopedToNoteId)
+    const rootNote = !idIsNil(finderState.scopedToNoteId) ? getNote(state, finderState.scopedToNoteId)
         : getRootNote(state);
 
     const matches = finderState.matches;
 
     fuzzySearchNotes(state, rootNote, finderState.query, matches);
 
-    const MAX_MATCHES = 1000;
+    const MAX_MATCHES = 100;
     if (matches.length > MAX_MATCHES) {
         matches.splice(MAX_MATCHES, matches.length - MAX_MATCHES);
     }
@@ -1162,7 +1171,7 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
         }
     }
 
-    if (finderState.scopedToNoteId) {
+    if (!idIsNil(finderState.scopedToNoteId)) {
         finderState.currentIdx = finderState.currentIdxLocal;
     } else {
         finderState.currentIdx = finderState.currentIdxGlobal;
@@ -1174,7 +1183,7 @@ function HighlightedText(rg: RenderGroup<{
     text: string;
     highlightedRanges: Range[];
 }>) {
-    function Span(rg: RenderGroup<{
+    function HighlightedTextSpan(rg: RenderGroup<{
         highlighted: boolean;
         text: string;
     }>) {
@@ -1184,7 +1193,7 @@ function HighlightedText(rg: RenderGroup<{
         ]);
     }
 
-    return rg.list(div(), Span, (getNext, s) => {
+    return rg.list(div(), HighlightedTextSpan, (getNext, s) => {
         const { highlightedRanges: ranges, text } = s;
 
         let last = 0;
@@ -1214,7 +1223,7 @@ function FuzzyFinder(rg: RenderGroup<{
     visible: boolean;
     state: FuzzyFindState;
 }>) {
-    function FindResultItem(rg: RenderGroup<{
+    function FuzzyFinderResultItem(rg: RenderGroup<{
         note: TreeNote;
         ranges: Range[];
         hasFocus: boolean;
@@ -1235,7 +1244,7 @@ function FuzzyFinder(rg: RenderGroup<{
                 ]),
                 rg.if(
                     s => !!s.note.data.isSticky,
-                    rg => div({
+                    (rg) => div({
                         class: [cn.row, cn.alignItemsCenter, cn.pre],
                         style: `background-color: ${cssVars.pinned}; color: #FFF`
                     }, [" ! "]),
@@ -1280,12 +1289,11 @@ function FuzzyFinder(rg: RenderGroup<{
 
         return root;
     };
-
-    const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FindResultItem));
+    const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
     const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const root = div({ class: [cn.flex1, cn.col] }, [
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
-            rg.text(s => s.state.scopedToNoteId ? "Search (Current note)" : "Search (Everywhere)"),
+            rg.text(s => !idIsNil(s.state.scopedToNoteId) ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
             rg.text(s => s.state.counts.numInProgress + " in progress, " + 
                 s.state.counts.numFinished + " done, " + 
@@ -1333,7 +1341,7 @@ function FuzzyFinder(rg: RenderGroup<{
         if (matchesInvalid || visibleChanged) {
             matchesInvalid = false;
             if (visibleChanged) {
-                finderState.scopedToNoteId = null;
+                finderState.scopedToNoteId = -1;
             } else if (toggleCurrentNoteVsEverywhere) {
                 finderState.scopedToNoteId = state.currentNoteId;
             }
@@ -1475,12 +1483,12 @@ function LoadBackupModal(rg: RenderGroup<{
             if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
                 const { text } = s;
 
-                setStateFromJSON(text);
+                setStateFromJSON(text,  () => {
+                    saveCurrentState({ debounced: false });
 
-                saveCurrentState({ debounced: false });
-
-                initState(() => {
-                    setCurrentModalAndRerenderApp(null);
+                    initState(() => {
+                        setCurrentModalAndRerenderApp(null);
+                    });
                 });
             }
         }
@@ -1517,7 +1525,7 @@ function LoadBackupModal(rg: RenderGroup<{
 
             replaceChildren(infoDiv, [
                 div({}, ["Make sure this looks reasonable before you load the backup:"]),
-                div({}, ["Notes: ", tree.getSize(backupState.notes).toString()]),
+                div({}, ["Notes: ", tree.getSizeExcludingRoot(backupState.notes).toString()]),
                 div({}, ["Activities: ", backupState.activities.length.toString()]),
                 div({}, ["Last Online: ", !lastOnline ? "No idea" : formatDate(lastOnline)]),
                 div({}, ["Last Theme: ", theme]),
@@ -1563,41 +1571,17 @@ function SettingsModal(rg: RenderGroup) {
         debouncedSave();
     }
 
+    rg.intermittentFn(() => {
+        if (state._currentModal === settingsModal) {
+            rerenderApp();
+        }
+    }, 1000);
+
     return rg.cArgs(Modal, c => c.render({ onClose }), [
         div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
-            el("H3", { class: [cn.textAlignCenter] }, "Settings"),
-            div({ class: [cn.col, cnApp.gap10] }, [
-                div({}, [
-                    div({}, "Diagnostics"),
-                    div({ class: [cn.row]}, [
-                        "Render timings: ",
-                        div({ class: [cnApp.gap10, cn.row] }, [
-                            () => {
-                                function RenderTime(rg: RenderGroup<[number, boolean]>) {
-                                    return span({}, [
-                                        rg.style("borderBottom", s => s[1] ? `3px solid ${cssVars.fgColor}` : ""),
-                                        rg.text(s => s[0] + "ms")
-                                    ]);
-                                }
-
-                                return rg.list(contentsDiv(), RenderTime, (getNext) => {
-                                    for (let i = 0; i < lastRenderTimes.length; i++) {
-                                        getNext().render([
-                                            lastRenderTimes[i],
-                                            i === lastRenderTimesPos
-                                        ]);
-                                    }
-                                })
-                            },
-                        ]),
-                    ]),
-                    div({}, [
-                        rg.realtime(rg =>
-                            rg.text(() => `Realtime animations in progresss: ${getCurrentNumAnimations()}`),
-                        )
-                    ]),
-                ]),
-                div({}, [
+            div({ class: [cn.col, cnApp.gap10] }, [ 
+                div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
+                    el("H3", { class: [cn.textAlignCenter] }, "Settings"),
                     rg.c(Checkbox, (c) => c.render({
                         label: "Force notes that aren't being edited to be a single line",
                         value: state.settings.nonEditingNotesOnOneLine,
@@ -1617,8 +1601,48 @@ function SettingsModal(rg: RenderGroup) {
                                 }
                             })),
                         ])
-                    )
-                ])
+                    ),
+                    rg.c(Checkbox, (c) => c.render({
+                        label: "Enable debug mode (!!!)",
+                        value: isDebugging(),
+                        onChange(val) {
+                            setDebugMode(val);
+                            rerenderApp();
+                        }
+                    })),
+                ]),
+                rg.if(() => isDebugging(), rg => 
+                    div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
+                        el("H3", { class: [cn.textAlignCenter] }, "Diagnostics"),
+                        div({ class: [cn.row]}, [
+                            "Render timings: ",
+                            div({ class: [cnApp.gap10, cn.row] }, [
+                                () => {
+                                    function RenderTime(rg: RenderGroup<[number, boolean]>) {
+                                        return span({}, [
+                                            rg.style("borderBottom", s => s[1] ? `3px solid ${cssVars.fgColor}` : ""),
+                                            rg.text(s => s[0] + "ms")
+                                        ]);
+                                    }
+
+                                    return rg.list(contentsDiv(), RenderTime, (getNext) => {
+                                        for (let i = 0; i < lastRenderTimes.length; i++) {
+                                            getNext().render([
+                                                lastRenderTimes[i],
+                                                i === lastRenderTimesPos
+                                            ]);
+                                        }
+                                    })
+                                },
+                            ]),
+                        ]),
+                        div({}, [
+                            rg.realtime(rg =>
+                                rg.text(() => `Realtime animations in progresss: ${getCurrentNumAnimations()}`),
+                            )
+                        ]),
+                    ]),
+                ),
             ]),
         ])
     ]);
@@ -1969,6 +1993,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         ),
         div({ class: [cn.flex1, cn.relative] }, [
             div({ class: [cn.row, cn.alignItemsStretch], style: "" }, [
+                rg.style("lineHeight", s => s.note.data._status === STATUS_IN_PROGRESS ? "1.5" : "1.2"),
                 // cursor element
                 cursorElement,
                 div({ style: "width: 10px" }),
@@ -2027,7 +2052,9 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
                             const depth = s.note.data._depth;;
                             let currentDepth = depth;
-                            tree.forEachParent(state.notes, s.note, (parent) => {
+                            let parent = s.note;
+
+                            while (!idIsNil(parent.parentId)) {
                                 const isParentLastNote = parent.data._index === parent.data._numSiblings - 1;
                                 const isTopFocused = s.note.data._selectedPathDepth === currentDepth;
                                 const isBottomFocused = s.note.data._selectedPathDepth === currentDepth
@@ -2040,7 +2067,9 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                                 ]);
 
                                 currentDepth--;
-                            });
+
+                                parent = getNote(state, parent.parentId);
+                            }
                         });
                     },
                 ]),
@@ -2069,7 +2098,10 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                                 note.data.text.length < 150 ? "" : `[${note.data.text.length}ch]`
                         );
 
-                        return `${noteStatusToString(note.data._status)} - ${getNoteProgressCountText(note)} ${charCount}`;
+                        const status = noteStatusToString(note.data._status);
+                        const progress = getNoteProgressCountText(note);
+
+                        return `${status} ${progress}${charCount}`;
                     })
                 ]),
                 rg.c(EditableTextArea, (c, s) => c.render({
@@ -2095,7 +2127,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                             const currentNote = s.currentNote;
                             const duration = getNoteDurationUsingCurrentRange(state, note);
 
-                            assert(note.parentId, "Note didn't have a parent!");
+                            assert(!idIsNil(note.parentId), "Note didn't have a parent!");
                             const parentNote = getNote(state, note.parentId);
                             const totalDuration = getNoteDurationUsingCurrentRange(state, parentNote);
                             let percent = totalDuration < 0.000001 ? 0 : 100 * duration / totalDuration;
@@ -2135,15 +2167,11 @@ function NotesList(rg: RenderGroup<{
         setStyle(root, "flex", "" + s.ratio);
 
         noteList.render((getNext) => {
-            let stickyOffset = 0;
-
-            if (!currentNoteId) {
+            if (idIsNilOrUndefined(currentNoteId)) {
                 return;
             }
 
             const currentNote = getNote(state, currentNoteId);
-
-            let lastStuckComponentThatCanHaveADivider: Component<NoteRowInputArgs, HTMLDivElement> | undefined;
 
             for (let i = 0; i < flatNoteIds.length; i++) {
                 const id = flatNoteIds[i];
@@ -2153,13 +2181,10 @@ function NotesList(rg: RenderGroup<{
                 const flatNotesRoot = getNote(state, state._currentFlatNotesRootId);
                 const isParentNote = note.data._depth < flatNotesRoot?.data._depth;
 
-                const isSticky = note.data.isSticky ||
-                    (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
-
                 // Rendering the component once without sticky and then a second time with sticky, so that
                 // we can determine if a note has 'stuck' to the top of the page and apply a divider conditionally.
 
-                const args: NoteRowInputArgs = {
+                component.render({
                     note,
                     stickyOffset: undefined,
                     hasDivider: false,
@@ -2172,36 +2197,61 @@ function NotesList(rg: RenderGroup<{
                     forceOneLine: state.settings.nonEditingNotesOnOneLine ? true : (
                         state.settings.parentNotesOnOneLine ? isParentNote : false
                     ),
-                };
-                component.render(args);
-                const orignalOffsetTop = component.el.offsetTop;
-
-                component.s.stickyOffset = isSticky ? stickyOffset : undefined;
-                component.s.orignalOffsetTop = orignalOffsetTop;
-                component.renderWithCurrentState();
-
-                const hasStuck = orignalOffsetTop !== component.el.offsetTop;
-                if (hasStuck) {
-                    const canHaveDivider = note.data._depth < flatNotesRoot?.data._depth;
-                    if (canHaveDivider) {
-                        lastStuckComponentThatCanHaveADivider = component;
-                    }
-                }
-
-                // I have no idea how I would do this in React, tbh.
-                // But it was really damn easy here lol.
-                if (isSticky) {
-                    stickyOffset += component.el.getBoundingClientRect().height;
-                }
-            }
-
-            if (lastStuckComponentThatCanHaveADivider) {
-                lastStuckComponentThatCanHaveADivider.s.hasDivider = true;
-                lastStuckComponentThatCanHaveADivider.renderWithCurrentState();
+                });
+                component.s.orignalOffsetTop = component.el.offsetTop;
             }
         });
+
+        if (!updateStickyDivider()) {
+            // The scroll position changes after we've rendered a bunch of notes, so we'll need to recompute this.
+            setTimeout(() => {
+                updateStickyDivider();
+            }, 1);
+        }
     });
 
+    function updateStickyDivider(): boolean {
+        const { flatNoteIds } = rg.s;
+
+        let lastStuckComponentThatCanHaveADivider: Component<NoteRowInputArgs, HTMLDivElement> | undefined;
+        let stickyOffset = 0;
+
+        for (let i = 0; i < noteList.components.length; i++) {
+            const id = flatNoteIds[i];
+            const note = getNote(state, id);
+            const component = noteList.components[i];
+
+            const flatNotesRoot = getNote(state, state._currentFlatNotesRootId);
+
+            const isSticky = note.data.isSticky ||
+                (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
+
+            component.s.stickyOffset = isSticky ? stickyOffset : undefined;
+            component.renderWithCurrentState();
+
+            const hasStuck = component.s.orignalOffsetTop !== component.el.offsetTop;
+            if (hasStuck) {
+                const canHaveDivider = note.data._depth < flatNotesRoot?.data._depth;
+                if (canHaveDivider) {
+                    lastStuckComponentThatCanHaveADivider = component;
+                }
+            }
+
+            // I have no idea how I would do this in React, tbh.
+            // But it was really damn easy here lol.
+            if (isSticky) {
+                stickyOffset += component.el.getBoundingClientRect().height;
+            }
+        }
+
+        if (lastStuckComponentThatCanHaveADivider) {
+            lastStuckComponentThatCanHaveADivider.s.hasDivider = true;
+            lastStuckComponentThatCanHaveADivider.renderWithCurrentState();
+            return true;
+        }
+
+        return false;
+    }
 
     return root;
 }
@@ -2252,6 +2302,7 @@ function DarkModeToggle(rg: RenderGroup) {
             rerenderApp();
         }
     });
+
     const iconEl = newComponent(AsciiIcon);
     replaceChildren(button, [
         iconEl,
@@ -2263,9 +2314,10 @@ function DarkModeToggle(rg: RenderGroup) {
         return ASCII_MOON_STARS;
     }
 
-    rg.preRenderFn(function renderButton() {
+    rg.preRenderFn(() => {
         iconEl.render(getIcon(getTheme()));
     });
+
 
     return button;
 };
@@ -2421,11 +2473,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
     });
 
     function handleLockUnlockActivitiesToNote() {
-        if (state._currentActivityScopedNote) {
-            state._currentActivityScopedNote = "";
-        } else {
-            state._currentActivityScopedNote = state.currentNoteId;
-        }
+        toggleActivityScopedNote(state);
         rerenderApp();
     }
 
@@ -2435,7 +2483,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
         div({ class: [cn.flex, cn.row, cn.alignItemsCenter], style: "user-select: none; padding-left: 10px;" }, [
             el("H3", { style: "margin: 0; padding: 1em 0;", }, [
                 rg.text(() => {
-                    const note = getNoteOrUndefined(state, state._currentActivityScopedNote);
+                    const note = getNoteOrUndefined(state, state._currentActivityScopedNoteId);
                     if (!note) {
                         return "Activity List";
                     }
@@ -2446,7 +2494,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
         ]),
         div({ class: [cn.row] }, [
             rg.c(Button, c => c.render({
-                label: state._currentActivityScopedNote ? "Unlock" : "Lock to selected",
+                label: state._currentActivityScopedNoteId !== -1 ? "Unlock" : "Lock to selected",
                 onClick: handleLockUnlockActivitiesToNote,
             })),
             div({ class: [cn.flex1] }),
@@ -2669,7 +2717,7 @@ function moveToLastNote(): boolean {
 
     // Don't bother moving to the last note if that note is literally just the one above/below
     if (currentNote.parentId === note.parentId) {
-        const siblings = getNote(state, currentNote.parentId!).childIds;
+        const siblings = getNote(state, currentNote.parentId).childIds;
         const currentIdx = siblings.indexOf(currentNote.id);
         if (siblings[currentIdx - 1] === lastNoteId || siblings[currentIdx + 1] === lastNoteId) {
             return false;
@@ -2845,7 +2893,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             currentHoverCol = i;
         }
 
-        rerenderApp(false);
+        rg.renderWithCurrentState()
     }
 
     function handleColClick(i: number) {
@@ -3367,7 +3415,31 @@ export function App(rg: RenderGroup) {
         ])
     ]);
 
-    const errorBanner = div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" });
+    const errorBanner = rg.if(() => !!state.criticalSavingError || !!state._criticalLoadingError, rg =>
+        div({ style: "padding: 20px; background-color: red; color: white; position: sticky; top: 0" }, [
+            rg.if(() => !!state.criticalSavingError, rg =>
+                rg.text(() => "Saving state failed: " + state.criticalSavingError),
+            ),
+            rg.else_if(() => !!state._criticalLoadingError, rg =>
+                div({}, [
+                    div({}, [
+                        rg.text(() => "Loading save state failed: " + state._criticalLoadingError),
+                    ]),
+                    div({}, [
+                        "Saving will be disabled till this issue gets fixed on our end - you'll need to report it.",
+                    ]),
+                ]),
+            ),
+            div({}, [
+                "Report issues here: ",
+                el("A", { 
+                    class: [cnHoverLink], 
+                    style: `color: currentColor;`,
+                    href: GITHUB_PAGE_ISSUES,
+                }, [ GITHUB_PAGE_ISSUES ]),
+            ])
+        ])
+    );
     const notesScrollRoot = div({ class: [cn.col, cn.flex1, cn.overflowYAuto] });
 
     const appRoot = div({ class: [cn.relative], style: "padding-bottom: 100px" }, [
@@ -3616,7 +3688,7 @@ export function App(rg: RenderGroup) {
                 }
 
                 if (
-                    currentNote.parentId &&
+                    currentNote.parentId !== -1 &&
                     currentNote.parentId === nextNote.parentId
                 ) {
                     const parent = getNote(state, currentNote.parentId);
@@ -3627,8 +3699,8 @@ export function App(rg: RenderGroup) {
                 }
             }
 
-            function handleMovingOut(nextNoteId: NoteId | null) {
-                if (!nextNoteId) {
+            function handleMovingOut(nextNoteId: NoteId) {
+                if (idIsNilOrRoot(nextNoteId)) {
                     return;
                 }
 
@@ -3651,7 +3723,7 @@ export function App(rg: RenderGroup) {
                     return;
                 }
 
-                if (!currentNote.parentId) {
+                if (idIsNil(currentNote.parentId)) {
                     return;
                 }
 
@@ -3700,10 +3772,10 @@ export function App(rg: RenderGroup) {
             } else if (e.key === "PageUp") {
                 shouldPreventDefault = true;
                 handleUpDownMovement(true, false, 10, false, false);
-            } else if (currentNote.parentId && e.key === "PageDown") {
+            } else if (!idIsNil(currentNote.parentId) && e.key === "PageDown") {
                 shouldPreventDefault = true;
                 handleUpDownMovement(false, false, 10, false, false);
-            } else if (currentNote.parentId && e.key === "End") {
+            } else if (!idIsNil(currentNote.parentId) && e.key === "End") {
                 if (
                     isInQuicklist &&
                     e.ctrlKey &&
@@ -3713,7 +3785,7 @@ export function App(rg: RenderGroup) {
                 } else {
                     handleUpDownMovement(true, false, 0, true, false);
                 }
-            } else if (currentNote.parentId && e.key === "Home") {
+            } else if (!idIsNil(currentNote.parentId) && e.key === "Home") {
                 if (
                     isInQuicklist &&
                     e.ctrlKey &&
@@ -3908,20 +3980,7 @@ export function App(rg: RenderGroup) {
         todoList.render({
             cursorNoteId: state._fuzzyFindState.matches[getQuicklistIndex(state)]?.note?.id,
         });
-
-        let error = "";
-        if (state.criticalSavingError) {
-            error = state.criticalSavingError;
-        }
-
-        setVisible(errorBanner, !!error);
-        setText(errorBanner, error);
     });
-
-    // rg.renderFn(appRoot, () => {
-    //     enableDebugMode();
-    //     printRenderCounts();
-    // });
 
     return appRoot;
 };
@@ -3988,7 +4047,7 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
                 }
 
                 if (mb * CRITICAL_ERROR_THRESHOLD < estimatedMbUsage) {
-                    const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on https://github.com/Tejas-H5/Working-on-Tree"
+                    const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on " + GITHUB_PAGE
 
                     state.criticalSavingError = criticalSavingError;
                     console.error(criticalSavingError);
@@ -4029,6 +4088,7 @@ initializeDomUtils(root);
 const app = newComponent(App);
 appendChild(root, app);
 
+// TODO: consider not passing a boolean via this method...
 const rerenderApp = (shouldScroll = true) => {
     renderOptions.shouldScroll = shouldScroll;
 

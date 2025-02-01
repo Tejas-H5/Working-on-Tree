@@ -13,6 +13,7 @@ export type TreeNode<T> = {
 } 
 
 // Surely this won't collide with a user's id, right? 
+// 1 year later: it never did. Because why would the uuid generator make this? strange comment.
 export const ROOT_KEY = "[Root Key]";
 
 export type TreeStore<T> = {
