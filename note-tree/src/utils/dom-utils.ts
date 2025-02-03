@@ -836,7 +836,7 @@ export class RenderGroup<S = null> {
         this.templateName = templateName;
         this.skipErrorBoundary = skipErrorBoundary;
 
-        this.debugAnimation = this.newAnimation((s, dt) => {
+        this.debugAnimation = this.newAnimation((dt) => {
             if (
                 // complex components made of thousands of small parts 
                 // will hopefully this to true on those smaller parts, so that they don't lag
@@ -935,7 +935,7 @@ export class RenderGroup<S = null> {
 
         const s = this.s;
         for (let i = 0; i < this.animationsList.length; i++) {
-            this.animationsList[i](s, dt);
+            this.animationsList[i](dt, s);
         }
 
         return true;
@@ -1045,7 +1045,7 @@ export class RenderGroup<S = null> {
         predicate: (s: S) => K,
         dispatchTable: Partial<Record<K, TemplateFn<S, U>>>,
     ): Component<S, R> => {
-        const c = newComponent((rg: RenderGroup<S>) => {
+        return this.c((rg: RenderGroup<S>) => {
             // @ts-ignore trust me bro
             const cache: Record<K, Component<S, U>> = {};
             for (const k in dispatchTable) {
@@ -1067,15 +1067,14 @@ export class RenderGroup<S = null> {
                 setChildAt(root, 0, component);
                 component.render(s);
             })
-        });
-        return this.inlineFn(c, (c, s) => c.render(s));
+        }, (c, s) => c.render(s));
     }
 
     /** 
      * Sets a component visible based on a predicate, and only renders it if it is visible 
      **/
     readonly if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
-        return this.inlineFn(newComponent(templateFn), (c, s) => {
+        return this.c(templateFn, (c, s) => {
             this.ifStatementOpen = true;
             if (setVisible(c, this.ifStatementOpen && predicate(s))) {
                 this.ifStatementOpen = false;
@@ -1088,7 +1087,7 @@ export class RenderGroup<S = null> {
      * Same as `if`, but only runs it's predicate if previous predicates were false.
      */
     readonly else_if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
-        return this.inlineFn(newComponent(templateFn), (c, s) => {
+        return this.c(templateFn, (c, s) => {
             if (setVisible(c, this.ifStatementOpen && predicate(s))) {
                 this.ifStatementOpen = false;
                 c.render(s);
@@ -1100,7 +1099,7 @@ export class RenderGroup<S = null> {
      * Same as `if`, but it will hide the component if T is undefined. This allows for some type narrowing.
      */
     readonly with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
-        return this.inlineFn(newComponent(templateFn), (c, s) => {
+        return this.c(templateFn, (c, s) => {
             this.ifStatementOpen = true;
             const val = predicate(s);
             if (setVisible(c, val)) {
@@ -1114,7 +1113,7 @@ export class RenderGroup<S = null> {
      * The `with` equivelant of `else_if`
      */
     readonly else_with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
-        return this.inlineFn(newComponent(templateFn), (c, s) => {
+        return this.c(templateFn, (c, s) => {
             if (!this.ifStatementOpen) {
                 setVisible(c, false);
                 return;
@@ -1296,7 +1295,7 @@ export class RenderGroup<S = null> {
      * The animation gets restarted as soon as the component is rendered again.
      */
     readonly realtimeFn = (fn: RenderPersistentAnimationFn<S>) => {
-        this.assertNotInstantiatedYet();
+        this.assertCanPushRenderFns();
         this.animationsList.push(fn);
     }
 
@@ -1311,7 +1310,7 @@ export class RenderGroup<S = null> {
         // our component needs to render this component to restart it's animations
         this.inlineFn(component, (c, s) => c.render(s));
 
-        rg.realtimeFn(rg.render);
+        rg.realtimeFn((_, s) => rg.render(s));
         return component;
     }
 
@@ -1319,10 +1318,10 @@ export class RenderGroup<S = null> {
      * This function is actually a wrapper around {@link realtimeFn}.
      */
     readonly intermittentFn = (fn: RenderPersistentAnimationFn<S>, interval: number) => {
-        this.assertNotInstantiatedYet();
+        this.assertCanPushRenderFns();
 
         let timer = 0;
-        this.animationsList.push((s, dt) => {
+        this.animationsList.push((dt, s) => {
             // game devs hate it when you use this one simple trick
             timer += dt * 1000;
             if (timer < interval) {
@@ -1330,7 +1329,7 @@ export class RenderGroup<S = null> {
             }
             timer = 0;
 
-            fn(s, dt);
+            fn(dt, s);
         });
     }
 
@@ -1343,7 +1342,7 @@ export class RenderGroup<S = null> {
         // our component needs to render this component to restart it's animations
         this.inlineFn(component, (c, s) => c.render(s));
 
-        rg.intermittentFn(rg.render, interval);
+        rg.intermittentFn((_, s) => rg.render(s), interval);
         return component;
     }
 
@@ -1360,7 +1359,7 @@ export class RenderGroup<S = null> {
                 return false;
             }
 
-            return fn(this.s, dt);
+            return fn(dt, this.s);
         });
 
         return animation;
@@ -1424,16 +1423,16 @@ export class RenderGroup<S = null> {
         const message = `An error occured while updating the ${this.templateName ?? "???"} component`;
         errorRoot.el.style.setProperty("--error-text", JSON.stringify(`${message}. You've found a bug!`));
 
-        console.error("An error occured while rendering your component:", e);
+        console.error(`An error occured while rendering component ${this.templateName ?? "???"}: `, e);
         return;
     }
 
     private readonly pushRenderFn = (renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) => {
-        this.assertNotInstantiatedYet();
+        this.assertCanPushRenderFns();
         renderFns.push({ root, fn });
     }
 
-    private readonly assertNotInstantiatedYet = () => {
+    private readonly assertCanPushRenderFns = () => {
         if (this.instantiated) {
             throw new Error("Can't add event handlers to this template (" + this.templateName + ") after it's been instantiated");
         }
@@ -1533,8 +1532,8 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
 }
 
 type RenderFn<S> = { fn: (s: S) => void; root: Insertable<any> | undefined; error?: any };
-type RenderPersistentAnimationFn<S> = (s: S, dt: number) => void; 
-type RenderOneShotAnimationFn<S> = (s: S, dt: number) => boolean;
+type RenderPersistentAnimationFn<S> = (dt: number, s: S) => void; 
+type RenderOneShotAnimationFn<S> = (dt: number, s: S) => boolean;
 type TemplateFn<T, U extends ValidElement> = (rg: RenderGroup<T>) => Insertable<U>;
 type TemplateFnVariadic<T, U extends ValidElement, A extends unknown[]> = (rg: RenderGroup<T>, ...args: A) => Insertable<U>;
 

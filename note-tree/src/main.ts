@@ -123,7 +123,8 @@ import {
     setTheme,
     state,
     toggleActivityScopedNote,
-    toggleNoteSticky
+    toggleNoteSticky,
+    shouldScrollToNotes
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -153,7 +154,6 @@ function NoteLink(rg: RenderGroup<{
     text: string;
     focusAnyway?: boolean;
     noteId?: NoteId;
-    preventScroll?: boolean;
 }>) {
     return div({ style: "padding:5px; ", class: [cn.handleLongWords] }, [
         rg.class(cnHoverLink, (s) => !idIsNilOrUndefined(s.noteId)),
@@ -163,7 +163,7 @@ function NoteLink(rg: RenderGroup<{
             `${cssVars.bgColor}`
         )),
         rg.text((s) => truncate(s.text, 500)),
-        rg.on("click", ({ noteId, preventScroll }, e) => {
+        rg.on("click", ({ noteId }, e) => {
             e.stopImmediatePropagation();
 
             // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
@@ -172,7 +172,7 @@ function NoteLink(rg: RenderGroup<{
             setTimeout(() => {
                 if (!idIsNilOrUndefined(noteId)) {
                     setCurrentNote(state, noteId);
-                    rerenderApp(!preventScroll);
+                    rerenderApp();
                 }
             }, 1);
         }),
@@ -190,7 +190,7 @@ function ScrollNavItem(rg: RenderGroup<{
         rg.style(`color`, (s) => s.isGreyedOut ? `${cssVars.unfocusTextColor}` : ``),
         rg.if(
             (s) => s.isCursorVisible,
-            rg => div({ style: "min-width: 5px;" }, [
+            () => div({ style: "min-width: 5px;" }, [
                 rg.style("backgroundColor", (s) => {
                     return s.isCursorActive ? `${cssVars.fgColor}` : cssVars.bgColorFocus2
                 }),
@@ -454,7 +454,7 @@ function ActivityListItem(rg: RenderGroup<{
         }
 
         state.activities.splice(idx, 1);
-        rerenderApp(false);
+        rerenderApp();
     };
 
     function insertBreak() {
@@ -474,7 +474,7 @@ function ActivityListItem(rg: RenderGroup<{
         state.activities.splice(idx + 1, 0, newBreak);
 
         debouncedSave();
-        rerenderApp(false);
+        rerenderApp();
     };
 
     const noteLink = newComponent(NoteLink);
@@ -513,7 +513,12 @@ function ActivityListItem(rg: RenderGroup<{
                     rg.inlineFn(
                         div({ style: "padding-left: 10px; padding-right: 10px;" }),
                         (c, s) => {
-                            renderDuration(c);
+                            renderDuration(
+                                c,
+                                s.activity,
+                                s.nextActivity,
+                                s.showDuration,
+                            );
                         }
                     )
                 )
@@ -522,7 +527,12 @@ function ActivityListItem(rg: RenderGroup<{
                 rg.inlineFn(
                     div({ style: "padding-left: 10px; padding-right: 10px;" }),
                     (c, s) => {
-                        renderDuration(c);
+                        renderDuration(
+                            c,
+                            s.activity,
+                            s.nextActivity,
+                            s.showDuration,
+                        );
                     }
                 )
             )
@@ -539,10 +549,12 @@ function ActivityListItem(rg: RenderGroup<{
         return !greyedOut && isEditableBreak(activity);
     }
 
-    function renderDuration(el: Insertable<HTMLElement>) {
-        const s = rg.s;
-        const { activity, nextActivity, showDuration, } = s;
-
+    function renderDuration(
+        el: Insertable<HTMLElement>,
+        activity: Activity,
+        nextActivity: Activity | undefined,
+        showDuration: boolean,
+    ) {
         // The idea is that only breaks we insert ourselves retroactively are editable, as these times
         // did not come from the computer's sytem time but our own subjective memory
         const isAnApproximation = isEditable();
@@ -622,7 +634,7 @@ function ActivityListItem(rg: RenderGroup<{
         }
 
         setActivityTime(activity, date);
-        rerenderApp(false);
+        rerenderApp();
         debouncedSave();
     }
 
@@ -645,7 +657,7 @@ function ActivityListItem(rg: RenderGroup<{
         const val = breakEdit.el.value || activity.breakInfo;
 
         activity.breakInfo = val;
-        rerenderApp(false);
+        rerenderApp();
         debouncedSave();
     }
 
@@ -663,7 +675,7 @@ function ActivityListItem(rg: RenderGroup<{
 }
 
 function ExportModal(rg: RenderGroup) {
-    return rg.cArgs(Modal, (c, s) => c.render({
+    return rg.cArgs(Modal, (c) => c.render({
         onClose: () => setCurrentModalAndRerenderApp(null),
     }), [
         div({ class: [cn.col], style: "align-items: stretch" }, [
@@ -1244,7 +1256,7 @@ function FuzzyFinder(rg: RenderGroup<{
                 ]),
                 rg.if(
                     s => !!s.note.data.isSticky,
-                    (rg) => div({
+                    () => div({
                         class: [cn.row, cn.alignItemsCenter, cn.pre],
                         style: `background-color: ${cssVars.pinned}; color: #FFF`
                     }, [" ! "]),
@@ -1460,7 +1472,7 @@ function handleToggleNoteSticky(e: KeyboardEvent, note: TreeNote): boolean {
         shiftPressed &&
         (e.key === "1" || e.key === "!")
     ) {
-        toggleNoteSticky(state, note);
+        toggleNoteSticky(note);
         return true;
     }
     return false;
@@ -1733,7 +1745,7 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
         ])
     ]);
 
-    rg.intermittentFn(function renderNoteRowDurationInfo(s) {
+    rg.intermittentFn(function renderNoteRowDurationInfo(_, s) {
         const { note } = s;
 
         const duration = getNoteDurationUsingCurrentRange(state, note);
@@ -1925,7 +1937,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         setStickyOffset();
 
         // do auto-scrolling
-        if (renderOptions.shouldScroll && scrollParent && listHasFocus) {
+        if (scrollParent && listHasFocus && shouldScrollToNotes(state)) {
             if (isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
                 // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
@@ -1986,7 +1998,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 note.data.isSticky
             ) ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`;
         }),
-        rg.style(`backgroundColor`, s => isFocused ? `${cssVars.bgColorFocus}` : `${cssVars.bgColor}`),
+        rg.style(`backgroundColor`, () => isFocused ? `${cssVars.bgColorFocus}` : `${cssVars.bgColor}`),
         // Dividing line between different levels
         rg.style(`borderBottom`, s => s.hasDivider ? `1px solid ${cssVars.fgColor}`
             : s.hasLightDivider ? `1px solid ${cssVars.bgColorFocus}` : ``
@@ -2256,10 +2268,6 @@ function NotesList(rg: RenderGroup<{
     return root;
 }
 
-const renderOptions: RenderOptions = {
-    shouldScroll: false,
-};
-
 function getTheme(): AppTheme {
     if (state.currentTheme === "Dark") {
         return "Dark";
@@ -2387,10 +2395,6 @@ function exportAsText(state: NoteTreeGlobalState, flatNotes: NoteId[]) {
         formatTable(table, 10),
         header(" Scratchpad "),
     ].join("\n\n");
-}
-
-type RenderOptions = {
-    shouldScroll: boolean;
 }
 
 function setCurrentModal(modal: Insertable | null) {
@@ -2903,7 +2907,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             state._currentDateScopeWeekDay = i;
         }
 
-        rerenderApp(false);
+        rerenderApp();
     }
 
     function newBlock(hltNId: NoteId | undefined): Block {
@@ -2925,7 +2929,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
     function setScope(scope: CurrentDateScope) {
         state._currentDateScopeWeekDay = -1;
         state._currentDateScope = scope;
-        rerenderApp(false);
+        rerenderApp();
     }
 
     function moveDateWindow(backwards: boolean) {
@@ -3153,7 +3157,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             });
         }),
         rg.else(
-            rg => div({}, ["No tasks to display!"])
+            () => div({}, ["No tasks to display!"])
         )
     ]);
 
@@ -3178,7 +3182,6 @@ function HighLevelTaskDurations(rg: RenderGroup) {
             div({ class: [cn.flex1] }, [
                 rg.c(NoteLink, (nl, s) => {
                     nl.render({
-                        preventScroll: true,
                         text: s.name,
                         focusAnyway: false,
                         noteId: s.nId,
@@ -4088,14 +4091,8 @@ initializeDomUtils(root);
 const app = newComponent(App);
 appendChild(root, app);
 
-// TODO: consider not passing a boolean via this method...
-const rerenderApp = (shouldScroll = true) => {
-    renderOptions.shouldScroll = shouldScroll;
-
+function rerenderApp() {
     app.render(null);
-
-    // other rerenders shouldn't cause the app to scroll!
-    renderOptions.shouldScroll = false;
 }
 
 let renderNextFrameTimeout = 0;

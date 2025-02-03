@@ -7,7 +7,7 @@ import * as oldTree from "src/utils/tree";
 import * as tree from "src/utils/int-tree";
 
 import { GraphData, newGraphData } from "./interactive-graph";
-import { Insertable, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
+import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { Theme } from "./styling";
 import { clearArray, filterInPlace } from "./utils/array-utils";
 import { fuzzyFind, scoreFuzzyFind, Range } from "./utils/fuzzyfind";
@@ -377,7 +377,7 @@ export function noteStatusToString(noteStatus: NoteStatus) {
 // Typically if state will contain references, non-serializable objects, or are in some way computed from other canonical state,
 // it is prepended with '_', which will cause it to be stripped before it gets serialized.
 export function newNoteTreeGlobalState(): NoteTreeGlobalState {
-    const rootNote = defaultNote(null);
+    const rootNote = defaultNote();
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
     const notes = tree.newTreeStore<Note>(rootNote);
@@ -529,7 +529,7 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
 
     tree.forEachNode(mergedLoadedState.notes, (note) => {
         const node = tree.getNode(mergedLoadedState.notes, note.id);
-        node.data = autoMigrate(node.data, defaultNote(null));
+        node.data = autoMigrate(node.data, defaultNote());
     });
 
     // I should actually be doing mgrations and validations here but I'm far too lazy
@@ -595,7 +595,7 @@ export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
     return -1;
 }
 
-export function defaultNote(state: NoteTreeGlobalState | null): Note {
+export function defaultNote(): Note {
     return {
         // the following is valuable user data
         id: -1,
@@ -1161,7 +1161,7 @@ export function getActivityDurationMs(activity: Activity, nextActivity: Activity
 
 
 export function createNewNote(state: NoteTreeGlobalState, text: string): TreeNote {
-    const note = defaultNote(state);
+    const note = defaultNote();
     note.text = text;
 
     const newTreeNode = tree.newTreeNode(note);
@@ -2078,8 +2078,24 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
     return -1;
 }
 
-export function toggleNoteSticky(state: NoteTreeGlobalState, note: TreeNote) {
+export function toggleNoteSticky(note: TreeNote) {
     note.data.isSticky = (!note.data.isSticky) || undefined;
+}
+
+export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
+    if (isEditingTextSomewhereInDocument()) {
+        return false;
+    }
+
+    if (state._isShowingDurations) {
+        return false;
+    }
+
+    if (state._currentModal) {
+        return false;
+    }
+
+    return true;
 }
 
 export function resetState() {
