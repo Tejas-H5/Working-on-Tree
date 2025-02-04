@@ -280,11 +280,11 @@ export function lerpColor(c1: Color, c2: Color, factor: number, dst: Color) {
 export type ValidElement = HTMLElement | SVGElement;
 export interface Insertable<T extends ValidElement = HTMLElement> {
     el: T;
-    _isHidden: boolean;
+    _isHidden: number;
 };
 
 export function newInsertable<T extends ValidElement>(el: T): Insertable<T> {
-    return { el, _isHidden: false };
+    return { el, _isHidden: -1 };
 }
 
 /**
@@ -546,15 +546,20 @@ export function setClass<T extends ValidElement>(component: Insertable<T>, cssCl
  */
 export function setVisible<U extends ValidElement, T>(
     component: Insertable<U>, 
-    state: T | null | undefined | false | "" | 0
-): state is T {
-    component._isHidden = !state;
-    if (state) {
+    visibleState: T | null | undefined | false | "" | 0
+): visibleState is T {
+    const hiddenState = visibleState ? 0 : 1;
+    if (component._isHidden === hiddenState) {
+        return !!visibleState;
+    }
+
+    component._isHidden = hiddenState;
+    if (visibleState) {
         component.el.style.setProperty("display", "", "")
     } else {
         component.el.style.setProperty("display", "none", "important")
     }
-    return !!state;
+    return !!visibleState;
 }
 
 /** 
@@ -914,7 +919,7 @@ export class RenderGroup<S = null> {
         if (!root) {
             return false;
         }
-        if (root._isHidden) {
+        if (root._isHidden === 1) {
             return false;
         }
         // if ((root.el as HTMLElement).offsetParent === null) {
@@ -1437,16 +1442,27 @@ export class RenderGroup<S = null> {
         return true;
     }
 
+    _hasErrorClass = false;
     private readonly clearErrorClass = (errorRoot : Insertable<any>) => {
+        if (!this._hasErrorClass) {
+            return;
+        }
+
         errorRoot.el.style.removeProperty("--error-text");
+        setClass(errorRoot, "catastrophic---error", false);
     }
 
     private readonly setErrorClass = (errorRoot : Insertable<any>, e: any) => {
+        if (this._hasErrorClass) {
+            return;
+        }
+
         errorRoot = errorRoot;
 
         setClass(errorRoot, "catastrophic---error", true);
 
-        // We could include the actual error message here if we wanted to. But I'm not sure that's a good idea
+        // We could include the actual error message here if we wanted to. But I'm not sure that's a good idea.
+        // Also if we want to do that, we need to remove the guard at the top there
         const message = `An error occured while updating the ${this.templateName ?? "???"} component`;
         errorRoot.el.style.setProperty("--error-text", JSON.stringify(`${message}. You've found a bug!`));
 
@@ -1469,7 +1485,7 @@ export class RenderGroup<S = null> {
 
 
 function wasHiddenOrUninserted<T extends ValidElement>(ins: Insertable<T>) {
-    return ins._isHidden || !ins.el.parentElement;
+    return ins._isHidden === 1 || !ins.el.parentElement;
 }
 
 function checkForRenderMistake<T extends ValidElement>(ins: Insertable<T>) {
@@ -1489,7 +1505,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
     root: Insertable<U>;
     el: U;
     get _isHidden() { return this.root._isHidden; }
-    set _isHidden(val: boolean) { this.root._isHidden = val; }
+    set _isHidden(val: number) { this.root._isHidden = val; }
     _s: T | undefined;
     get s() {
         if (this._s === undefined) {
@@ -1632,7 +1648,7 @@ export class ListRenderer<R extends ValidElement, T, U extends ValidElement> imp
 
     get el() { return this.root.el; }
     get _isHidden() { return this.root._isHidden; }
-    set _isHidden(val: boolean) { this.root._isHidden = val; }
+    set _isHidden(val: number) { this.root._isHidden = val; }
 
     constructor(root: Insertable<R>, createFn: () => Component<T, U>) {
         this.root = root;

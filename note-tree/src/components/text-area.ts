@@ -91,6 +91,7 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
 
         // Actually quite important that this runs even when we aren't editing, because when we eventually
         // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
+        // TODO: optimize - this is the only reason why we can't view all 7000 notes at once.
         updateTextContentAndSize();
     });
 

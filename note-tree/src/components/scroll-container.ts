@@ -10,7 +10,23 @@ export function ScrollContainer(rg: RenderGroup<{
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;
     let lastWidth = 0;
+    let newWidth = 0;
     let lastHeight = 0;
+    let newHeight = 0;
+
+    const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            if (entry.target !== root.el) {
+                continue;
+            }
+
+            newWidth = entry.contentRect.width;
+            newHeight = entry.contentRect.width;
+            break;
+        }
+    });
+
+    observer.observe(root.el);
 
     function isH() {
         const s = rg.s;
@@ -55,17 +71,15 @@ export function ScrollContainer(rg: RenderGroup<{
         }
 
         if (isH()) {
-            const width = root.el.clientWidth;
-            if (width !== lastWidth) {
-                lastWidth = width;
+            if (newWidth !== lastWidth) {
+                lastWidth = newWidth;
                 shouldRerender = true;
             }
         }
 
         if (isV()) {
-            const height = root.el.clientHeight;
-            if (height !== lastHeight) {
-                lastHeight = height;
+            if (newHeight !== lastHeight) {
+                lastHeight = newHeight;
                 shouldRerender = true;
             }
         }

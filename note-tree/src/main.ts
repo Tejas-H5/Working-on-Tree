@@ -1722,6 +1722,9 @@ type NoteRowInputArgs = {
     readOnly: boolean;
     note: TreeNote;
     stickyOffset?: number;
+
+    _isSticky: boolean;
+
     hasDivider: boolean;
     hasLightDivider: boolean;
     scrollParent: HTMLElement | null;
@@ -1866,7 +1869,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     });
 
     rg.postRenderFn(s => {
-        const hasStuck = s.orignalOffsetTop !== -420 && s.orignalOffsetTop !== root.el.offsetTop;
+        let hasStuck = false;
+        if (s._isSticky) {
+            hasStuck = s.orignalOffsetTop !== -420 && s.orignalOffsetTop !== root.el.offsetTop;
+        }
+
         setStyle(root, "zIndex", hasStuck ? `${200 - noteDepth}` : "")
     });
 
@@ -1949,6 +1956,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                                 style: `background-color: ${cssVars.fgColor}; width: 1px; top: 0; height: 1ch;`
                             }, [
                                 rg.style("left", s => s[0] + "ch"),
+                                rg.style("width", s => s[2] ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth),
                             ]);
 
                             const belowHorizontal = div({ 
@@ -1956,24 +1964,15 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                                     style: `background-color: ${cssVars.fgColor}; width: 1px; top: 1ch; bottom: 0;` 
                             }, [
                                 rg.style("left", s => s[0] + "ch"),
+                                rg.style("width", s => s[4] ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth),
                             ]);
 
                             // a performance optimization so I don't have to use rg.if
                             rg.preRenderFn(s => {
                                 const [_depth, isAboveLineVisible, aboveFocused, isBelowLineVisible, belowFocused] = s;
-                                if (setVisible(aboveHorizontal, isAboveLineVisible)) {
-                                    setStyle(
-                                        aboveHorizontal, "width", 
-                                        aboveFocused ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth
-                                    );
-                                }
-                                if (setVisible(belowHorizontal, isBelowLineVisible)) {
-                                    setStyle(
-                                        belowHorizontal, "width",
-                                        belowFocused ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth
-                                    );
-                                }
-                            })
+                                setVisible(aboveHorizontal, isAboveLineVisible);
+                                setVisible(belowHorizontal, isBelowLineVisible);
+                            });
 
                             return contentsDiv({}, [belowHorizontal, aboveHorizontal]);
                         }
@@ -2115,9 +2114,13 @@ function NotesList(rg: RenderGroup<{
                 // Rendering the component once without sticky and then a second time with sticky, so that
                 // we can determine if a note has 'stuck' to the top of the page and apply a divider conditionally.
 
+                const isSticky = note.data.isSticky ||
+                    (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
+                    
                 component.render({
                     note,
                     stickyOffset: undefined,
+                    _isSticky: isSticky,
                     hasDivider: false,
                     hasLightDivider: false,
                     scrollParent,
@@ -2130,7 +2133,12 @@ function NotesList(rg: RenderGroup<{
                     ),
                     visualDepth: noteDepths?.[i],
                 });
-                component.s.orignalOffsetTop = component.el.offsetTop;
+
+                if (isSticky) {
+                    component.s.orignalOffsetTop = component.el.offsetTop;
+                } else {
+                    component.s.orignalOffsetTop = 0;
+                }
             }
         });
 
@@ -2155,23 +2163,24 @@ function NotesList(rg: RenderGroup<{
 
             const flatNotesRoot = getNote(state, state._currentFlatNotesRootId);
 
-            const isSticky = note.data.isSticky ||
-                (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
-
-            component.s.stickyOffset = isSticky ? stickyOffset : undefined;
-            component.renderWithCurrentState();
-
-            const hasStuck = component.s.orignalOffsetTop !== component.el.offsetTop;
-            if (hasStuck) {
-                const canHaveDivider = note.data._depth < flatNotesRoot?.data._depth;
-                if (canHaveDivider) {
-                    lastStuckComponentThatCanHaveADivider = component;
-                }
+            let previousStickyOffset = component.s.stickyOffset;
+            const newStickyOffset = component.s._isSticky ? stickyOffset : undefined;
+            if (previousStickyOffset !== newStickyOffset) {
+                component.s.stickyOffset = newStickyOffset;
+                component.renderWithCurrentState();
             }
 
-            // I have no idea how I would do this in React, tbh.
-            // But it was really damn easy here lol.
-            if (isSticky) {
+            if (component.s._isSticky) {
+                const hasStuck = component.s.orignalOffsetTop !== component.el.offsetTop;
+                if (hasStuck) {
+                    const canHaveDivider = note.data._depth < flatNotesRoot?.data._depth;
+                    if (canHaveDivider) {
+                        lastStuckComponentThatCanHaveADivider = component;
+                    }
+                }
+
+                // I have no idea how I would do this in React, tbh.
+                // But it was really damn easy here lol.
                 stickyOffset += component.el.getBoundingClientRect().height;
             }
         }
