@@ -16,6 +16,7 @@ import {
     el,
     getCurrentNumAnimations,
     initializeDomUtils,
+    isDebugging,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     newComponent,
@@ -28,18 +29,17 @@ import {
     setAttr,
     setAttrs,
     setClass,
+    setDebugMode,
     setInputValue,
     setStyle,
     setText,
     setVisible,
     span,
-    isDebugging,
-    setDebugMode,
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range } from "src/utils/fuzzyfind";
-import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import * as tree from "src/utils/int-tree";
+import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
@@ -121,10 +121,10 @@ import {
     setQuicklistIndex,
     setStateFromJSON,
     setTheme,
+    shouldScrollToNotes,
     state,
     toggleActivityScopedNote,
-    toggleNoteSticky,
-    shouldScrollToNotes
+    toggleNoteSticky
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -135,7 +135,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.01.00";
+const VERSION_NUMBER = "1.01.01";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -202,112 +202,10 @@ function ScrollNavItem(rg: RenderGroup<{
     ]);
 }
 
-function isNoteInSameGroupForTodoList(currentNote: TreeNote, other: TreeNote) {
-    const currentHigherLevelTask = getHigherLevelTask(state, currentNote);
-    let focusAnyway = false;
-    if (currentHigherLevelTask) {
-        const noteHigherLevelTask = getHigherLevelTask(state, other);
-        focusAnyway = noteHigherLevelTask?.id === currentHigherLevelTask.id;
-    }
-    return focusAnyway;
-}
-
 const NIL_HLT_HEADING = "<No higher level task>";
 
-function TodoListInternal(rg: RenderGroup<{
-    setScrollEl?(c: Insertable): void;
-    cursorNoteId?: NoteId;
-    disableHeaders: boolean;
-}>) {
-    function QuicklistItem(rg: RenderGroup<{
-        index: number;
-        hasCursor: boolean;
-        note: TreeNote;
-        text: string;
-        ranges?: Range[];
-        focusAnyway: boolean;
-    }>) {
-        return div({}, [
-            rg.cArgs(ScrollNavItem, (c, s) => c.render({
-                isCursorVisible: s.hasCursor,
-                isFocused: s.focusAnyway,
-                isCursorActive: isInQuicklist,
-            }), [
-                div({ class: [cn.flex1, cn.row], style: "padding-bottom: 10px" }, [
-                    div({ class: [cn.noWrap], style: "padding: 10px" }, [
-                        rg.text(s => "" + s.index)
-                    ]),
-                    rg.c(HighlightedText, (c, s) => c.render({
-                        text: s.text,
-                        highlightedRanges: s.ranges ?? [[0, s.text.length]],
-                    })),
-                    div({ class: [cn.flex1] }),
-                    rg.if(s => !!s.note.data.isSticky, rg =>
-                        rg && div({
-                            class: [cn.row, cn.alignItemsCenter, cn.pre],
-                            style: `background-color: ${cssVars.pinned}; color: #FFF`
-                        }, [" ! "]),
-                    )
-                ])
-            ])
-        ]);
-    }
-
-    const root = div();
-    const quicklistItemsList = newListRenderer(root, () => newComponent(QuicklistItem));
-
-    rg.preRenderFn((s) => {
-        const { setScrollEl, cursorNoteId, disableHeaders } = s;
-        let alreadyScrolled = false;
-
-        quicklistItemsList.render((getNext) => {
-            let lastHlt: TreeNote | undefined;
-
-            for (let i = 0; i < state._fuzzyFindState.matches.length; i++) {
-                const match = state._fuzzyFindState.matches[i];
-                const note = match.note;
-                const focusAnyway = isNoteInSameGroupForTodoList(getCurrentNote(state), note);
-
-                const higherLevelTask = getHigherLevelTask(state, note);
-                let hltHeading: string | undefined;
-                if (lastHlt !== higherLevelTask && !disableHeaders) {
-                    lastHlt = higherLevelTask;
-
-                    if (higherLevelTask) {
-                        hltHeading = getHltHeader(state, higherLevelTask);
-                    } else {
-                        hltHeading = NIL_HLT_HEADING;
-                    }
-                }
-
-                const lc = getNext();
-                lc.render({
-                    index: i,
-                    note: note,
-                    text: match.note.data.text,
-                    hasCursor: cursorNoteId === note.id,
-                    focusAnyway,
-                    ranges: match.ranges.length >= 1 ? match.ranges : undefined,
-                });
-
-                if (setScrollEl && !alreadyScrolled) {
-                    if (
-                        (cursorNoteId && note.id === cursorNoteId) ||
-                        (!cursorNoteId && focusAnyway)
-                    ) {
-                        setScrollEl(lc);
-                        alreadyScrolled = true;
-                    }
-                }
-            }
-        });
-    });
-
-    return root;
-}
-
 function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
-    const listInternal = newComponent(TodoListInternal);
+    const listInternal = newComponent(FuzzyFindResultsList);
     const empty = div({}, [
         "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down]. ",
         "If the query is empty, notes that have been pinned will appear here instead.",
@@ -342,22 +240,13 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     ]);
 
     rg.preRenderFn((s) => {
-        const { cursorNoteId } = s;
-
         setVisible(empty, state._fuzzyFindState.matches.length === 0);
 
         let scrollEl: Insertable | null = null;
 
-        function setScrollEl(el: Insertable) {
-            if (!scrollEl) {
-                scrollEl = el;
-            }
-        }
-
         listInternal.render({
-            setScrollEl,
-            cursorNoteId,
-            disableHeaders: false,
+            finderState: state._fuzzyFindState,
+            compact: true,
         });
 
         scrollContainer.render({
@@ -1230,15 +1119,15 @@ function HighlightedText(rg: RenderGroup<{
     });
 }
 
-
-function FuzzyFinder(rg: RenderGroup<{ 
-    visible: boolean;
-    state: FuzzyFindState;
+function FuzzyFindResultsList(rg: RenderGroup<{
+    finderState: FuzzyFindState;
+    compact: boolean;
 }>) {
     function FuzzyFinderResultItem(rg: RenderGroup<{
         note: TreeNote;
         ranges: Range[];
         hasFocus: boolean;
+        compact: boolean;
     }>) {
         const textDiv = newComponent(HighlightedText);
         const children = [
@@ -1246,11 +1135,13 @@ function FuzzyFinder(rg: RenderGroup<{
                 class: [cn.row, cn.justifyContentStart],
                 style: "padding-right: 20px; padding: 10px;"
             }, [
-                div({ class: [cn.pre] }, [
-                    rg.text(({ note }) => {
-                        return getNoteProgressCountText(note) + " - ";
-                    })
-                ]),
+                rg.if(s => !s.compact, rg =>
+                    div({ class: [cn.pre] }, [
+                        rg.text(({ note }) => {
+                            return getNoteProgressCountText(note) + " - ";
+                        })
+                    ])
+                ),
                 div({ class: [cn.flex1] }, [
                     textDiv,
                 ]),
@@ -1264,13 +1155,19 @@ function FuzzyFinder(rg: RenderGroup<{
                 rg.c(NoteRowDurationInfo, (c, s) => c.render({ note: s.note })),
             ]),
             rg.if(s => s.hasFocus, rg =>
-                rg.with(s => getLastSelectedNote(state, s.note) || undefined, rg =>
+                rg.with(s => {
+                    const lastSelectedNote = getLastSelectedNote(state, s.note);
+                    if (lastSelectedNote) {
+                        return [s, lastSelectedNote] as const;
+                    }
+                }, rg =>
                     div({
                         class: [cn.row, cn.justifyContentStart, cn.preWrap],
-                        style: "padding: 10px 10px 10px 100px;"
+                        style: "padding: 10px 10px 10px 10px;"
                     }, [
+                        rg.style("paddingLeft", s => s[0].compact ? "10px" : "100px"),
                         div({ class: [cn.flex1], style: `border: 1px solid ${cssVars.fgColor}; padding: 10px;` }, [
-                            rg.text(s => s.data.text)
+                            rg.text(s => s[1].data.text)
                         ])
                     ])
                 )
@@ -1301,7 +1198,30 @@ function FuzzyFinder(rg: RenderGroup<{
 
         return root;
     };
+
     const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
+
+    rg.preRenderFn(({ finderState, compact }) => {
+        resultList.render((getNext) => {
+            for (let i = 0; i < finderState.matches.length; i++) {
+                const m = finderState.matches[i];
+                getNext().render({
+                    note: m.note,
+                    ranges: m.ranges,
+                    hasFocus: i === finderState.currentIdx,
+                    compact
+                });
+            }
+        });
+    });
+
+    return resultList;
+}
+
+function FuzzyFinder(rg: RenderGroup<{ 
+    visible: boolean;
+    state: FuzzyFindState;
+}>) {
     const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
     const root = div({ class: [cn.flex1, cn.col] }, [
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
@@ -1319,7 +1239,10 @@ function FuzzyFinder(rg: RenderGroup<{
         ]),
         div({ style: "height: 10px" }),
         div({ class: [cn.flex1] }, [
-            resultList
+            rg.c(FuzzyFindResultsList, (c, s) => c.render({ 
+                finderState: s.state,
+                compact: false,
+            })),
         ]),
     ]);
 
@@ -1368,17 +1291,6 @@ function FuzzyFinder(rg: RenderGroup<{
         if (finderState.currentIdx >= finderState.matches.length) {
             finderState.currentIdx = 0;
         }
-
-        resultList.render((getNext) => {
-            for (let i = 0; i < finderState.matches.length; i++) {
-                const m = finderState.matches[i];
-                getNext().render({
-                    note: m.note,
-                    ranges: m.ranges,
-                    hasFocus: i === finderState.currentIdx,
-                });
-            }
-        });
     });
 
     searchInput.el.addEventListener("keydown", (e) => {
@@ -1818,12 +1730,14 @@ type NoteRowInputArgs = {
     forceOneLine: boolean;
 
     orignalOffsetTop: number;
+    visualDepth?: number;
 };
 
 function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     const INDENT1 = 3;
     const INDENT2 = INDENT1;
     let startDepth = 0;
+    let noteDepth = 0;
     const getIndentation = (depth: number) => {
         const difference = depth - startDepth;
         // Notes on the current level or deeper get indented a bit more, for visual clarity,
@@ -1921,9 +1835,13 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         readOnly,
         currentNote,
         listHasFocus,
+        visualDepth,
     }) {
         const flatNotesRoot = getNoteOrUndefined(state, state._currentFlatNotesRootId);
-        startDepth = flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth;
+        noteDepth = visualDepth ?? note.data._depth;
+        startDepth = visualDepth !== undefined ? 0 : (
+            flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth
+        );
 
         const wasFocused = isFocused;
         isFocused = currentNote.id === note.id && state._currentModal === null;
@@ -1949,7 +1867,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
     rg.postRenderFn(s => {
         const hasStuck = s.orignalOffsetTop !== -420 && s.orignalOffsetTop !== root.el.offsetTop;
-        setStyle(root, "zIndex", hasStuck ? `${200 - s.note.data._depth}` : "")
+        setStyle(root, "zIndex", hasStuck ? `${200 - noteDepth}` : "")
     });
 
     const cursorElement = div({ style: "width: 10px;" }, [
@@ -2021,8 +1939,8 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 div({ class: [cn.relative] }, [
                     // HACK - tree lines shouldn't be broken by the duration bars
                     rg.style("marginBottom", () => isShowingDurations ? `-${DURATION_BAR_HEIGHT}px` : ""),
-                    rg.style("minWidth", ({ note }) => {
-                        return getIndentation(note.data._depth) + "ch";
+                    rg.style("minWidth", () => {
+                        return getIndentation(noteDepth) + "ch";
                     }),
                     () => {
                         function VerticalStroke(rg: RenderGroup<[number, boolean, boolean, boolean, boolean]>) {
@@ -2062,11 +1980,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         
                         return rg.list(contentsDiv(), VerticalStroke, (getNext, s) => {
 
-                            const depth = s.note.data._depth;;
+                            const depth = noteDepth;
                             let currentDepth = depth;
                             let parent = s.note;
 
-                            while (!idIsNil(parent.parentId)) {
+                            while (!idIsNil(parent.parentId) && currentDepth >= 0) {
                                 const isParentLastNote = parent.data._index === parent.data._numSiblings - 1;
                                 const isTopFocused = s.note.data._selectedPathDepth === currentDepth;
                                 const isBottomFocused = s.note.data._selectedPathDepth === currentDepth
@@ -2159,6 +2077,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
 function NotesList(rg: RenderGroup<{
     flatNoteIds: NoteId[];
+    noteDepths?: number[];
     scrollParent: HTMLElement | null;
     currentNoteId: NoteId | null;
     hasFocus: boolean;
@@ -2170,7 +2089,7 @@ function NotesList(rg: RenderGroup<{
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
     rg.preRenderFn(function renderNoteListInteral(s) {
-        const { flatNoteIds, scrollParent, currentNoteId, hasFocus } = s;
+        const { flatNoteIds, scrollParent, currentNoteId, hasFocus, noteDepths } = s;
 
         if (!setVisible(root, flatNoteIds.length > 0)) {
             return;
@@ -2209,6 +2128,7 @@ function NotesList(rg: RenderGroup<{
                     forceOneLine: state.settings.nonEditingNotesOnOneLine ? true : (
                         state.settings.parentNotesOnOneLine ? isParentNote : false
                     ),
+                    visualDepth: noteDepths?.[i],
                 });
                 component.s.orignalOffsetTop = component.el.offsetTop;
             }

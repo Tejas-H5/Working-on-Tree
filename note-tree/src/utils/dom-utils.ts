@@ -1,4 +1,4 @@
-// DOM-utils v0.1.16 - @Tejas-H5
+// DOM-utils v0.1.17 - @Tejas-H5
 
 // ---- initialize the 'framework'
 
@@ -1478,7 +1478,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
     rendering = false;
     /** Used for debugging purposes */
     templateName: string;
-    renderFn: { fn: (s: T) => void };
+    renderFn: (s: T) => void;
 
     constructor(
         root: Insertable<U>, 
@@ -1490,7 +1490,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
         this.el = root.el;
         this.templateName = templateName;
         this._s = s;
-        this.renderFn = { fn: renderFn };
+        this.renderFn = renderFn;
     }
     /**
      * Renders the component with the arguments provided.
@@ -1498,7 +1498,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
      * if skipErrorBoundary has not been set to false (it is true by default), any exceptions are handled by 
      * adding the "catastrophic---error" css class to the root element of this component.
      */
-    render(args: T) {
+    readonly render = (args: T) => {
         this._s = args;
         this.renderWithCurrentState();
     }
@@ -1508,9 +1508,9 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
      * if skipErrorBoundary has been set to true, any exceptions are handled by 
      * adding the "catastrophic---error" css class to the root element of this component.
      */
-    renderWithCurrentState() {
+    readonly renderWithCurrentState = () => {
         if (this.rendering) {
-            throw new Error("Can't call a this's render method while it's already rendering");
+            throw new Error("Can't call a render method while it's already rendering");
         }
 
         if (this.instantiated) {
@@ -1524,7 +1524,7 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
         this.rendering = true;
 
         try {
-            this.renderFn.fn(this.s);
+            this.renderFn(this.s);
         } finally {
             this.rendering = false;
         }
