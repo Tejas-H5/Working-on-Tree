@@ -1,4 +1,4 @@
-// DOM-utils v0.1.17 - @Tejas-H5
+// DOM-utils v0.1.18 - @Tejas-H5
 
 // ---- initialize the 'framework'
 
@@ -946,7 +946,16 @@ export class RenderGroup<S = null> {
      */
     readonly text = (fn: (s: S) => string): Insertable<HTMLSpanElement> => {
         const e = span();
-        this.pushRenderFn(this.domRenderFnList, (s) => setText(e, fn(s)), e);
+        let lastText: string | undefined;
+        this.pushRenderFn(this.domRenderFnList, (s) => {
+            // we can just do that direct memoization thing that I havea assumed the browser devs expected us to do (as I've mentioned in another comment somewhere here), rather
+            // that calling `setText, which will first query what the text was with e.el.textContent. same for all the other methods here.
+            const text = fn(s);
+            if (lastText !== text) {
+                lastText = text;
+                e.el.textContent = text;
+            }
+        }, e);
         return e;
     }
 
@@ -1187,9 +1196,9 @@ export class RenderGroup<S = null> {
     ): ListRenderer<R, T, U> => {
         const listRenderer = newListRenderer(root, () => newComponent(templateFn));
         this.pushRenderFn(this.domRenderFnList, (s) => {
-            listRenderer.render((getNext) => {
-                renderFn(getNext, s, listRenderer);
-            });
+            listRenderer.startRendering();
+            renderFn(listRenderer.__getNext, s, listRenderer);
+            listRenderer.finishRendering();
             this.ifStatementOpen = listRenderer.lastIdx === 0;
         }, root);
         return listRenderer;
@@ -1198,9 +1207,20 @@ export class RenderGroup<S = null> {
     /** 
      * Returns functionality that will enable/disable a particular class in the classList each render.
      */
-    readonly class = <U extends ValidElement>(className: string, predicate: (s: S) => boolean): Functionality<U> => {
+    readonly class = <U extends ValidElement>(cssClass: string, predicate: (s: S) => boolean): Functionality<U> => {
         return (parent) => {
-            this.pushRenderFn(this.domRenderFnList, (s) => setClass(parent, className, predicate(s)), parent);
+            let hadClass: boolean | undefined;
+            this.pushRenderFn(this.domRenderFnList, (s) => {
+                const state = predicate(s);
+                if (hadClass !== state) {
+                    hadClass = state;
+                    if (state) {
+                        parent.el.classList.add(cssClass);
+                    } else {
+                        parent.el.classList.remove(cssClass);
+                    }
+                }
+            }, parent);
         }
     }
 
@@ -1209,8 +1229,15 @@ export class RenderGroup<S = null> {
      */
     readonly style = <U extends ValidElement, K extends StyleObject<U>>(val: K, valueFn: (s: S) => U["style"][K]): Functionality<U> => {
         return (parent) => {
-            const currentStyle = parent.el.style[val];
-            this.pushRenderFn(this.domRenderFnList, (s) => setStyle(parent, val, valueFn(s) || currentStyle), parent);
+            const initialStyle = parent.el.style[val];
+            let lastValue = initialStyle;
+            this.pushRenderFn(this.domRenderFnList, (s) => {
+                const newValue = valueFn(s) || initialStyle;
+                if (lastValue !== newValue) {
+                    lastValue = newValue;
+                    parent.el.style[val] = newValue;
+                }
+            }, parent);
         };
     }
 
@@ -1612,7 +1639,8 @@ export class ListRenderer<R extends ValidElement, T, U extends ValidElement> imp
         this.createFn = createFn;
     }
 
-    private readonly getNext = () => {
+    // You should only call this directly if you know what you're doing.
+    readonly __getNext = () => {
         if (this.lastIdx > this.components.length) {
             throw new Error("Something strange happened when resizing the component pool");
         }
@@ -1626,15 +1654,24 @@ export class ListRenderer<R extends ValidElement, T, U extends ValidElement> imp
         return this.components[this.lastIdx++];
     }
 
-    readonly render = (renderFn: (getNext: () => Component<T, U>) => void) => {
+    // If you detest callbacks, you can use startRendering and finishRendering.
+    readonly startRendering = () => {
         this.lastIdx = 0;
+    }
 
-        renderFn(this.getNext);
-
+    readonly finishRendering = () => {
         while (this.components.length > this.lastIdx) {
             const component = this.components.pop()!;
             component.el.remove();
         }
+    }
+
+    readonly render = (renderFn: (getNext: () => Component<T, U>) => void) => {
+        this.startRendering();
+
+        renderFn(this.__getNext);
+
+        this.finishRendering();
     }
 };
 
