@@ -247,6 +247,7 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
         listInternal.render({
             finderState: state._fuzzyFindState,
             compact: true,
+            isCursorActive: isInQuicklist,
         });
 
         scrollContainer.render({
@@ -1122,12 +1123,14 @@ function HighlightedText(rg: RenderGroup<{
 function FuzzyFindResultsList(rg: RenderGroup<{
     finderState: FuzzyFindState;
     compact: boolean;
+    isCursorActive: boolean;
 }>) {
     function FuzzyFinderResultItem(rg: RenderGroup<{
         note: TreeNote;
         ranges: Range[];
         hasFocus: boolean;
         compact: boolean;
+        isCursorActive: boolean;
     }>) {
         const textDiv = newComponent(HighlightedText);
         const children = [
@@ -1187,12 +1190,12 @@ function FuzzyFindResultsList(rg: RenderGroup<{
             root.render({
                 isFocused: hasFocus,
                 isCursorVisible: hasFocus,
-                isCursorActive: true,
+                isCursorActive: s.isCursorActive,
             });
 
             if (hasFocus) {
                 const scrollParent = root.el.parentElement!;
-                scrollIntoView(scrollParent, root, 0.5);
+                scrollIntoView(scrollParent, root, 0.5, 0.5);
             }
         });
 
@@ -1201,7 +1204,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
 
     const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
 
-    rg.preRenderFn(({ finderState, compact }) => {
+    rg.preRenderFn(({ finderState, compact, isCursorActive }) => {
         resultList.render((getNext) => {
             for (let i = 0; i < finderState.matches.length; i++) {
                 const m = finderState.matches[i];
@@ -1209,7 +1212,8 @@ function FuzzyFindResultsList(rg: RenderGroup<{
                     note: m.note,
                     ranges: m.ranges,
                     hasFocus: i === finderState.currentIdx,
-                    compact
+                    compact,
+                    isCursorActive
                 });
             }
         });
@@ -1242,6 +1246,7 @@ function FuzzyFinder(rg: RenderGroup<{
             rg.c(FuzzyFindResultsList, (c, s) => c.render({ 
                 finderState: s.state,
                 compact: false,
+                isCursorActive: true,
             })),
         ]),
     ]);
@@ -1507,6 +1512,14 @@ function SettingsModal(rg: RenderGroup) {
                 div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
                     el("H3", { class: [cn.textAlignCenter] }, "Settings"),
                     rg.c(Checkbox, (c) => c.render({
+                        label: "Show all notes (May cause instability, so this setting won't be saved)",
+                        value: state._showAllNotes,
+                        onChange(val) {
+                            state._showAllNotes = val;
+                            rerenderApp();
+                        }
+                    })),
+                    rg.c(Checkbox, (c) => c.render({
                         label: "Force notes that aren't being edited to be a single line",
                         value: state.settings.nonEditingNotesOnOneLine,
                         onChange(val) {
@@ -1755,6 +1768,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     let isEditing = false;
     let isShowingDurations = false;
 
+    let currentSelectionStart = 0;
 
     function onInput(text: string) {
         if (!rg.s.listHasFocus) {
@@ -1773,10 +1787,12 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         rerenderApp();
     }
 
-    function onInputKeyDown(e: KeyboardEvent) {
+    function onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement) {
         if (!rg.s.listHasFocus) {
             return;
         }
+
+        currentSelectionStart = textArea.selectionStart ?? 0;
 
         const currentNote = rg.s.currentNote;
         const shiftPressed = e.shiftKey;
@@ -1789,6 +1805,10 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
             // it was handled
         } else if (e.key === "Backspace") {
             deleteNoteIfEmpty(state, currentNote.id);
+            shouldPreventDefault = false;
+        } else if (e.key === "ArrowUp") {
+            shouldPreventDefault = false;
+        } else if (e.key === "ArrowDown") {
             shouldPreventDefault = false;
         } else {
             needsRerender = false;
@@ -1826,8 +1846,24 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
         clearStickyOffset();
 
+        // Want to scroll based on where we are in the current note.
+        const text = rg.s.note.data.text;
+        let newLinesToScroll = 0;
+        let newLinesInTotal = 1;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (c === "\n") {
+                if (i <= currentSelectionStart) {
+                    newLinesToScroll += 1;
+                }
+                newLinesInTotal += 1;
+            }
+        }
+
+        const percentageToScroll = newLinesToScroll / newLinesInTotal;
+
         // We can completely obscure the activity and todo lists, now that we have the right-dock
-        scrollIntoView(scrollParent, root, 0.5);
+        scrollIntoView(scrollParent, root, 0.5, percentageToScroll);
 
         setStickyOffset();
     }
@@ -1859,7 +1895,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
         // do auto-scrolling
         if (scrollParent && listHasFocus && shouldScrollToNotes(state)) {
-            if (isFocused && (!wasFocused || (wasShowingDurations !== isShowingDurations))) {
+            if (isFocused) {
                 // without setTimeout here, calling focus won't work as soon as the page loads.
                 setTimeout(() => {
                     scrollComponentToView(scrollParent);
@@ -2114,8 +2150,10 @@ function NotesList(rg: RenderGroup<{
                 // Rendering the component once without sticky and then a second time with sticky, so that
                 // we can determine if a note has 'stuck' to the top of the page and apply a divider conditionally.
 
-                const isSticky = note.data.isSticky ||
-                    (note.data._status === STATUS_IN_PROGRESS && note.data._depth <= flatNotesRoot?.data._depth);
+                // NOTE: stickyness now has nothing to do with isSticky. We can get to those notes quickly enough
+                // using the quicklist anyway.
+                const isSticky = state._showAllNotes ? false :
+                    note.data._depth < flatNotesRoot?.data._depth;
                     
                 component.render({
                     note,

@@ -1,4 +1,4 @@
-// DOM-utils v0.1.18 - @Tejas-H5
+// DOM-utils v0.1.19 - @Tejas-H5
 
 // ---- initialize the 'framework'
 
@@ -747,13 +747,14 @@ export function scrollIntoView(
     scrollParent: HTMLElement,
     scrollTo: Insertable<HTMLElement>,
     scrollToRelativeOffset: number,
+    scrollToItemOffset: number,
     horizontal = false,
 ) {
     if (horizontal) {
         // NOTE: this is a copy-paste from below
 
         const scrollOffset = scrollToRelativeOffset * scrollParent.offsetWidth;
-        const elementWidthOffset = scrollToRelativeOffset * scrollTo.el.getBoundingClientRect().width;
+        const elementWidthOffset = scrollToItemOffset * scrollTo.el.getBoundingClientRect().width;
 
         // offsetLeft is relative to the document, not the scroll parent. lmao
         const scrollToElOffsetLeft = scrollTo.el.offsetLeft - scrollParent.offsetLeft;
@@ -764,7 +765,7 @@ export function scrollIntoView(
     }
 
     const scrollOffset = scrollToRelativeOffset * scrollParent.offsetHeight;
-    const elementHeightOffset = scrollToRelativeOffset * scrollTo.el.getBoundingClientRect().height;
+    const elementHeightOffset = scrollToItemOffset * scrollTo.el.getBoundingClientRect().height;
 
     // offsetTop is relative to the document, not the scroll parent. lmao
     const scrollToElOffsetTop = scrollTo.el.offsetTop - scrollParent.offsetTop;

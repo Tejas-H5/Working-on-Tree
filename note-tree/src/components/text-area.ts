@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { Insertable, RenderGroup, cn, div, el, setAttr, setInputValue, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
 export function newTextArea(): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", {
@@ -27,19 +27,22 @@ export type EditableTextAreaArgs = {
     text: string;
     isEditing: boolean;
     isOneLineWhenNotEditing?: boolean;
-    onInput(text: string): void;
-    onInputKeyDown(e: KeyboardEvent): void;
+    onInput(text: string, textArea: HTMLTextAreaElement): void;
+    onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
 };
 
 export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
-    const whenNotEditing = div({ class: [cn.handleLongWords], style: "" }, [
-        rg.class(cn.preWrap, s => !s.isOneLineWhenNotEditing),
-        rg.class(cn.overflowHidden, s => !!s.isOneLineWhenNotEditing),
-        rg.class(cn.noWrap, s => !!s.isOneLineWhenNotEditing),
-    ]);
     const whenEditing = newTextArea();
-    setAttr(whenEditing, "rows", "1");
-    setAttr(whenEditing, "class", cn.flex1);
+    setClass(whenEditing, cn.absolute, true);
+    setStyle(whenEditing, "backgroundColor", "transparent");
+    setStyle(whenEditing, "color", "transparent");
+
+    const whenNotEditing = div({ class: [cn.handleLongWords] }, [
+        rg.class(cn.preWrap, s => !(s.isOneLineWhenNotEditing && !isEditing)),
+        rg.class(cn.pre, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
+        rg.class(cn.overflowHidden, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
+        rg.class(cn.noWrap, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
+    ]);
     setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
     // the updateTextContentAndSize triggers a lot of reflows, making it
@@ -51,27 +54,12 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
         if (lastText === s.text && lastIsEditing === s.isEditing) {
             return;
         }
+
         lastText = s.text;
         // for some reason, we need to render this thing again when we start editing - perhaps
         // setting the input value doesn't work if it isn't visible...
         lastIsEditing = s.isEditing;
-
         setInputValue(whenEditing, s.text);
-
-        // We need our root's height to temporarily be the same as whenEditing, 
-        // so that the document's size doesn't reduce drastically, causing scrolling to reset
-        // with long text areas.
-        const currentHeight = Math.max(
-            // only one is visible at a time. as mentioned, this is ran when editing AND not editing.
-            whenEditing.el.clientHeight,
-            whenNotEditing.el.clientHeight,
-        );
-        root.el.style.height = currentHeight + "px";
-
-        whenEditing.el.style.height = "0";
-        whenEditing.el.style.height = whenEditing.el.scrollHeight + "px";
-
-        root.el.style.height = "";
     }
 
     let isEditing = false;
@@ -79,36 +67,39 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
         const wasEditing = isEditing;
         isEditing = s.isEditing;
 
+        if (isEditing) {
+            // This is now a facade that gives the text area the illusion of auto-sizing!
+            // but it only works if the text doesn't end in whitespace....
+            setText(whenNotEditing, s.text + ".");
+        } else {
+            setText(whenNotEditing, s.text);
+        }
+
         if (setVisible(whenEditing, isEditing)) {
             if (!wasEditing) {
                 whenEditing.el.focus({ preventScroll: true });
             }
         }
 
-        if (setVisible(whenNotEditing, !isEditing)) {
-            setText(whenNotEditing, s.text);
-        }
-
         // Actually quite important that this runs even when we aren't editing, because when we eventually
         // set the input visible, it needs to auto-size to the correct height, and it won't do so otherwise
-        // TODO: optimize - this is the only reason why we can't view all 7000 notes at once.
         updateTextContentAndSize();
     });
 
-    const root = div({ class: [cn.flex1, cn.row, cn.h100], style: "overflow-y: hidden;" }, [
+    const root = div({ class: [cn.flex1, cn.row, cn.h100, cn.relative], style: "overflow-y: hidden;" }, [
         whenNotEditing, 
-        whenEditing
+        whenEditing,
     ]);
 
     whenEditing.el.addEventListener("input", () => {
         const s = rg.s;
 
-        s.onInput(whenEditing.el.value);
+        s.onInput(whenEditing.el.value, whenEditing.el);
     });
 
     whenEditing.el.addEventListener("keydown", (e) => {
         const s = rg.s;
-        s.onInputKeyDown(e);
+        s.onInputKeyDown(e, whenEditing.el);
     });
 
     return root;

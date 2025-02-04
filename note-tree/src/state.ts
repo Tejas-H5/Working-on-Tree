@@ -116,6 +116,8 @@ export type NoteTreeGlobalState = {
     mainGraphData: GraphData;
 
     settings: AppSettings;
+    // This might make the program unopenable, so it's a transient setting for now
+    _showAllNotes: boolean;
 
     // Schema major versions
     // undefined -> the schema we've had since almost the start
@@ -394,6 +396,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
             nonEditingNotesOnOneLine: true,
             parentNotesOnOneLine: true,
         },
+        _showAllNotes: false,
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
@@ -1028,21 +1031,31 @@ export function recomputeState(state: NoteTreeGlobalState) {
             state._flatNoteIds = [];
         }
 
-        let startNote = getCurrentNote(state);
-        while (!idIsNilOrRoot(startNote.parentId)) {
-            const nextNote = getNote(state, startNote.parentId);
+        if (state._showAllNotes) {
+            state._currentFlatNotesRootId = 0;
+            state._currentFlatNotesRootHltId = 0;
 
-            if (isStoppingPointForNotViewExpansion(state, nextNote)) {
-                break;
+            clearArray(state._flatNoteIds);
+            tree.forEachNode(state.notes, (note) => {
+                state._flatNoteIds.push(note.id);
+            });
+        } else {
+            let startNote = getCurrentNote(state);
+            while (!idIsNilOrRoot(startNote.parentId)) {
+                const nextNote = getNote(state, startNote.parentId);
+
+                if (isStoppingPointForNotViewExpansion(state, nextNote)) {
+                    break;
+                }
+
+                startNote = nextNote;
             }
 
-            startNote = nextNote;
+            state._currentFlatNotesRootId = startNote.id;
+            state._currentFlatNotesRootHltId = startNote.parentId;
+
+            recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
         }
-
-        state._currentFlatNotesRootId = startNote.id;
-        state._currentFlatNotesRootHltId = startNote.parentId;
-
-        recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
     }
 
     // recompute tree visual path _selectedPathDepth, _selectedPathDepthIsFirst from _flatNoteIds
@@ -2083,7 +2096,7 @@ export function toggleNoteSticky(note: TreeNote) {
 }
 
 export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
-    if (isEditingTextSomewhereInDocument()) {
+    if (isEditingTextSomewhereInDocument() && !state._isEditingFocusedNote) {
         return false;
     }
 

@@ -47,11 +47,11 @@ export function ScrollContainer(rg: RenderGroup<{
                 // The same scroll container can be used for both or either axis!
 
                 if (isH()) {
-                    scrollIntoView(scrollParent, lastScrollEl, 0.5, true);
+                    scrollIntoView(scrollParent, lastScrollEl, 0.5, 0.5, true);
                 }
 
                 if (isV()) {
-                    scrollIntoView(scrollParent, lastScrollEl, 0.5, false);
+                    scrollIntoView(scrollParent, lastScrollEl, 0.5, 0.5, false);
                 }
             } else {
                 scrollParent.scrollTop = 0;
