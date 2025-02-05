@@ -9,14 +9,17 @@ export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sat",
 ]
 
+
+// NOTE: seperator used to be used to remove slashes so that this would be a valid file name.
+// now, we use it to animate the clock...
 export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek = false, useSeconds = false) {
     if (!seperator) {
-        seperator = "/";
+        seperator = ":";
     }
 
     if (!date) {
         const dayOfTheWeekStr = !dayOfTheWeek ? "" : ("---" + " ");
-        return `${dayOfTheWeekStr}--${seperator}--${seperator}---- --:-- --`;
+        return `${dayOfTheWeekStr}--/--/---- --${seperator}-- --`;
     }
 
     const dd = date.getDate();
@@ -28,7 +31,7 @@ export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek =
 
     const dayOfTheWeekStr = !dayOfTheWeek ? "" : (DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()] + " ");
     const secondsText = useSeconds  ? `:${pad2(seconds)}` : "";
-    return `${dayOfTheWeekStr}${pad2(dd)}${seperator}${pad2(mm)}${seperator}${yyyy} ${pad2(((hours - 1) % 12) + 1)}:${pad2(minutes)}${secondsText} ${
+    return `${dayOfTheWeekStr}${pad2(dd)}/${pad2(mm)}/${yyyy} ${pad2(((hours - 1) % 12) + 1)}${seperator}${pad2(minutes)}${secondsText} ${
         hours < 12 ? "am" : "pm"
     }`;
 }

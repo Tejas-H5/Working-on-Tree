@@ -71,12 +71,12 @@ import {
     getCurrentStateAsJSON,
     getFirstPartOfRow,
     getHigherLevelTask,
-    getHltHeader,
     getLastActivity,
     getLastActivityWithNote,
     getLastActivityWithNoteIdx,
     getLastSelectedNote,
     getMostRecentlyWorkedOnChildActivityIdx,
+    getMostRecentlyWorkedOnChildActivityNote,
     getNote,
     getNoteChildEstimates,
     getNoteDurationUsingCurrentRange,
@@ -135,7 +135,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.01.01";
+const VERSION_NUMBER = "1.01.02";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -613,7 +613,8 @@ function ExportModal(rg: RenderGroup) {
                 label: "Download JSON",
                 onClick: () => {
                     handleErrors(() => {
-                        saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date(), "-")}.json`);
+                        // TODO: custom method to generate a new file name
+                        saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date()).replace(/\//g, "-")}.json`);
                     });
                 }
             }))
@@ -1159,9 +1160,9 @@ function FuzzyFindResultsList(rg: RenderGroup<{
             ]),
             rg.if(s => s.hasFocus, rg =>
                 rg.with(s => {
-                    const lastSelectedNote = getLastSelectedNote(state, s.note);
-                    if (lastSelectedNote) {
-                        return [s, lastSelectedNote] as const;
+                    const note  = getMostRecentlyWorkedOnChildActivityNote(state, s.note);
+                    if (note) {
+                        return [s, note] as const;
                     }
                 }, rg =>
                     div({
@@ -1305,8 +1306,8 @@ function FuzzyFinder(rg: RenderGroup<{
         
         if (note && e.key === "Enter") {
             e.preventDefault();
-            const lastSelectedChild = getLastSelectedNote(state, note);
-            setCurrentNote(state, (lastSelectedChild ?? note).id, true);
+            const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
+            setCurrentNote(state, (previewNote ?? note).id, true);
             setCurrentModalAndRerenderApp(null);
             rerenderApp();
             return;
@@ -2768,7 +2769,9 @@ function setQuicklistIndexForMove(idx: number) {
     setQuicklistIndex(state, idx);
 
     // Move to the most recent note in this subtree.
-    setCurrentNote(state, state._fuzzyFindState.matches[getQuicklistIndex(state)].note.id);
+    const note = state._fuzzyFindState.matches[getQuicklistIndex(state)].note;
+    const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
+    setCurrentNote(state, (previewNote ?? note).id);
     setIsEditingCurrentNote(state, false);
 }
 
@@ -3329,7 +3332,7 @@ export function App(rg: RenderGroup) {
             }))
         ]),
         div({ class: [cn.flex1, cn.row, cn.alignItemsCenter, cn.justifyContentCenter] }, [
-            statusTextIndicator,
+            rg.c(StatusIndicator, (c, s) => c.render(null)),
         ]),
         div({ class: [cn.row] }, [
             isRunningFromFile() ? (
@@ -3955,20 +3958,43 @@ export function App(rg: RenderGroup) {
     return appRoot;
 };
 
+
 let statusTextClearTimeout = 0;
-const statusTextIndicator = div({ class: [cn.preWrap], style: `background-color: ${cssVars.bgColor}` })
-const showStatusText = (text: string, color: string = `${cssVars.fgColor}`, timeout: number = STATUS_TEXT_PERSIST_TIME) => {
+let statusText = "";
+let statusTextColor = "";
+function StatusIndicator(rg: RenderGroup) {
+    return div({ class: [cn.preWrap], style: `background-color: ${cssVars.bgColor}` }, [
+        rg.realtime(
+            rg => rg.text(() => {
+                if (statusText) {
+                    return statusText;
+                }
+
+                const now = new Date();
+                const useColon = now.getTime() % 1000 < 500;    // top notch animation
+
+                return formatDate(new Date(), useColon ? ":" : " ") + " - [Press F1 for help]";
+            })
+        ),
+        rg.style("color", () => statusTextColor),
+    ]);
+}
+
+const showStatusText = (text: string, color: string = cssVars.fgColor, timeout: number = STATUS_TEXT_PERSIST_TIME) => {
     if (statusTextClearTimeout) {
         clearTimeout(statusTextClearTimeout);
     }
 
-    statusTextIndicator.el.textContent = text;
-    statusTextIndicator.el.style.color = color;
+    statusText = text;
+    statusTextColor = color;
+    rerenderApp();
 
     const timeoutAmount = timeout;
     if (timeoutAmount > 0) {
         statusTextClearTimeout = setTimeout(() => {
-            statusTextIndicator.el.textContent = "[Press F1 for help]";
+            statusText = "";
+            statusTextColor = cssVars.fgColor;
+            rerenderApp();
         }, timeoutAmount);
     }
 };

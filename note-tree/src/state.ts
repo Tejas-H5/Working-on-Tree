@@ -1885,8 +1885,6 @@ export function isMultiDay(activity: Activity, nextActivity: Activity | undefine
 
 // This is recursive
 export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalState, note: TreeNote): number | undefined {
-    recomputeNoteIsUnderFlag(state, note);
-
     const noteCreatedAt = new Date(note.data.openedAt);
 
     for (let i = state.activities.length - 1; i > 0; i--) {
@@ -1900,13 +1898,23 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalSta
             continue;
         }
 
-        const note = getNote(state, activity.nId);
-        if (note.data._isUnderCurrent) {
+        const activityNote = getNote(state, activity.nId);
+        if (activityNote.id !== note.id && isNoteUnderParent(state, note.id, activityNote)) {
             return i;
         }
     }
 
     return undefined;
+}
+
+export function getMostRecentlyWorkedOnChildActivityNote(state: NoteTreeGlobalState, note: TreeNote): TreeNote | undefined {
+    const idx = getMostRecentlyWorkedOnChildActivityIdx(state, note);
+    if (!idx) {
+        return;
+    }
+
+    const activity = state.activities[idx];
+    return getNoteOrUndefined(state, activity.nId);
 }
 
 export function getMostRecentActivityIdx(state: NoteTreeGlobalState, note: TreeNote): number {
