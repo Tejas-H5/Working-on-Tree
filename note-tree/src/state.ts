@@ -2175,7 +2175,7 @@ export function fuzzySearchNotes(
                 const note = getNote(state, id);
                 matches.push({
                     note: note,
-                    ranges: [],
+                    ranges: null,
                     // no need for sorting tbh - we're already iterating in order!
                     score: 100,
                 });
@@ -2529,11 +2529,15 @@ export function recomputeViewAllTaskStreamsState(
                 state.viewTaskStreamStates[i] = {
                     isViewingInProgress: false,
                     taskStream: taskStreams[i], currentStreamNoteIdx: 0, streamNoteDepths: [], inProgressNotes: [],
+                    isFinding: false,
+                    currentQuery: "",
                 };
             }
 
             if (init) {
                 state.viewTaskStreamStates[i].isViewingInProgress = false;
+                state.viewTaskStreamStates[i].isFinding = false;
+                state.viewTaskStreamStates[i].currentQuery = "";
             }
 
             recomputeViewTaskStreamState(state.viewTaskStreamStates[i], globalState, taskStreams[i], false);
@@ -2601,6 +2605,15 @@ export function getCurrentTaskStreamState(state: ViewAllTaskStreamsState, global
     return state.viewTaskStreamStates[globalState.currentTaskStreamIdx];
 }
 
+function filterFn(query: string, target: string): boolean {
+    // ol reliable. lmao
+    // TODO: remove fuzzy search in favour of something more strict, like this but better
+    if (target.toLowerCase().includes(query.toLowerCase())) {
+        return true;
+    }
+    return false;
+}
+
 export function recomputeViewTaskStreamState(
     state: ViewTaskStreamState,
     globalState: NoteTreeGlobalState,
@@ -2652,6 +2665,7 @@ export function recomputeViewTaskStreamState(
                         if (current.inProgressIds.includes(note.id)) {
                             continue;
                         }
+
                         current.inProgressIds.push(note.id);
                         current.inProgressNoteDepths.push(depth);
                         dfs(note, depth + 1);
@@ -2660,7 +2674,31 @@ export function recomputeViewTaskStreamState(
                 dfs(getNote(globalState, id), 0);
             }
         }
+
+        // dont add notes that dont fit the query. (needs to be done after the DFS and not during).
+        if (state.isFinding && state.currentQuery.length > 0) {
+            for (let i = 0; i < state.inProgressNotes.length; i++) {
+                const current = state.inProgressNotes[i];
+
+                const newInProgressIds: NoteId[] = [];
+                const newDepths: number[] = [];
+
+                for (let i = 0; i < current.inProgressIds.length; i++) {
+                    const note = getNote(globalState, current.inProgressIds[i]);
+                    if (!filterFn(state.currentQuery, note.data.text)) {
+                        continue;
+                    }
+
+                    newInProgressIds.push(note.id);
+                    newDepths.push(current.inProgressNoteDepths[i]);
+                }
+
+                current.inProgressNoteDepths = newDepths;
+                current.inProgressIds = newInProgressIds;
+            }
+        }
     }
+
 
     // clamp after the array has been computed
     {
@@ -2677,19 +2715,21 @@ export type InProgressNotesState = {
     inProgressNoteDepths: number[];
 };
 
-export function getCurrentInProgressState(state: ViewTaskStreamState): InProgressNotesState {
+export function getCurrentInProgressState(state: ViewTaskStreamState): InProgressNotesState | undefined {
     return state.inProgressNotes[state.currentStreamNoteIdx];
 }
 
 
 export type ViewTaskStreamState = {
-    isViewingInProgress: boolean;
+    isViewingInProgress: boolean; // are we viewing the 'in progress' note ids list? (not is the viewing in progress?)
 
     taskStream: TaskStream;
     currentStreamNoteIdx: number;
     streamNoteDepths: number[];
 
     inProgressNotes: InProgressNotesState[];
+    currentQuery: string;
+    isFinding: boolean;
 };
 
 

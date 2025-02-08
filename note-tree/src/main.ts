@@ -150,7 +150,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.00";
+const VERSION_NUMBER = "1.02.01";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -1220,7 +1220,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
                 const m = finderState.matches[i];
                 getNext().render({
                     note: m.note,
-                    ranges: [[0, m.note.data.text.length - 1]],
+                    ranges: m.ranges || [[0, m.note.data.text.length]],
                     hasFocus: i === finderState.currentIdx,
                     compact,
                     isCursorActive
@@ -1331,7 +1331,11 @@ function FuzzyFinder(rg: RenderGroup<{
 
         const navInput = getKeyboardNavigationInput(e);
         if (navInput) {
-            if (navInput.moveDelta) {
+            if (
+                navInput.moveDelta && 
+                // NOTE: not handling home/end here - we want to use these in the text input
+                !navInput.moveToEnd
+            ) {
                 let idx;
                 if (navInput.moveToEnd) {
                     idx = navInput.moveDelta < 0 ? 0 : finderState.matches.length - 1;
@@ -1389,37 +1393,31 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
         doDrag: false,
     };
 
-    if (!e) {
-        return result;
-    }
-
     const pageAmount = 10;
     const ctrlKey = e.ctrlKey || e.metaKey;
     const altKey = e.altKey;
     const shiftKey = e.shiftKey;
 
-    let moveDelta = 0;
-
     let handled = true;
 
     switch (e.key) {
         case "ArrowDown": {
-            moveDelta = 1;
+            result.moveDelta = 1;
             if (ctrlKey) {
                 result.moveToImportant = true;
             }
         } break;
         case "ArrowUp": {
-            moveDelta = -1;
+            result.moveDelta = -1;
             if (ctrlKey) {
                 result.moveToImportant = true;
             }
         } break;
         case "PageDown":
-            moveDelta = pageAmount;
+            result.moveDelta = pageAmount;
             break;
         case "PageUp":
-            moveDelta = -pageAmount;
+            result.moveDelta = -pageAmount;
             break;
         case "End": {
             result.moveDelta = 1;
@@ -1438,7 +1436,6 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
         return undefined;
     }
 
-    result.moveDelta = moveDelta;
     result.doDrag = altKey;
     result.doRangeSelect = shiftKey;
 
@@ -1599,6 +1596,7 @@ function ViewTaskStream(rg: RenderGroup<{
 }>) {
     let inProgressState: InProgressNotesState | undefined;
     let numInProgress = 0;
+
     rg.preRenderFn((s) => {
         recomputeViewTaskStreamState(s.state, state, s.state.taskStream, true);
         inProgressState = getCurrentInProgressState(s.state);
@@ -1635,21 +1633,35 @@ function ViewTaskStream(rg: RenderGroup<{
                     noteDepths: s.state.streamNoteDepths,
                 });
             }),
-            rg.if(s => !!inProgressState && (inProgressState.inProgressIds.length > 0), rg =>
-                rg.c(NotesList, (c, s) => {
-                    if (inProgressState) {
+            div({ class: [cn.flex1, cn.col] }, [
+                rg.if(s => s.state.isFinding, rg =>
+                    rg.c(TextInput, (c, s) => {
                         c.render({
-                            hasFocus: s.state.isViewingInProgress,
-                            currentNoteId: inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx],
-                            ratio: 1,
-                            alwaysMultipleLines: false,
-                            flatNoteIds: inProgressState.inProgressIds,
-                            noteDepths: inProgressState.inProgressNoteDepths,
+                            value: s.state.currentQuery,
+                            focus: true,
+                            onChange(val) {
+                                s.state.currentQuery = val;
+                                rerenderApp();
+                            }
                         });
-                    }
-                })
-            ),
-            rg.else(rg =>
+                    }),
+                ),
+                rg.if(s => !!inProgressState && (inProgressState.inProgressIds.length > 0), rg =>
+                    rg.c(NotesList, (c, s) => {
+                        if (inProgressState) {
+                            c.render({
+                                hasFocus: s.state.isViewingInProgress,
+                                currentNoteId: inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx],
+                                ratio: 1,
+                                alwaysMultipleLines: false,
+                                flatNoteIds: inProgressState.inProgressIds,
+                                noteDepths: inProgressState.inProgressNoteDepths,
+                            });
+                        }
+                    })
+                ),
+            ]),
+            rg.else_if(s => !s.state.isFinding, rg =>
                 div({ class: [cn.row, cn.flex1, cn.alignItemsCenter, cn.justifyContentCenter] }, [
                     "No notes in progress"
                 ])
@@ -1719,6 +1731,14 @@ function getNavigationNextIndex(
     return clampIndexToBounds(newIdx, len);
 }
 
+function hasCtrlKey(e: KeyboardEvent) {
+    return (e.ctrlKey || e.metaKey);
+}
+
+function hasKeyCtrlF(e: KeyboardEvent) {
+    return hasCtrlKey(e) && e.key.toLowerCase() === "f";
+}
+
 function AddToStreamModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
@@ -1776,44 +1796,13 @@ function AddToStreamModal(rg: RenderGroup<{
 
         let handled = false;
 
-        // TODO: step throught this with the debugger. its probably full of bugs
-
+    
         if (viewAllTaskStreamsState.isViewingCurrentStream && viewStreamState) {
             const inProgressState = getCurrentInProgressState(viewStreamState);
-            if (navInput) {
-                if (inProgressState && viewStreamState.isViewingInProgress) {
-                    inProgressState.currentInProgressNoteIdx = getNavigationNextIndex(
-                        navInput,
-                        inProgressState.currentInProgressNoteIdx,
-                        inProgressState.inProgressIds.length
-                    );
-                    handled = true;
-                } else {
-                    const oldIdx = viewStreamState.currentStreamNoteIdx;
-                    let newIdx = getNavigationNextIndex(navInput, oldIdx, viewStreamState.taskStream.noteIds.length);
 
-                    if (oldIdx !== newIdx && navInput.doDrag) {
-                        moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
-                    }
-
-                    viewStreamState.currentStreamNoteIdx = newIdx;
-                    handled = true;
-                }
-            } else if (e.key === "ArrowRight") {
-                if (!viewStreamState.isViewingInProgress && inProgressState.inProgressIds.length > 0) {
-                    viewStreamState.isViewingInProgress = true;
-                    handled = true;
-                }
-            } else if (e.key === "ArrowLeft") {
-                if (viewStreamState.isViewingInProgress) {
-                    viewStreamState.isViewingInProgress = false;
-                    handled = true;
-                } else {
-                    viewAllTaskStreamsState.isViewingCurrentStream = false;
-                    handled = true;
-                }
-            } else if (e.key === "Enter") {
+            if (e.key === "Enter") {
                 let noteToJumpToId;
+                const inProgressState = getCurrentInProgressState(viewStreamState);
                 if (inProgressState && viewStreamState.isViewingInProgress) {
                     noteToJumpToId = inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx];
                 } else {
@@ -1821,64 +1810,125 @@ function AddToStreamModal(rg: RenderGroup<{
                 }
                 setCurrentNote(state, noteToJumpToId, initialNoteId);
                 handled = true;
+            } else if (viewStreamState.isViewingInProgress && inProgressState) {
+                if (navInput) {
+                    inProgressState.currentInProgressNoteIdx = getNavigationNextIndex(
+                        navInput,
+                        inProgressState.currentInProgressNoteIdx,
+                        inProgressState.inProgressIds.length
+                    );
+                    handled = true;
+                } else if (e.key === "ArrowLeft") {
+                    viewStreamState.isViewingInProgress = false;
+                    viewStreamState.isFinding = false;
+                    viewStreamState.currentQuery = "";
+                    handled = true;
+                } else if (hasKeyCtrlF(e)) {
+                    viewStreamState.isFinding = !viewStreamState.isFinding;
+                    viewStreamState.currentQuery = "";
+                    e.preventDefault();
+                    handled = true; 
+                } 
+            } else {
+                if (navInput) {
+                    const oldIdx = viewStreamState.currentStreamNoteIdx;
+                    let newIdx = getNavigationNextIndex(
+                        navInput, 
+                        oldIdx, 
+                        viewStreamState.taskStream.noteIds.length
+                    );
+
+                    if (oldIdx !== newIdx && navInput.doDrag) {
+                        moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
+                    }
+
+                    viewStreamState.currentStreamNoteIdx = newIdx;
+                    handled = true;
+                } 
+
+                // NOTE: trying out this new !handled style here. should allow us to handle someting
+                // deep inside a nested-if and disable later if-statements, decoupling from the `else` construct.
+
+                if (!handled && (e.key === "ArrowRight" && inProgressState)) {
+                    if (inProgressState.inProgressIds.length > 0) {
+                        viewStreamState.isViewingInProgress = true;
+                        handled = true;
+                    }
+                } 
+
+                if (!handled && e.key === "ArrowLeft") {
+                    viewAllTaskStreamsState.isViewingCurrentStream = false;
+                    handled = true;
+                } 
+
+                if (!handled && hasKeyCtrlF(e)) {
+                    // doesnt do anything yet, but we catch it anway.
+                    e.preventDefault();
+                } 
             }
         } else {
-            // TODO: simplify logic. lot of redundant cases nd stuff
-
-            if (!viewAllTaskStreamsState.isRenaming && navInput) {
-                // handled navigating streams list.
-                const oldIdx = state.currentTaskStreamIdx;
-                let newIdx = oldIdx;
-                if (navInput.moveDelta) {
-                    if (navInput.moveToEnd) {
-                        newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
-                    } else {
-                        newIdx += navInput.moveDelta;
-                    }
-
-                    if (navInput.doDrag) {
-                        moveArrayItem(state.taskStreams, oldIdx, newIdx);
-                    }
-
-                    state.currentTaskStreamIdx = newIdx;
-                    handled = true;
-                }
-            } else if (!viewAllTaskStreamsState.isRenaming && e.key === "ArrowRight") {
-                if (!viewAllTaskStreamsState.isViewingCurrentStream) {
-                    viewAllTaskStreamsState.isViewingCurrentStream = true;
-                    handled = true;
-                }
-            } else if (e.key === "Enter") {
-                if (e.shiftKey && viewStreamState) {
-                    // enter rename mode
-                    viewAllTaskStreamsState.isRenaming = true;
-                    handled = true;
-                } else if (e.ctrlKey) {
-                    // insert new stream under current
-                    state.currentTaskStreamIdx++;
-                    insertNewTaskStreamAt(state, state.currentTaskStreamIdx, "new stream");
-                    viewAllTaskStreamsState.isRenaming = true;
-                    handled = true;
-                } else if (viewStreamState && viewAllTaskStreamsState.isRenaming) {
-                    viewAllTaskStreamsState.isRenaming = false;
-                    handled = true;
-                } else if (viewStreamState) {
-                    // TODO: needs to preserve the note's position in the stream itself before we removed it, unless we close the modal
-                    toggleNoteInTaskStream(viewStreamState.taskStream, currentNote);
-                    recomputeViewTaskStreamState(viewStreamState, state, viewStreamState.taskStream, false);
-                    handled = true;
-                }
-            } else if (e.key === "Delete" && viewAllTaskStreamsState.canDelete) {
-                // TODO: warn about this. At least we don't allow deleting non-empty streams
-
-                deleteTaskStream(state, state.taskStreams[state.currentTaskStreamIdx]);
-                state.currentTaskStreamIdx = clampIndexToArrayBounds(state.currentTaskStreamIdx, state.taskStreams);
+            if (hasCtrlKey(e) && e.key === "Enter") {
+                // insert new stream under current
+                state.currentTaskStreamIdx++;
+                insertNewTaskStreamAt(state, state.currentTaskStreamIdx, "new stream");
+                viewAllTaskStreamsState.isRenaming = true;
                 handled = true;
-            } else if (viewAllTaskStreamsState.isRenaming && e.key === "Escape") {
-                e.stopImmediatePropagation();
-                // TODO: revert to old name
-                viewAllTaskStreamsState.isRenaming = false;
-                handled = true;
+            } else if (viewStreamState) {
+                if (viewAllTaskStreamsState.isRenaming) {
+                    if (e.key === "Enter") {
+                        viewAllTaskStreamsState.isRenaming = false;
+                        handled = true;
+                    } else if (viewAllTaskStreamsState.isRenaming && e.key === "Escape") {
+                        e.stopImmediatePropagation();
+                        // TODO: revert to old name
+                        viewAllTaskStreamsState.isRenaming = false;
+                        handled = true;
+                    }
+                } else {
+                    if (e.key === "Enter") {
+                        if (e.shiftKey) {
+                            // enter rename mode
+                            viewAllTaskStreamsState.isRenaming = true;
+                            handled = true;
+                        } else {
+                            // TODO: needs to preserve the note's position in the stream itself before we removed it, unless we close the modal
+                            toggleNoteInTaskStream(viewStreamState.taskStream, currentNote);
+                            recomputeViewTaskStreamState(viewStreamState, state, viewStreamState.taskStream, false);
+                            handled = true;
+                        }
+                    } else if (e.key === "Delete" && viewAllTaskStreamsState.canDelete) {
+                        // TODO: warn about this. At least we don't allow deleting non-empty streams
+
+                        deleteTaskStream(state, state.taskStreams[state.currentTaskStreamIdx]);
+                        state.currentTaskStreamIdx = clampIndexToArrayBounds(state.currentTaskStreamIdx, state.taskStreams);
+                        handled = true;
+                    } else if (navInput) {
+                        // handled navigating streams list.
+                        if (!viewAllTaskStreamsState.isRenaming) {
+                            const oldIdx = state.currentTaskStreamIdx;
+                            let newIdx = oldIdx;
+                            if (navInput.moveDelta) {
+                                if (navInput.moveToEnd) {
+                                    newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
+                                } else {
+                                    newIdx += navInput.moveDelta;
+                                }
+
+                                if (navInput.doDrag) {
+                                    moveArrayItem(state.taskStreams, oldIdx, newIdx);
+                                }
+
+                                state.currentTaskStreamIdx = newIdx;
+                                handled = true;
+                            }
+                        }
+                    } else if (!viewAllTaskStreamsState.isRenaming && e.key === "ArrowRight") {
+                        if (!viewAllTaskStreamsState.isViewingCurrentStream) {
+                            viewAllTaskStreamsState.isViewingCurrentStream = true;
+                            handled = true;
+                        }
+                    }
+                }
             }
         }
 
@@ -1917,8 +1967,11 @@ function AddToStreamModal(rg: RenderGroup<{
                         },
                     })),
                 ),
-                rg.else_if(() => viewAllTaskStreamsState.isViewingCurrentStream && !!viewStreamState,
-                    rg => rg.c(ViewTaskStream, (c) => c.render({ 
+                rg.else_with((s) => {
+                    if (viewAllTaskStreamsState.isViewingCurrentStream && !!viewStreamState) {
+                        return { viewStreamState: viewStreamState };
+                    }
+                }, rg => rg.c(ViewTaskStream, (c, { viewStreamState }) => c.render({ 
                         state: viewStreamState!,
                         goBack: () => {
                             viewAllTaskStreamsState.isViewingCurrentStream = false;
@@ -2708,7 +2761,7 @@ export function recomputeTreeVisualsInfo(
                 for (let i = currentNoteIdx; i >= 0; i--) {
                     let newDepth = Math.min(
                         currentFocusedDepth,
-                        treeVisuals[currentNoteIdx].depth,
+                        treeVisuals[i].depth,
                     );
 
                     treeVisuals[i]._selectedPathDepth = newDepth;

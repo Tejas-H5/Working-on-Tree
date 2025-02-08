@@ -1,4 +1,4 @@
-// DOM-utils v0.1.19 - @Tejas-H5
+// DOM-utils v0.1.20 - @Tejas-H5
 
 // ---- initialize the 'framework'
 
@@ -1099,19 +1099,21 @@ export class RenderGroup<S = null> {
     }
 
     /** 
-     * Same as `if`, but only runs it's predicate if previous predicates were false.
-     */
-    readonly else_if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
-        return this.c(templateFn, (c, s) => {
-            if (setVisible(c, this.ifStatementOpen && predicate(s))) {
-                this.ifStatementOpen = false;
-                c.render(s);
-            }
-        });
-    }
-
-    /** 
-     * Same as `if`, but it will hide the component if T is undefined. This allows for some type narrowing.
+     * Same as `if`, but it will hide your component when value returned by the predicate is `undefined`.
+     * If it wasn't undefined, it's used as an input into the template instance component.
+     * This is mainly useful for type narrowing: 
+     *
+     * ```ts
+     * rg.with(s => thing && ({ s, thing }), rg => 
+     *     div({}, [
+     *        rg.c(SomeComponentThatNeedsThing, (c, { s, thing }) => c.render({
+     *          ... some stuff from s,
+     *          thing
+     *        }))
+     *     ])
+     * )
+     *
+     * ```
      */
     readonly with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
         return this.c(templateFn, (c, s) => {
@@ -1123,23 +1125,28 @@ export class RenderGroup<S = null> {
             }
         });
     }
+
+    /** 
+     * Same as `if`, but only runs it's predicate if previous predicates were false.
+     */
+    readonly else_if = <U extends ValidElement> (predicate: (s: S) => boolean, templateFn: TemplateFn<S, U>): Component<S, U> => {
+        return this.c(templateFn, (c, s) => {
+            if (setVisible(c, this.ifStatementOpen && predicate(s))) {
+                this.ifStatementOpen = false;
+                c.render(s);
+            }
+        });
+    }
     
     /** 
-     * The `with` equivelant of `else_if`
+     * The {@link with} equivelant of {@link else_if}
      */
     readonly else_with = <U extends ValidElement, T> (predicate: (s: S) => T | undefined, templateFn: TemplateFn<T, U>): Component<T, U> => {
         return this.c(templateFn, (c, s) => {
-            if (!this.ifStatementOpen) {
-                setVisible(c, false);
-                return;
-            }
-
-            const val = predicate(s);
-            // val could be 0 or ""...
-            const res = val === undefined ? val : undefined;
-            if (setVisible(c, res)) {
+            const val = this.ifStatementOpen ? predicate(s) : undefined;
+            if (setVisible(c, val !== undefined)) {
                 this.ifStatementOpen = false;
-                c.render(res);
+                c.render(val!);
             }
         });
     }
