@@ -1,7 +1,7 @@
 import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { countOccurances, newArray } from "src/utils/array-utils";
+import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
 import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
@@ -44,6 +44,7 @@ import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
 import { EditableTextArea } from "./components/text-area";
+import { TextInput } from "./components/text-input";
 import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
@@ -51,14 +52,20 @@ import {
     CurrentDateScope,
     DockableMenu,
     FuzzyFindState,
+    InProgressNotesState,
     NoteId,
     NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
+    TaskStream,
     TreeNote,
+    ViewAllTaskStreamsState,
+    ViewTaskStreamState,
+    addNoteToTaskStream,
     deleteDoneNote,
     deleteNoteIfEmpty,
+    deleteTaskStream,
     dfsPre,
     findNextActiviyIndex,
     findPreviousActiviyIndex,
@@ -67,8 +74,10 @@ import {
     getActivityText,
     getActivityTime,
     getAllNoteIdsInTreeOrder,
+    getCurrentInProgressState,
     getCurrentNote,
     getCurrentStateAsJSON,
+    getCurrentTaskStreamState,
     getFirstPartOfRow,
     getHigherLevelTask,
     getLastActivity,
@@ -89,6 +98,7 @@ import {
     getNoteOrUndefined,
     getNoteTextTruncated,
     getNoteTextWithoutPriority,
+    getNumParentsInTaskStream,
     getParentNoteWithEstimate,
     getQuicklistIndex,
     getRootNote,
@@ -97,11 +107,14 @@ import {
     idIsNil,
     idIsNilOrRoot,
     idIsNilOrUndefined,
+    idIsRoot,
     insertChildNote,
+    insertNewTaskStreamAt,
     insertNoteAfterCurrent,
     isBreak,
     isCurrentlyTakingABreak,
     isEditableBreak,
+    isNoteInTaskStream,
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
@@ -110,6 +123,9 @@ import {
     pushBreakActivity,
     recomputeFlatNotes,
     recomputeState,
+    recomputeViewAllTaskStreamsState,
+    recomputeViewTaskStreamState,
+    removeNoteFromTaskStream,
     resetState,
     saveState,
     setActivityRangeToToday,
@@ -123,8 +139,7 @@ import {
     setTheme,
     shouldScrollToNotes,
     state,
-    toggleActivityScopedNote,
-    toggleNoteSticky
+    toggleActivityScopedNote
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -135,7 +150,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.01.02";
+const VERSION_NUMBER = "1.02.00";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -188,14 +203,12 @@ function ScrollNavItem(rg: RenderGroup<{
     return div({ class: [cn.row, cn.alignItemsStretch] }, [
         rg.style(`backgroundColor`, (s) => s.isFocused ? `${cssVars.bgColorFocus}` : ``),
         rg.style(`color`, (s) => s.isGreyedOut ? `${cssVars.unfocusTextColor}` : ``),
-        rg.if(
-            (s) => s.isCursorVisible,
-            () => div({ style: "min-width: 5px;" }, [
-                rg.style("backgroundColor", (s) => {
-                    return s.isCursorActive ? `${cssVars.fgColor}` : cssVars.bgColorFocus2
-                }),
-            ])
-        ),
+        div({ style: "min-width: 5px;" }, [
+            rg.style("opacity", s => s.isCursorVisible ? "1" : "0"),
+            rg.style("backgroundColor", (s) => {
+                return s.isCursorActive ? `${cssVars.fgColor}` : cssVars.bgColorFocus2
+            }),
+        ]),
         div({ class: [cn.flex1, cn.handleLongWords] }, [
             ...children,
         ]),
@@ -208,7 +221,7 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
     const listInternal = newComponent(FuzzyFindResultsList);
     const empty = div({}, [
         "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down]. ",
-        "If the query is empty, notes that have been pinned will appear here instead.",
+        "If the query is empty, notes from the task stream that was selected last will be used instead.",
     ]);
     const scrollContainer = newComponent(ScrollContainer);
     const root = div({ class: [cn.flex1, cn.col] }, [
@@ -217,8 +230,13 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
                 let query = "";
                 if (state._fuzzyFindState.query) {
                     query = `"${state._fuzzyFindState.query}"`;
-                } else {
-                    query = "Pinned notes"
+                } else{
+                    const taskStream = state.taskStreams[state.currentTaskStreamIdx];
+                    if (taskStream) {
+                        query = "Task stream [" + taskStream.name + "]"
+                    } else {
+                        query = "No query. Notes will appear here once you search for something, or create some task streams.";
+                    }
                 }
 
                 let scope = "Global";
@@ -326,7 +344,7 @@ function ActivityListItem(rg: RenderGroup<{
     hasCursor: boolean;
 }>) {
     const breakEdit = el<HTMLInputElement>(
-        "INPUT", { class: [cn.preWrap, cn.w100, cnApp.solidBorderSmRounded ], style: "padding-left: 5px" }
+        "INPUT", { class: [cn.preWrap, cn.w100, cnApp.solidBorderSmRounded], style: "padding-left: 5px" }
     );
 
     function deleteBreak() {
@@ -629,7 +647,11 @@ function DeleteModal(rg: RenderGroup) {
     const timeEl = div();
     const recentEl = div();
     const deleteButton = newComponent(Button);
-    const cantDelete = div({}, ["Can't delete notes that are still in progress..."]);
+    const cantDelete = div({
+        class: [cnApp.solidBorder], style: `padding: 10px; background: ${cssVars.fgColor}; color: red;`
+    }, [
+        "This note is still in progress!!!"
+    ]);
     const root = newComponentArgs(Modal, [[
         div({ style: modalPaddingStyles(10, 70, 50) }, [
             heading,
@@ -744,7 +766,7 @@ function LinkNavModal(rg: RenderGroup) {
             empty,
         ])
     ]]);
-    
+
     let idx = 0;
     let lastNote: TreeNote | undefined;
 
@@ -871,7 +893,7 @@ function LinkNavModal(rg: RenderGroup) {
 
             if (e.shiftKey) {
                 if (noteId !== state.currentNoteId) {
-                    setCurrentNote(state, noteId, true);
+                    setCurrentNote(state, noteId, state.currentNoteId);
                     rerenderApp();
                 }
             } else {
@@ -1057,7 +1079,6 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
     counts.numFinished = 0;
     counts.numInProgress = 0;
     counts.numShelved = 0;
-    counts.numPinned = 0;
     for (const match of matches) {
         if (match.note.data._status === STATUS_IN_PROGRESS) {
             counts.numInProgress++;
@@ -1067,10 +1088,6 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
 
         if (match.note.data._shelved) {
             counts.numShelved++;
-        }
-
-        if (match.note.data.isSticky) {
-            counts.numPinned++;
         }
     }
 
@@ -1149,18 +1166,10 @@ function FuzzyFindResultsList(rg: RenderGroup<{
                 div({ class: [cn.flex1] }, [
                     textDiv,
                 ]),
-                rg.if(
-                    s => !!s.note.data.isSticky,
-                    () => div({
-                        class: [cn.row, cn.alignItemsCenter, cn.pre],
-                        style: `background-color: ${cssVars.pinned}; color: #FFF`
-                    }, [" ! "]),
-                ),
-                rg.c(NoteRowDurationInfo, (c, s) => c.render({ note: s.note })),
             ]),
             rg.if(s => s.hasFocus, rg =>
                 rg.with(s => {
-                    const note  = getMostRecentlyWorkedOnChildActivityNote(state, s.note);
+                    const note = getMostRecentlyWorkedOnChildActivityNote(state, s.note);
                     if (note) {
                         return [s, note] as const;
                     }
@@ -1211,7 +1220,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
                 const m = finderState.matches[i];
                 getNext().render({
                     note: m.note,
-                    ranges: m.ranges,
+                    ranges: [[0, m.note.data.text.length - 1]],
                     hasFocus: i === finderState.currentIdx,
                     compact,
                     isCursorActive
@@ -1223,7 +1232,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
     return resultList;
 }
 
-function FuzzyFinder(rg: RenderGroup<{ 
+function FuzzyFinder(rg: RenderGroup<{
     visible: boolean;
     state: FuzzyFindState;
 }>) {
@@ -1232,10 +1241,10 @@ function FuzzyFinder(rg: RenderGroup<{
         div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
             rg.text(s => !idIsNil(s.state.scopedToNoteId) ? "Search (Current note)" : "Search (Everywhere)"),
             div({}, " - "),
-            rg.text(s => s.state.counts.numInProgress + " in progress, " + 
-                s.state.counts.numFinished + " done, " + 
-                s.state.counts.numShelved + " shelved, " + 
-                s.state.counts.numPinned + " pinned"),
+            rg.text(s => s.state.counts.numInProgress + " in progress, " +
+                s.state.counts.numFinished + " done, " +
+                s.state.counts.numShelved + " shelved"
+            ),
         ]),
         div({ class: [cn.row, cn.alignItemsCenter], }, [
             div({ style: "width: 10px" }),
@@ -1244,7 +1253,7 @@ function FuzzyFinder(rg: RenderGroup<{
         ]),
         div({ style: "height: 10px" }),
         div({ class: [cn.flex1] }, [
-            rg.c(FuzzyFindResultsList, (c, s) => c.render({ 
+            rg.c(FuzzyFindResultsList, (c, s) => c.render({
                 finderState: s.state,
                 compact: false,
                 isCursorActive: true,
@@ -1261,7 +1270,7 @@ function FuzzyFinder(rg: RenderGroup<{
         timeoutId = setTimeout(() => {
             state._fuzzyFindState.query = query;
             recomputeFuzzyFinderMatches(finderState)
-            
+
             rg.renderWithCurrentState();
         }, DEBOUNCE_MS);
     }
@@ -1303,31 +1312,35 @@ function FuzzyFinder(rg: RenderGroup<{
         const finderState = rg.s.state;
 
         const note = finderState.matches[finderState.currentIdx]?.note as TreeNote | undefined;
-        
+
         if (note && e.key === "Enter") {
             e.preventDefault();
             const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
-            setCurrentNote(state, (previewNote ?? note).id, true);
+            setCurrentNote(state, (previewNote ?? note).id, state.currentNoteId);
             setCurrentModalAndRerenderApp(null);
             rerenderApp();
             return;
-        } else if (note && handleToggleNoteSticky(e, note)) {
+        } else if (note && handleAddOrRemoveToStream(e)) {
             // no need to re-sort the results. better if we don't actually
             rerenderApp();
             return;
         }
 
-        let handled = true;
 
-        // NOTE: no home, end, we need that for the search input
-        if (e.key === "ArrowDown") {
-            finderState.currentIdx++;
-        } else if (e.key === "PageDown") {
-            finderState.currentIdx += 10;
-        } else if (e.key === "ArrowUp") {
-            finderState.currentIdx--;
-        } else if (e.key === "PageUp") {
-            finderState.currentIdx -= 10;
+        let handled = false;
+
+        const navInput = getKeyboardNavigationInput(e);
+        if (navInput) {
+            if (navInput.moveDelta) {
+                let idx;
+                if (navInput.moveToEnd) {
+                    idx = navInput.moveDelta < 0 ? 0 : finderState.matches.length - 1;
+                } else {
+                    idx = rg.s.state.currentIdx + navInput.moveDelta;
+                }
+                rg.s.state.currentIdx = clampIndexToArrayBounds(idx, finderState.matches);
+                handled = true;
+            }
         } else if (
             (e.ctrlKey || e.metaKey)
             && e.shiftKey
@@ -1335,8 +1348,7 @@ function FuzzyFinder(rg: RenderGroup<{
         ) {
             matchesInvalid = true;
             toggleCurrentNoteVsEverywhere = true;
-        } else {
-            handled = false;
+            handled = true;
         }
 
         if (handled) {
@@ -1360,6 +1372,79 @@ function FuzzyFinder(rg: RenderGroup<{
     return root;
 }
 
+type KeyboardNavigationResult = {
+    moveDelta: number;
+    moveToEnd: boolean;
+    moveToImportant: boolean;
+    doRangeSelect: boolean;
+    doDrag: boolean;
+};
+
+function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult | undefined {
+    const result: KeyboardNavigationResult = {
+        moveDelta: 0,
+        moveToEnd: false,
+        moveToImportant: false,
+        doRangeSelect: false,
+        doDrag: false,
+    };
+
+    if (!e) {
+        return result;
+    }
+
+    const pageAmount = 10;
+    const ctrlKey = e.ctrlKey || e.metaKey;
+    const altKey = e.altKey;
+    const shiftKey = e.shiftKey;
+
+    let moveDelta = 0;
+
+    let handled = true;
+
+    switch (e.key) {
+        case "ArrowDown": {
+            moveDelta = 1;
+            if (ctrlKey) {
+                result.moveToImportant = true;
+            }
+        } break;
+        case "ArrowUp": {
+            moveDelta = -1;
+            if (ctrlKey) {
+                result.moveToImportant = true;
+            }
+        } break;
+        case "PageDown":
+            moveDelta = pageAmount;
+            break;
+        case "PageUp":
+            moveDelta = -pageAmount;
+            break;
+        case "End": {
+            result.moveDelta = 1;
+            result.moveToEnd = true;
+        } break;
+        case "Home": {
+            result.moveDelta = -1;
+            result.moveToEnd = true;
+        } break;
+        default: {
+            handled = false;
+        } break;
+    }
+
+    if (!handled) {
+        return undefined;
+    }
+
+    result.moveDelta = moveDelta;
+    result.doDrag = altKey;
+    result.doRangeSelect = shiftKey;
+
+    return result;
+}
+
 function FuzzyFindModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
@@ -1378,23 +1463,495 @@ function FuzzyFindModal(rg: RenderGroup<{
     );
 }
 
+function AddToStreamModalItem(rg: RenderGroup<{
+    currentNote: TreeNote;
+    isFocused: boolean;
+    state: ViewAllTaskStreamsState;
+    nextState: ViewTaskStreamState;
+    toggle: (stream: TaskStream, note: TreeNote) => void;
+    navigate: () => void;
+}>) {
+    let isNoteInStream = false;
+    let numParentsInStream = 0;
+
+    rg.preRenderFn(s => {
+        isNoteInStream = isNoteInTaskStream(s.nextState.taskStream, s.currentNote);
+        numParentsInStream = getNumParentsInTaskStream(state, s.nextState.taskStream, s.currentNote);
+    });
+
+    return rg.cArgs(ScrollNavItem, (c, s) => c.render({
+        isFocused: s.isFocused,
+        isGreyedOut: false,
+        isCursorVisible: s.isFocused,
+        isCursorActive: true,
+    }), [
+        div({
+            class: [cn.row, cn.alignItemsCenter, cn.preWrap, cn.justifyContentCenter],
+            style: "padding: 10px",
+        }, [
+            div({
+                style: "width: 20ch",
+                class: [cn.row, cn.alignItemsCenter, cn.preWrap],
+            }, [
+                rg.style("color", s => (!isNoteInStream && numParentsInStream === 0) ? cssVars.unfocusTextColor : ""),
+                rg.c(Checkbox, (c, s) => c.render({
+                    value: isNoteInStream,
+                    onChange: () => {
+                        s.toggle(s.nextState.taskStream, s.currentNote); 
+                    },
+                })),
+                div({ style: "width: 10px" }),
+                rg.text(s => {
+                    const sb = [];
+                    if (isNoteInStream) {
+                        sb.push("this note");
+                    }
+                    if (numParentsInStream > 0) {
+                        sb.push(numParentsInStream + " parents");
+                    }
+
+                    if (sb.length === 0) {
+                        return "not in stream";
+                    }
+                    return sb.join(", ");
+                }),
+            ]),
+
+            // the name
+
+            rg.if(s => s.isFocused && s.state.isRenaming, rg =>
+                rg.c(TextInput, (c, s) => c.render({
+                    focus: s.isFocused,
+                    focusWithAllSelected: true,
+                    value: s.nextState.taskStream.name,
+                    autoSize: true,
+                    onChange: (val) => {
+                        s.nextState.taskStream.name = val;
+                        rerenderApp();
+                    }
+                })),
+            ),
+            rg.else(rg =>
+                rg.text((s) => s.nextState.taskStream.name),
+            ),
+
+            // more info
+            div({ style: "width: 3ch" }),
+
+            rg.text(s => {
+                const n = s.nextState.taskStream.noteIds.length;
+                if (n === 0) {
+                    return "no notes";
+                }
+
+                if (n === 1) {
+                    return "1 note";
+                }
+
+                return `${n} notes`;
+            }),
+            " - ",
+            rg.text(s => {
+                let n = 0;
+                for (const p of s.nextState.inProgressNotes) {
+                    n += p.inProgressIds.length;
+                }
+
+                if (n === 0) {
+                    return "none in progress";
+                }
+
+                if (n === 1) {
+                    return "1 in progress";
+                }
+
+                return `${n} in progress`;
+            }),
+            div({ class: [cn.flex1] }),
+            div({ style: "width: 3ch" }),
+            rg.c(Button, (c, s) => c.render({
+                label: "->",
+                onClick: () => s.navigate(),
+            }))
+            /**
+    rg.if(s => s.isFocused, rg =>
+        div({ class: [cn.row, cnApp.gap5] }, [ 
+            rg.if((s) => !s.isRenaming, rg =>
+                div({}, ["[Shift + Enter] -> rename"])
+            ),
+
+            // TODO: delimiter, join type thing here.
+
+            rg.if((s) => s.canDelete, rg =>
+                div({}, ["[Del] -> delete"])
+            )
+        ]),
+    )
+
+            */
+        ])
+    ]);
+}
+
+function ViewTaskStream(rg: RenderGroup<{ 
+    state: ViewTaskStreamState; 
+    goBack: () => void; 
+}>) {
+    let inProgressState: InProgressNotesState | undefined;
+    let numInProgress = 0;
+    rg.preRenderFn((s) => {
+        recomputeViewTaskStreamState(s.state, state, s.state.taskStream, true);
+        inProgressState = getCurrentInProgressState(s.state);
+
+        numInProgress = 0;
+        for (const p of s.state.inProgressNotes) {
+            numInProgress += p.inProgressIds.length;
+        }
+    });
+
+    return div({ class: [cn.col, cn.w100] }, [
+        div({}, [
+            el("H3", { class: [cn.textAlignCenter] }, [
+                rg.c(Button, (c, s) => c.render({
+                    label: "<- ",
+                    onClick: () => s.goBack(),
+                })),
+                rg.text(s => s.state.taskStream.name),
+                rg.if(s => !!inProgressState && numInProgress > 0,
+                    rg => rg.text((s) => {
+                        return " -> " + numInProgress + " in progress";
+                    })
+                )
+            ]),
+        ]),
+        div({ class: [cn.row, cn.flex1] }, [
+            rg.c(NotesList, (c, s) => {
+                c.render({
+                    hasFocus: !s.state.isViewingInProgress,
+                    currentNoteId: s.state.taskStream.noteIds[s.state.currentStreamNoteIdx],
+                    ratio: 1,
+                    alwaysMultipleLines: true,
+                    flatNoteIds: s.state.taskStream.noteIds,
+                    noteDepths: s.state.streamNoteDepths,
+                });
+            }),
+            rg.if(s => !!inProgressState && (inProgressState.inProgressIds.length > 0), rg =>
+                rg.c(NotesList, (c, s) => {
+                    if (inProgressState) {
+                        c.render({
+                            hasFocus: s.state.isViewingInProgress,
+                            currentNoteId: inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx],
+                            ratio: 1,
+                            alwaysMultipleLines: false,
+                            flatNoteIds: inProgressState.inProgressIds,
+                            noteDepths: inProgressState.inProgressNoteDepths,
+                        });
+                    }
+                })
+            ),
+            rg.else(rg =>
+                div({ class: [cn.row, cn.flex1, cn.alignItemsCenter, cn.justifyContentCenter] }, [
+                    "No notes in progress"
+                ])
+            )
+        ])
+    ]);
+}
+
+function ViewAllTaskStreams(rg: RenderGroup<{
+    currentIdx: number;
+    state: ViewAllTaskStreamsState;
+    toggle: (stream: TaskStream, note: TreeNote) => void;
+    navigate: (streamIdx: number) => void;
+}>) {
+    let currentNote: TreeNote;
+    rg.preRenderFn(s => {
+        currentNote = getCurrentNote(state);
+    });
+
+    return div({ class: [cn.col] }, [
+        el("H3", { class: [cn.textAlignLeft] }, [
+            div({}, [
+                "Add [", rg.text(() => getNoteTextTruncated(currentNote.data)), "] to streams:",
+            ]),
+        ]),
+        div({}, [
+            rg.list(contentsDiv(), AddToStreamModalItem, (getNext, s) => {
+                const currentNote = getCurrentNote(state);
+                for (let i = 0; i < s.state.viewTaskStreamStates.length; i++) {
+                    const nextState = s.state.viewTaskStreamStates[i];
+                    getNext().render({
+                        nextState,
+                        currentNote,
+                        toggle: s.toggle,
+                        navigate: () => s.navigate(i),
+                        isFocused: s.currentIdx === i,
+                        state: s.state,
+                    });
+                }
+            }),
+            rg.else(
+                rg => div({ class: [cn.row, cn.justifyContentCenter] }, [
+                    rg.text(() => "[Ctrl] + [Enter] to create a new task stream"),
+                ])
+            )
+        ])
+    ])
+}
+
+
+function getNavigationNextIndex(
+    navInput: KeyboardNavigationResult,
+    idx: number,
+    len: number,
+): number {
+    let newIdx = idx;
+    if (navInput.moveDelta) {
+        if (navInput.moveToEnd) {
+            newIdx = navInput.moveDelta < 0 ? 0 : len - 1;
+        } else if (false && navInput.moveToImportant) {
+            // TODO: moveToImportant
+        } else {
+            newIdx += navInput.moveDelta;
+        }
+    }
+
+    return clampIndexToBounds(newIdx, len);
+}
+
+function AddToStreamModal(rg: RenderGroup<{
+    visible: boolean;
+}>) {
+    let initialNoteId: NoteId;
+    const viewAllTaskStreamsState: ViewAllTaskStreamsState = {
+        isRenaming: false,
+        canDelete: false,
+        isCurrentNoteInStream: false,
+        viewTaskStreamStates: [],
+        isViewingCurrentStream: false,
+    };
+
+
+    let lastVisible = false;
+    let currentNote: TreeNote;
+    let viewStreamState: ViewTaskStreamState | undefined;
+
+    rg.preRenderFn((s) => {
+        let changed = s.visible !== lastVisible;
+        lastVisible = s.visible;
+        if (!s.visible) {
+            return;
+        }
+
+        currentNote = getCurrentNote(state);
+
+        recomputeViewAllTaskStreamsState(viewAllTaskStreamsState, state, changed, currentNote, state.taskStreams);
+        if (changed) {
+            initialNoteId = currentNote.id;
+        }
+
+        viewStreamState = getCurrentTaskStreamState(viewAllTaskStreamsState, state);
+    });
+
+
+    function toggleNoteInTaskStream(stream: TaskStream, note: TreeNote) {
+        if (!addNoteToTaskStream(stream, note)) {
+            removeNoteFromTaskStream(stream, note);
+        }
+    };
+
+    // TODO: tidy this up
+    document.addEventListener("keydown", (e) => {
+        if (state._currentModal?.el !== rg.root.el) {
+            return;
+        }
+
+        if (handleAddOrRemoveToStream(e)) {
+            setCurrentModal(null);
+            rerenderApp();
+            return;
+        }
+
+        const navInput = getKeyboardNavigationInput(e);
+
+        let handled = false;
+
+        // TODO: step throught this with the debugger. its probably full of bugs
+
+        if (viewAllTaskStreamsState.isViewingCurrentStream && viewStreamState) {
+            const inProgressState = getCurrentInProgressState(viewStreamState);
+            if (navInput) {
+                if (inProgressState && viewStreamState.isViewingInProgress) {
+                    inProgressState.currentInProgressNoteIdx = getNavigationNextIndex(
+                        navInput,
+                        inProgressState.currentInProgressNoteIdx,
+                        inProgressState.inProgressIds.length
+                    );
+                    handled = true;
+                } else {
+                    const oldIdx = viewStreamState.currentStreamNoteIdx;
+                    let newIdx = getNavigationNextIndex(navInput, oldIdx, viewStreamState.taskStream.noteIds.length);
+
+                    if (oldIdx !== newIdx && navInput.doDrag) {
+                        moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
+                    }
+
+                    viewStreamState.currentStreamNoteIdx = newIdx;
+                    handled = true;
+                }
+            } else if (e.key === "ArrowRight") {
+                if (!viewStreamState.isViewingInProgress && inProgressState.inProgressIds.length > 0) {
+                    viewStreamState.isViewingInProgress = true;
+                    handled = true;
+                }
+            } else if (e.key === "ArrowLeft") {
+                if (viewStreamState.isViewingInProgress) {
+                    viewStreamState.isViewingInProgress = false;
+                    handled = true;
+                } else {
+                    viewAllTaskStreamsState.isViewingCurrentStream = false;
+                    handled = true;
+                }
+            } else if (e.key === "Enter") {
+                let noteToJumpToId;
+                if (inProgressState && viewStreamState.isViewingInProgress) {
+                    noteToJumpToId = inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx];
+                } else {
+                    noteToJumpToId = viewStreamState.taskStream.noteIds[viewStreamState.currentStreamNoteIdx];
+                }
+                setCurrentNote(state, noteToJumpToId, initialNoteId);
+                handled = true;
+            }
+        } else {
+            // TODO: simplify logic. lot of redundant cases nd stuff
+
+            if (!viewAllTaskStreamsState.isRenaming && navInput) {
+                // handled navigating streams list.
+                const oldIdx = state.currentTaskStreamIdx;
+                let newIdx = oldIdx;
+                if (navInput.moveDelta) {
+                    if (navInput.moveToEnd) {
+                        newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
+                    } else {
+                        newIdx += navInput.moveDelta;
+                    }
+
+                    if (navInput.doDrag) {
+                        moveArrayItem(state.taskStreams, oldIdx, newIdx);
+                    }
+
+                    state.currentTaskStreamIdx = newIdx;
+                    handled = true;
+                }
+            } else if (!viewAllTaskStreamsState.isRenaming && e.key === "ArrowRight") {
+                if (!viewAllTaskStreamsState.isViewingCurrentStream) {
+                    viewAllTaskStreamsState.isViewingCurrentStream = true;
+                    handled = true;
+                }
+            } else if (e.key === "Enter") {
+                if (e.shiftKey && viewStreamState) {
+                    // enter rename mode
+                    viewAllTaskStreamsState.isRenaming = true;
+                    handled = true;
+                } else if (e.ctrlKey) {
+                    // insert new stream under current
+                    state.currentTaskStreamIdx++;
+                    insertNewTaskStreamAt(state, state.currentTaskStreamIdx, "new stream");
+                    viewAllTaskStreamsState.isRenaming = true;
+                    handled = true;
+                } else if (viewStreamState && viewAllTaskStreamsState.isRenaming) {
+                    viewAllTaskStreamsState.isRenaming = false;
+                    handled = true;
+                } else if (viewStreamState) {
+                    // TODO: needs to preserve the note's position in the stream itself before we removed it, unless we close the modal
+                    toggleNoteInTaskStream(viewStreamState.taskStream, currentNote);
+                    recomputeViewTaskStreamState(viewStreamState, state, viewStreamState.taskStream, false);
+                    handled = true;
+                }
+            } else if (e.key === "Delete" && viewAllTaskStreamsState.canDelete) {
+                // TODO: warn about this. At least we don't allow deleting non-empty streams
+
+                deleteTaskStream(state, state.taskStreams[state.currentTaskStreamIdx]);
+                state.currentTaskStreamIdx = clampIndexToArrayBounds(state.currentTaskStreamIdx, state.taskStreams);
+                handled = true;
+            } else if (viewAllTaskStreamsState.isRenaming && e.key === "Escape") {
+                e.stopImmediatePropagation();
+                // TODO: revert to old name
+                viewAllTaskStreamsState.isRenaming = false;
+                handled = true;
+            }
+        }
+
+        if (handled) {
+            rerenderApp();
+        }
+    });
+
+    return rg.if(
+        s => s.visible,
+        rg => rg.cArgs(Modal, c => c.render({
+            onClose: () => setCurrentModalAndRerenderApp(null),
+        }), [
+            div({ class: [cn.row, cn.h100, cn.relative], style: "padding: 10px; max-width: 90vw; max-height: 90vw;" }, [
+                rg.style("width", () => viewAllTaskStreamsState.isViewingCurrentStream ? "90vw" : ""),
+                rg.style("height", () => viewAllTaskStreamsState.isViewingCurrentStream ? "90vh" : ""),
+                rg.if(() => !viewAllTaskStreamsState.isViewingCurrentStream,
+                    rg => rg.c(ViewAllTaskStreams, (c, s) => c.render({
+                        currentIdx: state.currentTaskStreamIdx,
+                        state: viewAllTaskStreamsState,
+                        toggle: (stream, note) => {
+                            const viewStreamState = viewAllTaskStreamsState.viewTaskStreamStates.find(
+                                s => s.taskStream === stream
+                            );
+
+                            if (viewStreamState) {
+                                toggleNoteInTaskStream(stream, note);
+                                recomputeViewTaskStreamState(viewStreamState, state, stream, false);
+                                rerenderApp();
+                            }
+                        },
+                        navigate: (streamIdx) => {
+                            state.currentTaskStreamIdx = streamIdx;
+                            viewAllTaskStreamsState.isViewingCurrentStream = true;
+                            rerenderApp();
+                        },
+                    })),
+                ),
+                rg.else_if(() => viewAllTaskStreamsState.isViewingCurrentStream && !!viewStreamState,
+                    rg => rg.c(ViewTaskStream, (c) => c.render({ 
+                        state: viewStreamState!,
+                        goBack: () => {
+                            viewAllTaskStreamsState.isViewingCurrentStream = false;
+                            rerenderApp();
+                        }
+                    })),
+                ),
+                rg.else(
+                    rg => div({}, "Something has gone wrong here...")
+                )
+            ])
+        ])
+    );
+}
+
 function modalPaddingStyles(paddingPx: number = 0, width = 94, height = 90) {
     return `width: ${width}vw; height: ${height}vh; padding: ${paddingPx}px`;
 }
 
-function handleToggleNoteSticky(e: KeyboardEvent, note: TreeNote): boolean {
+function handleAddOrRemoveToStream(e: KeyboardEvent): boolean {
     const shiftPressed = e.shiftKey;
     const ctrlPressed = e.ctrlKey || e.metaKey;
     if (
         ctrlPressed &&
-        shiftPressed &&
-        (e.key === "1" || e.key === "!")
+        (e.key === "s" || e.key === "S")
     ) {
-        toggleNoteSticky(note);
+        e.stopImmediatePropagation();
+        e.preventDefault();
         return true;
     }
     return false;
 }
+
 
 function LoadBackupModal(rg: RenderGroup<{
     fileName: string;
@@ -1413,7 +1970,7 @@ function LoadBackupModal(rg: RenderGroup<{
             if (confirm("Are you really sure you want to load this backup? Your current state will be wiped")) {
                 const { text } = s;
 
-                setStateFromJSON(text,  () => {
+                setStateFromJSON(text, () => {
                     saveCurrentState({ debounced: false });
 
                     initState(() => {
@@ -1509,7 +2066,7 @@ function SettingsModal(rg: RenderGroup) {
 
     return rg.cArgs(Modal, c => c.render({ onClose }), [
         div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
-            div({ class: [cn.col, cnApp.gap10] }, [ 
+            div({ class: [cn.col, cnApp.gap10] }, [
                 div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
                     el("H3", { class: [cn.textAlignCenter] }, "Settings"),
                     rg.c(Checkbox, (c) => c.render({
@@ -1549,10 +2106,10 @@ function SettingsModal(rg: RenderGroup) {
                         }
                     })),
                 ]),
-                rg.if(() => isDebugging(), rg => 
+                rg.if(() => isDebugging(), rg =>
                     div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
                         el("H3", { class: [cn.textAlignCenter] }, "Diagnostics"),
-                        div({ class: [cn.row]}, [
+                        div({ class: [cn.row] }, [
                             "Render timings: ",
                             div({ class: [cnApp.gap10, cn.row] }, [
                                 () => {
@@ -1613,7 +2170,7 @@ function ScratchPadModal(rg: RenderGroup<{
             wasVisible = true;
 
             const note = getCurrentNote(state);
-            asciiCanvas.render({ 
+            asciiCanvas.render({
                 canvasState,
                 outputLayers: state.scratchPadCanvasLayers,
                 onInput() { },
@@ -1735,6 +2292,8 @@ function NoteRowDurationInfo(rg: RenderGroup<{ note: TreeNote; }>) {
 type NoteRowInputArgs = {
     readOnly: boolean;
     note: TreeNote;
+    treeVisualsInfo: TreeVisualsInfo;
+    viewStartDepth: number;
     stickyOffset?: number;
 
     _isSticky: boolean;
@@ -1745,22 +2304,22 @@ type NoteRowInputArgs = {
     currentNote: TreeNote;
     listHasFocus: boolean;
     forceOneLine: boolean;
+    forceMultipleLines: boolean;
 
     orignalOffsetTop: number;
-    visualDepth?: number;
 };
+
 
 function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     const INDENT1 = 3;
     const INDENT2 = INDENT1;
-    let startDepth = 0;
     let noteDepth = 0;
     const getIndentation = (depth: number) => {
-        const difference = depth - startDepth;
+        const difference = depth - rg.s.viewStartDepth;
         // Notes on the current level or deeper get indented a bit more, for visual clarity,
         // and the parent notes won't get indented as much so that we aren't wasting space
         const indent2Amount = Math.max(0, difference);
-        const indent1 = INDENT1 * Math.min(startDepth, depth);
+        const indent1 = INDENT1 * Math.min(rg.s.viewStartDepth, depth);
         const indent2 = INDENT2 * Math.max(indent2Amount, 0);
         return indent1 + indent2;
     }
@@ -1870,26 +2429,20 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     }
 
     rg.preRenderFn(function renderNoteRowInput({
-        note, 
+        note,
         scrollParent,
         readOnly,
         currentNote,
         listHasFocus,
-        visualDepth,
+        treeVisualsInfo,
     }) {
-        const flatNotesRoot = getNoteOrUndefined(state, state._currentFlatNotesRootId);
-        noteDepth = visualDepth ?? note.data._depth;
-        startDepth = visualDepth !== undefined ? 0 : (
-            flatNotesRoot ? flatNotesRoot.data._depth : note.data._depth
-        );
+        noteDepth = treeVisualsInfo.depth ?? note.data._depth;
 
-        const wasFocused = isFocused;
-        isFocused = currentNote.id === note.id && state._currentModal === null;
-        isEditing = !readOnly && (
+        isFocused = currentNote.id === note.id && listHasFocus;
+        isEditing = !readOnly && state._currentModal === null && (
             listHasFocus && isFocused && state._isEditingFocusedNote
         );
 
-        const wasShowingDurations = isShowingDurations;
         isShowingDurations = state._isShowingDurations;
 
         setStickyOffset();
@@ -1944,10 +2497,10 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
     const DURATION_BAR_HEIGHT = 4;
 
-    const root = div({ 
-        class: [cn.row, cn.pre], 
+    const root = div({
+        class: [cn.row, cn.pre],
         // need padding to make room for the scroll bar :sad:
-        style: `background-color: ${cssVars.bgColor}; padding-right: 10px;` 
+        style: `background-color: ${cssVars.bgColor}; padding-right: 10px;`
     }, [
         rg.on("click", ({ note }) => {
             setCurrentNote(state, note.id);
@@ -1956,8 +2509,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         rg.style("color", ({ note }) => {
             return !note.data._shelved && (
                 note.data._isSelected ||
-                note.data._status === STATUS_IN_PROGRESS ||
-                note.data.isSticky
+                note.data._status === STATUS_IN_PROGRESS
             ) ? `${cssVars.fgColor}` : `${cssVars.unfocusTextColor}`;
         }),
         rg.style(`backgroundColor`, () => isFocused ? `${cssVars.bgColorFocus}` : `${cssVars.bgColor}`),
@@ -1971,14 +2523,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 // cursor element
                 cursorElement,
                 div({ style: "width: 10px" }),
-                div({
-                    class: [cn.row, cn.alignItemsCenter, cn.pre],
-                    style: `background-color: ${cssVars.pinned}; color: #FFF`
-                }, [
-                    rg.style("opacity", s => !!s.note.data.isSticky ? "1" : "0"),
-                    " ! "
-                ]),
-                div({ style: "width: 10px" }),
                 // indentation - before vertical line
                 div({ class: [cn.relative] }, [
                     // HACK - tree lines shouldn't be broken by the duration bars
@@ -1988,17 +2532,17 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     }),
                     () => {
                         function VerticalStroke(rg: RenderGroup<[number, boolean, boolean, boolean, boolean]>) {
-                            const aboveHorizontal = div({ 
-                                class: [cn.absolute], 
+                            const aboveHorizontal = div({
+                                class: [cn.absolute],
                                 style: `background-color: ${cssVars.fgColor}; width: 1px; top: 0; height: 1ch;`
                             }, [
                                 rg.style("left", s => s[0] + "ch"),
                                 rg.style("width", s => s[2] ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth),
                             ]);
 
-                            const belowHorizontal = div({ 
-                                    class: [cn.absolute], 
-                                    style: `background-color: ${cssVars.fgColor}; width: 1px; top: 1ch; bottom: 0;` 
+                            const belowHorizontal = div({
+                                class: [cn.absolute],
+                                style: `background-color: ${cssVars.fgColor}; width: 1px; top: 1ch; bottom: 0;`
                             }, [
                                 rg.style("left", s => s[0] + "ch"),
                                 rg.style("width", s => s[4] ? cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth),
@@ -2013,7 +2557,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
                             return contentsDiv({}, [belowHorizontal, aboveHorizontal]);
                         }
-                        
+
                         return rg.list(contentsDiv(), VerticalStroke, (getNext, s) => {
 
                             const depth = noteDepth;
@@ -2022,9 +2566,9 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
 
                             while (!idIsNil(parent.parentId) && currentDepth >= 0) {
                                 const isParentLastNote = parent.data._index === parent.data._numSiblings - 1;
-                                const isTopFocused = s.note.data._selectedPathDepth === currentDepth;
-                                const isBottomFocused = s.note.data._selectedPathDepth === currentDepth
-                                        && !s.note.data._selectedPathDepthIsFirst;
+                                const isTopFocused = s.treeVisualsInfo._selectedPathDepth === currentDepth;
+                                const isBottomFocused = s.treeVisualsInfo._selectedPathDepth === currentDepth
+                                    && !s.treeVisualsInfo._selectedPathDepthIsFirst;
 
                                 getNext().render([
                                     getIndentation(currentDepth),
@@ -2044,12 +2588,12 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         class: [cn.absolute],
                         style: `background-color: ${cssVars.fgColor}; height: 1px; top: 1ch; right: 0px; left: 0px`
                     }, [
-                        rg.style("height", s => s.note.data._selectedPathDepthIsFirst ?
+                        rg.style("height", s => s.treeVisualsInfo._selectedPathDepthIsFirst ?
                             cssVars.focusedTreePathWidth : cssVars.unfocusedTreePathWidth)
                     ]),
                 ]),
                 div({ class: [cn.pre], style: "padding-left: 0.5ch; padding-right: 1ch; " }, [
-                    rg.text(({ note, forceOneLine }) => {
+                    rg.text(({ note, forceOneLine, forceMultipleLines }) => {
                         // The design onf this note status and the tree lines are inextricably linked, but you wouldn't see
                         // that from the code - the lines need to look as if they were exiting from below the middle of this status text:
                         //      |
@@ -2059,10 +2603,15 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         //            |    <- like it does here
                         //            |
                         //            +--
-                        
-                        const charCount = !forceOneLine ? "" : (
-                                note.data.text.length < 150 ? "" : `[${note.data.text.length}ch]`
-                        );
+
+                        let charCount;
+                        if (forceMultipleLines || !forceOneLine) {
+                            charCount = "";
+                        } else if (note.data.text.length < 150) {
+                            charCount = "";
+                        } else {
+                            charCount = `[${note.data.text.length}ch]`;
+                        }
 
                         const status = noteStatusToString(note.data._status);
                         const progress = getNoteProgressCountText(note);
@@ -2074,7 +2623,9 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     text: s.note.data.text,
                     isEditing,
                     onInputKeyDown,
-                    isOneLineWhenNotEditing: s.forceOneLine,
+                    isOneLine: s.forceMultipleLines ? false : (
+                        s.forceOneLine && !(isEditing || isFocused)
+                    ),
                     onInput
                 })),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
@@ -2085,7 +2636,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 ])
             ]),
             rg.if(() => isShowingDurations, rg =>
-                rg.realtime(rg => 
+                rg.realtime(rg =>
                     rg.inlineFn(
                         div({ class: [cnApp.inverted], style: `height: ${DURATION_BAR_HEIGHT}px;` }),
                         (c, s) => {
@@ -2111,27 +2662,132 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     return root;
 }
 
+export type TreeVisualsInfo = {
+    depth: number;
+
+    // for the tree visuals
+    _isVisualLeaf: boolean; // Does this note have it's children expanded in the tree note view?
+    _selectedPathDepth: number;  
+    _selectedPathDepthIsFirst: boolean;  // Is this the first note on the selected path at this depth? (Nothing to do with Depth first search xD)
+}
+
+// NOTE: the tree visuals are still broken at the moment when using custom depths
+export function recomputeTreeVisualsInfo(
+    treeVisuals: TreeVisualsInfo[],
+    flatNoteIds: NoteId[],
+    currentNoteId: number | null,
+) {
+    assert(treeVisuals.length === flatNoteIds.length, "treeVisualsDst.length === flatNoteIds.length,");
+
+
+    // recompute leaf status
+    {
+        // a note is a visual leaf it it doesn't have any children.
+        // a note has children if there are notes under it with a depth greater than it.
+        for (let i = 0; i < treeVisuals.length; i++) {
+            const isLastItem = i === treeVisuals.length - 1;
+            treeVisuals[i]._isVisualLeaf = isLastItem ||
+                treeVisuals[i].depth >= treeVisuals[i + 1].depth;
+        }
+    }
+
+
+    // recompute selected path depths
+    {
+        for (let i = 0; i < treeVisuals.length; i++) {
+            treeVisuals[i]._selectedPathDepth = -1;
+            treeVisuals[i]._selectedPathDepthIsFirst = false;
+        }
+
+        if (!idIsNilOrUndefined(currentNoteId) && !idIsRoot(currentNoteId)) {
+            const currentNoteIdx = flatNoteIds.indexOf(currentNoteId);
+            if (currentNoteIdx !== -1) {
+                // If you take a picture of the tree diagram and then trace out
+                // the 'focused' path, then this code will actually make sense
+                let currentFocusedDepth = treeVisuals[currentNoteIdx].depth;
+                for (let i = currentNoteIdx; i >= 0; i--) {
+                    let newDepth = Math.min(
+                        currentFocusedDepth,
+                        treeVisuals[currentNoteIdx].depth,
+                    );
+
+                    treeVisuals[i]._selectedPathDepth = newDepth;
+                    treeVisuals[i]._selectedPathDepthIsFirst = i === currentNoteIdx ||
+                        currentFocusedDepth !== newDepth;
+
+                    currentFocusedDepth = newDepth;
+                }
+            }
+        }
+    }
+}
+
 function NotesList(rg: RenderGroup<{
     flatNoteIds: NoteId[];
-    noteDepths?: number[];
-    scrollParent: HTMLElement | null;
     currentNoteId: NoteId | null;
     hasFocus: boolean;
     ratio: number;
+    alwaysMultipleLines: boolean;
+
+    noteDepths?: number[];
+    scrollParentOverride?: HTMLElement;
+    enableSticky?: boolean;
 }>) {
     const root = div({
         class: [cn.flex1, cn.w100, cnApp.sb1b, cnApp.sb1t],
-    });
+    }, [
+        rg.class(cn.overflowYAuto, s => !s.scrollParentOverride),
+    ]);
     const noteList = newListRenderer(root, () => newComponent(NoteRowInput));
 
+    const treeVisualInfo: TreeVisualsInfo[] = [];
+    let viewStartDepth = 0;
+
     rg.preRenderFn(function renderNoteListInteral(s) {
-        const { flatNoteIds, scrollParent, currentNoteId, hasFocus, noteDepths } = s;
+        const { flatNoteIds, scrollParentOverride, currentNoteId, hasFocus } = s;
+
+        const scrollParent = scrollParentOverride ?? root.el;
 
         if (!setVisible(root, flatNoteIds.length > 0)) {
             return;
         }
 
         setStyle(root, "flex", "" + s.ratio);
+
+        // recompute tree visuals
+        {
+            if (s.noteDepths) {
+                assert(s.flatNoteIds.length === s.noteDepths.length, "s.flatNoteIds.length === s.noteDepths.length");
+            }
+
+            treeVisualInfo.length = flatNoteIds.length;
+            for (let i = 0; i < flatNoteIds.length; i++) {
+                if (!treeVisualInfo[i]) {
+                    treeVisualInfo[i] = {
+                        depth: 0, _selectedPathDepthIsFirst: false, _selectedPathDepth: -1, _isVisualLeaf: false,
+                    };
+                }
+
+
+                let depth;
+                if (s.noteDepths) {
+                    depth = s.noteDepths[i];
+                } else {
+                    depth = getNote(state, s.flatNoteIds[i]).data._depth;
+                }
+
+                treeVisualInfo[i].depth = depth;
+            }
+            recomputeTreeVisualsInfo(treeVisualInfo, s.flatNoteIds, currentNoteId);
+
+            viewStartDepth = 0;
+            if (treeVisualInfo.length > 0) {
+                viewStartDepth = treeVisualInfo[0].depth;
+                for (let i = 1; i < treeVisualInfo.length; i++) {
+                    viewStartDepth = Math.min(viewStartDepth, treeVisualInfo[i].depth);
+                }
+            }
+        }
 
         noteList.render((getNext) => {
             if (idIsNilOrUndefined(currentNoteId)) {
@@ -2153,11 +2809,28 @@ function NotesList(rg: RenderGroup<{
 
                 // NOTE: stickyness now has nothing to do with isSticky. We can get to those notes quickly enough
                 // using the quicklist anyway.
-                const isSticky = state._showAllNotes ? false :
-                    note.data._depth < flatNotesRoot?.data._depth;
-                    
+                const isSticky = !!s.enableSticky && (
+                    state._showAllNotes ? false :
+                        note.data._depth < flatNotesRoot?.data._depth
+                );
+
+                let forceOneLine = false;
+                if (s.alwaysMultipleLines) {
+                    forceOneLine = false;
+                } else if (!forceOneLine) {
+                    if (state.settings.nonEditingNotesOnOneLine) {
+                        forceOneLine = true;
+                    } else if (state.settings.parentNotesOnOneLine) {
+                        forceOneLine = isParentNote;
+                    } else {
+                        forceOneLine = false;
+                    }
+                }
+
                 component.render({
                     note,
+                    treeVisualsInfo: treeVisualInfo[i],
+                    viewStartDepth,
                     stickyOffset: undefined,
                     _isSticky: isSticky,
                     hasDivider: false,
@@ -2167,10 +2840,8 @@ function NotesList(rg: RenderGroup<{
                     currentNote,
                     listHasFocus: hasFocus,
                     orignalOffsetTop: -420,
-                    forceOneLine: state.settings.nonEditingNotesOnOneLine ? true : (
-                        state.settings.parentNotesOnOneLine ? isParentNote : false
-                    ),
-                    visualDepth: noteDepths?.[i],
+                    forceOneLine,
+                    forceMultipleLines: s.alwaysMultipleLines,
                 });
 
                 if (isSticky) {
@@ -2757,7 +3428,7 @@ function moveInDirectionOverQuickList(amount: number) {
         return;
     }
 
-    const idx = Math.max(0, Math.min(state._fuzzyFindState.matches.length - 1, getQuicklistIndex(state)+ amount));
+    const idx = Math.max(0, Math.min(state._fuzzyFindState.matches.length - 1, getQuicklistIndex(state) + amount));
     setQuicklistIndexForMove(idx);
 }
 
@@ -3206,10 +3877,9 @@ function HelpModal(rg: RenderGroup<{ open: boolean; }>) {
             setCurrentModalAndRerenderApp(null);
         },
     }), [
-        div({ style: modalPaddingStyles(10) }, [ 
+        div({ style: modalPaddingStyles(10) }, [
             div({ class: [cn.col, cn.alignItemsStretch, cn.h100] }, [
                 el("H3", {}, `Note tree ${VERSION_NUMBER} - help`),
-                    // TODO: scroll container
                 addChildren(setAttrs(scrollContainer, { scroll: "no" }), [
                     "This program is mainly driven by keyboard shortcuts. ",
                     "There are still a couple buttons you have to click on, but in an ideal world, I would have added keyboard shortcuts for them. ",
@@ -3242,6 +3912,7 @@ const deleteModal = newComponent(DeleteModal);
 const loadBackupModal = newComponent(LoadBackupModal);
 const linkNavModal = newComponent(LinkNavModal);
 const exportModal = newComponent(ExportModal);
+const addRemoveToStreamModal = newComponent(AddToStreamModal);
 
 // NOTE: We should only ever have one of these ever.
 // Also, there is code here that relies on the fact that
@@ -3332,7 +4003,7 @@ export function App(rg: RenderGroup) {
             }))
         ]),
         div({ class: [cn.flex1, cn.row, cn.alignItemsCenter, cn.justifyContentCenter] }, [
-            rg.c(StatusIndicator, (c, s) => c.render(null)),
+            statusTextIndicator,
         ]),
         div({ class: [cn.row] }, [
             isRunningFromFile() ? (
@@ -3405,11 +4076,11 @@ export function App(rg: RenderGroup) {
             ),
             div({}, [
                 "Report issues here: ",
-                el("A", { 
-                    class: [cnHoverLink], 
+                el("A", {
+                    class: [cnHoverLink],
                     style: `color: currentColor;`,
                     href: GITHUB_PAGE_ISSUES,
-                }, [ GITHUB_PAGE_ISSUES ]),
+                }, [GITHUB_PAGE_ISSUES]),
             ])
         ])
     );
@@ -3420,7 +4091,7 @@ export function App(rg: RenderGroup) {
             div({ class: [cn.row, cn.flex1] }, [
                 addChildren(notesScrollRoot, [
                     rg.if(
-                        () => currentHelpInfo === 2, 
+                        () => currentHelpInfo === 2,
                         (rg) => rg.c(CheatSheet, c => c.render(null))
                     ),
                     div({ class: [cn.row, cn.alignItemsCenter], style: "padding: 10px;" }, [
@@ -3436,7 +4107,7 @@ export function App(rg: RenderGroup) {
                     div({ class: [cn.row] }, [
                         notesList,
                     ]),
-                    rg.if(() => state._isShowingDurations, 
+                    rg.if(() => state._isShowingDurations,
                         (rg) => rg.c(HighLevelTaskDurations, c => c.render(null))
                     ),
                     div({ class: [cn.row], style: "" }, [
@@ -3457,6 +4128,7 @@ export function App(rg: RenderGroup) {
         loadBackupModal,
         linkNavModal,
         exportModal,
+        addRemoveToStreamModal,
     ]);
 
 
@@ -3610,8 +4282,8 @@ export function App(rg: RenderGroup) {
             e.preventDefault();
             setCurrentModalAndRerenderApp(linkNavModal);
             return;
-        } else if (handleToggleNoteSticky(e, currentNote)) {
-            rerenderApp();
+        } else if (handleAddOrRemoveToStream(e)) {
+            setCurrentModalAndRerenderApp(addRemoveToStreamModal);
             return;
         }
 
@@ -3646,7 +4318,7 @@ export function App(rg: RenderGroup) {
                         nextNoteId = getNoteOneDownLocally(state, currentNote);
                     } else {
                         nextNoteId = getNoteNDownForMovement(state, currentNote, useSiblings, amount);
-                    } 
+                    }
                 }
 
                 const nextNote = getNoteOrUndefined(state, nextNoteId);
@@ -3895,6 +4567,10 @@ export function App(rg: RenderGroup) {
                 open: state._currentModal === helpModal
             });
 
+            addRemoveToStreamModal.render({
+                visible: state._currentModal === addRemoveToStreamModal,
+            });
+
             if (setVisible(interactiveGraphModal, state._currentModal === interactiveGraphModal)) {
                 interactiveGraphModal.render(null)
             }
@@ -3918,12 +4594,14 @@ export function App(rg: RenderGroup) {
 
         // Render the list after rendering the right dock, so that the sticky offsets have the correct heights.
         // The right panel can cause lines to wrap when they otherwise wouldn't have, resulting in incorrect heights
-        notesList.render({ 
+        notesList.render({
             flatNoteIds: state._flatNoteIds,
-            scrollParent: notesScrollRoot.el,
+            scrollParentOverride: notesScrollRoot.el,
             currentNoteId: state.currentNoteId,
-            hasFocus: true,
+            hasFocus: state._currentModal === null,
             ratio: 2,
+            alwaysMultipleLines: false,
+            enableSticky: true,
         });
 
 
@@ -3979,6 +4657,7 @@ function StatusIndicator(rg: RenderGroup) {
         rg.style("color", () => statusTextColor),
     ]);
 }
+const statusTextIndicator = newComponent(StatusIndicator, null);
 
 const showStatusText = (text: string, color: string = cssVars.fgColor, timeout: number = STATUS_TEXT_PERSIST_TIME) => {
     if (statusTextClearTimeout) {
@@ -3987,7 +4666,7 @@ const showStatusText = (text: string, color: string = cssVars.fgColor, timeout: 
 
     statusText = text;
     statusTextColor = color;
-    rerenderApp();
+    statusTextIndicator.renderWithCurrentState();
 
     const timeoutAmount = timeout;
     if (timeoutAmount > 0) {

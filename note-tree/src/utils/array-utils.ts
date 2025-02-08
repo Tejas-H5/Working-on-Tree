@@ -128,3 +128,33 @@ export function clearArray(arr: unknown[]) {
 export function arrayAt<T>(arr: T[], i: number): T | undefined {
     return arr[i];
 }
+
+export function clampIndexToArrayBounds(i: number, arr: unknown[]): number {
+    return clampIndexToBounds(i, arr.length);
+}
+
+export function clampIndexToBounds(i: number, len: number): number {
+    if (i < 0) return 0;
+    if (i >= len) return len - 1;
+    return i;
+}
+
+export function moveArrayItem(arr: unknown[], a: number, b: number) {
+    if (a < 0 || a >= arr.length) {
+        throw new Error("'a' out of bounds!");
+    }
+    if (b < 0 || b >= arr.length) {
+        throw new Error("'b' out of bounds!");
+    }
+
+    if (a > b) {
+        moveArrayItem(arr, b, a);
+    }
+
+    while (a < b) {
+        const temp = arr[a + 1];
+        arr[a + 1] = arr[a];
+        arr[a] = temp;
+        a++;
+    }
+}

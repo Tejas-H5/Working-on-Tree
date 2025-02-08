@@ -1,11 +1,11 @@
-import { Insertable, RenderGroup, cn, div, on, scrollIntoView } from "src/utils/dom-utils";
+import { DomUtilsChildren, Insertable, RenderGroup, cn, div, on, scrollIntoView } from "src/utils/dom-utils";
 
 export function ScrollContainer(rg: RenderGroup<{
     rescrollMs?: number;
     axes?: "h" | "v" | "hv";
     scrollEl: Insertable<HTMLElement> | null;
-}>) {
-    const root = div({ class: [cn.overflowYAuto] });
+}>, children?: DomUtilsChildren) {
+    const root = div({ class: [cn.overflowYAuto] }, children);
 
     let scrollTimeout = 0;
     let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;

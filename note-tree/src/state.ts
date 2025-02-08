@@ -3,14 +3,14 @@ import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
 import { recursiveShallowCopy } from "src/utils/serialization-utils";
-import * as oldTree from "src/utils/tree";
 import * as tree from "src/utils/int-tree";
+import * as oldTree from "src/utils/tree";
 
 import { GraphData, newGraphData } from "./interactive-graph";
-import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { Theme } from "./styling";
-import { clearArray, filterInPlace } from "./utils/array-utils";
-import { fuzzyFind, scoreFuzzyFind, Range } from "./utils/fuzzyfind";
+import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
+import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
+import { fuzzyFind, Range, scoreFuzzyFind } from "./utils/fuzzyfind";
 
 const lightThemeColours: Theme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
@@ -20,7 +20,6 @@ const lightThemeColours: Theme = {
     bgColorFocus2: newColor(0, 0, 0, 0.4),
     fgColor: newColorFromHex("#000"),
     unfocusTextColor: newColorFromHex("#A0A0A0"),
-    pinned: newColorFromHex("#0A0"),
     focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 };
@@ -33,7 +32,6 @@ const darkThemeColours: Theme = {
     bgColorFocus2: newColor(1, 1, 1, 0.4),
     fgColor: newColorFromHex("#EEE"),
     unfocusTextColor: newColorFromHex("#707070"),
-    pinned: newColorFromHex("#0A0"),
     focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 };
@@ -65,7 +63,6 @@ export type FuzzyFindState = {
         numInProgress: number;
         numFinished: number;
         numShelved: number;
-        numPinned: number;
     },
     currentIdx: number;
     currentIdxLocal: number;
@@ -81,7 +78,6 @@ function newFuzzyFindState(): FuzzyFindState {
             numInProgress: 0,
             numFinished: 0,
             numShelved: 0,
-            numPinned: 0,
         },
         currentIdx: 0,
         currentIdxLocal: 0,
@@ -110,6 +106,16 @@ export type NoteTreeGlobalState = {
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+
+    /** 
+     * A task stream is way to group tasks, and chunk out which ones we're working on at any given time. 
+     * It is a replacement for simply pinning notes - we end up pinning way too many of them.
+     * Streams can be reordered, and notes inside of them can be reordered.
+     * Notes may belong to multiple streams.
+     * TODO: report back on if this actually made me more productive or not
+     **/
+    taskStreams: TaskStream[];
+    currentTaskStreamIdx: number;
 
     scratchPadCanvasLayers: AsciiCanvasLayer[];
 
@@ -157,12 +163,22 @@ export type NoteTreeGlobalState = {
     _currentModal: Insertable | null;
 };
 
+export type TaskStream = {
+    name: string;
+    noteIds: NoteId[];
+
+    _idx: number;
+};
+
+
+function newTaskStream(name: string): TaskStream {
+    return { name, noteIds: [], _idx: 0 };
+}
+
 type AppSettings = {
     nonEditingNotesOnOneLine: boolean;
     parentNotesOnOneLine: boolean;
 };
-
-type JsonBoolean = true | undefined;
 
 export type Note = {
     id: NoteId;
@@ -173,7 +189,6 @@ export type Note = {
     openedAt: string; 
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
-    isSticky: JsonBoolean; // Should this note be pinned / marked as important?
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
@@ -191,10 +206,7 @@ export type Note = {
     _index: number; // which position is this in the current child list?
     _numSiblings: number;
 
-    // for the tree visuals
-    _isVisualLeaf: boolean; // Does this note have it's children expanded in the tree note view?
-    _selectedPathDepth: number;  // NOTE - not set if it isn't being displayed
-    _selectedPathDepthIsFirst: boolean;  // Is this the first note on the selected path at this depth? (Nothing to do with Depth first search xD)
+    _taskStreams: TaskStream[];
 };
 
 
@@ -401,6 +413,9 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
 
+        taskStreams: [],
+        currentTaskStreamIdx: 0,
+
         // Only increment this for massive changes! Otherwise, try to keep migrations bacwards compatible
         schemaMajorVersion: 2,
 
@@ -605,7 +620,6 @@ export function defaultNote(): Note {
         text: "",
         openedAt: getTimestamp(new Date()),
         lastSelectedChildIdx: 0,
-        isSticky: undefined,
 
         // the following are just visual flags which are frequently recomputed
 
@@ -621,9 +635,7 @@ export function defaultNote(): Note {
         _activityListMostRecentIdx: 0,
         _index: 0,
         _numSiblings: 0,
-        _isVisualLeaf: false,
-        _selectedPathDepth: -1,
-        _selectedPathDepthIsFirst: false,
+        _taskStreams: [],
     };
 }
 
@@ -665,12 +677,12 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
     const dfs = (note: TreeNote) => {
         flatNotes.push(note.id);
 
-        note.data._isVisualLeaf = note.childIds.length === 0 || 
+        const noChildren = note.childIds.length === 0;
+        const isVisualLeaf = !noChildren && 
             isStoppingPointForNotViewExpansion(state, note);
-        if (note.data._isVisualLeaf) {
+        if (isVisualLeaf) {
             return;
         }
-
         for (const childId of note.childIds) {
             const note = getNote(state, childId);
             dfs(note);
@@ -1058,31 +1070,21 @@ export function recomputeState(state: NoteTreeGlobalState) {
         }
     }
 
-    // recompute tree visual path _selectedPathDepth, _selectedPathDepthIsFirst from _flatNoteIds
+    // recompute the stream indexes
     {
-        for (const id of state._flatNoteIds) {
-            const note = getNote(state, id);
-            note.data._selectedPathDepth = -1;
-            note.data._selectedPathDepthIsFirst = false;
+        for (let i = 0; i < state.taskStreams.length; i++) {
+            const stream = state.taskStreams[i];
+            stream._idx = i;
         }
+    }
 
-        const currentNote = getCurrentNote(state);
-        const currentNoteIdx = state._flatNoteIds.indexOf(currentNote.id);
-        if (currentNoteIdx !== -1) {
-            // If you take a picture of the tree diagram and then trace out
-            // the 'focused' path, then this code will actually make sense
-            let currentFocusedDepth = currentNote.data._depth;
-            for (let i = currentNoteIdx; i >= 0; i--) {
-                const id = state._flatNoteIds[i];
+    // recompute the task streams every note is in
+    {
+        tree.forEachNode(state.notes, n => clearArray(n.data._taskStreams));
+        for (const ts of state.taskStreams) {
+            for (const id of ts.noteIds) {
                 const note = getNote(state, id);
-
-                let newDepth = Math.min(currentFocusedDepth, note.data._depth);
-
-                note.data._selectedPathDepth = newDepth;
-                note.data._selectedPathDepthIsFirst = i === currentNoteIdx || 
-                    currentFocusedDepth !== newDepth;
-
-                currentFocusedDepth = newDepth;
+                note.data._taskStreams.push(ts);
             }
         }
     }
@@ -1359,6 +1361,10 @@ export function idIsNilOrRoot(id: NoteId): boolean {
     return id === -1 || id === 0;
 }
 
+export function idIsRoot(id: NoteId): boolean {
+    return id === 0;
+}
+
 export function getNoteOrUndefined(state: NoteTreeGlobalState, id: NoteId | null | undefined): TreeNote | undefined {
     if (!idIsNilOrUndefined(id) && hasNote(state, id)) {
         return getNote(state, id);
@@ -1489,7 +1495,7 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
     return undefined;
 }
 
-export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null, saveJump = false) {
+export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null, noteIdJumpedFrom?: NoteId | undefined) {
     if (!noteId) {
         return;
     }
@@ -1510,7 +1516,7 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
 
     setNoteAsLastSelected(state, note);
 
-    state._lastNoteId = !saveJump ? undefined : state.currentNoteId;
+    state._lastNoteId = noteIdJumpedFrom;
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
     deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
@@ -1576,7 +1582,6 @@ export function findNextImportantNote(state: NoteTreeGlobalState, note: TreeNote
         if (
             i <= 0 ||
             i >= siblings.length - 1 ||
-            (!note.data._isSelected && note.data.isSticky) ||
             (note.data._status === STATUS_IN_PROGRESS) !== isInProgress
         ) {
             return note;
@@ -2099,9 +2104,6 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
     return -1;
 }
 
-export function toggleNoteSticky(note: TreeNote) {
-    note.data.isSticky = (!note.data.isSticky) || undefined;
-}
 
 export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
     if (isEditingTextSomewhereInDocument() && !state._isEditingFocusedNote) {
@@ -2109,10 +2111,6 @@ export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
     }
 
     if (state._isShowingDurations) {
-        return false;
-    }
-
-    if (state._currentModal) {
         return false;
     }
 
@@ -2126,32 +2124,66 @@ export function resetState() {
 
 type NoteFuzzyFindMatches = {
     note: TreeNote;
-    ranges: Range[];
+    ranges: Range[] | null;
     score: number;
 };
 
+// NOTE: this thing currently populates the quicklist
 export function fuzzySearchNotes(
     state: NoteTreeGlobalState,
     rootNote: TreeNote,
     query: string,
     matches: NoteFuzzyFindMatches[],
 ) {
-    matches.splice(0, matches.length);
+    clearArray(matches);
 
     if (query.length === 0) {
-        // if no query, default to just the pinned items.
+        // if no query, default to just the current task stream.
 
-        dfsPre(state, rootNote, (note) => {
-            if (note.data.isSticky) {
+        const noteIds = state.taskStreams[state.currentTaskStreamIdx]?.noteIds;
+        if (noteIds) {
+            // Actually, we want the in-progress notes under those task stream notes, and not just the notes themsevles.
+            const dfs = (note: TreeNote) => {
+                for (const id of note.childIds) {
+                    const note = getNote(state, id);
+
+                    if (note.data._status !== STATUS_IN_PROGRESS) {
+                        continue;
+                    }
+
+                    if (matches.find(m => m.note === note)) {
+                        // this note appears in the stream, and as a child of another note in the stream. forgeddabadit.
+                        continue;
+                    }
+
+                    if (note.childIds.length === 0) {
+                        matches.push({
+                            note: note,
+                            ranges: null,
+                            // no need for sorting tbh - we're already iterating in order!
+                            score: 100,
+                        });
+                        continue;
+                    }
+
+                    dfs(note);
+                }
+            };
+
+            for (let i = 0; i < noteIds.length; i++) {
+                const id = noteIds[i];
+                const note = getNote(state, id);
                 matches.push({
-                    note,
+                    note: note,
                     ranges: [],
-                    score: note.data._activityListMostRecentIdx,
+                    // no need for sorting tbh - we're already iterating in order!
+                    score: 100,
                 });
+                // also add the in-progress notes underneath!
+                dfs(note);
             }
-        });
+        }
 
-        matches.sort((a, b) => b.score - a.score);
         return;
     }
 
@@ -2247,10 +2279,6 @@ export function fuzzySearchNotes(
             if (score < minScore) {
                 return;
             }
-        }
-
-        if (n.data.isSticky) {
-            score += 999999;
         }
 
         matches.push({
@@ -2412,6 +2440,257 @@ export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
         state._currentActivityScopedNoteId = state.currentNoteId;
     }
 }
+
+export function isNoteInTaskStream(stream: TaskStream, note: TreeNote): boolean {
+    return note.data._taskStreams.includes(stream);
+}
+
+export function indexOfNoteInTaskStream(stream: TaskStream, note: TreeNote): number {
+    return stream.noteIds.indexOf(note.id);
+}
+
+export function getNumParentsInTaskStream(state: NoteTreeGlobalState, stream: TaskStream, note: TreeNote): number{
+    let count = 0;
+    let parentNote = note;
+    while (!idIsNilOrRoot(parentNote.parentId)) {
+        parentNote = getNote(state, parentNote.parentId);
+
+        if (isNoteInTaskStream(stream, parentNote)) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+export function insertNewTaskStreamAt(state: NoteTreeGlobalState, idx: number, name: string): TaskStream {
+    const stream = newTaskStream(name);
+    state.taskStreams.splice(idx, 0, stream);
+    return stream;
+}
+
+export function deleteTaskStream(state: NoteTreeGlobalState, stream: TaskStream) {
+    if (stream.noteIds.length > 0) {
+        console.warn("Some code was trying to delete a task stream that stil contained notes");
+        return;
+    }
+
+    const idx = state.taskStreams.indexOf(stream);
+    if (idx === -1) {
+        return;
+    }
+
+    state.taskStreams.splice(idx, 1);
+}
+
+export function addNoteToTaskStream(stream: TaskStream, note: TreeNote): boolean {
+    if (!isNoteInTaskStream(stream, note)) {
+        stream.noteIds.push(note.id);
+        return true;
+    }
+
+    return false;
+}
+
+export function removeNoteFromTaskStream(stream: TaskStream, note: TreeNote) {
+    filterInPlace(stream.noteIds, id => id !== note.id);
+}
+
+export type ViewAllTaskStreamsState = {
+    isRenaming: boolean;
+    canDelete: boolean;
+    isCurrentNoteInStream: boolean;
+    isViewingCurrentStream: boolean;
+
+    // expensive to compute - understandable if we only do this once when the modal appears
+    viewTaskStreamStates: ViewTaskStreamState[];
+};
+
+
+export function recomputeViewAllTaskStreamsState(
+    state: ViewAllTaskStreamsState,
+    globalState: NoteTreeGlobalState,
+    init: boolean,
+    currentNote: TreeNote,
+    taskStreams: TaskStream[],
+) {
+    if (init) {
+        state.isRenaming = false;
+    }
+
+    // NOTE: this may be expensive...
+    // for now I'm not computing this on init, because we may reorder
+    // the streams, and we'd have to recompute them... 
+    // There may be a simple solution to this, but I can't think right now
+    {
+        state.viewTaskStreamStates.length = taskStreams.length;
+        for (let i = 0; i < state.viewTaskStreamStates.length; i++) {
+            if (!state.viewTaskStreamStates[i]) {
+                state.viewTaskStreamStates[i] = {
+                    isViewingInProgress: false,
+                    taskStream: taskStreams[i], currentStreamNoteIdx: 0, streamNoteDepths: [], inProgressNotes: [],
+                };
+            }
+
+            if (init) {
+                state.viewTaskStreamStates[i].isViewingInProgress = false;
+            }
+
+            recomputeViewTaskStreamState(state.viewTaskStreamStates[i], globalState, taskStreams[i], false);
+        }
+    }
+
+    if (init) {
+        state.isViewingCurrentStream = false;
+
+        // we should open this modal to where this current note is, if possible.
+        // Let's find the closest ancestor that is in any task stream:
+        let noteWithStreams: TreeNote | undefined;
+        {
+            let parentNote = currentNote;
+            while (!idIsNil(parentNote.parentId)) {
+                if (parentNote.data._taskStreams.length > 0) {
+                    break;
+                }
+
+                parentNote = getNote(globalState, parentNote.parentId);
+            }
+            noteWithStreams = parentNote;
+        }
+
+        if (noteWithStreams) {
+            for (const taskStream of noteWithStreams.data._taskStreams) {
+                globalState.currentTaskStreamIdx = taskStream._idx;
+                state.isViewingCurrentStream = true;
+
+                // If the current note is in the inProgressIds, let's focus that as well.
+                const streamViewState = getCurrentTaskStreamState(state, globalState);
+                // TODO: clean this up
+                if (streamViewState) {
+                    streamViewState.isViewingInProgress = false;
+                    const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
+                    assert(streamNoteIdx !== -1, "streamNoteIdx !== -1 because taskStream was taken from noteWithStreams");
+
+                    assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length, "taskStream.noteIds.length === streamViewState.inProgressNotes.length");
+                    const inProgressState = streamViewState.inProgressNotes[streamNoteIdx];
+                    const inProgressIdx = inProgressState.inProgressIds.indexOf(currentNote.id);
+                    if (inProgressIdx !== -1) {
+                        streamViewState.isViewingInProgress = true;
+                        inProgressState.currentInProgressNoteIdx = inProgressIdx;
+                        // we found a stream where we were also in the progress ids. no need to continue looking
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    globalState.currentTaskStreamIdx = clampIndexToArrayBounds(globalState.currentTaskStreamIdx, taskStreams);
+    state.canDelete = false;
+    state.isCurrentNoteInStream = false;
+
+    const currentTaskStreamState = getCurrentTaskStreamState(state, globalState);
+    const currentStream = currentTaskStreamState?.taskStream;
+    if (currentStream) {
+        state.canDelete = currentStream.noteIds.length === 0;
+        state.isCurrentNoteInStream = isNoteInTaskStream(currentStream, currentNote);
+    }
+}
+
+export function getCurrentTaskStreamState(state: ViewAllTaskStreamsState, globalState: NoteTreeGlobalState): ViewTaskStreamState | undefined {
+    return state.viewTaskStreamStates[globalState.currentTaskStreamIdx];
+}
+
+export function recomputeViewTaskStreamState(
+    state: ViewTaskStreamState,
+    globalState: NoteTreeGlobalState,
+    stream: TaskStream,
+    // TODO: think about using this, if needed
+    _skipExpensiveStuff = false,
+) {
+    state.taskStream = stream;
+
+    state.currentStreamNoteIdx = clampIndexToArrayBounds(state.currentStreamNoteIdx, stream.noteIds);
+
+    // recompute custom note ids and depths.
+    {
+        state.streamNoteDepths.length = stream.noteIds.length;
+        for (let i = 0; i < state.streamNoteDepths.length; i++) {
+            state.streamNoteDepths[i] = 0;
+        }
+
+        state.inProgressNotes.length = stream.noteIds.length;
+        for (let i = 0; i < state.inProgressNotes.length; i++) {
+            if (!state.inProgressNotes[i]) {
+                state.inProgressNotes[i] = {
+                    inProgressIds: [],
+                    inProgressNoteDepths: [],
+                    currentInProgressNoteIdx: 0,
+                };
+            }
+            const current = state.inProgressNotes[i];
+
+
+            // TODO: there may be a way to make use of different depths here.
+            clearArray(current.inProgressIds);
+            clearArray(current.inProgressNoteDepths);
+
+            const id = stream.noteIds[state.currentStreamNoteIdx];
+            if (!idIsNilOrUndefined(id)) {
+                // add just the in-progress notes 
+                const dfs = (note: TreeNote, depth: number) => {
+                    for (const id of note.childIds) {
+                        const note = getNote(globalState, id);
+                        if (note.data._status !== STATUS_IN_PROGRESS) {
+                            continue;
+                        }
+                        // dont add them twice...
+                        // TODO: debug the performance...
+                        if (stream.noteIds.includes(note.id)) {
+                            continue;
+                        }
+                        if (current.inProgressIds.includes(note.id)) {
+                            continue;
+                        }
+                        current.inProgressIds.push(note.id);
+                        current.inProgressNoteDepths.push(depth);
+                        dfs(note, depth + 1);
+                    }
+                }
+                dfs(getNote(globalState, id), 0);
+            }
+        }
+    }
+
+    // clamp after the array has been computed
+    {
+        for (let i = 0; i < state.inProgressNotes.length; i++) {
+            const current = state.inProgressNotes[i];
+            current.currentInProgressNoteIdx = clampIndexToArrayBounds(current.currentInProgressNoteIdx, current.inProgressIds);
+        }
+    }
+}
+
+export type InProgressNotesState = {
+    inProgressIds: number[];
+    currentInProgressNoteIdx: number;
+    inProgressNoteDepths: number[];
+};
+
+export function getCurrentInProgressState(state: ViewTaskStreamState): InProgressNotesState {
+    return state.inProgressNotes[state.currentStreamNoteIdx];
+}
+
+
+export type ViewTaskStreamState = {
+    isViewingInProgress: boolean;
+
+    taskStream: TaskStream;
+    currentStreamNoteIdx: number;
+    streamNoteDepths: number[];
+
+    inProgressNotes: InProgressNotesState[];
+};
 
 
 // I used to have tabs, but I literally never used then, so I've just removed those components.

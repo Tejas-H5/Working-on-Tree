@@ -294,7 +294,7 @@ export function newInsertable<T extends ValidElement>(el: T): Insertable<T> {
 export function el<T extends HTMLElement>(
     type: string,
     attrs?: Attrs,
-    children?: InsertableInitializerListOrItem<T>,
+    children?: DomUtilsChildrenOrChild<T>,
 ): Insertable<T> {
     const element = document.createElement(type) as T;
     return elInternal(element, attrs, children);
@@ -303,7 +303,7 @@ export function el<T extends HTMLElement>(
 function elInternal<T extends ValidElement>(
     element: T,
     attrs?: Attrs,
-    children?: InsertableInitializerListOrItem<T>,
+    children?: DomUtilsChildrenOrChild<T>,
 ): Insertable<T> {
     const insertable = newInsertable<T>(element);
 
@@ -325,7 +325,7 @@ function elInternal<T extends ValidElement>(
  * Hint: the `g` element can be used to group SVG elements under 1 DOM node. It's basically the `div` of the SVG world, and
  * defers me from having to implement something like React fragments for 1 more day...
  */
-export function elSvg<T extends SVGElement>(type: string, attrs?: Attrs, children?: InsertableInitializerListOrItem<T>) {
+export function elSvg<T extends SVGElement>(type: string, attrs?: Attrs, children?: DomUtilsChildrenOrChild<T>) {
     const xmlNamespace = "http://www.w3.org/2000/svg";
     const svgEl = document.createElementNS(xmlNamespace, type) as T;
     if (type === "svg") {
@@ -346,15 +346,15 @@ export function elSvg<T extends SVGElement>(type: string, attrs?: Attrs, childre
  *
  * NOTE: For svg elements, you'll need to use `elSvg`
  */
-export function div(attrs?: Attrs, children?: InsertableInitializerListOrItem<HTMLDivElement>) {
+export function div(attrs?: Attrs, children?: DomUtilsChildrenOrChild<HTMLDivElement>) {
     return el<HTMLDivElement>("DIV", attrs, children);
 }
 
-export function contentsDiv(attrs?: Attrs, children?: InsertableInitializerListOrItem<HTMLDivElement>) {
+export function contentsDiv(attrs?: Attrs, children?: DomUtilsChildrenOrChild<HTMLDivElement>) {
     return div({ ...attrs, style: (attrs?.style ?? "") + ";display: contents !important;" }, children);
 }
 
-export function span(attrs?: Attrs, children?: InsertableInitializerListOrItem<HTMLSpanElement>) {
+export function span(attrs?: Attrs, children?: DomUtilsChildrenOrChild<HTMLSpanElement>) {
     return el<HTMLSpanElement>("SPAN", attrs, children);
 }
 
@@ -365,13 +365,13 @@ export function span(attrs?: Attrs, children?: InsertableInitializerListOrItem<H
  */
 type Functionality<T extends ValidElement> = (parent: Insertable<T>) => void | Insertable<any>;
 type InsertableInitializerListItem<T extends ValidElement> = Insertable<ValidElement> | string | false | Functionality<T>;
-export type InsertableInitializerList<T extends ValidElement = HTMLElement> = InsertableInitializerListItem<T>[];
-export type InsertableInitializerListOrItem<T extends ValidElement = HTMLElement> = InsertableInitializerListItem<T>[] | InsertableInitializerListItem<T>;
+export type DomUtilsChildren<T extends ValidElement = HTMLElement> = InsertableInitializerListItem<T>[];
+type DomUtilsChildrenOrChild<T extends ValidElement = HTMLElement> = DomUtilsChildren<T> | InsertableInitializerListItem<T>;
 
 /** Use this to initialize an element's children later. Don't call it after a component has been rendered */
 export function addChildren<T extends ValidElement>(
     ins: Insertable<T>, 
-    children: InsertableInitializerListOrItem<T>
+    children: DomUtilsChildrenOrChild<T>
 ): Insertable<T> {
     const element = ins.el;
 

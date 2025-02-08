@@ -8,7 +8,6 @@ export const cssVars = {
     bgColorFocus2: "var(--bgColorFocus2)",
     fgColor: "var(--fgColor)",
     unfocusTextColor: "var(--unfocusTextColor)",
-    pinned: "var(--pinned)",
     focusedTreePathWidth: "var(--focusedTreePathWidth)",
     unfocusedTreePathWidth: "var(--unfocusedTreePathWidth)",
 } as const;

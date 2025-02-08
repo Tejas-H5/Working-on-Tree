@@ -26,7 +26,7 @@ export function newTextArea(): Insertable<HTMLTextAreaElement> {
 export type EditableTextAreaArgs = {
     text: string;
     isEditing: boolean;
-    isOneLineWhenNotEditing?: boolean;
+    isOneLine?: boolean;
     onInput(text: string, textArea: HTMLTextAreaElement): void;
     onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
 };
@@ -38,10 +38,10 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
     setStyle(whenEditing, "color", "transparent");
 
     const whenNotEditing = div({ class: [cn.handleLongWords] }, [
-        rg.class(cn.preWrap, s => !(s.isOneLineWhenNotEditing && !isEditing)),
-        rg.class(cn.pre, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
-        rg.class(cn.overflowHidden, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
-        rg.class(cn.noWrap, s => !!(s.isOneLineWhenNotEditing && !isEditing)),
+        rg.class(cn.preWrap, s => !s.isOneLine),
+        rg.class(cn.pre, s => !!s.isOneLine),
+        rg.class(cn.overflowHidden, s => !!s.isOneLine),
+        rg.class(cn.noWrap, s => !!s.isOneLine),
     ]);
     setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
