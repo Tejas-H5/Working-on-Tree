@@ -1,4 +1,4 @@
-import { AsciiCanvasLayer } from "src/canvas";
+import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
@@ -117,7 +117,8 @@ export type NoteTreeGlobalState = {
     taskStreams: TaskStream[];
     currentTaskStreamIdx: number;
 
-    scratchPadCanvasLayers: AsciiCanvasLayer[];
+    _scratchPadCanvasLayers: AsciiCanvasLayer[];
+    _scratchPadCanvasCurrentNoteIdPendingSave: NoteId;
 
     mainGraphData: GraphData;
 
@@ -402,7 +403,10 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         dockedMenu: "activities",
         showDockedMenu: false,
         activities: [],
-        scratchPadCanvasLayers: [],
+
+        _scratchPadCanvasLayers: [],
+        _scratchPadCanvasCurrentNoteIdPendingSave: -1,
+
         mainGraphData: newGraphData(),
         settings: {
             nonEditingNotesOnOneLine: true,
@@ -2711,6 +2715,23 @@ export type ViewTaskStreamState = {
     currentQuery: string;
     isFinding: boolean;
 };
+
+export function applyPendingScratchpadWrites(state: NoteTreeGlobalState) {
+    if (state._scratchPadCanvasLayers.length === 0) {
+        return;
+    }
+
+    const scratchpadNote = getNoteOrUndefined(state, state._scratchPadCanvasCurrentNoteIdPendingSave);
+    if (!scratchpadNote) {
+        return;
+    }
+
+    const text = getLayersString(state._scratchPadCanvasLayers);
+    scratchpadNote.data.text = text;
+
+    // we don't need to update the text every time - just when we've actually written to it
+    state._scratchPadCanvasCurrentNoteIdPendingSave = -1;
+}
 
 
 // I used to have tabs, but I literally never used then, so I've just removed those components.

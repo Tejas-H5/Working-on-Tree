@@ -63,6 +63,7 @@ import {
     ViewAllTaskStreamsState,
     ViewTaskStreamState,
     addNoteToTaskStream,
+    applyPendingScratchpadWrites,
     deleteDoneNote,
     deleteNoteIfEmpty,
     deleteTaskStream,
@@ -143,6 +144,7 @@ import {
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
+import { logTrace } from "./utils/log";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -2229,9 +2231,10 @@ function ScratchPadModal(rg: RenderGroup<{
             const note = getCurrentNote(state);
             asciiCanvas.render({
                 canvasState,
-                outputLayers: state.scratchPadCanvasLayers,
+                outputLayers: state._scratchPadCanvasLayers,
                 onInput() { },
                 onWrite() {
+                    state._scratchPadCanvasCurrentNoteIdPendingSave = note.id;
                     debouncedSave();
                 }
             });
@@ -2241,22 +2244,7 @@ function ScratchPadModal(rg: RenderGroup<{
             asciiCanvas.renderWithCurrentState();
         } else if (wasVisible && !open) {
             wasVisible = false;
-
-            // if this modal is closed, try applying the current canvas state to the current note.
-            // Hopefully this should handle both the cases:
-            // - Finished editing and I've closed the scratch pad
-            // - Refreshed the browser while in the scratch pad, so we only have the last debounce-saved layers
-            if (state.scratchPadCanvasLayers.length > 0) {
-                const text = getLayersString(state.scratchPadCanvasLayers);
-                const currentNote = getNoteOrUndefined(state, state.currentNoteId);
-                if (currentNote && !!text.trim()) {
-                    currentNote.data.text = text;
-                }
-
-                // Either way, we have to clear it so that we don't overwrite some other note
-                state.scratchPadCanvasLayers = [];
-                rerenderAppNextFrame();
-            }
+            applyPendingScratchpadWrites(state);
         }
 
         modalComponent.render({
@@ -4743,6 +4731,15 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
     const thisState = state;
 
     const save = () => {
+        if (state !== thisState) {
+            logTrace("The state changed unexpectedly! let's not save...");
+            return;
+        }
+
+        // We need to apply the current scratch pad state to the current note just before we save, so that we don't lose what
+        // we were working on in the scratchpad.
+        applyPendingScratchpadWrites(thisState);
+
         // save current note
         saveState(thisState, (serialized) => {
             // notification

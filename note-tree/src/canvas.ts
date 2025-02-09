@@ -43,6 +43,7 @@ type CanvasState = {
     // Callbacks, publically settable state
     onInput(): void;
     onWrite(): void;
+    _canvasWasWrittenTo: boolean;
     layers: AsciiCanvasLayer[];
 
     // Input state
@@ -88,6 +89,7 @@ export function newCanvasState(): CanvasState {
     return {
         onInput() {},
         onWrite() {},
+        _canvasWasWrittenTo: false,
         layers: [],
         keyboardState: newKeyboardState(),
         mouseInputState: newMouseInputState(),
@@ -377,7 +379,7 @@ function setCharOnLayer(
     }
 
     if (layerIdx !== -1) {
-        canvas.onWrite();
+        canvas._canvasWasWrittenTo = true;
     }
 
     layer.data[i][j] = char;
@@ -961,6 +963,11 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
     rg.preRenderFn(s => {
         canvasState = s.state;
         mouseInputState = canvasState.mouseInputState;
+
+        if (s.state._canvasWasWrittenTo) {
+            s.state.onWrite();
+            s.state._canvasWasWrittenTo = false;
+        }
     });
 
     const scrollContainer = newComponent(ScrollContainer);
