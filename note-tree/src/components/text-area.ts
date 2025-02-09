@@ -1,24 +1,15 @@
 import { cssVars } from "src/styling";
 import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible } from "src/utils/dom-utils";
 
-export function newTextArea(): Insertable<HTMLTextAreaElement> {
+export function newTextArea(
+    initFn?: (el: Insertable<HTMLTextAreaElement>) => void,
+): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", {
         class: [cn.preWrap, cn.w100, cn.h100],
         style: `border: 1px ${cssVars.fgColor} solid; padding: 0;`
     });
 
-    textArea.el.addEventListener("keydown", (e) => {
-        if (e.key === "Tab") {
-            e.preventDefault();
-
-            // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs.
-            // inserting a tab like this should also preserve undo, unlike value setting approaches
-            // TODO: stop using deprecated API 
-            //      (I doubt it will be a problem though - I bet most browsers will support this for a long while, else risk breaking a LOT of websites)
-            // @ts-ignore
-            document.execCommand("insertText", false, "\t");
-        }
-    })
+    initFn?.(textArea);
 
     return textArea
 }
@@ -31,7 +22,10 @@ export type EditableTextAreaArgs = {
     onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
 };
 
-export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
+export function EditableTextArea(
+    rg: RenderGroup<EditableTextAreaArgs>, 
+    initFn?: (el: Insertable<HTMLTextAreaElement>,
+) => void) {
     const whenEditing = newTextArea();
     setClass(whenEditing, cn.absolute, true);
     setStyle(whenEditing, "backgroundColor", "transparent");
@@ -101,6 +95,8 @@ export function EditableTextArea(rg: RenderGroup<EditableTextAreaArgs>) {
         const s = rg.s;
         s.onInputKeyDown(e, whenEditing.el);
     });
+
+    initFn?.(whenEditing);
 
     return root;
 }

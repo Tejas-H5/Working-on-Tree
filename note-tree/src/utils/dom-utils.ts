@@ -1391,7 +1391,8 @@ export class RenderGroup<S = null> {
      * is disabled.
      *
      * Although you probably wished that this function would just add the animation to the queue directly, 
-     * this design avoid bugs where you add animations to the queue faster than the old animations end.
+     * this design avoid bugs where you add animations to the queue faster than the old animations end,
+     * and allows for more control in general.
      */
     readonly newAnimation = (fn: RenderOneShotAnimationFn<S>): RealtimeAnimation => {
         const animation = newAnimation((dt) => {

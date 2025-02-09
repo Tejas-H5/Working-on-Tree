@@ -1,8 +1,9 @@
 import { newTextArea } from "./components/text-area";
+import { initializeNoteTreeTextArea } from "./state";
+import { cssVars } from "./styling";
 import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
-import { cnApp, cssVars } from "./styling";
 
 type GraphArgs = {
     graphData?: GraphData;
@@ -888,7 +889,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 function GraphNodeUI(rg: RenderGroup<GraphNodeUIArgs>) {
     const className = "pre w-100 h-100";
     const styles = "padding: 0; position: absolute;";
-    const textArea = setAttrs(newTextArea(), {
+    const textArea = setAttrs(newTextArea(initializeNoteTreeTextArea), {
         class: [className],
         style: styles + "cursor: text;",
         spellcheck: "false",

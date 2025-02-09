@@ -104,4 +104,7 @@ export const cnApp = {
 
     gap5: cssb.cn("gap5", [` { gap: 5px; }`]),
     gap10: cssb.cn("gap10", [` { gap: 10px; }`]),
+
+    pad10: cssb.cn("pad10", [` { padding: 10px; }`]),
+    pad5: cssb.cn("pad5", [` { padding: 5px; }`]),
 };

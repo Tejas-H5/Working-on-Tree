@@ -109,6 +109,7 @@ import {
     idIsNilOrRoot,
     idIsNilOrUndefined,
     idIsRoot,
+    initializeNoteTreeTextArea,
     insertChildNote,
     insertNewTaskStreamAt,
     insertNoteAfterCurrent,
@@ -2123,39 +2124,92 @@ function SettingsModal(rg: RenderGroup) {
         }
     }, 1000);
 
+    const settingsRowClasses = [
+        cn.row,
+        cn.alignItemsCenter,
+        cnApp.pad5,
+        cnApp.gap5
+    ];
+
     return rg.cArgs(Modal, c => c.render({ onClose }), [
         div({ class: [cn.col], style: "align-items: stretch; padding: 10px;" }, [
             div({ class: [cn.col, cnApp.gap10] }, [
                 div({ class: [cnApp.solidBorderSmRounded], style: "padding: 10px; " }, [
                     el("H3", { class: [cn.textAlignCenter] }, "Settings"),
-                    rg.c(Checkbox, (c) => c.render({
-                        label: "Show all notes (May cause instability, so this setting won't be saved)",
-                        value: state._showAllNotes,
-                        onChange(val) {
-                            state._showAllNotes = val;
-                            rerenderApp();
-                        }
-                    })),
-                    rg.c(Checkbox, (c) => c.render({
-                        label: "Force notes that aren't being edited to be a single line",
-                        value: state.settings.nonEditingNotesOnOneLine,
-                        onChange(val) {
-                            state.settings.nonEditingNotesOnOneLine = val;
-                            rerenderApp();
-                        }
-                    })),
+
+                    div({ class: settingsRowClasses }, [
+                        rg.c(Checkbox, (c) => c.render({
+                            label: "Show all notes (May cause instability, so this setting won't be saved)",
+                            value: state._showAllNotes,
+                            onChange(val) {
+                                state._showAllNotes = val;
+                                rerenderApp();
+                            }
+                        })),
+                    ]),
+                    div({ class: settingsRowClasses }, [
+                        rg.c(Checkbox, (c) => c.render({
+                            label: "Force notes that aren't being edited to be a single line",
+                            value: state.settings.nonEditingNotesOnOneLine,
+                            onChange(val) {
+                                state.settings.nonEditingNotesOnOneLine = val;
+                                rerenderApp();
+                            }
+                        })),
+                    ]),
                     rg.if(() => !state.settings.nonEditingNotesOnOneLine, rg =>
-                        div({ style: "padding-left: 20px" }, [
-                            rg.c(Checkbox, (c) => c.render({
-                                label: "Force parent notes to be a single line",
-                                value: state.settings.parentNotesOnOneLine,
-                                onChange(val) {
-                                    state.settings.parentNotesOnOneLine = val;
-                                    rerenderApp();
-                                }
-                            })),
-                        ])
+                        div({ class: settingsRowClasses }, [
+                            div({ style: "padding-left: 20px" }, [
+                                rg.c(Checkbox, (c) => c.render({
+                                    label: "Force parent notes to be a single line",
+                                    value: state.settings.parentNotesOnOneLine,
+                                    onChange(val) {
+                                        state.settings.parentNotesOnOneLine = val;
+                                        rerenderApp();
+                                    }
+                                })),
+                            ])
+                        ]),
                     ),
+                    div({ class: settingsRowClasses }, [
+                        rg.c(Checkbox, (c) => c.render({
+                            label: "Spaces instead of tabs",
+                            value: state.settings.spacesInsteadOfTabs,
+                            onChange(val) {
+                                state.settings.spacesInsteadOfTabs = val;
+                                rerenderApp();
+                            }
+                        })),
+                        rg.if(() => state.settings.spacesInsteadOfTabs, rg =>
+                            div({ style: "padding-left: 20px" }, [
+                                div({ class: [cn.row, cn.alignItemsCenter] }, [
+                                    "Tab Size: ",
+                                    rg.c(Button, (c, s) => c.render({
+                                        label: "-",
+                                        onClick: () => {
+                                            state.settings.tabStopSize -= 1;
+                                            if (state.settings.tabStopSize < 1) {
+                                                state.settings.tabStopSize = 1;
+                                            }
+                                            rerenderApp();
+                                        }
+                                    })),
+                                    rg.text(() => "" + state.settings.tabStopSize),
+                                    rg.c(Button, (c, s) => c.render({
+                                        label: "+",
+                                        onClick: () => {
+                                            state.settings.tabStopSize += 1;
+                                            // random ahh number 32.
+                                            if (state.settings.tabStopSize > 32) {
+                                                state.settings.tabStopSize = 32;
+                                            }
+                                            rerenderApp();
+                                        }
+                                    })),
+                                ])
+                            ]),
+                        ),
+                    ]),
                     rg.c(Checkbox, (c) => c.render({
                         label: "Enable debug mode (!!!)",
                         value: isDebugging(),
@@ -2664,7 +2718,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         return `${status} ${progress}${charCount}`;
                     })
                 ]),
-                rg.c(EditableTextArea, (c, s) => c.render({
+                rg.cArgs(EditableTextArea, (c, s) => c.render({
                     text: s.note.data.text,
                     isEditing,
                     onInputKeyDown,
@@ -2672,7 +2726,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                         s.forceOneLine && !(isEditing || isFocused)
                     ),
                     onInput
-                })),
+                }), initializeNoteTreeTextArea),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
                     rg.c(NoteRowDurationInfo, (c, { note }) => {
                         c.render({ note });
