@@ -1,107 +1,121 @@
-
 export type Range = [number, number];
 
-// Returns a range with all the partial matches. 
-// You can score how good the matches were using `scoreFuzzyFind`. 
-// Right now, that function works without even needing to look at what the query/text string was.
-export function fuzzyFind(text: string, query: string) : Range[] {
-    const ranges: Range[] = [];
 
-    if (query.length > text.length) {
-        return ranges;
+// Returns a result containing the matches, as well as a 'score' saying how good the match was.
+export type FuzyyFindResult = {
+    /**
+     * If this is empty, that means there was no match, and vice-versa.
+     */
+    ranges: Range[];
+
+    /** 
+     * NOTE: only scores using the same algorithm and query text may be compared with one another, due to their fuzzy nature.
+     * For instance - a fuzzy find algorithm may simply return the number of characters in the query that were also in the document.
+     * It's usally a bit more complicated than that, but not far off, actually.
+     * But it means that longer queries just naturally have larger scores, for no meaningful reason other than
+     * the fact that the query itself was long.
+     **/
+    score: number;
+};
+
+// Cheers: https://stackoverflow.com/questions/147824/how-to-find-whether-a-particular-string-has-unicode-characters-esp-double-byte
+const nonLatinCharRegex = /[^\u0000-\u00ff]/;
+function containsNonLatinCodepoints(s: string) {
+    return nonLatinCharRegex.test(s);
+}
+
+export function fuzzyFind(text: string, query: string, {
+    mistakePenalty = 5,
+    prefixBuff = 1,
+    limit = 20,
+}: {
+    mistakePenalty?: number;
+    prefixBuff?: number;
+    limit?: number;
+}): FuzyyFindResult {
+    const result: FuzyyFindResult = { ranges: [], score: 0 };
+
+    if (query.length === 0) {
+        return result;
     }
 
-    let maxMatchLength = 0;
-    let maxMatchIdx = -1;
-    let querySubstr = query;
-    while(querySubstr !== "") {
-        maxMatchLength = 0;
-        maxMatchIdx = -1;
+    // NOTE: you probably never want to set this to anything higher.
+    let allowableMistakes = 1;
 
-        for(let i = 0; i < text.length - querySubstr.length + 1; i++) {
-            const numEqual = checkEqual(text, querySubstr, i);
-            if (numEqual > maxMatchLength) {
-                maxMatchLength = numEqual;
-                maxMatchIdx = i;
+    // singular emoji have 2 length...
+    if (query.length <= 2) {
+        if (containsNonLatinCodepoints(query)) {
+            // One instance of when we should allow 1-length queries is emojis or some strange unicode character.
+            allowableMistakes = 0;
+        } 
+
+        if (query.length === 1) {
+            return result;
+        }
+    }
+
+    for (let i = 0; i + query.length - 1 < text.length; i++) {
+        // need this to prevent 'a' from matching literally everything bc oh I just made 1 mistake hehe
+        // but need to allow at least 1 mistake. so it doesn't instafail
+        let mistakesRemaining = Math.max(0, Math.min(query.length - allowableMistakes, allowableMistakes));
+        let mistakesFound = 0;
+
+        let isMatch = true;
+        let iTempOffset = 0;
+        for (let j = 0; j < query.length; j++) {
+            if (text[i + iTempOffset + j] !== query[j]) {
+                // may have just swapped two characters, i.e
+                // query: "just", text: "jsut".
+                // but this same code also handles accidentally inserting a character:
+                // query: "just", text: "jiust".
+
+                // don't check for swapping errors if we aren't even inside the string yet.
+                if (j > 0) {
+                    if (text[i + iTempOffset + j] === query[j + 1]) {
+                        j++;
+                    } else if (text[i + iTempOffset + j + 1] === query[j]) {
+                        if (j === 0) {
+                        }
+                        iTempOffset++;
+                    }
+                }
+
+                mistakesRemaining--;
+                mistakesFound++;
+            }
+
+            if (mistakesRemaining < 0) {
+                isMatch = false;
+                break;
             }
         }
 
-        if (maxMatchIdx === -1) {
-            querySubstr = querySubstr.substring(1);
-        } else {
-            // needed to reduce the absolute trash matches I was getting
-            if (maxMatchLength > 1) {
-                ranges.push([maxMatchIdx, maxMatchIdx + maxMatchLength]);
-            }
-
-            querySubstr = querySubstr.substring(maxMatchLength);
-        }
-    }
-
-    // Improtant that these are sorted for the scoring to work
-    ranges.sort((a, b) => a[0] - b[0]);
-
-    // I think this actually results in better scores.
-    fixRangesVisually(ranges);
-
-    return ranges;
-}
-
-// returns how many were equal in sequence
-function checkEqual(text:string, query: string, idx: number): number{
-    for (let i = 0; i < query.length; i++) {
-        if (text[idx + i] !== query[i]) {
-            return i;
-        }
-    }
-
-    return query.length;
-}
-
-/* 
- * Ensures ordered and non-overlapping ranges. 
- * May or may not be important...
- * (it certainly is for visuals, but I am not sure for scoring. it seems to be better though so I'm keeping it in for now)
- */
-function fixRangesVisually(ranges: Range[]) {
-    for (let i = 1; i < ranges.length; i++) {
-        const prev = ranges[i-1];
-        const curr = ranges[i];
-
-        if (prev[1] < curr[0]) {
+        if (!isMatch) {
             continue;
         }
 
-        // merge the two ranges if they overlap
-        prev[1] = Math.max(prev[1], curr[1]);
-        ranges.splice(i - 1, 1);
-        i--;
-    }
-}
+        result.ranges.push([i, i + query.length]);
+        let thisMatchScore = 0
+        thisMatchScore += 1 / (1 + mistakePenalty * mistakesFound);
 
-
-// Can't believe this thing works, lol. Somewhat inspired by https://medium.com/@Srekel/implementing-a-fuzzy-search-algorithm-for-the-debuginator-cacc349e6c55
-// But he lost me near the middle of the blog post so I just winged the rest of it.
-export function scoreFuzzyFind(ranges: Range[]): number {
-    // The assumption is that all of the ranges match the query text almost exactly.
-    // So this function doesn't really need to care about the original search/query text.
-    // Rather, the longer the query, the higher the max possible score.
-    
-    let score = 0;
-    for (let i = 0; i < ranges.length; i++) {
-        const r = ranges[i];
-        const rn = ranges[i + 1];
-
-        // longer matches should give a proportionally larger score, i.e 4 1-length matches shouldn't ever be worth the same as 1 4-length match,
-        // as the latter is far more superior. I also think this works for 1-off insertions/deletions for similar reasons
-        score += Math.pow(r[1] - r[0], 2);
-
-        if (rn) {
-            // The space between the matches should severely negatively impact the score. But probably not by as much as x^2. Maybe just x?
-            score -= Math.pow(rn[0] - r[1], 1);
+        if (mistakesFound === 0 && prefixBuff) {
+            // buff new words. When searching for "able", " able" should rank higher than "stable".
+            if (
+                i === 0 ||
+                // NOTE: could be unicode-related bugs with this one. We don't care for now
+                text[i - 1].trim() === ""
+            ) {
+                thisMatchScore += prefixBuff;
+            }
+            result.score += thisMatchScore; 
         }
+
+        if (result.ranges.length >= limit) {
+            break;
+        }
+
+        i += query.length - 1;
     }
 
-    return score;
+    return result;
 }
-

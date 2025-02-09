@@ -10,7 +10,7 @@ import { GraphData, newGraphData } from "./interactive-graph";
 import { Theme } from "./styling";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
 import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
-import { fuzzyFind, Range, scoreFuzzyFind } from "./utils/fuzzyfind";
+import { fuzzyFind, Range } from "./utils/fuzzyfind";
 
 const lightThemeColours: Theme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
@@ -2190,7 +2190,6 @@ export function fuzzySearchNotes(
     const SORT_BY_SCORE = 1;
     const SORT_BY_RECENCY = 2;
 
-    let useMinScore = true;
     let sortMethod = SORT_BY_SCORE;
 
     // this can chain with the other two queries
@@ -2213,7 +2212,6 @@ export function fuzzySearchNotes(
     if (isHltQuery || isInProgressQuery || isShelvedQuery) {
         if (query.trim().length === 0) {
             sortMethod = SORT_BY_RECENCY;
-            useMinScore = false;
         }
     }
 
@@ -2262,28 +2260,25 @@ export function fuzzySearchNotes(
             }
         }
 
-        let results = fuzzyFind(text, query);
+        let results = fuzzyFind(text, query, {});
+        if (results.ranges.length === 0) {
+            return;
+        }
+
         let score = 0;
 
         if (sortMethod === SORT_BY_RECENCY) {
             score -= n.data._activityListMostRecentIdx;
         } else {
-            score = scoreFuzzyFind(results);
+            score = results.score;
             if (n.data._status === STATUS_IN_PROGRESS) {
                 score *= 2;
             }
         }
 
-        if (useMinScore) {
-            const minScore = getMinFuzzyFindScore(query);
-            if (score < minScore) {
-                return;
-            }
-        }
-
         matches.push({
             note: n,
-            ranges: results,
+            ranges: results.ranges,
             score,
         });
     });
@@ -2291,17 +2286,6 @@ export function fuzzySearchNotes(
     matches.sort((a, b) => {
         return b.score - a.score;
     });
-}
-
-// yep, doesnt need any info about the matches, total count, etc.
-// Although, I do wonder if this is the right place for it. 
-// This only works because I know the implementation of the fuzzy find scoring algo, since I wrote it
-function getMinFuzzyFindScore(query: string, strict = false) {
-    if (!strict) {
-        return Math.pow(query.length * 0.3, 2);
-    }
-
-    return Math.pow(query.length * 0.7, 2);
 }
 
 
@@ -2606,12 +2590,8 @@ export function getCurrentTaskStreamState(state: ViewAllTaskStreamsState, global
 }
 
 function filterFn(query: string, target: string): boolean {
-    // ol reliable. lmao
-    // TODO: remove fuzzy search in favour of something more strict, like this but better
-    if (target.toLowerCase().includes(query.toLowerCase())) {
-        return true;
-    }
-    return false;
+    const result = fuzzyFind(target, query, { limit: 1 });
+    return result.ranges.length > 0;
 }
 
 export function recomputeViewTaskStreamState(

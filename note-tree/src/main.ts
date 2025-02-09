@@ -1293,7 +1293,11 @@ function FuzzyFinder(rg: RenderGroup<{
             if (visibleChanged) {
                 finderState.scopedToNoteId = -1;
             } else if (toggleCurrentNoteVsEverywhere) {
-                finderState.scopedToNoteId = state.currentNoteId;
+                if (idIsNil(finderState.scopedToNoteId)) {
+                    finderState.scopedToNoteId = state.currentNoteId;
+                } else {
+                    finderState.scopedToNoteId = -1;
+                }
             }
 
             recomputeMatches(finderState.query);
@@ -1660,12 +1664,12 @@ function ViewTaskStream(rg: RenderGroup<{
                         }
                     })
                 ),
+                rg.else_if(s => !s.state.isFinding, rg =>
+                    div({ class: [cn.row, cn.flex1, cn.alignItemsCenter, cn.justifyContentCenter] }, [
+                        "No notes in progress"
+                    ])
+                )
             ]),
-            rg.else_if(s => !s.state.isFinding, rg =>
-                div({ class: [cn.row, cn.flex1, cn.alignItemsCenter, cn.justifyContentCenter] }, [
-                    "No notes in progress"
-                ])
-            )
         ])
     ]);
 }
