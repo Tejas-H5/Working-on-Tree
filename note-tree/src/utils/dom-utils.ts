@@ -135,7 +135,12 @@ export const cn = Object.freeze({
     /** common spacings */
 
     w100: sb.cn("w100", [` { width: 100%; }`]),
+    mw100: sb.cn("mw100", [` { max-width: 100%; }`]),
     h100: sb.cn("h100", [` { height: 100%; }`]),
+    mh100: sb.cn("mh100", [` { max-height: 100%; }`]),
+    
+    wFitContent: sb.cn("wFitContent", [` { width: fit-content; }`]),
+    hFitContent: sb.cn("hFitContent", [` { height: fit-content; }`]),
 
     /** overflow management */
 

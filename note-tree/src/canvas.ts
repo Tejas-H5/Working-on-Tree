@@ -1,7 +1,7 @@
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible, span } from "src/utils/dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 import { cnApp, cssVars } from "./styling";
 
@@ -972,14 +972,13 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
 
     const scrollContainer = newComponent(ScrollContainer);
     const root = setAttrs(scrollContainer, {
-        style: "padding-top: 10px; padding-bottom: 10px; white-space: nowrap; width: fit-content; max-width: 100%;" +
-            `border: 1px solid ${cssVars.fgColor};`
+        class: [cn.overflowAuto, cn.mw100, cn.mh100, cn.wFitContent, cn.hFitContent],
+        style: `white-space: nowrap; border: 1px solid ${cssVars.fgColor};`
     }, true);
 
     const rowList = newListRenderer(root, () => newComponent((rg: RenderGroup<RowArgs>) => {
         const root = div({
-            class: [cn.row, cn.justifyContentCenter],
-            style: "width: fit-content;"
+            class: [cn.row, cn.justifyContentCenter, cn.wFitContent],
         });
 
         const charList = newListRenderer(root, () => newComponent((rg: RenderGroup<CanvasCellArgs>) => {
@@ -1387,16 +1386,16 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         });
 
         if (!scrollContainer._s) {
-            scrollContainer._s = {
+            scrollContainer.render({
                 scrollEl: null,
                 axes: "hv",
-            };
+            });
         }
 
         if (shouldScroll) {
             shouldScroll = false;
             scrollContainer.s.scrollEl = currentCursorEl;
-            scrollContainer.render(scrollContainer.s);
+            scrollContainer.renderWithCurrentState();
         }
     });
 
@@ -1896,6 +1895,14 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
                 rerenderLocal();
             }
         })),
+        linesFromSelection2: rg.c(ToolbarButton, (c) => c.render({
+            canvasState,
+            name: "Draw Lines",
+            onClick: () => {
+                generateLines(canvasState);
+                rerenderLocal();
+            }
+        })),
         undoButton: rg.c(ToolbarButton, (c) => c.render({
             canvasState,
             name: "Undo",
@@ -1930,47 +1937,49 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         buttons.bucketFillSelectConnected,
     ];
 
-    const toolbar = div({ style: "gap: 5px;" }, [
-        div({ class: [cn.inlineBlock] }, [
+    const leftToolbar = div({
+        class: [cn.col, cn.alignItemsStretch, cn.justifyContentCenter, cnApp.gap5, cn.overflowYAuto, cn.h100]
+    }, [
+        ...mouseScrollList,
+        spacerV(),
+        buttons.invertSelection,
+        spacerV(),
+        div({ class: [cn.row, cn.alignItemsCenter] }, [
             buttons.lessRows,
-            div({ style: "display: inline-block; min-width: 3ch; text-align: center;", class: ["", ""] }, [
+            div({ class: [cn.flex1], style: "display: inline-block; min-width: 3ch; text-align: center;",  }, [
                 rg.text(() => "rows: " + getNumRows(canvasState)),
             ]),
             buttons.moreRows,
+        ]),
+        div({ class: [cn.row, cn.alignItemsCenter] }, [
             buttons.lessCols,
-            div({ style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
+            div({ class: [cn.flex1], style: "display: inline-block; min-width: 3ch; text-align: center;" }, [
                 rg.text(() => "cols: " + getNumCols(canvasState)),
             ]),
             buttons.moreCols,
         ]),
-        spacer(),
-        div({ class: [cn.inlineBlock] }, [
-            rg.text(() => "Selection (Ctrl + [Q/E]): "),
-            ...mouseScrollList,
-        ]),
-        spacer(),
-        div({ class: [cn.inlineBlock] }, [
-            buttons.invertSelection,
-        ]),
-        spacer(),
-        div({ class: [cn.inlineBlock] }, [
-            buttons.copyToClipboard,
-            buttons.pasteFromClipboard,
-            buttons.pasteFromClipboardTransparent,
-        ]),
-        spacer(),
-        div({ class: [cn.inlineBlock] }, [
-            buttons.linesFromSelection,
-        ]),
-        div({ class: [cn.inlineBlock] }, [
-            buttons.undoButton,
+        spacerV(),
+        buttons.copyToClipboard,
+        buttons.pasteFromClipboard,
+        buttons.pasteFromClipboardTransparent,
+        spacerV(),
+        buttons.linesFromSelection,
+        buttons.linesFromSelection2,
+        spacerV(),
+        buttons.undoButton,
+        span({ class: [cn.textAlignCenter] }, [
             rg.text(() => (1 + canvasState.undoLogPosition) + " / " + canvasState.undoLog.length),
-            buttons.redoButton,
         ]),
+        buttons.redoButton,
     ]);
 
-    function spacer() {
-        return div({ class: [cn.inlineBlock], style: "width: 30px" });
+    const rightToolbar = div({
+        class: [cn.col, cn.alignItemsStretch, cn.justifyContentCenter, cnApp.gap5]
+    }, [
+    ]);
+
+    function spacerV() {
+        return div({ class: [cn.inlineBlock], style: "height: 20px" });
     }
 
     const canvasComponent = newComponent(Canvas);
@@ -2170,16 +2179,24 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }
     });
 
-    const root = div({ class: [cn.relative, cn.h100, cn.row] }, [
-        div({ class: [cn.col, cn.justifyContentCenter, cn.alignItemsCenter, cn.overflowAuto ]}, [
+    // I hate CSS
+    const root = div({ class: [cn.row, cn.h100, cn.relative] }, [
+        div({ class: [cn.col, cn.flex1, cn.h100, cn.relative] }, [
+            div({ class: [cn.flex1, cn.h100, cn.relative] }),
+            div({ class: [cn.row, cn.justifyContentCenter, cn.alignItemsCenter, cn.h100, cn.relative] }, [
+                leftToolbar,
+                div({ class: [cn.col, cn.flex1, cn.h100] }, [
+                    div({ class: [cn.row, cn.flex1, cn.mw100, cn.mh100, cn.alignItemsCenter, cn.justifyContentCenter] }, [
+                        canvasComponent,
+                    ]),
+                    statusText,
+                    performanceWarning,
+                ]),
+                rightToolbar
+            ]),
+
             div({ class: [cn.flex1] }),
-            canvasComponent,
-            statusText,
-            performanceWarning,
-            div({ class: [cn.flex1] }),
-            toolbar,
-        ]),
-        div({ style: "width: 20px" }),
+        ])
     ]);
     return root;
 }
