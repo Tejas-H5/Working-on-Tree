@@ -5,8 +5,6 @@ import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListR
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 import { cnApp, cssVars } from "./styling";
 
-const TAB_SIZE = 4;
-
 type CanvasArgs = {
     state: CanvasState;
 };
@@ -46,6 +44,9 @@ type CanvasState = {
     _canvasWasWrittenTo: boolean;
     layers: AsciiCanvasLayer[];
 
+    // Setings
+    tabSize: number;
+
     // Input state
     keyboardState: KeyboardState;
     mouseInputState: MouseInputState;
@@ -67,6 +68,8 @@ type CanvasState = {
         jPrev: number;
         keyboardSelectStart: boolean;
         keyboardMoveStart: boolean;
+        iArrow: number;
+        jArrow: number;
     };
 
     // Undo state
@@ -91,6 +94,7 @@ export function newCanvasState(): CanvasState {
         onWrite() {},
         _canvasWasWrittenTo: false,
         layers: [],
+        tabSize: 4,
         keyboardState: newKeyboardState(),
         mouseInputState: newMouseInputState(),
         rows: [],
@@ -111,6 +115,8 @@ export function newCanvasState(): CanvasState {
             iSelectStart: 0,
             keyboardSelectStart: false,
             keyboardMoveStart: false,
+            iArrow: -1,
+            jArrow: -1,
         },
     };
 }
@@ -171,95 +177,209 @@ function selectCell(canvas: CanvasState, i: number, j: number, value: boolean, c
     cell.isSelected = value;
 }
 
-function generateLines(canvas: CanvasState) {
-    type DirectionMatrix = [boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean];
-    function matchDirections(directions: DirectionMatrix, coords: [0 | 1 | 2, 0 | 1 | 2][]) {
-        return coords.every(([i, j]) => directions[j + 3 * i]);
+function generateLines(canvas: CanvasState, arrow: boolean) {
+    const sel = (i: number, j: number) => {
+        const cell = getCellOrUndefined(canvas, i, j);
+        if (!cell) {
+            return false
+        }
+
+        return cell.isSelected && !cell.isVisited;
     }
 
-    forEachCell(canvas, (c) => {
-        if (!c.isSelected) {
-            return;
+    const getChar = (i: number, j: number, passNumber: number): string => {
+        const u = sel(i + 1, j);
+        const ur = sel(i + 1, j + 1);
+        const ul = sel(i + 1, j - 1);
+        const l = sel(i, j - 1);
+        const dl = sel(i - 1, j - 1);
+        const d = sel(i - 1, j);
+        const dr = sel(i - 1, j + 1);
+        const r = sel(i, j + 1);
+
+        let c = 0;
+        if (u) c++;
+        if (d) c++;
+        if (l) c++;
+        if (r) c++;
+        if (dl) c++;
+        if (dr) c++;
+        if (ur) c++;
+        if (ul) c++;
+
+        // Took 3 hours of trial and error figuring this shit out. Totally worth it!
+        //
+        //                                \               |          ,|                                          |
+        //  |                              )              )       ,-'                                            (
+        //  |                              |             /       (                                                \
+        //  |                 |-\          A       /              \                  |                             \
+        //  |                 |--|      |---------'                '-,           ,--' \                |-\          )
+        //  |                (              V                         \         /      -,           ,-' \-|         |
+        //  (                (               )                         \       /      /  \         (       )
+        //   \    ,-|         '------|       |               \          )        |---'    ',        \     /           ,,
+        //    '--'                                            '--------'                    )        '---'          |-  -|
+        //                                                                                  |                         ''
+        //                                                                                  )
+        //                                                                           |-----'
+        //
+        //         ,|                                                              \
+        //       ,'                                                                 ',
+        //     ,'                                                                     ',
+        //    /                                                                         \
+        //   /     |                                                                     \
+        //  /      |                                                                      \
+        // (       |                                                           ,,          \
+        // |       |           \     /   ,-,                ,-,              ,-  |          \
+        // |       (            )  ,'   (   \            ,-'   )            (  '' \          \
+        // |        \           | /   \ |    \          (      |            |      \          )
+        // (         \          ||     ||     \         |      |\           (       )         |
+        //  \         \         \|     \|      ',       (      |-|           \      )         |
+        //   \         ',        |      |        \       '----'   '----|      '----'          )
+        //    \          '-|                                        \|                       /
+        //     ',                                                                           /
+        //       ',                                                                        /
+        //
+        // Some parts could be better, but don't care.
+        //
+        if (passNumber === 0) {
+            if (
+                // is this a corner? let's round it off. can't round off both types of corers in one pass though, since we would 
+                // start making cuts in the line segment.
+                ((u && r) || (r && d)) && (c === 2 || c === 3)
+            ) {
+                return " ";
+            }
+        } else if (passNumber === 1) {
+            if (
+                // is this a corner? and opposite to the one we rounded off earlier?
+                ((d && l) || (l && u)) && (c === 2 || c === 3)
+            ) {
+                return " ";
+            }
+        } else if (passNumber === 2) {
+            if (((ul || dr) && (c === 1)) || (ul && dr && c === 2)) {
+                return "/";
+            }
+            if (((ur || dl) && (c === 1)) || (ur && dl && c === 2)) {
+                return "\\";
+            }
+
+            if (((ul && r) || (ur && l)) && c === 2) {
+                return ",";
+            }
+            if (((dl && r) || (dr && l)) && c === 2) {
+                return  "'";
+            }
+            if (((dl && ul) || (dl && u) || (ul && d)) && c === 2) {
+                return  ")";
+            }
+            if (((dr && ur) || (dr && u) || (ur && d)) && c === 2) {
+                return  "(";
+            }
+            if (
+                (dr && r && ur && c === 3) ||
+                (l && dr && r && ur && c === 4) 
+            ) {
+                return  "E";
+            }
+            if (
+                (dl && l && ul && c === 3) ||
+                (r && dl && l && ul && c === 4) 
+            ) {
+                return  "Ǝ";
+            }
+            if (d && l && u && r) {
+                if (c === 4) {
+                    return "+";
+                } else {
+                    return "#";
+                }
+            }
+            if (
+                (r && dr && d && !l && ! ul && !u) ||
+                (!r && !dr && !d && l && ul && u) 
+            ) {
+                return "\\";
+            }
+            if (d && dl && dr && !r && !l) {
+                return "V"
+            }
+            if (u && ul && ur && !r && !l) {
+                return "A"
+            }
+            if (
+                (!ul && !l) ||
+                (!dl && !l) ||
+                (!ur && !r) ||
+                (!dr && !r) 
+            ) {
+                return "|";
+            }
+            if (
+                (!d && !dl) ||
+                (!d && !dr) ||
+                (!u && !ul) ||
+                (!u && !ur)
+            ) {
+                return  "-";
+            }
         }
 
-        const directions: DirectionMatrix = [
-            isSelected(canvas, c.i - 1, c.j - 1), isSelected(canvas, c.i, c.j - 1), isSelected(canvas, c.i + 1, c.j - 1),
-            isSelected(canvas, c.i - 1, c.j), true, isSelected(canvas, c.i + 1, c.j),
-            isSelected(canvas, c.i - 1, c.j + 1), isSelected(canvas, c.i, c.j + 1), isSelected(canvas, c.i + 1, c.j + 1),
-        ];
+        return "";
+    }
 
-        let char = '';
 
-        if (matchDirections(directions, [
-            [0, 0],
-            [0, 1],
-            [0, 2],
-            [1, 0],
-            [1, 2],
-            [2, 0],
-            [2, 1],
-            [2, 2],
-        ])) {
-            char = '#';
-        } else if (matchDirections(directions, [
-            [0, 0],
-            [0, 2],
-            [2, 0],
-            [2, 2],
-        ])) {
-            char = 'x';
-        } else if (matchDirections(directions, [
-            [0, 1],
-            [1, 0],
-            [1, 2],
-            [2, 1],
-        ])) {
-            char = '+';
-        } else if (
-            matchDirections(directions, [
-                [0, 2],
-            ]) ||
-            matchDirections(directions, [
-                [2, 0],
-            ])
+    forEachCell(canvas, (c) => c.isVisited = false);
+    for (let passNumber = 0; passNumber < 3; passNumber++) {
+        forEachCell(canvas, (c) => {
+            if (!c.isSelected) {
+                return;
+            }
+
+            if (c.isVisited) {
+                return;
+            }
+
+            const char = getChar(c.i, c.j, passNumber);
+
+            if (char) {
+                if (char === " ") {
+                    c.isVisited = true;
+                }  else {
+                    setCharOnCurrentLayer(canvas, c.i, c.j, char);
+                }
+            }
+        });
+    }
+
+    if (arrow) {
+        let arrow = "";
+        if (isSelected(
+            canvas, canvas.toolState.iArrow - 1, canvas.toolState.jArrow)
         ) {
-            char = '/';
-        } else if (
-            matchDirections(directions, [
-                [0, 0],
-            ]) ||
-            matchDirections(directions, [
-                [2, 2],
-            ])
+            arrow = "▼";
+        } else if (isSelected(
+            canvas, canvas.toolState.iArrow + 1, canvas.toolState.jArrow)
         ) {
-            char = '\\';
-        } else if (
-            matchDirections(directions, [
-                [0, 1],
-            ]) ||
-            matchDirections(directions, [
-                [2, 1],
-            ])
+            arrow = "▲";
+        } else if (isSelected(
+            canvas, canvas.toolState.iArrow, canvas.toolState.jArrow + 1)
         ) {
-            char = '-';
-        } else if (
-            matchDirections(directions, [
-                [1, 0],
-            ]) ||
-            matchDirections(directions, [
-                [1, 2],
-            ])
+            arrow = "◄";
+        } else if (isSelected(
+            canvas, canvas.toolState.iArrow, canvas.toolState.jArrow - 1)
         ) {
-            char = '|';
+            arrow = "►";
         }
 
-        setCharOnCurrentLayer(canvas, c.i, c.j, char);
-
-    });
+        if (arrow) {
+            setCharOnCurrentLayer(canvas, canvas.toolState.iArrow, canvas.toolState.jArrow, arrow);
+        }
+    }
 }
 
 function isSelected(canvas: CanvasState, i: number, j: number): boolean {
-    const cell = getCell(canvas, i, j);
+    const cell = getCellOrUndefined(canvas, i, j);
     if (!cell) {
         return false;
     }
@@ -434,6 +554,7 @@ function getNumRows(canvas: CanvasState) {
 }
 
 function lerp(a: number, b: number, t: number): number {
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
     return a + (b - a) * t;
 }
 
@@ -462,11 +583,12 @@ export function resetCanvas(canvas: CanvasState, resetSize = true, initialText: 
     }
 }
 
-function lineLength(line: string) {
+function lineLength(line: string, canvas: CanvasState) {
+    // unicode moment
     let len = 0;
     for (const c of line) {
         if (c === "\t") {
-            len += TAB_SIZE;
+            len += canvas.tabSize;
         } else {
             len += 1;
         }
@@ -489,13 +611,14 @@ export function pasteTextToCanvas(canvas: CanvasState, text: string, {
     autoExpand?: boolean;
 } = {}) {
     text.replace(/\r/g, "");
+    text.replace(/\t/g, " ".repeat(canvas.tabSize));
     const lines = text.split("\n");
 
     if (resizeLayersToPasted) {
         row = 0;
         col = 0;
         let wantedRows = lines.length;
-        let wantedCols = Math.max(...lines.map(lineLength), MIN_NUM_COLS);
+        let wantedCols = Math.max(...lines.map(l => lineLength(l, canvas)), MIN_NUM_COLS);
         resizeLayers(canvas, wantedRows, wantedCols);
     }
 
@@ -1104,6 +1227,8 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         }
 
         moveCursor(canvasState, y2, x2);
+        canvasState.toolState.iArrow = y2;
+        canvasState.toolState.jArrow = x2;
     }
 
     // NOTE: keepOutlineOnly not quite working as intended yet :(
@@ -1622,8 +1747,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
                     canvasState,
                     cursorCell.i,
                     start
-                    + Math.floor(offset / TAB_SIZE) * TAB_SIZE
-                    + TAB_SIZE
+                    + Math.floor(offset / canvasState.tabSize) * canvasState.tabSize + canvasState.tabSize
                 );
             }
         } else if (e.key === "Backspace") {
@@ -1889,17 +2013,19 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         }),
         linesFromSelection: rg.c(ToolbarButton, (c) => c.render({
             canvasState,
-            name: "Draw Lines",
+            name: "Draw Line",
+            disabled: getNumSelected(canvasState) === 0,
             onClick: () => {
-                generateLines(canvasState);
+                generateLines(canvasState, false);
                 rerenderLocal();
             }
         })),
-        linesFromSelection2: rg.c(ToolbarButton, (c) => c.render({
+        arrowLinesFromSelection: rg.c(ToolbarButton, (c) => c.render({
             canvasState,
-            name: "Draw Lines",
+            name: "Draw Arrow-Line",
+            disabled: getNumSelected(canvasState) === 0,
             onClick: () => {
-                generateLines(canvasState);
+                generateLines(canvasState, true);
                 rerenderLocal();
             }
         })),
@@ -1964,7 +2090,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         buttons.pasteFromClipboardTransparent,
         spacerV(),
         buttons.linesFromSelection,
-        buttons.linesFromSelection2,
+        buttons.arrowLinesFromSelection,
         spacerV(),
         buttons.undoButton,
         span({ class: [cn.textAlignCenter] }, [
@@ -1984,6 +2110,7 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
 
     const canvasComponent = newComponent(Canvas);
     let canvasState: CanvasState;
+    let test = true;
     rg.preRenderFn(function renderAsciiCanvas(s) {
         canvasState = s.canvasState;
         canvasState.layers = s.outputLayers;
@@ -1996,6 +2123,21 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         canvasComponent.render({ state: s.canvasState });
 
         updateCanvasStausText(canvasState);
+
+        if (test) {
+            setTimeout(() => {
+                test = false;
+                // TODO: delete this iteration code.
+                forEachCell(canvasState, c => {
+                    if (getCharOnCurrentLayer(canvasState, c.i, c.j).trim()) {
+                        c.isSelected = true;
+                    }
+                });
+                generateLines(canvasState, false);
+
+                rerenderLocal();
+            }, 1);
+        }
     });
 
     function updateCanvasStausText(canvas: CanvasState) {
