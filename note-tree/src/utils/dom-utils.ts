@@ -1158,7 +1158,7 @@ export class RenderGroup<S = null> {
 
     /**
      * Returns functionality that will append an event to the parent component.
-     * TODO: (ME) - extend to SVGElement as well. you can still use it for those, but you'll be fighting with TypeScript
+     * TODO: (ME) - extend to SVGElement as well. it will still work - you'll be fighting with TypeScript
      */
     readonly on = <K extends keyof HTMLElementEventMap>(
         type: K,
@@ -1441,8 +1441,6 @@ export class RenderGroup<S = null> {
                 this.clearErrorClass(errorRoot);
                 renderFns[i].fn(s);
             } catch (e) {
-                // TODO: do something with these errors we're collecting. lmao.
-                
                 renderFns[i].error = e;
 
                 this.setErrorClass(errorRoot, e);

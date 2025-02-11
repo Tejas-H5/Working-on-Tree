@@ -2110,7 +2110,6 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
 
     const canvasComponent = newComponent(Canvas);
     let canvasState: CanvasState;
-    let test = true;
     rg.preRenderFn(function renderAsciiCanvas(s) {
         canvasState = s.canvasState;
         canvasState.layers = s.outputLayers;
@@ -2123,21 +2122,6 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
         canvasComponent.render({ state: s.canvasState });
 
         updateCanvasStausText(canvasState);
-
-        if (test) {
-            setTimeout(() => {
-                test = false;
-                // TODO: delete this iteration code.
-                forEachCell(canvasState, c => {
-                    if (getCharOnCurrentLayer(canvasState, c.i, c.j).trim()) {
-                        c.isSelected = true;
-                    }
-                });
-                generateLines(canvasState, false);
-
-                rerenderLocal();
-            }, 1);
-        }
     });
 
     function updateCanvasStausText(canvas: CanvasState) {

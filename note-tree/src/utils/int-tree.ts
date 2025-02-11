@@ -1,8 +1,3 @@
-// TODO:(Don't merge)
-// - Make sure we don't test indexes falsily like if(idx), since 0 is now a valid index.
-
-
-
 // This tree is supposed to be JSON-serializable. 
 // T is an index into the TreeStore which stores the actual data, rather than an in-memory reference
 

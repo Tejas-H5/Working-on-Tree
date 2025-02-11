@@ -113,7 +113,8 @@ export type NoteTreeGlobalState = {
      * It is a replacement for simply pinning notes - we end up pinning way too many of them.
      * Streams can be reordered, and notes inside of them can be reordered.
      * Notes may belong to multiple streams.
-     * TODO: report back on if this actually made me more productive or not
+     * Guess what - it actually worked! Literally the first day, saw a massive improvement. 
+     * I'm literally no longer looking for "what was I working on" - it's always quickly available now
      **/
     taskStreams: TaskStream[];
     currentTaskStreamIdx: number;
@@ -190,7 +191,7 @@ export type Note = {
 
     // will be populated as soon as the note is created.
     // TODO: display this info somewhere
-    openedAt: string; 
+    openedAt: string;
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
 
@@ -200,7 +201,7 @@ export type Note = {
     _everyChildNoteDone: boolean;
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
-    _higherLevelTaskId: NoteId; // the note's higher level task, as per the TODO list calculation. This is only valid if it's in the TODO list.
+    _higherLevelTaskId: NoteId; // the note's higher level task, as per the To-Do list calculation. This is only valid if it's in the To-Do list.
     _depth: number; // used to visually indent the notes
     _durationUnranged: number;
     _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
@@ -228,7 +229,7 @@ export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeN
 // Yeah it isn't the best practice, but it works
 export type Activity = {
     // if it's not undefined, guaranteed to be valid
-    nId?: NoteId; 
+    nId?: NoteId;
     // Time this note was created
     t: string;
     // Are we creating a brand new note? 1 if true
@@ -489,7 +490,7 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
 
     // ---- UNSAFE CODE ----
     // The types on loadedState are not what they seem - we've just loaded it from some JSON, could be literally anything.
-    
+
     const newIdsMap = new Map<string, number>();
 
     // let's build a new tree from our old tree
@@ -497,17 +498,17 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
         const newNotes = defaultState.notes;
         const oldNotes: oldTree.TreeStore<Note> = loadedState.notes as unknown as oldTree.TreeStore<Note>;
 
-        
+
         const dfs = (parent: oldTree.TreeNode<Note>, newParent: tree.TreeNode<Note>) => {
             for (let i = 0; i < parent.childIds.length; i++) {
                 const childId = parent.childIds[i];
                 const childNote = oldTree.getNode(oldNotes, childId);
-                const data = childNote.data; 
+                const data = childNote.data;
                 const oldId = data.id as unknown as string; // NoteID used to be string
                 if (typeof oldId !== "string") {
                     throw new Error("Expectations of reality have not been met :'(");
                 }
-                
+
                 const newChild = tree.newTreeNode(data);
                 tree.addUnder(newNotes, newParent, newChild);
                 newIdsMap.set(oldId, newChild.id);
@@ -551,13 +552,16 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
 
     // prevents missing item cases that may occur when trying to load an older version of the state.
     // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
-    // TODO: handle new fields in notes. Shouldn't be too hard actually
     const mergedLoadedState = autoMigrate(loadedState, newNoteTreeGlobalState());
 
+    // also automigrate notes
     tree.forEachNode(mergedLoadedState.notes, (note) => {
         const node = tree.getNode(mergedLoadedState.notes, note.id);
         node.data = autoMigrate(node.data, defaultNote());
     });
+
+    // also automigrate settings
+    autoMigrate(loadedState.settings, mergedLoadedState.settings);
 
     // I should actually be doing mgrations and validations here but I'm far too lazy
 
@@ -687,7 +691,7 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
         flatNotes.push(note.id);
 
         const noChildren = note.childIds.length === 0;
-        const isVisualLeaf = !noChildren && 
+        const isVisualLeaf = !noChildren &&
             isStoppingPointForNotViewExpansion(state, note);
         if (isVisualLeaf) {
             return;
@@ -971,7 +975,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
             const duration = getActivityDurationMs(a0, a1);
 
             const isCurrentActivity = !a1;
-    
+
             {
                 let parentNote = note;
                 while (!idIsNil(parentNote.parentId)) {
@@ -1146,7 +1150,7 @@ export function isStoppingPointForNotViewExpansion(state: NoteTreeGlobalState, n
     return isHigherLevelTask(note)
         || note.id === 0
         || (
-            note.data._status !== STATUS_IN_PROGRESS && 
+            note.data._status !== STATUS_IN_PROGRESS &&
             !(note.data._isSelected && note.id !== state.currentNoteId)
         );
 }
@@ -1833,27 +1837,12 @@ export function isEditableBreak(activity: Activity) {
 }
 
 
-const fieldsToMigrate = new Set(["settings"]);
-
 function autoMigrate<T extends object>(loadedData: T, defaultSchema: T) {
     for (const k in defaultSchema) {
         const defaultValue = defaultSchema[k];
         if (!(k in loadedData)) {
             loadedData[k] = defaultValue;
             continue;
-        }
-
-        // Migrate nested objects.
-        // TODO: less hardcoded solution, this only works for 1 level deep
-        if (
-            typeof defaultValue === "object" && 
-            defaultValue !== null &&
-            fieldsToMigrate.has(k)
-        ) {
-            autoMigrate(
-                loadedData[k] as Record<string, object>, 
-                defaultValue as Record<string, object>,
-            );
         }
     }
 
@@ -2216,7 +2205,7 @@ export function fuzzySearchNotes(
         query = query.substring(2).trim();
     } else if (isInProgressQuery) {
         query = query.substring(1).trim();
-    } 
+    }
 
     if (isHltQuery || isInProgressQuery || isShelvedQuery) {
         if (query.trim().length === 0) {
@@ -2297,8 +2286,7 @@ export function fuzzySearchNotes(
     });
 }
 
-
-// TODO: rename to `globalState`
+// TODO: move this to a variable inside of the App component, and just pass it to all the child components.
 export let state = newNoteTreeGlobalState();
 
 
@@ -2442,7 +2430,7 @@ export function indexOfNoteInTaskStream(stream: TaskStream, note: TreeNote): num
     return stream.noteIds.indexOf(note.id);
 }
 
-export function getNumParentsInTaskStream(state: NoteTreeGlobalState, stream: TaskStream, note: TreeNote): number{
+export function getNumParentsInTaskStream(state: NoteTreeGlobalState, stream: TaskStream, note: TreeNote): number {
     let count = 0;
     let parentNote = note;
     while (!idIsNilOrRoot(parentNote.parentId)) {
@@ -2562,7 +2550,6 @@ export function recomputeViewAllTaskStreamsState(
 
                 // If the current note is in the inProgressIds, let's focus that as well.
                 const streamViewState = getCurrentTaskStreamState(state, globalState);
-                // TODO: clean this up
                 if (streamViewState) {
                     streamViewState.isViewingInProgress = false;
                     const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
@@ -2631,7 +2618,6 @@ export function recomputeViewTaskStreamState(
                 };
             }
             const current = state.inProgressNotes[i];
-
 
             // TODO: there may be a way to make use of different depths here.
             clearArray(current.inProgressIds);
@@ -2743,7 +2729,7 @@ export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElem
     // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs (among other things).
     // Using the execCommand API is currently the only way to do this while perserving undo, 
     // and I won't be replacing it till there is really something better.
-    on(textArea,"keydown", (e) => {
+    on(textArea, "keydown", (e) => {
         let text = textArea.el.value;
         const start = textArea.el.selectionStart;
         const end = textArea.el.selectionEnd;
@@ -2773,13 +2759,13 @@ export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElem
         const getIndentation = (col: string): string => {
             if (!state.settings.spacesInsteadOfTabs) {
                 return "\t";
-            } 
+            }
 
             const numSpaces = state.settings.tabStopSize - (col.length % state.settings.tabStopSize);
             return " ".repeat(numSpaces);
         }
 
-        if (e.key === "Backspace" && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        if (e.key === "Backspace" && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
             if (start === end) {
                 const col = getLineBeforePos(text, start);
 
@@ -2791,7 +2777,7 @@ export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElem
                     }
                 }
             }
-        } else if (e.key === "Tab" && !e.ctrlKey && !e.metaKey) {
+        } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
             if (e.shiftKey) {
                 e.preventDefault();
 
@@ -2829,8 +2815,6 @@ export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElem
                 textArea.el.selectionStart = newStart;
                 textArea.el.selectionEnd = newEnd;
             } else {
-                // TODO: indent the selected block
-
                 if (start === end) {
                     const col = getLineBeforePos(text, start);
                     const indentation = getIndentation(col);
@@ -2870,7 +2854,7 @@ export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElem
 
                 }
             }
-        } else if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        } else if (e.key === "Escape" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
             if (start !== end) {
                 e.stopImmediatePropagation();
                 textArea.el.selectionEnd = textArea.el.selectionStart;
