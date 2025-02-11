@@ -1,4 +1,4 @@
-import { AsciiCanvas, getLayersString, newCanvasState, resetCanvas } from "src/canvas";
+import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
@@ -3194,7 +3194,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
     const prevActivity = newComponent(Button);
     prevActivity.render({
         label: "->",
-        onClick: () => {
+        onClick() {
             const idx = getPrevIdx();
             if (idx !== -1) {
                 state._currentlyViewingActivityIdx = idx;
@@ -3204,7 +3204,7 @@ function ActivityListContainer(rg: RenderGroup<{ docked: boolean }>) {
     });
     const nextActivity = newComponent(Button, {
         label: "<-",
-        onClick: () => {
+        onClick() {
             const idx = getNextIdx();
             if (idx !== -1) {
                 state._currentlyViewingActivityIdx = idx;

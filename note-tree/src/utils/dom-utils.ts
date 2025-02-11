@@ -1,9 +1,16 @@
-// DOM-utils v0.1.20 - @Tejas-H5
+// DOM-utils v0.1.21 - @Tejas-H5
 
-// ---- initialize the 'framework'
+//////////
+// initialize the 'framework'
 
-export function initializeDomUtils(root: Insertable) {
+export function initializeDomUtils(root: Insertable, {
+    errorHandler = defaultErrorHandler,
+}: {
+    errorHandler?: DomUtilsErrorHandler;
+} = {}) {
     // Insert some CSS styles that this framework uses for error handling and debugging.
+
+    domUtilsGlobalErrorHandler = errorHandler;
 
     if (stlyeStringBuilder.length > 0) {
         const text = stlyeStringBuilder.join("");
@@ -14,7 +21,54 @@ export function initializeDomUtils(root: Insertable) {
     }
 }
 
-// ---- Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
+export type DomUtilsErrorHandler = (c: DomUtilsErrorContext) => void;
+export type DomUtilsErrorContext = {
+    isError: boolean;
+    err: Error | undefined;
+    message: string | undefined;
+    componentName: string | undefined;
+    root: Component<any, ValidElement>;
+    avoidErrorHandler: boolean;
+
+    // The default handler uses this to avoid clearing the error class over and over again, but 
+    // you can use this however you want when you override the error handler
+    _hasErrorClass: boolean;
+};
+
+export const defaultErrorHandler : DomUtilsErrorHandler = (c: DomUtilsErrorContext) => {
+    if (c.avoidErrorHandler) {
+        return;
+    }
+
+    if (!c.isError) {
+        if (!c._hasErrorClass) {
+            return;
+        }
+
+        c._hasErrorClass = false;
+        c.root.el.style.removeProperty("--error-text");
+        setClass(c.root, "catastrophic---error", false);
+        return;
+    }
+
+    setClass(c.root, "catastrophic---error", true);
+    c._hasErrorClass = true;
+
+    // We could include the actual error message here if we wanted to. But I'm not sure that's a good idea.
+    // Also if we want to do that, we need to remove the guard at the top there
+    const message = `An error occured while updating the ${c.componentName ?? "???"} component`;
+    const fullMessage = `${message}. You've found a bug!`;
+    c.root.el.style.setProperty("--error-text", JSON.stringify(fullMessage));
+
+    console.error(fullMessage, c);
+
+    return;
+}
+
+let domUtilsGlobalErrorHandler = defaultErrorHandler;
+
+//////////
+// Styling API - this actually needs to happen before the framework is initialized, so it's been moved to the top.
 
 const stlyeStringBuilder: string[] = [];
 const allClassNames = new Set<string>();
@@ -280,7 +334,8 @@ export function lerpColor(c1: Color, c2: Color, factor: number, dst: Color) {
     dst.a = lerp(c1.a, c2.a, factor);
 }
 
-// ---- DOM node and Insertable<T> creation
+//////////
+// DOM node and Insertable<T> creation
 
 export type ValidElement = HTMLElement | SVGElement;
 export interface Insertable<T extends ValidElement = HTMLElement> {
@@ -407,7 +462,8 @@ export function addChildren<T extends ValidElement>(
     return ins;
 }
 
-// ---- DOM node child management
+//////////
+// DOM node child management
 
 export type InsertableList = (Insertable<any> | undefined)[];
 
@@ -511,7 +567,8 @@ export function clearChildren(mountPoint: Insertable<any>) {
     mountPoint.el.replaceChildren();
 };
 
-// ---- DOM node attribute management, and various seemingly random/arbitrary functions that actually end up being very useful
+//////////
+// DOM node attribute management, and various seemingly random/arbitrary functions that actually end up being very useful
 
 type StyleObject<U extends ValidElement> = (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"]);
 
@@ -779,7 +836,8 @@ export function scrollIntoView(
 }
 
 
-// ---- Render group API
+//////////
+// Render group API
 
 
 /**
@@ -809,16 +867,12 @@ export class RenderGroup<S = null> {
      * Internal variable that allows getting the root of the component a render group is attached to
      * without having the root itthis. 
      */
-    instantiatedRoot: Insertable<ValidElement> | undefined = undefined;
+    instantiatedRoot: Component<S, ValidElement> | undefined = undefined;
     /* 
      * Has this component rendered once? 
      * Used to detect bugs where a render function may continue to add more handlers during the render part
      */
     instantiated = false;
-    /** 
-     * Disables error handling when set to true.
-     **/
-    skipErrorBoundary: boolean;
     /** 
      * Internal variable used to check if an 'if' statement is currently open to any 'else' statement that follows it.
      */
@@ -834,7 +888,6 @@ export class RenderGroup<S = null> {
     constructor(
         initialState: S | undefined,
         templateName: string = "unknown",
-        skipErrorBoundary = false,
     ) {
         for (const k in this) {
             const v = this[k];
@@ -845,14 +898,13 @@ export class RenderGroup<S = null> {
 
         this._s = initialState;
         this.templateName = templateName;
-        this.skipErrorBoundary = skipErrorBoundary;
 
         this.debugAnimation = this.newAnimation((dt) => {
             if (
                 // complex components made of thousands of small parts 
                 // will hopefully this to true on those smaller parts, so that they don't lag
                 // in debug mode
-                this.skipErrorBoundary ||
+                this.root.errorContext.avoidErrorHandler ||
                 this.tDebugAnimation >= 1 ||
                 !isDebugging()
             ) {
@@ -912,12 +964,11 @@ export class RenderGroup<S = null> {
             startAnimation(this.debugAnimation);
         }
 
-        if (this.renderFunctions(this.preRenderFnList)) {
-            if (this.renderFunctions(this.domRenderFnList)) {
-                this.restartAnimations()
-                this.renderFunctions(this.postRenderFnList);
-            }
-        }
+        // NOTE: Order matters!
+        this.renderFunctions(this.preRenderFnList);
+        this.renderFunctions(this.domRenderFnList);
+        this.restartAnimations();
+        this.renderFunctions(this.postRenderFnList);
     }
 
     readonly canAnimate = (): boolean => {
@@ -928,10 +979,6 @@ export class RenderGroup<S = null> {
         if (root._isHidden === 1) {
             return false;
         }
-        // if ((root.el as HTMLElement).offsetParent === null) {
-        //     return false;
-        // }
-        // https://developer.mozilla.org/en-US/docs/Web/API/Node/isConnected
         if (!root.el.isConnected) {
             return false;
         }
@@ -959,7 +1006,7 @@ export class RenderGroup<S = null> {
         const e = span();
         let lastText: string | undefined;
         this.pushRenderFn(this.domRenderFnList, (s) => {
-            // we can just do that direct memoization thing that I havea assumed the browser devs expected us to do (as I've mentioned in another comment somewhere here), rather
+            // we can just do that direct memoization thing that I have assumed the browser devs expected us to do (as I've mentioned in another comment somewhere here), rather
             // that calling `setText, which will first query what the text was with e.el.textContent. same for all the other methods here.
             const text = fn(s);
             if (lastText !== text) {
@@ -1183,7 +1230,9 @@ export class RenderGroup<S = null> {
 
     // So far, every attempt of mine at making this keyed has only led to a worse API with more complex code 
     // and more bugs in the usage code. For that reason, I've decided to just not make one.
-    // Your UI should just be a function of your state anyway.
+    // Your UI should just be a function of your state anyway - if there is state that you aren't
+    // setting when you rerender your component, like selectionStart and selectionEnd on a text input for example, 
+    // if you care about this then you should make selectionStart and selectionEnd a part of your TextInput's UI state. 
 
     /** 
      * Returns a new {@link ListRenderer} rooted with {@link root}, and {@link templateFn} as the repeating component.
@@ -1417,69 +1466,14 @@ export class RenderGroup<S = null> {
      * Before this API was introduced, the only way I could do this was by rerendering the ENTIRE APP in setInterval around 10 times a second!
      * And it took a really long time for me to add this too!
      */
-    private readonly renderFunctions = (renderFns: RenderFn<S>[]): boolean => {
+    private readonly renderFunctions = (renderFns: RenderFn<S>[])  => {
         const s = this.s;
 
         countRender(this.templateName, this, renderFns.length);
 
-        if (this.skipErrorBoundary) {
-            for (let i = 0; i < renderFns.length; i++) {
-                renderFns[i].fn(s);
-            }
-            return true;
-        }
-
         for (let i = 0; i < renderFns.length; i++) {
-            // While this still won't catch errors with callbacks, it is still extremely helpful.
-            // By catching the error at this component and logging it, we allow all other components to render as expected, and
-            // It becomes a lot easier to spot the cause of a bug.
-
-            // TODO: improve this error logging mechanism. there are way better ways of doing this
-
-            const errorRoot = renderFns[i].root ?? this.root;
-            try {
-                this.clearErrorClass(errorRoot);
-                renderFns[i].fn(s);
-            } catch (e) {
-                renderFns[i].error = e;
-
-                this.setErrorClass(errorRoot, e);
-
-                // don't run more functions for this component if one of them errored
-
-                return false;
-            }
+            renderFns[i].fn(s);
         }
-
-        return true;
-    }
-
-    _hasErrorClass = false;
-    private readonly clearErrorClass = (errorRoot : Insertable<any>) => {
-        if (!this._hasErrorClass) {
-            return;
-        }
-
-        errorRoot.el.style.removeProperty("--error-text");
-        setClass(errorRoot, "catastrophic---error", false);
-    }
-
-    private readonly setErrorClass = (errorRoot : Insertable<any>, e: any) => {
-        if (this._hasErrorClass) {
-            return;
-        }
-
-        errorRoot = errorRoot;
-
-        setClass(errorRoot, "catastrophic---error", true);
-
-        // We could include the actual error message here if we wanted to. But I'm not sure that's a good idea.
-        // Also if we want to do that, we need to remove the guard at the top there
-        const message = `An error occured while updating the ${this.templateName ?? "???"} component`;
-        errorRoot.el.style.setProperty("--error-text", JSON.stringify(`${message}. You've found a bug!`));
-
-        console.error(`An error occured while rendering component ${this.templateName ?? "???"}: `, e);
-        return;
     }
 
     private readonly pushRenderFn = (renderFns: RenderFn<S>[], fn: (s: S) => void, root: Insertable<any> | undefined) => {
@@ -1513,7 +1507,7 @@ function checkForRenderMistake<T extends ValidElement>(ins: Insertable<T>) {
  * This class is also an internal implementation detail that you never need to use - 
  * see {@link newComponent};
  */
-export class Component<T, U extends ValidElement> implements Insertable<U> {
+export class Component<T, U extends ValidElement = ValidElement> implements Insertable<U> {
     root: Insertable<U>;
     el: U;
     get _isHidden() { return this.root._isHidden; }
@@ -1531,9 +1525,10 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
      * Internal variable used to catch infinite recursion bug 
      */
     rendering = false;
-    /** Used for debugging purposes */
-    templateName: string;
+
     renderFn: (s: T) => void;
+
+    errorContext: DomUtilsErrorContext;
 
     constructor(
         root: Insertable<U>, 
@@ -1543,9 +1538,18 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
     ) {
         this.root = root;
         this.el = root.el;
-        this.templateName = templateName;
         this._s = s;
         this.renderFn = renderFn;
+        this.errorContext = {
+            isError: false,
+            err: undefined,
+            message: undefined,
+            componentName: templateName,
+            root: this,
+
+            avoidErrorHandler: false,
+            _hasErrorClass: false,
+        }
     }
     /**
      * Renders the component with the arguments provided.
@@ -1578,8 +1582,28 @@ export class Component<T, U extends ValidElement> implements Insertable<U> {
 
         this.rendering = true;
 
+        if (this.errorContext.avoidErrorHandler) {
+            try {
+                this.renderFn(this.s);
+            } catch(e) {
+                throw e;
+            } finally {
+                this.rendering = false;
+            }
+
+            return;
+        } 
+
         try {
+            this.errorContext.isError = false;
+            domUtilsGlobalErrorHandler(this.errorContext);
             this.renderFn(this.s);
+        } catch (e) {
+            this.errorContext.isError = true;
+            const err = e instanceof Error ? e : undefined;;
+            this.errorContext.err = err;
+            this.errorContext.message = err?.message || ("" + e) || "unknown error";
+            domUtilsGlobalErrorHandler(this.errorContext);
         } finally {
             this.rendering = false;
         }
@@ -1601,9 +1625,8 @@ type TemplateFnVariadic<T, U extends ValidElement, A extends unknown[]> = (rg: R
 export function newComponent<T, U extends ValidElement, Si extends T>(
     templateFn: TemplateFn<T, U>,
     initialState?: Si,
-    skipErrorBoundary = false
 ) {
-    const [component, _rg] = newComponent2(templateFn, initialState, skipErrorBoundary);
+    const [component, _rg] = newComponent2(templateFn, initialState);
     return component;
 }
 
@@ -1611,9 +1634,8 @@ export function newComponentArgs<T, U extends ValidElement, A extends unknown[]>
     templateFn: TemplateFnVariadic<T, U, A>,
     args: A,
     initialState?: T,
-    skipErrorBoundary = false
 ) {
-    const [component, _rg] = newComponentArgs2(templateFn, args, initialState, skipErrorBoundary);
+    const [component, _rg] = newComponentArgs2(templateFn, args, initialState);
     return component;
 }
 
@@ -1621,25 +1643,22 @@ export function newComponentArgs2<T, U extends ValidElement, A extends unknown[]
     templateFn: TemplateFnVariadic<T, U, A>,
     args: A,
     initialState?: T,
-    skipErrorBoundary = false,
 ) {
-    return newComponent2<T, U, T>(rg => templateFn(rg, ...args), initialState, skipErrorBoundary);
+    return newComponent2<T, U>(rg => templateFn(rg, ...args), initialState);
 }
 
-export function newComponent2<T, U extends ValidElement, Si extends T>(
+export function newComponent2<T, U extends ValidElement>(
     templateFn: TemplateFn<T, U>,
-    initialState?: Si,
-    skipErrorBoundary = false
+    initialState?: T,
 ) {
     const rg = new RenderGroup<T>(
         initialState,
         templateFn.name ?? "",
-        skipErrorBoundary,
     );
 
     const root = templateFn(rg);
-    const component = new Component(root, rg.render.bind(rg), initialState, rg.templateName);
-    rg.instantiatedRoot = root;
+    const component = new Component(root, rg.render, initialState, rg.templateName);
+    rg.instantiatedRoot = component;
     setAttr(root, "data-template-name", rg.templateName);
 
     if (component._s !== undefined) {
@@ -1649,7 +1668,8 @@ export function newComponent2<T, U extends ValidElement, Si extends T>(
     return [component, rg] as const;
 }
 
-// ---- List rendering API
+//////////
+// List rendering API
 
 export class ListRenderer<R extends ValidElement, T, U extends ValidElement> implements Insertable<R> {
     root: Insertable<R>;
@@ -1710,7 +1730,8 @@ export function newListRenderer<R extends ValidElement, T, U extends ValidElemen
     return new ListRenderer(root, createFn);
 }
 
-// ---- animation utils. The vast majority of apps will need animation, so I figured I'd just merge this into dom-utils itself
+//////////
+// animation utils. The vast majority of apps will need animation, so I figured I'd just merge this into dom-utils itself
 
 export type AnimateFunction = (dt: number) => boolean;
 
@@ -1778,7 +1799,8 @@ export function getCurrentNumAnimations() {
 }
 
 
-// ---- debugging utils
+//////////
+// debugging utils
 
 let debug = false;
 export function setDebugMode(state: boolean) {

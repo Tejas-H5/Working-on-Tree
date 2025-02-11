@@ -1121,6 +1121,8 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             });
 
             rg.preRenderFn(function renderCanvasCell(s) {
+                rg.root.errorContext.avoidErrorHandler = true;
+
                 const { canvasState, j, i, isSelectedPreview: isSelectedTemp, } = s;
 
                 getVisualChar(canvasState, i, j, visualCharInfo);
@@ -1188,9 +1190,11 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             root.el.addEventListener("mousemove", handleMouseMovement);
 
             return root;
-        }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
+        }, undefined));
 
         rg.preRenderFn(function renderCanvasRow(s) {
+            rg.root.errorContext.avoidErrorHandler = true;
+
             const { charList: rowList } = s;
 
             charList.render((getNext) => {
@@ -1202,7 +1206,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         });
 
         return root;
-    }, undefined, true /* We want errors to be caught by the root canvas, not inside of this specific cell. */));
+    }, undefined));
 
     root.el.addEventListener("mouseleave", () => {
         canvasState.mouseInputState.x = -1;
