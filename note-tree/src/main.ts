@@ -153,7 +153,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.03";
+const VERSION_NUMBER = "1.02.04";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -170,6 +170,7 @@ const cnHoverLink = cssb.cn("hover-link", [
 
 function NoteLink(rg: RenderGroup<{
     text: string;
+    shouldScroll: boolean;
     focusAnyway?: boolean;
     noteId?: NoteId;
 }>) {
@@ -181,7 +182,7 @@ function NoteLink(rg: RenderGroup<{
             `${cssVars.bgColor}`
         )),
         rg.text((s) => truncate(s.text, 500)),
-        rg.on("click", ({ noteId }, e) => {
+        rg.on("click", ({ noteId, shouldScroll }, e) => {
             e.stopImmediatePropagation();
 
             // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
@@ -190,6 +191,8 @@ function NoteLink(rg: RenderGroup<{
             setTimeout(() => {
                 if (!idIsNilOrUndefined(noteId)) {
                     setCurrentNote(state, noteId);
+
+                    renderSettings.shouldScroll = shouldScroll;
                     rerenderApp();
                 }
             }, 1);
@@ -506,6 +509,7 @@ function ActivityListItem(rg: RenderGroup<{
                 focusAnyway: focus,
                 noteId: activity.nId,
                 text: activityText,
+                shouldScroll: true,
             });
 
             setClass(noteLink, cnHoverLink, !!activity.nId);
@@ -2458,27 +2462,29 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         const shiftPressed = e.shiftKey;
         const ctrlPressed = e.ctrlKey || e.metaKey;
 
-        let needsRerender = true;
+        let handled = false;
         let shouldPreventDefault = true;
 
         if (e.key === "Enter" && handleEnterPress(ctrlPressed, shiftPressed)) {
-            // it was handled
+            handled = true;
         } else if (e.key === "Backspace") {
             deleteNoteIfEmpty(state, currentNote.id);
             shouldPreventDefault = false;
+            handled = true;
         } else if (e.key === "ArrowUp") {
             shouldPreventDefault = false;
+            handled = true;
         } else if (e.key === "ArrowDown") {
             shouldPreventDefault = false;
-        } else {
-            needsRerender = false;
-        }
+            handled = true;
+        } 
 
-        if (needsRerender) {
+        if (handled) {
             if (shouldPreventDefault) {
                 e.preventDefault();
             }
 
+            renderSettings.shouldScroll = true;
             rerenderApp();
         }
     }
@@ -2538,6 +2544,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     }) {
         noteDepth = treeVisualsInfo.depth ?? note.data._depth;
 
+        const wasFocused = isFocused;
         isFocused = currentNote.id === note.id && listHasFocus;
         isEditing = !readOnly && state._currentModal === null && (
             listHasFocus && isFocused && state._isEditingFocusedNote
@@ -2548,13 +2555,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         setStickyOffset();
 
         // do auto-scrolling
-        if (scrollParent && listHasFocus && shouldScrollToNotes(state)) {
-            if (isFocused) {
-                // without setTimeout here, calling focus won't work as soon as the page loads.
-                setTimeout(() => {
-                    scrollComponentToView(scrollParent);
-                }, 1);
-            }
+        if (isFocused && scrollParent && renderSettings.shouldScroll) {
+            // without setTimeout here, calling focus won't work as soon as the page loads.
+            setTimeout(() => {
+                scrollComponentToView(scrollParent);
+            }, 1);
         }
     });
 
@@ -3470,11 +3475,11 @@ function moveToLastNote(): boolean {
     return true;
 }
 
-function moveInDirectonOverHotlist(backwards: boolean) {
+function moveInDirectonOverHotlist(backwards: boolean): boolean {
     if (backwards) {
         // NOTE: there is currently no UI that says that we will go back to the previous note :(
         if (moveToLastNote()) {
-            return;
+            return true;
         }
     }
 
@@ -3483,14 +3488,14 @@ function moveInDirectonOverHotlist(backwards: boolean) {
 
         state._currentlyViewingActivityIdx = getLastActivityWithNoteIdx(state);
         if (state._currentlyViewingActivityIdx === -1) {
-            return;
+            return true;
         }
 
         const nId = state.activities[state._currentlyViewingActivityIdx].nId;
         if (state.currentNoteId !== nId) {
             setCurrentNote(state, nId!);
             setIsEditingCurrentNote(state, false);
-            return;
+            return true;
         }
     }
 
@@ -3498,41 +3503,44 @@ function moveInDirectonOverHotlist(backwards: boolean) {
     nextIdx = getNextHotlistActivityInDirection(state, nextIdx, backwards);
 
     if (nextIdx < 0 || nextIdx >= state.activities.length) {
-        return;
+        return false;
     }
 
 
     const nId = state.activities[nextIdx].nId;
     if (!nId) {
-        return;
+        return false;
     }
 
     setCurrentNote(state, nId);
     setIsEditingCurrentNote(state, false);
     state._currentlyViewingActivityIdx = nextIdx; // not necesssarily the most recent note
+
+    return true;
 }
 
 let lateralMovementStartingNote: NoteId | undefined = undefined;
 let isInHotlist = false;
 let isInQuicklist = false;
 
-function moveInDirectionOverQuickList(amount: number) {
+function moveInDirectionOverQuickList(amount: number): boolean {
     if (!isInQuicklist) {
         recomputeFuzzyFinderMatches(state._fuzzyFindState);
         isInQuicklist = true;
     }
 
     if (state._fuzzyFindState.matches.length === 0) {
-        return;
+        return true;
     }
 
     const idx = Math.max(0, Math.min(state._fuzzyFindState.matches.length - 1, getQuicklistIndex(state) + amount));
     setQuicklistIndexForMove(idx);
+    return true;
 }
 
-function setQuicklistIndexForMove(idx: number) {
+function setQuicklistIndexForMove(idx: number): boolean {
     if (idx === -1) {
-        return;
+        return false;
     }
 
     setQuicklistIndex(state, idx);
@@ -3542,6 +3550,8 @@ function setQuicklistIndexForMove(idx: number) {
     const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
     setCurrentNote(state, (previewNote ?? note).id);
     setIsEditingCurrentNote(state, false);
+
+    return true;
 }
 
 function autoInsertBreakIfRequired() {
@@ -3924,6 +3934,7 @@ function HighLevelTaskDurations(rg: RenderGroup) {
                         text: s.name,
                         focusAnyway: false,
                         noteId: s.nId,
+                        shouldScroll: false,
                     });
                 })
             ]),
@@ -4389,7 +4400,7 @@ export function App(rg: RenderGroup) {
         const isEditingSomeText = isEditingTextSomewhereInDocument();
 
         let shouldPreventDefault = true;
-        let needsRerender = true;
+        let handled = false;
         if (
             !state._isEditingFocusedNote &&
             !isEditingSomeText &&
@@ -4397,7 +4408,7 @@ export function App(rg: RenderGroup) {
         ) {
             // handle movements here
 
-            function handleUpDownMovement(up: boolean, ctrlKey: boolean, amount = 1, end: boolean, home: boolean) {
+            function handleUpDownMovement(up: boolean, ctrlKey: boolean, amount = 1, end: boolean, home: boolean): boolean {
                 const isMovingNode = e.altKey;
 
                 const useSiblings = isMovingNode;
@@ -4422,13 +4433,15 @@ export function App(rg: RenderGroup) {
 
                 const nextNote = getNoteOrUndefined(state, nextNoteId);
                 if (!nextNote) {
-                    return;
+                    return false;
                 }
+
+                renderSettings.shouldScroll = true;
 
                 if (!isMovingNode) {
                     setCurrentNote(state, nextNote.id);
                     debouncedSave();
-                    return;
+                    return true;
                 }
 
                 if (
@@ -4440,94 +4453,101 @@ export function App(rg: RenderGroup) {
                     const idxNext = siblings.indexOf(nextNote.id);
                     tree.insertAt(state.notes, parent, currentNote, idxNext);
                     debouncedSave();
+
+                    return true;
                 }
+
+                return false;
             }
 
-            function handleMovingOut(nextNoteId: NoteId) {
+            function handleMovingOut(nextNoteId: NoteId): boolean {
                 if (idIsNilOrRoot(nextNoteId)) {
-                    return;
+                    return false;
                 }
 
                 if (!e.altKey) {
                     setCurrentNote(state, nextNoteId);
-                    return;
+                    return true;
                 }
 
                 const nextNote = getNote(state, nextNoteId);
                 tree.addAfter(state.notes, nextNote, currentNote);
                 debouncedSave();
+                return true;
             }
 
-            function handleMovingIn() {
+            function handleMovingIn(): boolean {
                 if (!e.altKey) {
                     // move into the current note
                     const lastSelected = getLastSelectedNote(state, currentNote);
                     setCurrentNote(state, lastSelected ? lastSelected.id : null);
                     debouncedSave();
-                    return;
+                    return true;
                 }
 
                 if (idIsNil(currentNote.parentId)) {
-                    return;
+                    return false;
                 }
 
                 // move this note into the note above it
                 const siblings = getNote(state, currentNote.parentId).childIds;
                 const idx = siblings.indexOf(currentNote.id);
                 if (idx === 0) {
-                    return;
+                    return false;
                 }
 
                 const upperNote = getNote(state, siblings[idx - 1]);
                 if (upperNote.childIds.length === 0) {
                     tree.addUnder(state.notes, upperNote, currentNote);
                     debouncedSave();
-                    return;
+                    return true;
                 }
 
                 const noteInsideUpperNote = getLastSelectedNote(state, upperNote);
                 if (noteInsideUpperNote) {
                     tree.addAfter(state.notes, noteInsideUpperNote, currentNote)
                     debouncedSave();
-                    return;
+                    return true;
                 }
+
+                return false;
             }
 
             if (e.key === "Enter" && !isEditingSomeText && handleEnterPress(ctrlPressed, shiftPressed)) {
-                // Do nothing - it was handled. else handleEnterPressed returned false and we keep going down this list
+                handled = true;
             } else if (e.key === "ArrowDown") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectionOverQuickList(1);
+                    handled = moveInDirectionOverQuickList(1);
                 } else if (ctrlPressed) {
-                    handleUpDownMovement(false, true, 1, false, false);
+                    handled = handleUpDownMovement(false, true, 1, false, false);
                 } else {
-                    handleUpDownMovement(false, false, 1, false, false);
+                    handled = handleUpDownMovement(false, false, 1, false, false);
                 }
             } else if (e.key === "ArrowUp") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectionOverQuickList(-1);
+                    handled = moveInDirectionOverQuickList(-1);
                 } else if (ctrlPressed) {
-                    handleUpDownMovement(true, true, 1, false, false);
+                    handled = handleUpDownMovement(true, true, 1, false, false);
                 } else {
-                    handleUpDownMovement(true, false, 1, false, false);
+                    handled = handleUpDownMovement(true, false, 1, false, false);
                 }
             } else if (e.key === "PageUp") {
                 shouldPreventDefault = true;
-                handleUpDownMovement(true, false, 10, false, false);
+                handled = handleUpDownMovement(true, false, 10, false, false);
             } else if (!idIsNil(currentNote.parentId) && e.key === "PageDown") {
                 shouldPreventDefault = true;
-                handleUpDownMovement(false, false, 10, false, false);
+                handled = handleUpDownMovement(false, false, 10, false, false);
             } else if (!idIsNil(currentNote.parentId) && e.key === "End") {
                 if (
                     isInQuicklist &&
                     e.ctrlKey &&
                     e.shiftKey
                 ) {
-                    setQuicklistIndexForMove(state._fuzzyFindState.matches.length - 1);
+                    handled = setQuicklistIndexForMove(state._fuzzyFindState.matches.length - 1);
                 } else {
-                    handleUpDownMovement(true, false, 0, true, false);
+                    handled = handleUpDownMovement(true, false, 0, true, false);
                 }
             } else if (!idIsNil(currentNote.parentId) && e.key === "Home") {
                 if (
@@ -4535,55 +4555,39 @@ export function App(rg: RenderGroup) {
                     e.ctrlKey &&
                     e.shiftKey
                 ) {
-                    setQuicklistIndexForMove(0);
+                    handled = setQuicklistIndexForMove(0);
                 } else {
-                    handleUpDownMovement(true, false, 0, false, true);
+                    handled = handleUpDownMovement(true, false, 0, false, true);
                 }
             } else if (e.key === "ArrowLeft") {
                 // The browser can't detect ctrl when it's pressed on its own :((((  (well like this anyway)
                 // Otherwise I would have liked for this to just be ctrl
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectonOverHotlist(true);
+                    handled = moveInDirectonOverHotlist(true);
                 } else {
-                    handleMovingOut(currentNote.parentId)
+                    handled = handleMovingOut(currentNote.parentId)
                 }
             } else if (e.key === "ArrowRight") {
                 if (ctrlPressed && shiftPressed) {
                     shouldPreventDefault = true;
-                    moveInDirectonOverHotlist(false);
+                    handled = moveInDirectonOverHotlist(false);
                 } else {
                     // move into note
-                    handleMovingIn();
+                    handled = handleMovingIn();
                 }
-            } else {
-                needsRerender = false;
-            }
-
-            if (needsRerender) {
-                if (shouldPreventDefault) {
-                    e.preventDefault();
-                }
-
-                rerenderApp();
-            }
-
-            return;
-        }
-
-
-        if (e.key === "Escape") {
+            } 
+        } else if (e.key === "Escape") {
             if (isEditingSomeText) {
                 setIsEditingCurrentNote(state, false);
+                handled = true;
             } else {
-                setCurrentModalAndRerenderApp(null);
-                needsRerender = false;
+                setCurrentModal(null);
+                handled = true;
             }
-        } else {
-            needsRerender = false;
-        }
+        } 
 
-        if (needsRerender) {
+        if (handled) {
             if (shouldPreventDefault) {
                 e.preventDefault();
             }
@@ -4871,8 +4875,12 @@ initializeDomUtils(root);
 const app = newComponent(App);
 appendChild(root, app);
 
+const renderSettings = {
+    shouldScroll: false,
+};
 function rerenderApp() {
     app.render(null);
+    renderSettings.shouldScroll = false;
 }
 
 let renderNextFrameTimeout = 0;
