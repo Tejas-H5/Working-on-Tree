@@ -1,7 +1,13 @@
 import { cnApp } from "src/styling";
-import { RenderGroup, el } from "src/utils/dom-utils";
+import { RenderGroup, cn, el } from "src/utils/dom-utils";
 
-const BUTTON_CLASSES = cnApp.solidBorder;
+const BUTTON_CLASSES = [
+    cnApp.solidBorder, 
+
+    cn.row,
+    cn.alignItemsCenter,
+    cn.justifyContentCenter,
+].join(" ");
 
 // NOTE: don't use this button in future projects. It's shite
 export function Button(c: RenderGroup<{ 
@@ -12,7 +18,7 @@ export function Button(c: RenderGroup<{
     style?: string;
     onClick: (e: MouseEvent) => void;
 }>) {
-    const buttonClass = `solid-border align-items-center justify-content-center ` + BUTTON_CLASSES;
+    const buttonClass = BUTTON_CLASSES;
     const buttonStyle = `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px;`
     return el<HTMLButtonElement>("BUTTON", { 
         type: "button",
