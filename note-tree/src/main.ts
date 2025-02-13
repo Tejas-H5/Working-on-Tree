@@ -152,7 +152,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.05";
+const VERSION_NUMBER = "1.02.06";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -4400,6 +4400,7 @@ export function App(rg: RenderGroup) {
 
         let shouldPreventDefault = true;
         let handled = false;
+        let noteIdBeforeKeyboardInput = state.currentNoteId;
         if (
             !state._isEditingFocusedNote &&
             !isEditingSomeText &&
@@ -4434,8 +4435,6 @@ export function App(rg: RenderGroup) {
                 if (!nextNote) {
                     return false;
                 }
-
-                renderSettings.shouldScroll = true;
 
                 if (!isMovingNode) {
                     setCurrentNote(state, nextNote.id);
@@ -4590,6 +4589,11 @@ export function App(rg: RenderGroup) {
             if (shouldPreventDefault) {
                 e.preventDefault();
             }
+
+            if (noteIdBeforeKeyboardInput !== state.currentNoteId) {
+                renderSettings.shouldScroll = true;
+            }
+
             rerenderApp();
         }
     });
@@ -4877,8 +4881,10 @@ appendChild(root, app);
 const renderSettings = {
     shouldScroll: false,
 };
+
 function rerenderApp() {
     app.render(null);
+
     renderSettings.shouldScroll = false;
 }
 
