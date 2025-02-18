@@ -147,14 +147,17 @@ export function moveArrayItem(arr: unknown[], a: number, b: number) {
         throw new Error("'b' out of bounds!");
     }
 
-    if (a > b) {
-        moveArrayItem(arr, b, a);
-    }
-
     while (a < b) {
         const temp = arr[a + 1];
         arr[a + 1] = arr[a];
         arr[a] = temp;
         a++;
+    }
+
+    while (a > b) {
+        const temp = arr[a - 1];
+        arr[a - 1] = arr[a];
+        arr[a] = temp;
+        a--;
     }
 }

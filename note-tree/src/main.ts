@@ -2,7 +2,6 @@ import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
-import { copyToClipboard } from "src/utils/clipboard";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
     Component,
@@ -74,12 +73,10 @@ import {
     getActivityDurationMs,
     getActivityText,
     getActivityTime,
-    getAllNoteIdsInTreeOrder,
     getCurrentInProgressState,
     getCurrentNote,
     getCurrentStateAsJSON,
     getCurrentTaskStreamState,
-    getFirstPartOfRow,
     getHigherLevelTask,
     getLastActivity,
     getLastActivityWithNote,
@@ -103,7 +100,6 @@ import {
     getParentNoteWithEstimate,
     getQuicklistIndex,
     getRootNote,
-    getSecondPartOfRow,
     hasNote,
     idIsNil,
     idIsNilOrRoot,
@@ -123,7 +119,6 @@ import {
     newBreakActivity,
     noteStatusToString,
     pushBreakActivity,
-    recomputeFlatNotes,
     recomputeState,
     recomputeViewAllTaskStreamsState,
     recomputeViewTaskStreamState,
@@ -152,7 +147,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.06";
+const VERSION_NUMBER = "1.02.07";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -604,33 +599,6 @@ function ExportModal(rg: RenderGroup) {
                     rerenderApp();
 
                     showStatusText("Cleared notes");
-                }
-            })),
-            rg.c(Button, c => c.render({
-                label: "Download TXT",
-                onClick: () => {
-                    handleErrors(() => {
-                        const flatNotes: NoteId[] = getAllNoteIdsInTreeOrder(state);
-                        const text = exportAsText(state, flatNotes);
-                        handleErrors(() => {
-                            saveText(text, `Note-Tree Text Export - ${formatDate(new Date(), "-")}.txt`);
-                        });
-
-                        showStatusText("Download TXT");
-                    });
-                }
-            })),
-            rg.c(Button, c => c.render({
-                label: "Copy open notes",
-                onClick: () => {
-                    handleErrors(() => {
-                        const flatNotes: NoteId[] = [];
-                        const currentNote = getCurrentNote(state);
-                        recomputeFlatNotes(state, flatNotes, currentNote, true);
-
-                        copyToClipboard(exportAsText(state, flatNotes));
-                        showStatusText("Copied current open notes as text");
-                    });
                 }
             })),
             rg.c(Button, c => c.render({
@@ -1574,6 +1542,39 @@ function AddToStreamModalItem(rg: RenderGroup<{
 
                 return `${n} in progress`;
             }),
+            " - ",
+            rg.text(s => {
+                let duration = 0;
+                for (const p of s.nextState.inProgressNotes) {
+                    for (const id of p.inProgressIds) {
+                        const note = getNote(state, id);
+                        duration += getNoteDurationWithoutRange(state, note);
+                    }
+                }
+
+                return formatDurationAsHours(duration) + " spent";
+            }),
+            " - ",
+            rg.text(s => {
+                let estimate = 0;
+                let hasEstimate = false;
+                for (const p of s.nextState.inProgressNotes) {
+                    for (const id of p.inProgressIds) {
+                        const note = getNote(state, id);
+                        const noteEstimate = getNoteEstimate(note);
+                        if (noteEstimate !== -1) {
+                            estimate += noteEstimate;
+                            hasEstimate = true;
+                        }
+                    }
+                }
+
+                if (!hasEstimate) {
+                    return "no estimates";
+                }
+
+                return formatDurationAsHours(estimate) + " estimated";
+            }),
             div({ class: [cn.flex1] }),
             div({ style: "width: 3ch" }),
             rg.c(Button, (c, s) => c.render({
@@ -1761,7 +1762,6 @@ function AddToStreamModal(rg: RenderGroup<{
         isViewingCurrentStream: false,
     };
 
-
     let lastVisible = false;
     let currentNote: TreeNote;
     let viewStreamState: ViewTaskStreamState | undefined;
@@ -1913,29 +1913,46 @@ function AddToStreamModal(rg: RenderGroup<{
                         handled = true;
                     } else if (navInput) {
                         // handled navigating streams list.
-                        if (!viewAllTaskStreamsState.isRenaming) {
-                            const oldIdx = state.currentTaskStreamIdx;
-                            let newIdx = oldIdx;
-                            if (navInput.moveDelta) {
-                                if (navInput.moveToEnd) {
-                                    newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
+                        const oldIdx = state.currentTaskStreamIdx;
+                        let newIdx = oldIdx;
+                        if (navInput.moveDelta) {
+                            if (navInput.moveToEnd) {
+                                newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
+                            } else if (navInput.moveToImportant) {
+                                if (navInput.moveDelta < 0) {
+                                    for (let i = oldIdx - 1; i >= 0; i--) {
+                                        const stream = state.taskStreams[i];
+                                        if (isNoteInTaskStream(stream, currentNote)) {
+                                            newIdx = i;
+                                            break;
+                                        }
+                                    }
                                 } else {
-                                    newIdx += navInput.moveDelta;
+                                    for (let i = oldIdx + 1; i < state.taskStreams.length; i++) {
+                                        const stream = state.taskStreams[i];
+                                        if (isNoteInTaskStream(stream, currentNote)) {
+                                            newIdx = i;
+                                            break;
+                                        }
+                                    }
                                 }
+                            } else {
+                                newIdx += navInput.moveDelta;
+                            }
+                            newIdx = clampIndexToArrayBounds(newIdx, state.taskStreams);
 
-                                if (navInput.doDrag) {
-                                    moveArrayItem(state.taskStreams, oldIdx, newIdx);
-                                }
+                            if (navInput.doDrag) {
+                                moveArrayItem(state.taskStreams, oldIdx, newIdx);
+                            }
 
+                            if (newIdx !== oldIdx) {
                                 state.currentTaskStreamIdx = newIdx;
                                 handled = true;
                             }
                         }
-                    } else if (!viewAllTaskStreamsState.isRenaming && e.key === "ArrowRight") {
-                        if (!viewAllTaskStreamsState.isViewingCurrentStream) {
-                            viewAllTaskStreamsState.isViewingCurrentStream = true;
-                            handled = true;
-                        }
+                    } else if (e.key === "ArrowRight") {
+                        viewAllTaskStreamsState.isViewingCurrentStream = true;
+                        handled = true;
                     }
                 }
             }
@@ -2543,7 +2560,6 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
     }) {
         noteDepth = treeVisualsInfo.depth ?? note.data._depth;
 
-        const wasFocused = isFocused;
         isFocused = currentNote.id === note.id && listHasFocus;
         isEditing = !readOnly && state._currentModal === null && (
             listHasFocus && isFocused && state._isEditingFocusedNote
@@ -2554,11 +2570,22 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         setStickyOffset();
 
         // do auto-scrolling
-        if (isFocused && scrollParent && renderSettings.shouldScroll) {
-            // without setTimeout here, calling focus won't work as soon as the page loads.
-            setTimeout(() => {
-                scrollComponentToView(scrollParent);
-            }, 1);
+        if (isFocused && scrollParent) {
+            let shouldScroll = renderSettings.shouldScroll;
+            if (!shouldScroll) {
+                const rect = root.el.getBoundingClientRect();
+                const isOffscreen = rect.bottom < 0 || rect.top > window.innerHeight;
+                if (isOffscreen) {
+                    shouldScroll = true;
+                }
+            }
+
+            if (shouldScroll) {
+                // without setTimeout here, calling focus won't work as soon as the page loads.
+                setTimeout(() => {
+                    scrollComponentToView(scrollParent);
+                }, 1);
+            }
         }
     });
 
@@ -2626,6 +2653,20 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 rg.style("lineHeight", s => s.note.data._status === STATUS_IN_PROGRESS ? "1.5" : "1.2"),
                 // cursor element
                 cursorElement,
+                div({ style: "width: 10px" }),
+                div({}, [
+                    rg.text((s) => {
+                        const count = s.note.data._taskStreams.length;
+
+                        if (count === 0) {
+                            return "   ";
+                        }
+                        if (count <= 9) {
+                            return count + "->";
+                        }
+                        return "9+>"
+                    })
+                ]),
                 div({ style: "width: 10px" }),
                 // indentation - before vertical line
                 div({ class: [cn.relative] }, [
@@ -3085,58 +3126,6 @@ const handleErrors = (fn: () => void, onError?: (err: any) => void) => {
 };
 
 const STATUS_TEXT_PERSIST_TIME = 1000;
-
-function exportAsText(state: NoteTreeGlobalState, flatNotes: NoteId[]) {
-    const header = (text: string) => `----------------${text}----------------`;
-
-    const table = [];
-    for (const id of flatNotes) {
-        const note = getNote(state, id);
-        table.push([getFirstPartOfRow(state, note), getSecondPartOfRow(state, note)]);
-    }
-
-    function formatTable(table: string[][], gap: number) {
-        const columns = [];
-
-        for (let col = 0; col < table[0].length; col++) {
-            const column = [];
-
-            // get the width of this column
-            let colWidth = 0;
-            for (let row = 0; row < table.length; row++) {
-                const cell = table[row][col];
-                colWidth = Math.max(colWidth, cell.length);
-            }
-
-            // append cells to the column, with padding added
-            for (let row = 0; row < table.length; row++) {
-                const cell = table[row][col];
-
-                let padding = colWidth - cell.length + gap;
-                column.push(cell + " ".repeat(padding));
-            }
-
-            columns.push(column);
-        }
-
-        const lines = [];
-        for (let i = 0; i < columns[0].length; i++) {
-            const row = [];
-            for (let j = 0; j < columns.length; j++) {
-                row.push(columns[j][i]);
-            }
-
-            lines.push(row.join(""));
-        }
-
-        return lines.join("\n");
-    }
-
-    return [
-        header(" Notes "),
-        formatTable(table, 10),
-    ].join("\n\n");
-}
 
 function setCurrentModal(modal: Insertable | null) {
     if (state._currentModal === modal) {

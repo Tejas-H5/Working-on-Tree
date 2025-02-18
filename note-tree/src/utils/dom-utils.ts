@@ -774,7 +774,10 @@ export function setInputValueAndResize<T extends TextElement>(inputComponent: In
     resizeInputToValue(inputComponent);
 }
 
-/** This is how I know to make an input that auto-sizes to it's text */
+/** 
+ * This is how I know to make an input that auto-sizes to it's text.
+ * NOTE: this only appears to work for monospace text, and is inconsistent for everything else.
+ * */
 export function resizeInputToValue<T extends TextElement>(inputComponent: Insertable<T>) {
     setAttr(inputComponent, "size", "" + inputComponent.el.value.length);
 }
