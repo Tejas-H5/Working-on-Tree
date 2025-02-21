@@ -147,7 +147,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.07";
+const VERSION_NUMBER = "1.02.08";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -1545,11 +1545,9 @@ function AddToStreamModalItem(rg: RenderGroup<{
             " - ",
             rg.text(s => {
                 let duration = 0;
-                for (const p of s.nextState.inProgressNotes) {
-                    for (const id of p.inProgressIds) {
-                        const note = getNote(state, id);
-                        duration += getNoteDurationWithoutRange(state, note);
-                    }
+                for (const id of s.nextState.taskStream.noteIds) {
+                    const note = getNote(state, id);
+                    duration += getNoteDurationWithoutRange(state, note);
                 }
 
                 return formatDurationAsHours(duration) + " spent";
@@ -1558,14 +1556,12 @@ function AddToStreamModalItem(rg: RenderGroup<{
             rg.text(s => {
                 let estimate = 0;
                 let hasEstimate = false;
-                for (const p of s.nextState.inProgressNotes) {
-                    for (const id of p.inProgressIds) {
-                        const note = getNote(state, id);
-                        const noteEstimate = getNoteEstimate(note);
-                        if (noteEstimate !== -1) {
-                            estimate += noteEstimate;
-                            hasEstimate = true;
-                        }
+                for (const id of s.nextState.taskStream.noteIds) {
+                    const note = getNote(state, id);
+                    const noteEstimate = getNoteEstimate(note);
+                    if (noteEstimate !== -1) {
+                        estimate += noteEstimate;
+                        hasEstimate = true;
                     }
                 }
 
@@ -1581,22 +1577,6 @@ function AddToStreamModalItem(rg: RenderGroup<{
                 label: "->",
                 onClick: () => s.navigate(),
             }))
-            /**
-    rg.if(s => s.isFocused, rg =>
-        div({ class: [cn.row, cnApp.gap5] }, [ 
-            rg.if((s) => !s.isRenaming, rg =>
-                div({}, ["[Shift + Enter] -> rename"])
-            ),
-
-            // TODO: delimiter, join type thing here.
-
-            rg.if((s) => s.canDelete, rg =>
-                div({}, ["[Del] -> delete"])
-            )
-        ]),
-    )
-
-            */
         ])
     ]);
 }
