@@ -4380,21 +4380,21 @@ export function App(rg: RenderGroup) {
             function handleUpDownMovement(up: boolean, ctrlKey: boolean, amount = 1, end: boolean, home: boolean): boolean {
                 const isMovingNode = e.altKey;
 
-                const useSiblings = isMovingNode;
+                const useSiblings = true;
                 let nextNoteId;
                 if (end) {
                     nextNoteId = currentNote.childIds[currentNote.childIds.length - 1];
                 } else if (home) {
                     nextNoteId = currentNote.childIds[0];
-                } else if (up) {
-                    if (ctrlKey) {
+                } else if (ctrlKey) {
+                    if (up) {
                         nextNoteId = getNoteOneUpLocally(state, currentNote);
                     } else {
-                        nextNoteId = getNoteNUpForMovement(state, currentNote, useSiblings, amount)
+                        nextNoteId = getNoteOneDownLocally(state, currentNote);
                     }
                 } else {
-                    if (ctrlKey) {
-                        nextNoteId = getNoteOneDownLocally(state, currentNote);
+                    if (up) {
+                        nextNoteId = getNoteNUpForMovement(state, currentNote, useSiblings, amount)
                     } else {
                         nextNoteId = getNoteNDownForMovement(state, currentNote, useSiblings, amount);
                     }

@@ -2226,7 +2226,7 @@ export function fuzzySearchNotes(
             isHltQuery ||
             isInProgressQuery
         ) {
-            if (isShelvedQuery !== n.data._shelved) {
+            if (isShelvedQuery !== isNoteRequestingShelf(n.data)) {
                 return;
             }
 
@@ -2236,7 +2236,7 @@ export function fuzzySearchNotes(
                 }
 
                 const parent = getNoteOrUndefined(state, n.parentId);
-                if (parent && isNoteRequestingShelf(parent.data)) {
+                if (parent && parent.data._shelved) {
                     // If `n` wants to be shelved but its parent is already shelved, 
                     // don't include this in the list of matches
                     return;
@@ -2258,27 +2258,32 @@ export function fuzzySearchNotes(
             }
         }
 
-        let results = fuzzyFind(text, query, {});
-        if (results.ranges.length === 0) {
-            return;
-        }
+        if (sortMethod === SORT_BY_SCORE && query.trim().length > 0) {
+            let results = fuzzyFind(text, query, {});
+            if (results.ranges.length > 0) {
+                let score = 0;
+                score = results.score;
+                if (n.data._status === STATUS_IN_PROGRESS) {
+                    score *= 2;
+                }
 
-        let score = 0;
-
-        if (sortMethod === SORT_BY_RECENCY) {
-            score -= n.data._activityListMostRecentIdx;
-        } else {
-            score = results.score;
-            if (n.data._status === STATUS_IN_PROGRESS) {
-                score *= 2;
+                matches.push({
+                    note: n,
+                    ranges: results.ranges,
+                    score,
+                });
             }
+        } else {
+            // score by recency by default
+            let score = n.data._activityListMostRecentIdx;
+
+            matches.push({
+                note: n,
+                ranges: null,
+                score,
+            });
         }
 
-        matches.push({
-            note: n,
-            ranges: results.ranges,
-            score,
-        });
     });
 
     matches.sort((a, b) => {
