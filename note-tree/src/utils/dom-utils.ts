@@ -60,7 +60,7 @@ export const defaultErrorHandler : DomUtilsErrorHandler = (c: DomUtilsErrorConte
     const fullMessage = `${message}. You've found a bug!`;
     c.root.el.style.setProperty("--error-text", JSON.stringify(fullMessage));
 
-    console.error(fullMessage, c);
+    console.error(fullMessage, c, c.err);
 
     return;
 }
