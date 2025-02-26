@@ -125,6 +125,7 @@ import {
     removeNoteFromTaskStream,
     resetState,
     saveState,
+    setActivityRangeToThisWeek,
     setActivityRangeToToday,
     setActivityTime,
     setCurrentActivityIdxToCurrentNote,
@@ -134,6 +135,7 @@ import {
     setQuicklistIndex,
     setStateFromJSON,
     setTheme,
+    shouldScrollToNotes,
     state,
     toggleActivityScopedNote
 } from "./state";
@@ -147,7 +149,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.08";
+const VERSION_NUMBER = "1.02.09";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -2550,21 +2552,23 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         setStickyOffset();
 
         // do auto-scrolling
-        if (isFocused && scrollParent) {
-            let shouldScroll = renderSettings.shouldScroll;
-            if (!shouldScroll) {
-                const rect = root.el.getBoundingClientRect();
-                const isOffscreen = rect.bottom < 0 || rect.top > window.innerHeight;
-                if (isOffscreen) {
-                    shouldScroll = true;
+        if (shouldScrollToNotes(state)) {
+            if (isFocused && scrollParent) {
+                let shouldScroll = renderSettings.shouldScroll;
+                if (!shouldScroll) {
+                    const rect = root.el.getBoundingClientRect();
+                    const isOffscreen = rect.bottom < 0 || rect.top > window.innerHeight;
+                    if (isOffscreen) {
+                        shouldScroll = true;
+                    }
                 }
-            }
 
-            if (shouldScroll) {
-                // without setTimeout here, calling focus won't work as soon as the page loads.
-                setTimeout(() => {
-                    scrollComponentToView(scrollParent);
-                }, 1);
+                if (shouldScroll) {
+                    // without setTimeout here, calling focus won't work as soon as the page loads.
+                    setTimeout(() => {
+                        scrollComponentToView(scrollParent);
+                    }, 1);
+                }
             }
         }
     });
@@ -3669,7 +3673,13 @@ function HighLevelTaskDurations(rg: RenderGroup) {
 
     function resetDateWindow() {
         state._currentDateScopeWeekDay = -1;
-        setActivityRangeToToday(state);
+
+        if (state._currentDateScope === "week") {
+            setActivityRangeToThisWeek(state);
+        } else {
+            setActivityRangeToToday(state);
+        }
+
         rerenderApp();
     }
 

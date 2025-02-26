@@ -197,7 +197,7 @@ export type Note = {
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
-    _shelved: boolean;
+    _shelved: boolean; // Is this note or any of it's parents shelved?
     _everyChildNoteDone: boolean;
     _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
