@@ -2755,7 +2755,11 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     isOneLine: s.forceMultipleLines ? false : (
                         s.forceOneLine && !(isEditing || isFocused)
                     ),
-                    onInput
+                    onInput,
+                    config: {
+                        useSpacesInsteadOfTabs: state.settings.spacesInsteadOfTabs,
+                        tabStopSize: state.settings.tabStopSize,
+                    }
                 }), initializeNoteTreeTextArea),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
                     rg.c(NoteRowDurationInfo, (c, { note }) => {

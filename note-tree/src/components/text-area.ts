@@ -1,5 +1,6 @@
 import { cssVars } from "src/styling";
-import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on } from "src/utils/dom-utils";
+import { getLineBeforePos } from "src/utils/text-utils";
 
 export function newTextArea(
     initFn?: (el: Insertable<HTMLTextAreaElement>) => void,
@@ -20,6 +21,12 @@ export type EditableTextAreaArgs = {
     isOneLine?: boolean;
     onInput(text: string, textArea: HTMLTextAreaElement): void;
     onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
+    config: EditableTextAreaConfig;
+};
+
+type EditableTextAreaConfig = {
+    useSpacesInsteadOfTabs?: boolean;
+    tabStopSize?: number;
 };
 
 export function EditableTextArea(
@@ -95,6 +102,153 @@ export function EditableTextArea(
         const s = rg.s;
         s.onInputKeyDown(e, whenEditing.el);
     });
+
+
+    {
+        const textArea = whenEditing;
+
+        // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs (among other things).
+        // Using the execCommand API is currently the only way to do this while perserving undo, 
+        // and I won't be replacing it till there is really something better.
+        on(textArea, "keydown", (e) => {
+            const s = rg.s;
+            const spacesInsteadOfTabs = s.config.useSpacesInsteadOfTabs ?? false;
+            const tabStopSize = s.config.tabStopSize ?? 4;
+
+            let text = textArea.el.value;
+            const start = textArea.el.selectionStart;
+            const end = textArea.el.selectionEnd;
+
+            const getSpacesToRemove = (col: string) => {
+                if (!s.config.useSpacesInsteadOfTabs) {
+                    return 1;
+                }
+
+                // if this bit has tabs, we can't do shiet
+                if (![...col].every(c => c === " ")) {
+                    return 1;
+                }
+
+
+                // seems familiar, because it is - see the tab stop computation below
+                let spacesToRemove = (col.length % tabStopSize)
+                if (spacesToRemove === 0) {
+                    spacesToRemove = tabStopSize;
+                }
+                if (spacesToRemove > col.length) {
+                    spacesToRemove = col.length;
+                }
+
+                return spacesToRemove;
+            }
+
+            const getIndentation = (col: string): string => {
+                if (!spacesInsteadOfTabs) {
+                    return "\t";
+                }
+
+                const numSpaces = tabStopSize - (col.length % tabStopSize);
+                return " ".repeat(numSpaces);
+            }
+
+            if (e.key === "Backspace" && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                if (start === end) {
+                    const col = getLineBeforePos(text, start);
+
+                    const spacesToRemove = getSpacesToRemove(col);
+                    if (spacesToRemove) {
+                        e.preventDefault();
+                        for (let i = 0; i < spacesToRemove; i++) {
+                            document.execCommand("delete", false, undefined);
+                        }
+                    }
+                }
+            } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+                if (e.shiftKey) {
+                    e.preventDefault();
+
+                    let newStart = start;
+                    let newEnd = end;
+
+                    // iterating backwards allows us to delete text while iterating, since indices won't be shifted.
+                    let i = end;
+                    while (i >= start) {
+                        const col = getLineBeforePos(text, i);
+                        if (col.length === 0) {
+                            i--;
+                            continue;
+                        }
+
+                        const numNonWhitespaceAtColStart = col.trimStart().length;
+                        const pos = i - numNonWhitespaceAtColStart;
+                        textArea.el.selectionStart = pos;
+                        textArea.el.selectionEnd = pos;
+
+                        // de-indent by the correct amount.
+                        {
+                            const col2 = col.substring(0, col.length - numNonWhitespaceAtColStart);
+                            const spacesToRemove = getSpacesToRemove(col2);
+                            for (let i = 0; i < spacesToRemove; i++) {
+                                // cursor implicitly moves back 1 for each deletion.
+                                document.execCommand("delete", false, undefined);
+                                newEnd--;
+                            }
+                        }
+
+                        i -= col.length;
+                    }
+
+                    textArea.el.selectionStart = newStart;
+                    textArea.el.selectionEnd = newEnd;
+                } else {
+                    if (start === end) {
+                        const col = getLineBeforePos(text, start);
+                        const indentation = getIndentation(col);
+                        e.preventDefault();
+                        document.execCommand("insertText", false, indentation);
+                    } else {
+                        e.preventDefault();
+
+                        let newStart = start;
+                        let newEnd = end;
+
+                        // iterating backwards allows us to delete text while iterating, since indices won't be shifted.
+                        let i = end;
+                        while (i >= start) {
+                            const col = getLineBeforePos(text, i);
+                            if (col.length === 0) {
+                                i--;
+                                continue;
+                            }
+
+                            const numNonWhitespaceAtColStart = col.trimStart().length;
+                            const pos = i - numNonWhitespaceAtColStart;
+
+                            // indent by the correct amount.
+                            const col2 = col.substring(0, col.length - numNonWhitespaceAtColStart);
+                            const indentation = getIndentation(col2);
+                            textArea.el.selectionStart = pos;
+                            textArea.el.selectionEnd = pos;
+                            document.execCommand("insertText", false, indentation);
+                            newEnd += indentation.length;
+
+                            i -= col.length;
+                        }
+
+                        textArea.el.selectionStart = newStart;
+                        textArea.el.selectionEnd = newEnd;
+
+                    }
+                }
+            } else if (e.key === "Escape" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                if (start !== end) {
+                    e.stopImmediatePropagation();
+                    textArea.el.selectionEnd = textArea.el.selectionStart;
+                }
+            }
+        });
+
+    }
 
     initFn?.(whenEditing);
 
