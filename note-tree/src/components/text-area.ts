@@ -1,19 +1,32 @@
 import { cssVars } from "src/styling";
-import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on, newCssBuilder, span } from "src/utils/dom-utils";
 import { getLineBeforePos } from "src/utils/text-utils";
+
+const CSSVARS_FOCUS = cssVars.bgColorFocus;
+const CSSVARS_FG = cssVars.fgColor;
 
 export function newTextArea(
     initFn?: (el: Insertable<HTMLTextAreaElement>) => void,
 ): Insertable<HTMLTextAreaElement> {
     const textArea = el<HTMLTextAreaElement>("TEXTAREA", {
         class: [cn.preWrap, cn.w100, cn.h100],
-        style: `border: 1px ${cssVars.fgColor} solid; padding: 0;`
+        style: `border: 1px ${CSSVARS_FG} solid; padding: 0;`
     });
 
     initFn?.(textArea);
 
     return textArea
 }
+
+const cssb = newCssBuilder();
+const cnEditableTextArea = cssb.newClassName("editableTextArea");
+cssb.s(`
+textarea.${cnEditableTextArea} { 
+    white-space: pre-wrap; padding: 5px; 
+    caret-color: ${CSSVARS_FG};
+}
+textarea.${cnEditableTextArea}:focus { background-color: ${CSSVARS_FOCUS}; }
+`);
 
 export type EditableTextAreaArgs = {
     text: string;
@@ -34,15 +47,21 @@ export function EditableTextArea(
     initFn?: (el: Insertable<HTMLTextAreaElement>,
 ) => void) {
     const whenEditing = newTextArea();
+    setClass(whenEditing, cn.allUnset, true);
+    setClass(whenEditing, cnEditableTextArea, true);
     setClass(whenEditing, cn.absolute, true);
     setStyle(whenEditing, "backgroundColor", "transparent");
     setStyle(whenEditing, "color", "transparent");
 
+    const whenNotEditingText = span();
     const whenNotEditing = div({ class: [cn.handleLongWords] }, [
         rg.class(cn.preWrap, s => !s.isOneLine),
         rg.class(cn.pre, s => !!s.isOneLine),
         rg.class(cn.overflowHidden, s => !!s.isOneLine),
         rg.class(cn.noWrap, s => !!s.isOneLine),
+        whenNotEditingText,
+        // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
+        span({style: "color: transparent;"}, ["."]),
     ]);
     setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
@@ -71,9 +90,9 @@ export function EditableTextArea(
         if (isEditing) {
             // This is now a facade that gives the text area the illusion of auto-sizing!
             // but it only works if the text doesn't end in whitespace....
-            setText(whenNotEditing, s.text + ".");
+            setText(whenNotEditingText, s.text);
         } else {
-            setText(whenNotEditing, s.text);
+            setText(whenNotEditingText, s.text);
         }
 
         if (setVisible(whenEditing, isEditing)) {

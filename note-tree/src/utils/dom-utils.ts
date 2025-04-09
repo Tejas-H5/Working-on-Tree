@@ -135,6 +135,8 @@ sb.s(`
 // Here are some common classes that are used so often that I've just put them into dom-utils.
 // Shared UI components also don't need to depend on app-specific styles if those styles just come with their UI framework.
 export const cn = Object.freeze({
+    allUnset: sb.cn("allUnset", [` { all: unset; }`]),
+
     row: sb.cn("row", [` { display: flex; flex-direction: row; }`]),
     col: sb.cn("col", [` { display: flex; flex-direction: column; }`]),
     flexWrap: sb.cn("flexWrap", [` { display: flex; flex-flow: wrap; }`]),
@@ -942,7 +944,6 @@ export class RenderGroup<S = null> {
      * then immediately calls {@link RenderGroup.renderWithCurrentState}.
      */
     readonly render = (s: S) => {
-        this.ifStatementOpen = false;
         this._s = s;
         this.renderWithCurrentState();
     }
@@ -961,6 +962,7 @@ export class RenderGroup<S = null> {
      */
     readonly renderWithCurrentState = () => {
         this.instantiated = true;
+        this.ifStatementOpen = false;
 
         if (isDebugging()) {
             this.tDebugAnimation = 0;

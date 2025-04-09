@@ -2,7 +2,7 @@ import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
-import { recursiveShallowCopy } from "src/utils/serialization-utils";
+import { autoMigrate, recursiveShallowCopy } from "src/utils/serialization-utils";
 import * as tree from "src/utils/int-tree";
 import * as oldTree from "src/utils/tree";
 
@@ -128,7 +128,7 @@ export type NoteTreeGlobalState = {
     // This might make the program unopenable, so it's a transient setting for now
     _showAllNotes: boolean;
 
-    // Schema major versions
+    // Schema major versions occur whenever state cannot be autmatically migrated by dropping, renaming, and adding keys.
     // undefined -> the schema we've had since almost the start
     // 2 ->         the tree is no longer backed by a Record<string, Node> tree, but by a Node[] tree that can be indexed directly like an array.
     schemaMajorVersion: number | undefined;
@@ -184,6 +184,15 @@ type AppSettings = {
     spacesInsteadOfTabs: boolean;
     tabStopSize: number;
 };
+
+function newAppSettings() {
+    return {
+        nonEditingNotesOnOneLine: true,
+        parentNotesOnOneLine: true,
+        spacesInsteadOfTabs: true,
+        tabStopSize: 4,
+    };
+}
 
 export type Note = {
     id: NoteId;
@@ -412,12 +421,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _scratchPadCanvasCurrentNoteIdPendingSave: -1,
 
         mainGraphData: newGraphData(),
-        settings: {
-            nonEditingNotesOnOneLine: true,
-            parentNotesOnOneLine: true,
-            spacesInsteadOfTabs: true,
-            tabStopSize: 4,
-        },
+        settings: newAppSettings(),
         _showAllNotes: false,
         currentTheme: "Light",
         breakAutoInsertLastPolledTime: "",
@@ -552,21 +556,14 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
 
     // prevents missing item cases that may occur when trying to load an older version of the state.
     // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
-    const mergedLoadedState = autoMigrate(loadedState, newNoteTreeGlobalState());
+    autoMigrate(loadedState, newNoteTreeGlobalState);
 
     // also automigrate notes
-    tree.forEachNode(mergedLoadedState.notes, (note) => {
-        const node = tree.getNode(mergedLoadedState.notes, note.id);
-        node.data = autoMigrate(node.data, defaultNote());
+    tree.forEachNode(loadedState.notes, (note) => {
+        autoMigrate(note.data, defaultNote);
     });
 
-    // also automigrate settings
-    autoMigrate(loadedState.settings, mergedLoadedState.settings);
-
     // I should actually be doing mgrations and validations here but I'm far too lazy
-
-    return mergedLoadedState;
-
 }
 
 export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => void) {
@@ -1837,24 +1834,6 @@ export function isEditableBreak(activity: Activity) {
 }
 
 
-function autoMigrate<T extends object>(loadedData: T, defaultSchema: T) {
-    for (const k in defaultSchema) {
-        const defaultValue = defaultSchema[k];
-        if (!(k in loadedData)) {
-            loadedData[k] = defaultValue;
-            continue;
-        }
-    }
-
-    for (const k in loadedData) {
-        if (!(k in defaultSchema)) {
-            delete loadedData[k];
-        }
-    }
-
-    return loadedData;
-}
-
 type AnalyticsSeries = {
     activityIndices: number[];
 
@@ -2760,6 +2739,7 @@ export function loadStateFromBackup(text: string): NoteTreeGlobalState | null {
     // I expect there to be 1 more format if I ever start storing multiple keys in the kv store. But
     // I have already decided against this due to the much higher potential for bugs r.e partial saving
     logTrace("Loading backup format v2");
-    return migrateState(obj as NoteTreeGlobalState);
+    migrateState(obj as NoteTreeGlobalState);
+    return obj;
 }
 

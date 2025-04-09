@@ -52,17 +52,6 @@ input:focus {
     background-color: ${cssVars.bgColorFocus};
 }
 
-textarea {
-    all: unset;
-    font-family: monospace;
-    white-space: pre-wrap;
-    padding: 5px;
-}
-
-textarea:focus {
-    background-color: ${cssVars.bgColorFocus};
-}
-
 button {
     all: unset;
 
