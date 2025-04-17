@@ -1,9 +1,13 @@
-//  - drops all properties with '_' from every object
-// NOTE: the state shouldn't be cyclic. do not attempt to make this resistant to cycles,
-// it is _supposed_ to throw that too much recursion exception
-export function recursiveShallowCopy(obj: any): any {
+/**
+ * Recursively clones a JSON-serializable plain object, assuming that
+ * all properties starting with '_' are computed, i.e not the ground truth, and
+ * safe to strip off all objects.
+ *
+ * NOTE: {@link obj} is assumed to be JSON-serializable, and non-cyclic.
+ */
+export function recursiveCloneNonComputedFields(obj: any): any {
     if (Array.isArray(obj)) {
-        return obj.map((x) => recursiveShallowCopy(x));
+        return obj.map((x) => recursiveCloneNonComputedFields(x));
     }
 
     if (typeof obj === "object" && obj !== null) {
@@ -14,7 +18,7 @@ export function recursiveShallowCopy(obj: any): any {
             }
 
             // @ts-ignore
-            clone[key] = recursiveShallowCopy(obj[key]);
+            clone[key] = recursiveCloneNonComputedFields(obj[key]);
         }
         return clone;
     }

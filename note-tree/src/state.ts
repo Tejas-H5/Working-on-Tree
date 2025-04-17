@@ -2,7 +2,7 @@ import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, getTimestamp } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
-import { autoMigrate, recursiveShallowCopy } from "src/utils/serialization-utils";
+import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
 import * as tree from "src/utils/int-tree";
 import * as oldTree from "src/utils/tree";
 
@@ -119,6 +119,10 @@ export type NoteTreeGlobalState = {
     taskStreams: TaskStream[];
     currentTaskStreamIdx: number;
 
+    // Want to keep this so that we can refresh the page mid-delete.
+    textOnArrivalNoteId: NoteId;
+    textOnArrival: string;
+
     _scratchPadCanvasLayers: AsciiCanvasLayer[];
     _scratchPadCanvasCurrentNoteIdPendingSave: NoteId;
 
@@ -164,6 +168,12 @@ export type NoteTreeGlobalState = {
 
     // App state
     _currentModal: Insertable | null;
+
+    // notifications
+
+    _showStatusText: boolean;
+    _statusText: string;
+    _statusTextColor: string;
 };
 
 export type TaskStream = {
@@ -454,8 +464,14 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _currentFlatNotesRootId: -1,
         _currentFlatNotesRootHltId: -1,
         _fuzzyFindState: newFuzzyFindState(),
+        textOnArrival: "",
+        textOnArrivalNoteId: -1,
 
         _currentModal: null,
+
+        _showStatusText: false,
+        _statusText: "",
+        _statusTextColor: "",
     };
 
     setActivityRangeToToday(state);
@@ -1271,7 +1287,20 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
     }
 
     if (!note.data.text && note.childIds.length > 0) {
-        note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
+        if (state.textOnArrivalNoteId === id && state.textOnArrival) {
+            // We can actually restore the text something more sane than the legacy behaviour
+            note.data.text = state.textOnArrival;
+            state.textOnArrival = "";
+            state.textOnArrivalNoteId = -1;
+        } else {
+            // Fallback to legacy behaviour
+            note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
+        }
+
+        state._showStatusText = true;
+        state._statusText = "Can't delete notes with children!";
+        state._statusTextColor = "#F00";
+
         return true;
     }
 
@@ -1307,6 +1336,11 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
 
     while (state.activities.length > 0 && state.activities[state.activities.length - 1].deleted) {
         state.activities.pop();
+    }
+
+    // delete this note from streams.
+    for (const stream of state.taskStreams) {
+        filterInPlace(stream.noteIds, nId => nId !== id);
     }
 
     // setting the note appends an activity. so we have to do it at the end
@@ -1561,6 +1595,9 @@ export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: b
         setCurrentActivityIdxToCurrentNote(state);
 
         setNoteAsLastSelected(state, currentNote);
+
+        state.textOnArrival = currentNote.data.text;
+        state.textOnArrivalNoteId = currentNote.id;
     } else {
         if (!isCurrentlyTakingABreak(state)) {
             pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
@@ -2346,7 +2383,7 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
         return;
     }
 
-    const nonCyclicState = recursiveShallowCopy(state);
+    const nonCyclicState = recursiveCloneNonComputedFields(state);
     const serialized = JSON.stringify(nonCyclicState);
 
     // https://developer.chrome.com/blog/blob-support-for-Indexeddb-landed-on-chrome-dev
@@ -2724,7 +2761,7 @@ const INDEXED_DB_KV_STORE_NAME = "NoteTreeKVStore";
 const KV_STORE_STATE_KEY = "State";
 
 export function getCurrentStateAsJSON() {
-    const nonCyclicState = recursiveShallowCopy(state);
+    const nonCyclicState = recursiveCloneNonComputedFields(state);
     const serialized = JSON.stringify(nonCyclicState);
     return serialized;
 }

@@ -4720,6 +4720,15 @@ export function App(rg: RenderGroup) {
         todoList.render({
             cursorNoteId: state._fuzzyFindState.matches[getQuicklistIndex(state)]?.note?.id,
         });
+
+        // doing it at the end so that we can bypass the save notification.
+        // NOTE: Super scuffed, but it's good enough for now
+        if (state._showStatusText) {
+            state._showStatusText = false;
+            setTimeout(() => {
+                showStatusText(state._statusText, state._statusTextColor);
+            }, 1);
+        }
     });
 
     return appRoot;

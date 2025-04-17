@@ -12,12 +12,11 @@ export function swap(arr: unknown[], a: number, b: number) {
 }
 
 export function filterInPlace<T>(arr: T[], predicate: (v: T, i: number) => boolean) {
+    let i2 = 0;
     for (let i = 0; i < arr.length; i++) {
-        if (!predicate(arr[i], i)) {
-            arr.splice(i, 1);
-            i--;
-        }
+        if (predicate(arr[i], i)) arr[i2++] = arr[i];
     }
+    arr.length = i2;
 }
 
 export function countOccurances<T>(arr: T[], predicate: (v: T) => boolean): number {
