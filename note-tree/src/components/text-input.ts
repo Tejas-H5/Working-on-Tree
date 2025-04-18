@@ -16,10 +16,12 @@ export function TextInput(rg: RenderGroup<{
     let focused = false;
 
     rg.preRenderFn((s) => {
-        if (s.autoSize) {
-            setInputValueAndResize(input, s.value);
-        } else {
-            setInputValue(input, s.value);
+        if (document.activeElement !== input.el) {
+            if (s.autoSize) {
+                setInputValueAndResize(input, s.value);
+            } else {
+                setInputValue(input, s.value);
+            }
         }
 
         if (s.focus !== undefined) {

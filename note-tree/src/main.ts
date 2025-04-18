@@ -2,7 +2,7 @@ import {AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
 import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, filterInPlace, moveArrayItem, newArray } from "src/utils/array-utils";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, ONE_HOUR, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatTime, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, ONE_HOUR, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatTime, getTimestamp, pad2, parseDateSafe, truncate } from "src/utils/datetime";
 import {
     Component,
     Insertable,
@@ -145,7 +145,11 @@ import {
     predictTaskCompletions,
     WorkdayConfig,
     TaskCompletion,
-    parseNoteEstimate
+    parseNoteEstimate,
+    WorkdayConfigWeekDay,
+    getNextActivityWithNoteIdx,
+    Boolean7,
+    hasAnyTimeAtAll
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -1670,7 +1674,11 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                     rg.text(s => {
                         const estimate = getNoteEstimate(s.note);
                         if (estimate === -1) {
-                            return `[No estimate! assuming ${formatDurationAsHours(s.wc.defaultEstimateHours * ONE_HOUR)}] `
+                            if (s.hasFocus) {
+                                return `No estimate! Press <E> to add one`;
+                            }
+
+                            return `No estimate!`
                         }
 
                         if (s.c.remaining < 0) {
@@ -1729,6 +1737,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                             value: s.note.data.text.substring(start, end),
                             onChange: (newValue: string) => {
                                 s.note.data.text = text.substring(0, start) + newValue + text.substring(end);
+                                debouncedSave();
                                 rerenderApp();
                             },
                             /** 
@@ -1746,17 +1755,11 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     };
 
     let completions: TaskCompletions[] = [];
-    const wc: WorkdayConfig = {
-        // TODO: breaks
-        dayStartHour: 9,
-        dayEndHour: 12 + 4.5,
-        defaultEstimateHours: 1,
-    };
-
+    const allowedDays: Boolean7 = [false, false, false, false, false, false, false];
     const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto ] }), () => newComponent(TaskItem));
 
     rg.preRenderFn(function renderFindResultItem(s) {
-        predictTaskCompletions(state, state.scheduledNoteIds, wc, completions);
+        predictTaskCompletions(state, state.scheduledNoteIds, state.workdayConfig, completions);
 
         resultList.render((getNext) => {
             for (const c of completions) {
@@ -1770,7 +1773,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                         c: ci,
                         s: s,
                         renderDate: isFirst,
-                        wc,
+                        wc: state.workdayConfig,
                     });
                     isFirst = false;
                 }
@@ -1778,21 +1781,175 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
         });
     });
 
-
     return div({ class: [cn.flex1, cn.h100, cn.col] }, [
-        el("H3", { class: [cn.row] }, [
-            "Estimated Completion Dates",
-            div({ class: [cn.flex1] }),
-            rg.c(Button, (c, s) => c.render({
-                label: "Configure workday",
-                onClick: () => {
-                    s.isConfiguringWorkday = true;
-                    rerenderApp();
-                }
-            })),
-            div({ class: [cn.flex1] }),
-        ]),
-        resultList,
+        rg.if(s => s.isConfiguringWorkday, rg => 
+            div({ class: [cn.flex1, cn.col, cn.alignItemsStretch] }, [
+                el("H3", { class: [cn.row, cn.alignItemsCenter, cnApp.gap10] }, [
+                    rg.c(Button, (c, s) => c.render({
+                        label: "<-",
+                        onClick: () => {
+                            s.isConfiguringWorkday = false;
+                            rerenderApp();
+                        }
+                    })),
+                    "Workday Config",
+                ]),
+                rg.if(s => !hasAnyTimeAtAll(state.workdayConfig), rg =>
+                    div({}, [
+                        "Really? You've got no time at all?? None?"
+                    ])
+                ),
+                div({ class: [cn.flex1, cn.row, cnApp.gap10] }, [
+                    div({ class: [cn.flex1, cn.col, cnApp.gap10] }, [
+                        (() => {
+                            function ConfigItem(rg: RenderGroup<{
+                                wc: WorkdayConfig;
+                                i: number;
+                                wd: WorkdayConfigWeekDay;
+                                allowedDays: Boolean7;
+                            }>) {
+
+                                return div({
+                                    class: [cn.row, cn.alignItemsCenter],
+                                    style: `padding: 10px; border: 1px solid ${cssVars.fgColor};`,
+                                }, [
+                                    div({ class: [cn.col, cnApp.gap5], }, [
+                                        div({ class: [cn.row] }, [
+                                            div({ style: "width: 200px" }, "Start time:"),
+                                            rg.c(TextInput, (c, s) => c.render({
+                                                value: s.wd.dayStartHour.toPrecision(2),
+                                                onChange: (newValue) => {
+                                                    let res = parseFloat(newValue);
+                                                    if (!isNaN(res)) {
+                                                        res = clamp(Math.round(res * 100) / 100, 0, 24);
+                                                        s.wd.dayStartHour = res;
+                                                    }
+
+                                                    rerenderApp();
+                                                    debouncedSave();
+                                                }
+                                            })),
+                                        ]),
+                                        div({ class: [cn.row] }, [
+                                            div({ style: "width: 200px" }, "Working hours:"),
+                                            rg.c(TextInput, (c, s) => c.render({
+                                                value: s.wd.workingHours.toPrecision(2),
+                                                onChange: (newValue) => {
+                                                    let res = parseFloat(newValue);
+                                                    if (!isNaN(res)) {
+                                                        res = clamp(Math.round(res * 100) / 100, 0, 24);
+                                                        s.wd.workingHours = res;
+                                                    }
+
+                                                    rerenderApp();
+                                                    debouncedSave();
+                                                }
+                                            })),
+                                        ]),
+                                        rg.list(div({ class: [cn.row, cnApp.gap10] }), Checkbox, (getNext, s) => {
+                                            for (let i = 0; i < s.wd.weekdayFlags.length; i++) {
+                                                if (!s.allowedDays[i]) {
+                                                    continue;
+                                                }
+
+                                                getNext().render({
+                                                    label: DAYS_OF_THE_WEEK_ABBREVIATED[i],
+                                                    value: s.wd.weekdayFlags[i],
+                                                    onChange: (val) => {
+                                                        s.wd.weekdayFlags[i] = val;
+                                                        rerenderApp();
+                                                        debouncedSave();
+                                                    }
+                                                });
+                                            }
+                                        }),
+                                    ]),
+                                    div({ class: [cn.flex1] }),
+                                    rg.if(s => s.i > 0, rg =>
+                                        rg.c(Button, (c, s) => c.render({
+                                            label: "Remove",
+                                            onClick: () => {
+                                                s.wc.weekdayConfigs.splice(s.i, 1);
+                                                debouncedSave();
+                                                rerenderApp();
+                                            }
+                                        })),
+                                    )
+                                ])
+                            }
+
+                            return rg.list(contentsDiv(), ConfigItem, (getNext, s) => {
+                                for (let i = 0; i < allowedDays.length; i++) {
+                                    allowedDays[i] = true;
+                                }
+
+                                for (let i = 0; i < state.workdayConfig.weekdayConfigs.length; i++) {
+                                    const wd = state.workdayConfig.weekdayConfigs[i];
+                                    getNext().render({
+                                        i,
+                                        wc: state.workdayConfig,
+                                        wd,
+                                        allowedDays,
+                                    });
+
+                                    for (let i = 0; i < wd.weekdayFlags.length; i++) {
+                                        if (wd.weekdayFlags[i]) {
+                                            allowedDays[i] = false;
+                                        }
+                                    }
+                                }
+                            });
+                        })(),
+                        rg.if(() => {
+                            return allowedDays.some(d => d)
+                        }, rg =>
+                            rg.c(Button, (c, s) => c.render({
+                                label: "Add",
+                                onClick: () => {
+                                    state.workdayConfig.weekdayConfigs.push({
+                                        dayStartHour: 9,
+                                        workingHours: 7.5,
+                                        weekdayFlags: [false, false, false, false, false, false, false],
+                                    });
+
+                                    rerenderApp();
+                                    debouncedSave();
+                                }
+                            })),
+                        )
+                    ]),
+                    div({ class: [cn.flex1] }, [
+                        el("H3", {}, ["Holidays"]),
+                        div({
+                            style: "display: flex; flex-wrap: wrap"
+                        }, [
+                            () => {
+                                function HolidayItem(rg: RenderGroup<{ date: string; name: string; }>) {
+                                    // TODO: implement
+                                }
+                            }
+                        ])
+                    ])
+                ])
+            ])
+        ),
+        rg.else(rg =>
+            div({ class: [cn.flex1, cn.col] }, [
+                el("H3", { class: [cn.row] }, [
+                    "Estimated Completion Dates",
+                    div({ class: [cn.flex1] }),
+                    rg.c(Button, (c, s) => c.render({
+                        label: "Configure workday",
+                        onClick: () => {
+                            s.isConfiguringWorkday = true;
+                            rerenderApp();
+                        }
+                    })),
+                    div({ class: [cn.flex1] }),
+                ]),
+                resultList,
+            ]),
+        )
     ]);
 }
 
@@ -2125,11 +2282,12 @@ function AddToStreamModal(rg: RenderGroup<{
                         e.stopImmediatePropagation();
                     }
                 } else if (scheduleViewState.isConfiguringWorkday) {
-                    // TODO:
-
-
-                    if (!handled && e.key === "ArrowLeft") {
+                    if (!handled && e.key === "ArrowLeft" && !isEditingTextSomewhereInDocument()) {
                         scheduleViewState.isConfiguringWorkday = false;
+                        handled = true;
+                    } else if (e.key === "Escape") {
+                        scheduleViewState.isConfiguringWorkday = false;
+                        e.stopImmediatePropagation();
                         handled = true;
                     }
                 } else {
@@ -2145,6 +2303,13 @@ function AddToStreamModal(rg: RenderGroup<{
                         } else if (e.key === "e" || e.key === "E") {
                             if (!scheduleViewState.isEstimating) {
                                 scheduleViewState.isEstimating = true;
+                                e.preventDefault();
+                            }
+
+                            handled = true;
+                        } else if (e.key === "c" || e.key === "C") {
+                            if (!scheduleViewState.isConfiguringWorkday) {
+                                scheduleViewState.isConfiguringWorkday = true;
                                 e.preventDefault();
                             }
 

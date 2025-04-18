@@ -125,6 +125,8 @@ export type NoteTreeGlobalState = {
     textOnArrivalNoteId: NoteId;
     textOnArrival: string;
 
+    workdayConfig: WorkdayConfig;
+
     _scratchPadCanvasLayers: AsciiCanvasLayer[];
     _scratchPadCanvasCurrentNoteIdPendingSave: NoteId;
 
@@ -424,6 +426,9 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
     const notes = tree.newTreeStore<Note>(rootNote);
 
     const state: NoteTreeGlobalState = {
+        // Only increment this for massive changes! Otherwise, try to keep migrations bacwards compatible
+        schemaMajorVersion: 2,
+
         notes,
         currentNoteId: -1,
         dockedMenu: "activities",
@@ -444,8 +449,17 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         scheduledNoteIds: [],
         currentTaskStreamIdx: 0,
 
-        // Only increment this for massive changes! Otherwise, try to keep migrations bacwards compatible
-        schemaMajorVersion: 2,
+        textOnArrival: "",
+        textOnArrivalNoteId: -1,
+
+        workdayConfig: {
+            weekdayConfigs: [{
+                dayStartHour: 9,
+                workingHours: 7.5,
+                weekdayFlags: [false, true, true, true, true, true, false],
+            }],
+            holidays: [],
+        },
 
         _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
@@ -468,8 +482,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _currentFlatNotesRootId: -1,
         _currentFlatNotesRootHltId: -1,
         _fuzzyFindState: newFuzzyFindState(),
-        textOnArrival: "",
-        textOnArrivalNoteId: -1,
 
         _currentModal: null,
 
@@ -2821,31 +2833,65 @@ export type TaskCompletions = {
     dateFloored: Date;
 };
 
-export type WorkdayConfig = {
+export type WorkdayConfigWeekDay = {
     dayStartHour: number;
-    dayEndHour: number;
-    defaultEstimateHours: number;
+    workingHours: number;
+    // index 0 -> sunday
+    weekdayFlags: Boolean7;
+};
+
+export type Boolean7 = [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
+
+export type WorkdayConfigHoliday = {
+    date: string;
+    name: string;
+}
+
+export type WorkdayConfig = {
+    weekdayConfigs: WorkdayConfigWeekDay[];
+    holidays: WorkdayConfigHoliday[];
 };
 
 type WorkdayIterator = {
     wc: WorkdayConfig;
     workdayOffset: number;
+    weekday: number;
     timeOfDayNow: number;
     startOfDay: number;
     endOfDay: number;
 }
 
-function advanceWorkdayIterator(it: WorkdayIterator, ms: number) {
-    if (it.startOfDay === it.endOfDay) {
-        // we have no time. literally
-        return;
+export function hasAnyTimeAtAll(wc: WorkdayConfig): boolean {
+    for (const wd of wc.weekdayConfigs) {
+        if (wd.weekdayFlags.some(f => f)) {
+            if (wd.workingHours > 0) {
+                return true;
+            }
+        }
     }
 
+    return false;
+}
+
+function advanceWorkdayIterator(it: WorkdayIterator, ms: number): boolean {
     let safety = 0;
     while (ms > 0) {
         if (safety++ > 10000) {
             throw new Error("Burh");
         }
+
+        const config = getTodayConfig(it);
+        if (
+            !config ||
+            config.workingHours === 0 ||
+            !config.weekdayFlags[it.weekday]
+        ) {
+            it.workdayOffset++;
+            it.weekday = (it.weekday + 1) % 7;
+            resetIterator(it);
+            continue;
+        }
+
         const remainingTime = it.endOfDay - it.timeOfDayNow;
 
         if (ms - remainingTime < 0) {
@@ -2854,19 +2900,37 @@ function advanceWorkdayIterator(it: WorkdayIterator, ms: number) {
         } else {
             ms -= remainingTime;
             it.workdayOffset++;
+            it.weekday = (it.weekday + 1) % 7;
             resetIterator(it);
         }
     }
+
+    return true;
+}
+
+function getTodayConfig(it: WorkdayIterator): WorkdayConfigWeekDay | undefined {
+    let config: WorkdayConfigWeekDay | undefined;
+    for (const c of it.wc.weekdayConfigs) {
+        if (c.weekdayFlags[it.weekday]) {
+            config = c;
+            break;
+        }
+    }
+    return config;
 }
 
 function resetIterator(it: WorkdayIterator) {
-    if (it.wc.dayEndHour < it.wc.dayStartHour) {
-        throw new Error("You may have inputted an incorrect end date");
-    }
+    const config = getTodayConfig(it);
 
-    it.startOfDay = it.wc.dayStartHour * ONE_HOUR;
-    it.endOfDay = it.wc.dayEndHour * ONE_HOUR;
-    it.timeOfDayNow = it.startOfDay;
+    if (!config) {
+        it.startOfDay = 0;
+        it.endOfDay = 0;
+        it.timeOfDayNow = 0;
+    } else {
+        it.startOfDay = config.dayStartHour * ONE_HOUR;
+        it.endOfDay = it.startOfDay + Math.max(config.workingHours, 0) * ONE_HOUR;
+        it.timeOfDayNow = it.startOfDay;
+    }
 }
 
 export function predictTaskCompletions(
@@ -2877,7 +2941,14 @@ export function predictTaskCompletions(
 ) {
     dst.length = 0;
 
-    const it: WorkdayIterator = { wc, startOfDay: 0, endOfDay: 0, timeOfDayNow: 0, workdayOffset: 0 };
+    if (!hasAnyTimeAtAll(wc)) {
+        return;
+    }
+
+    const it: WorkdayIterator = { 
+        wc, startOfDay: 0, endOfDay: 0, timeOfDayNow: 0, workdayOffset: 0, 
+        weekday: (new Date()).getDay(),
+    };
     resetIterator(it);
 
     for (let i = 0; i < noteIds.length; i++) {
@@ -2886,7 +2957,7 @@ export function predictTaskCompletions(
 
         let estimate = getNoteEstimate(note);
         if (estimate === -1) {
-            estimate = wc.defaultEstimateHours * ONE_HOUR;
+            estimate = 0;
         }
 
         const duration = getNoteDurationWithoutRange(state, note);
