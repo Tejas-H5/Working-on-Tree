@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { formatDate, parseYMDTDateTime } from "src/utils/datetime";
+import { formatDateTime, parseYMDTDateTime } from "src/utils/datetime";
 import { cn, div, el, isEditingInput, newComponent, RenderGroup, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";
 
@@ -39,7 +39,7 @@ export function DateTimeInput(rg: RenderGroup<{
             });
         }
 
-        const dateText = formatDate(value, undefined, true);
+        const dateText = formatDateTime(value, undefined, true);
 
         if (setVisible(show, canEdit)) {
             setText(show, label + " " + dateText);

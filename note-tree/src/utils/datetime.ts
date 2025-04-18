@@ -12,28 +12,46 @@ export const DAYS_OF_THE_WEEK_ABBREVIATED = [
 
 // NOTE: seperator used to be used to remove slashes so that this would be a valid file name.
 // now, we use it to animate the clock...
-export function formatDate(date: Date | null, seperator?: string, dayOfTheWeek = false, useSeconds = false) {
+export function formatDateTime(date: Date | null, seperator?: string, dayOfTheWeek = false, useSeconds = false) {
+    const dateFormatted = formatDate(date, dayOfTheWeek);
+    const timeFormatted = formatTime(date, seperator, useSeconds);
+    return `${dateFormatted} ${timeFormatted}`;
+}
+
+export function formatTime(date: Date | null, seperator?: string, useSeconds = false) {
+    if (!date) {
+        return `--${seperator}-- --`;
+    }
+
     if (!seperator) {
         seperator = ":";
     }
 
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const seconds = date.getSeconds();
+
+    const hoursStr = pad2(((hours - 1) % 12) + 1);
+    const minStr = pad2(minutes);
+    const secondsStr = useSeconds  ? `:${pad2(seconds)}` : "";
+    const amPmStr = hours < 12 ? "am" : "pm";
+
+    return `${hoursStr}${seperator}${minStr}${secondsStr} ${amPmStr}`;
+}
+
+
+export function formatDate(date: Date | null, dayOfTheWeek = false) {
     if (!date) {
         const dayOfTheWeekStr = !dayOfTheWeek ? "" : ("---" + " ");
-        return `${dayOfTheWeekStr}--/--/---- --${seperator}-- --`;
+        return `${dayOfTheWeekStr}--/--/----`;
     }
 
     const dd = date.getDate();
     const mm = date.getMonth() + 1;
     const yyyy = date.getFullYear();
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-    const seconds = date.getSeconds();
 
     const dayOfTheWeekStr = !dayOfTheWeek ? "" : (DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()] + " ");
-    const secondsText = useSeconds  ? `:${pad2(seconds)}` : "";
-    return `${dayOfTheWeekStr}${pad2(dd)}/${pad2(mm)}/${yyyy} ${pad2(((hours - 1) % 12) + 1)}${seperator}${pad2(minutes)}${secondsText} ${
-        hours < 12 ? "am" : "pm"
-    }`;
+    return `${dayOfTheWeekStr}${pad2(dd)}/${pad2(mm)}/${yyyy}`;
 }
 
 export function pad2(num: number) {
@@ -213,3 +231,8 @@ export function parseDateSafe(timestamp: string): Date | null {
 
     return d;
 }
+
+export const ONE_SECOND = 1000;
+export const ONE_MINUTE = ONE_SECOND * 60;
+export const ONE_HOUR = 60 * ONE_MINUTE;
+

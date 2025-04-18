@@ -19,7 +19,7 @@ export function Button(c: RenderGroup<{
     onClick: (e: MouseEvent) => void;
 }>) {
     const buttonClass = BUTTON_CLASSES;
-    const buttonStyle = `border-radius: 6px; min-width: 25px; padding: 3px; margin: 5px;`
+    const buttonStyle = `border-radius: 6px; min-width: 1.4em; min-height: 1.4em; padding: 3px; margin: 5px;`
     return el<HTMLButtonElement>("BUTTON", { 
         type: "button",
         class: []

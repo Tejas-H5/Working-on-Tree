@@ -1,8 +1,8 @@
-import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
+import {AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDuration, formatDurationAsHours, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
+import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, filterInPlace, moveArrayItem, newArray } from "src/utils/array-utils";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, ONE_HOUR, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatTime, getTimestamp, parseDateSafe, truncate } from "src/utils/datetime";
 import {
     Component,
     Insertable,
@@ -116,13 +116,14 @@ import {
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
+    MIN_TASK_STREAM_IDX,
     newBreakActivity,
     noteStatusToString,
     pushBreakActivity,
     recomputeState,
     recomputeViewAllTaskStreamsState,
     recomputeViewTaskStreamState,
-    removeNoteFromTaskStream,
+    removeNoteFromNoteIds,
     resetState,
     saveState,
     setActivityRangeToThisWeek,
@@ -137,7 +138,14 @@ import {
     setTheme,
     shouldScrollToNotes,
     state,
-    toggleActivityScopedNote
+    toggleActivityScopedNote,
+    clamp,
+    ViewCurrentScheduleState,
+    TaskCompletions,
+    predictTaskCompletions,
+    WorkdayConfig,
+    TaskCompletion,
+    parseNoteEstimate
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -149,7 +157,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.10X";
+const VERSION_NUMBER = "1.02.11";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -288,7 +296,7 @@ function BreakInput(rg: RenderGroup) {
         // So if I ever want to delete it, I _must_ put it somewhere else.
         div({}, [
             rg.realtime(rg =>
-                rg.text(() => formatDate(new Date(), undefined, true, true))
+                rg.text(() => formatDateTime(new Date(), undefined, true, true))
             )
         ]),
         div({ class: [cn.row, cn.alignItemsCenter] }, [
@@ -533,14 +541,14 @@ function ActivityListItem(rg: RenderGroup<{
             // don't update our date to be before the previous time
             const prevTime = getActivityTime(previousActivity);
             if (prevTime.getTime() > date.getTime()) {
-                showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
+                showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
                 return;
             }
         }
 
         let nextTime = nextActivity ? getActivityTime(nextActivity) : new Date();
         if (nextTime.getTime() < date.getTime()) {
-            showStatusText(`Can't set time to ${formatDate(date)} as it would re-order the activities`);
+            showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
             return;
         }
 
@@ -608,7 +616,7 @@ function ExportModal(rg: RenderGroup) {
                 onClick: () => {
                     handleErrors(() => {
                         // TODO: custom method to generate a new file name
-                        saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDate(new Date()).replace(/\//g, "-")}.json`);
+                        saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDateTime(new Date()).replace(/\//g, "-")}.json`);
                     });
                 }
             }))
@@ -684,7 +692,7 @@ function DeleteModal(rg: RenderGroup) {
         setVisible(recentEl, !!idx)
         if (idx !== undefined) {
             const activity = state.activities[idx];
-            setText(recentEl, "The last activity under this note was on " + formatDate(getActivityTime(activity), undefined, true));
+            setText(recentEl, "The last activity under this note was on " + formatDateTime(getActivityTime(activity), undefined, true));
         }
 
         const canDelete = currentNote.data._status === STATUS_DONE;
@@ -1360,12 +1368,14 @@ type KeyboardNavigationResult = {
     moveDelta: number;
     moveToEnd: boolean;
     moveToImportant: boolean;
+    absoluteMovement: number;
     doRangeSelect: boolean;
     doDrag: boolean;
 };
 
 function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult | undefined {
     const result: KeyboardNavigationResult = {
+        absoluteMovement: -1,
         moveDelta: 0,
         moveToEnd: false,
         moveToImportant: false,
@@ -1407,6 +1417,36 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
             result.moveDelta = -1;
             result.moveToEnd = true;
         } break;
+        case "1": {
+            result.absoluteMovement = 0;
+        } break;
+        case "2": {
+            result.absoluteMovement = 1;
+        } break;
+        case "3": {
+            result.absoluteMovement = 2;
+        } break;
+        case "4": {
+            result.absoluteMovement = 3;
+        } break;
+        case "5": {
+            result.absoluteMovement = 4;
+        } break;
+        case "6": {
+            result.absoluteMovement = 5;
+        } break;
+        case "7": {
+            result.absoluteMovement = 6;
+        } break;
+        case "8": {
+            result.absoluteMovement = 7;
+        } break;
+        case "9": {
+            result.absoluteMovement = 8;
+        } break;
+        case "0": {
+            result.absoluteMovement = 0;
+        } break;
         default: {
             handled = false;
         } break;
@@ -1418,6 +1458,7 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
 
     result.doDrag = altKey;
     result.doRangeSelect = shiftKey;
+    e.preventDefault();
 
     return result;
 }
@@ -1444,16 +1485,26 @@ function AddToStreamModalItem(rg: RenderGroup<{
     currentNote: TreeNote;
     isFocused: boolean;
     state: ViewAllTaskStreamsState;
-    nextState: ViewTaskStreamState;
-    toggle: (stream: TaskStream, note: TreeNote) => void;
+    // right now, null means that this represents the schedule instead of a normal task stream
+    nextState: ViewTaskStreamState | null;
+    isChecked: boolean;
+    count: number;
+    toggle: (stream: TaskStream | null, note: TreeNote) => void;
     navigate: () => void;
 }>) {
     let isNoteInStream = false;
     let numParentsInStream = 0;
+    let name = "";
 
     rg.preRenderFn(s => {
-        isNoteInStream = isNoteInTaskStream(s.nextState.taskStream, s.currentNote);
-        numParentsInStream = getNumParentsInTaskStream(state, s.nextState.taskStream, s.currentNote);
+        isNoteInStream = s.isChecked;
+        numParentsInStream = s.count;
+
+        if (s.nextState) {
+            name = s.nextState.taskStream.name;
+        } else {
+            name = "[[[ Schedule ]]]";
+        }
     });
 
     return rg.cArgs(ScrollNavItem, (c, s) => c.render({
@@ -1466,6 +1517,9 @@ function AddToStreamModalItem(rg: RenderGroup<{
             class: [cn.row, cn.alignItemsCenter, cn.preWrap, cn.justifyContentCenter],
             style: "padding: 10px",
         }, [
+            // Schedule item is a little bit bigger - to give it more visual importance
+            rg.style("fontSize", s => s.nextState ? "" : "1.2em"),
+            rg.style("fontWeight", s => s.nextState ? "" : "bold"),
             div({
                 style: "width: 20ch",
                 class: [cn.row, cn.alignItemsCenter, cn.preWrap],
@@ -1474,7 +1528,7 @@ function AddToStreamModalItem(rg: RenderGroup<{
                 rg.c(Checkbox, (c, s) => c.render({
                     value: isNoteInStream,
                     onChange: () => {
-                        s.toggle(s.nextState.taskStream, s.currentNote); 
+                        s.toggle(s.nextState ? s.nextState.taskStream : null, s.currentNote); 
                     },
                 })),
                 div({ style: "width: 10px" }),
@@ -1496,27 +1550,33 @@ function AddToStreamModalItem(rg: RenderGroup<{
 
             // the name
 
-            rg.if(s => s.isFocused && s.state.isRenaming, rg =>
+            rg.if(s => s.isFocused && s.state.isRenaming && !!s.nextState, rg =>
                 rg.c(TextInput, (c, s) => c.render({
                     focus: s.isFocused,
                     focusWithAllSelected: true,
-                    value: s.nextState.taskStream.name,
+                    value: s.nextState!.taskStream.name,
                     autoSize: true,
                     onChange: (val) => {
-                        s.nextState.taskStream.name = val;
+                        s.nextState!.taskStream.name = val;
                         rerenderApp();
                     }
                 })),
             ),
             rg.else(rg =>
-                rg.text((s) => s.nextState.taskStream.name),
+                rg.text((s) => name),
             ),
 
             // more info
             div({ style: "width: 3ch" }),
 
             rg.text(s => {
-                const n = s.nextState.taskStream.noteIds.length;
+                let n;
+                if (s.nextState) {
+                    n = s.nextState.taskStream.noteIds.length;
+                } else {
+                    n = state.scheduledNoteIds.length;
+                }
+
                 if (n === 0) {
                     return "no notes";
                 }
@@ -1529,6 +1589,10 @@ function AddToStreamModalItem(rg: RenderGroup<{
             }),
             " - ",
             rg.text(s => {
+                if (!s.nextState) {
+                    return "-";
+                }
+
                 let n = 0;
                 for (const p of s.nextState.inProgressNotes) {
                     n += p.inProgressIds.length;
@@ -1547,7 +1611,9 @@ function AddToStreamModalItem(rg: RenderGroup<{
             " - ",
             rg.text(s => {
                 let duration = 0;
-                for (const id of s.nextState.taskStream.noteIds) {
+
+                const noteIds = s.nextState ? s.nextState.taskStream.noteIds : state.scheduledNoteIds;
+                for (const id of noteIds) {
                     const note = getNote(state, id);
                     duration += getNoteDurationWithoutRange(state, note);
                 }
@@ -1558,7 +1624,8 @@ function AddToStreamModalItem(rg: RenderGroup<{
             rg.text(s => {
                 let estimate = 0;
                 let hasEstimate = false;
-                for (const id of s.nextState.taskStream.noteIds) {
+                const noteIds = s.nextState ? s.nextState.taskStream.noteIds : state.scheduledNoteIds;
+                for (const id of noteIds) {
                     const note = getNote(state, id);
                     const noteEstimate = getNoteEstimate(note);
                     if (noteEstimate !== -1) {
@@ -1580,6 +1647,152 @@ function AddToStreamModalItem(rg: RenderGroup<{
                 onClick: () => s.navigate(),
             }))
         ])
+    ]);
+}
+
+function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
+    function TaskItem(rg: RenderGroup<{
+        renderDate: boolean;
+        c: TaskCompletion;
+        s: ViewCurrentScheduleState;
+        note: TreeNote;
+        hasFocus: boolean;
+        isCursorActive: boolean;
+        wc: WorkdayConfig;
+    }>) {
+        const children = [
+            div({
+                class: [cn.row, cn.justifyContentStart, cnApp.gap10],
+                style: "padding-right: 20px; padding: 10px"
+            }, [
+                div({ style: "width: 250px" }, [
+                    rg.style("color", s => s.c.remaining <= 0 ? "#F00" : ""),
+                    rg.text(s => {
+                        const estimate = getNoteEstimate(s.note);
+                        if (estimate === -1) {
+                            return `[No estimate! assuming ${formatDurationAsHours(s.wc.defaultEstimateHours * ONE_HOUR)}] `
+                        }
+
+                        if (s.c.remaining < 0) {
+                            return "No time remaining!";
+                        }
+
+                        return "E=" + formatDurationAsHours(estimate) + ", " + formatDurationAsHours(s.c.remaining) + " remaining";
+                    }),
+                ]),
+                " | ",
+                div({}, [
+                    rg.text(s => formatTime(s.c.date)),
+                ]),
+                div({ class: [cn.flex1] }, [
+                    rg.text(s => s.note.data.text),
+                ]),
+            ]),
+        ];
+        const scrollNavItem = newComponentArgs(ScrollNavItem, [children]);
+
+        rg.preRenderFn(({hasFocus, isCursorActive}) => {
+            scrollNavItem.render({
+                isFocused: hasFocus,
+                isCursorVisible: hasFocus,
+                isCursorActive: isCursorActive,
+            });
+
+            if (hasFocus) {
+                const scrollParent = root.el.parentElement!;
+                scrollIntoView(scrollParent, root, 0.5, 0.5);
+            }
+        })
+
+        const root = div({}, [
+            rg.if(s => s.renderDate, rg =>
+                el("H3", { style: "margin: 0;" }, rg.text(s => formatDate(s.c.date))),
+            ),
+            scrollNavItem,
+            rg.if(s => s.hasFocus && s.s.isEstimating, rg =>
+                div({ class: [cn.row] }, [
+                    div({}, [ "New estimate: " ]),
+                    rg.c(TextInput, (c, s) => {
+                        let text = s.note.data.text;
+                        let [estimate, start, end] = parseNoteEstimate(text);
+                        if (start === -1) {
+                            text += " E=0h00m";
+                            s.note.data.text = text;
+                            [estimate, start, end] = parseNoteEstimate(text);
+
+                            if (estimate === -1) {
+                                throw new Error("Estimate format has changed, but we forgot to update this code");
+                            }
+                        }
+
+                        c.render({
+                            value: s.note.data.text.substring(start, end),
+                            onChange: (newValue: string) => {
+                                s.note.data.text = text.substring(0, start) + newValue + text.substring(end);
+                                rerenderApp();
+                            },
+                            /** 
+                             * Should this component recieve focus? 
+                             * It's up to you to make sure only one thing in your app is focused at a time.
+                             **/
+                            focus: true,
+                            autoSize: true,
+                        })
+                    })
+                ])
+            )
+        ]);
+        return root;
+    };
+
+    let completions: TaskCompletions[] = [];
+    const wc: WorkdayConfig = {
+        // TODO: breaks
+        dayStartHour: 9,
+        dayEndHour: 12 + 4.5,
+        defaultEstimateHours: 1,
+    };
+
+    const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto ] }), () => newComponent(TaskItem));
+
+    rg.preRenderFn(function renderFindResultItem(s) {
+        predictTaskCompletions(state, state.scheduledNoteIds, wc, completions);
+
+        resultList.render((getNext) => {
+            for (const c of completions) {
+                let isFirst = true;
+                for (const ci of c.completions) {
+                    const note = getNote(state, ci.taskId);
+                    getNext().render({ 
+                        note, 
+                        hasFocus: state.scheduledNoteIds[s.noteIdx] === note.id,
+                        isCursorActive: true,
+                        c: ci,
+                        s: s,
+                        renderDate: isFirst,
+                        wc,
+                    });
+                    isFirst = false;
+                }
+            }
+        });
+    });
+
+
+    return div({ class: [cn.flex1, cn.h100, cn.col] }, [
+        el("H3", { class: [cn.row] }, [
+            "Estimated Completion Dates",
+            div({ class: [cn.flex1] }),
+            rg.c(Button, (c, s) => c.render({
+                label: "Configure workday",
+                onClick: () => {
+                    s.isConfiguringWorkday = true;
+                    rerenderApp();
+                }
+            })),
+            div({ class: [cn.flex1] }),
+        ]),
+        resultList,
     ]);
 }
 
@@ -1666,7 +1879,7 @@ function ViewTaskStream(rg: RenderGroup<{
 function ViewAllTaskStreams(rg: RenderGroup<{
     currentIdx: number;
     state: ViewAllTaskStreamsState;
-    toggle: (stream: TaskStream, note: TreeNote) => void;
+    toggle: (stream: TaskStream | null, note: TreeNote) => void;
     navigate: (streamIdx: number) => void;
 }>) {
     let currentNote: TreeNote;
@@ -1683,8 +1896,24 @@ function ViewAllTaskStreams(rg: RenderGroup<{
         div({}, [
             rg.list(contentsDiv(), AddToStreamModalItem, (getNext, s) => {
                 const currentNote = getCurrentNote(state);
+
+                getNext().render({
+                    nextState: null,
+                    currentNote,
+                    toggle: s.toggle,
+                    navigate: () => s.navigate(-1),
+                    isFocused: s.currentIdx === -1,
+                    state: s.state,
+                    isChecked: state.scheduledNoteIds.includes(currentNote.id),
+                    count: state.scheduledNoteIds.length,
+                });
+
+
                 for (let i = 0; i < s.state.viewTaskStreamStates.length; i++) {
                     const nextState = s.state.viewTaskStreamStates[i];
+                    const isNoteInStream = isNoteInTaskStream(nextState.taskStream, currentNote);
+                    const numParentsInStream = getNumParentsInTaskStream(state, nextState.taskStream, currentNote);
+
                     getNext().render({
                         nextState,
                         currentNote,
@@ -1692,6 +1921,8 @@ function ViewAllTaskStreams(rg: RenderGroup<{
                         navigate: () => s.navigate(i),
                         isFocused: s.currentIdx === i,
                         state: s.state,
+                        isChecked: isNoteInStream,
+                        count: numParentsInStream,
                     });
                 }
             }),
@@ -1735,6 +1966,11 @@ function hasKeyCtrlF(e: KeyboardEvent) {
 function AddToStreamModal(rg: RenderGroup<{
     visible: boolean;
 }>) {
+    function goToAllStreams() {
+        viewAllTaskStreamsState.isViewingCurrentStream = false;
+        rerenderApp();
+    }
+
     let initialNoteId: NoteId;
     const viewAllTaskStreamsState: ViewAllTaskStreamsState = {
         isRenaming: false,
@@ -1742,11 +1978,19 @@ function AddToStreamModal(rg: RenderGroup<{
         isCurrentNoteInStream: false,
         viewTaskStreamStates: [],
         isViewingCurrentStream: false,
+        scheduleViewState: {
+            noteIdx: 0,
+            goBack: goToAllStreams,
+            isEstimating: false,
+            isConfiguringWorkday: false,
+        }
     };
 
+    let canRename = false;
     let lastVisible = false;
     let currentNote: TreeNote;
     let viewStreamState: ViewTaskStreamState | undefined;
+    let scheduleViewState: ViewCurrentScheduleState;
 
     rg.preRenderFn((s) => {
         let changed = s.visible !== lastVisible;
@@ -1755,20 +1999,29 @@ function AddToStreamModal(rg: RenderGroup<{
             return;
         }
 
+        canRename = state.currentTaskStreamIdx >= 0;
+
         currentNote = getCurrentNote(state);
+        scheduleViewState = viewAllTaskStreamsState.scheduleViewState;
 
         recomputeViewAllTaskStreamsState(viewAllTaskStreamsState, state, changed, currentNote, state.taskStreams);
+
         if (changed) {
             initialNoteId = currentNote.id;
+            scheduleViewState.isEstimating = false;
         }
 
         viewStreamState = getCurrentTaskStreamState(viewAllTaskStreamsState, state);
     });
 
 
-    function toggleNoteInTaskStream(stream: TaskStream, note: TreeNote) {
+    function toggleNoteInTaskStream(stream: TaskStream | null, note: TreeNote) {
         if (!addNoteToTaskStream(stream, note)) {
-            removeNoteFromTaskStream(stream, note);
+            if (stream) {
+                removeNoteFromNoteIds(stream.noteIds, note.id);
+            } else {
+                removeNoteFromNoteIds(state.scheduledNoteIds, note.id);
+            }
         }
     };
 
@@ -1783,79 +2036,142 @@ function AddToStreamModal(rg: RenderGroup<{
             return;
         }
 
-        const navInput = getKeyboardNavigationInput(e);
-
         let handled = false;
 
-    
-        if (viewAllTaskStreamsState.isViewingCurrentStream && viewStreamState) {
-            const inProgressState = getCurrentInProgressState(viewStreamState);
-
-            if (e.key === "Enter") {
-                let noteToJumpToId;
+        if (viewAllTaskStreamsState.isViewingCurrentStream) {
+            if (viewStreamState) {
                 const inProgressState = getCurrentInProgressState(viewStreamState);
-                if (inProgressState && viewStreamState.isViewingInProgress) {
-                    noteToJumpToId = inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx];
-                } else {
-                    noteToJumpToId = viewStreamState.taskStream.noteIds[viewStreamState.currentStreamNoteIdx];
-                }
-                setCurrentNote(state, noteToJumpToId, initialNoteId);
-                handled = true;
-            } else if (viewStreamState.isViewingInProgress && inProgressState) {
-                if (navInput) {
-                    inProgressState.currentInProgressNoteIdx = getNavigationNextIndex(
-                        navInput,
-                        inProgressState.currentInProgressNoteIdx,
-                        inProgressState.inProgressIds.length
-                    );
-                    handled = true;
-                } else if (e.key === "ArrowLeft") {
-                    viewStreamState.isViewingInProgress = false;
-                    viewStreamState.isFinding = false;
-                    viewStreamState.currentQuery = "";
-                    handled = true;
-                } else if (hasKeyCtrlF(e)) {
-                    viewStreamState.isFinding = !viewStreamState.isFinding;
-                    viewStreamState.currentQuery = "";
-                    e.preventDefault();
-                    handled = true; 
-                } 
-            } else {
-                if (navInput) {
-                    const oldIdx = viewStreamState.currentStreamNoteIdx;
-                    let newIdx = getNavigationNextIndex(
-                        navInput, 
-                        oldIdx, 
-                        viewStreamState.taskStream.noteIds.length
-                    );
 
-                    if (oldIdx !== newIdx && navInput.doDrag) {
-                        moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
+                if (e.key === "Enter") {
+                    let noteToJumpToId;
+                    const inProgressState = getCurrentInProgressState(viewStreamState);
+                    if (inProgressState && viewStreamState.isViewingInProgress) {
+                        noteToJumpToId = inProgressState.inProgressIds[inProgressState.currentInProgressNoteIdx];
+                    } else {
+                        noteToJumpToId = viewStreamState.taskStream.noteIds[viewStreamState.currentStreamNoteIdx];
                     }
-
-                    viewStreamState.currentStreamNoteIdx = newIdx;
+                    setCurrentNote(state, noteToJumpToId, initialNoteId);
                     handled = true;
-                } 
+                } else if (viewStreamState.isViewingInProgress && inProgressState) {
+                    const navInput = getKeyboardNavigationInput(e);
+                    if (navInput) {
+                        inProgressState.currentInProgressNoteIdx = getNavigationNextIndex(
+                            navInput,
+                            inProgressState.currentInProgressNoteIdx,
+                            inProgressState.inProgressIds.length
+                        );
+                        handled = true;
+                    } else if (e.key === "ArrowLeft") {
+                        viewStreamState.isViewingInProgress = false;
+                        viewStreamState.isFinding = false;
+                        viewStreamState.currentQuery = "";
+                        handled = true;
+                    } else if (hasKeyCtrlF(e)) {
+                        // Ive used this feature literally 0 in prod lmao.
+                        // forgot about it till I saw this code here.
 
-                // NOTE: trying out this new !handled style here. should allow us to handle someting
-                // deep inside a nested-if and disable later if-statements, decoupling from the `else` construct.
-
-                if (!handled && (e.key === "ArrowRight" && inProgressState)) {
-                    if (inProgressState.inProgressIds.length > 0) {
-                        viewStreamState.isViewingInProgress = true;
+                        viewStreamState.isFinding = !viewStreamState.isFinding;
+                        viewStreamState.currentQuery = "";
+                        e.preventDefault();
                         handled = true;
                     }
-                } 
+                } else {
+                    const navInput = getKeyboardNavigationInput(e);
+                    if (navInput) {
+                        const oldIdx = viewStreamState.currentStreamNoteIdx;
+                        let newIdx = getNavigationNextIndex(
+                            navInput,
+                            oldIdx,
+                            viewStreamState.taskStream.noteIds.length
+                        );
 
-                if (!handled && e.key === "ArrowLeft") {
-                    viewAllTaskStreamsState.isViewingCurrentStream = false;
-                    handled = true;
-                } 
+                        if (oldIdx !== newIdx && navInput.doDrag) {
+                            moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
+                        }
 
-                if (!handled && hasKeyCtrlF(e)) {
-                    // doesnt do anything yet, but we catch it anway.
-                    e.preventDefault();
-                } 
+                        viewStreamState.currentStreamNoteIdx = newIdx;
+                        handled = true;
+                    }
+
+                    // NOTE: trying out this new !handled style here. should allow us to handle someting
+                    // deep inside a nested-if and disable later if-statements, decoupling from the `else` construct.
+
+                    if (!handled && (e.key === "ArrowRight" && inProgressState)) {
+                        if (inProgressState.inProgressIds.length > 0) {
+                            viewStreamState.isViewingInProgress = true;
+                            handled = true;
+                        }
+                    }
+
+                    if (!handled && e.key === "ArrowLeft") {
+                        viewAllTaskStreamsState.isViewingCurrentStream = false;
+                        handled = true;
+                    }
+
+                    if (!handled && hasKeyCtrlF(e)) {
+                        // doesnt do anything yet, but we catch it anway.
+                        e.preventDefault();
+                    }
+                }
+            } else if (scheduleViewState) {
+                if (scheduleViewState.isEstimating) {
+                    if (e.key === "Escape") {
+                        scheduleViewState.isEstimating = false;
+                        handled = true;
+                        e.stopImmediatePropagation();
+                    } else if (e.key === "Enter") {
+                        scheduleViewState.isEstimating = false;
+                        handled = true;
+                        e.stopImmediatePropagation();
+                    }
+                } else if (scheduleViewState.isConfiguringWorkday) {
+                    // TODO:
+
+
+                    if (!handled && e.key === "ArrowLeft") {
+                        scheduleViewState.isConfiguringWorkday = false;
+                        handled = true;
+                    }
+                } else {
+                    if (state.scheduledNoteIds.length > 0) {
+                        const noteIds = state.scheduledNoteIds;
+                        const noteId = state.scheduledNoteIds[scheduleViewState.noteIdx];
+                        const note = getNote(state, noteId);
+
+                        const navInput = getKeyboardNavigationInput(e);
+                        if (e.key === "Enter") {
+                            setCurrentNote(state, noteId, initialNoteId);
+                            handled = true;
+                        } else if (e.key === "e" || e.key === "E") {
+                            if (!scheduleViewState.isEstimating) {
+                                scheduleViewState.isEstimating = true;
+                                e.preventDefault();
+                            }
+
+                            handled = true;
+                        } else if (navInput) {
+                            const oldIdx = scheduleViewState.noteIdx;
+                            let newIdx = getNavigationNextIndex(
+                                navInput,
+                                oldIdx,
+                                noteIds.length,
+                            );
+
+                            if (oldIdx !== newIdx && navInput.doDrag) {
+                                moveArrayItem(noteIds, oldIdx, newIdx);
+                            }
+
+                            scheduleViewState.noteIdx = newIdx;
+                            handled = true;
+                        }
+
+                    }
+
+                    if (!handled && e.key === "ArrowLeft") {
+                        viewAllTaskStreamsState.isViewingCurrentStream = false;
+                        handled = true;
+                    }
+                }
             }
         } else {
             if (hasCtrlKey(e) && e.key === "Enter") {
@@ -1864,7 +2180,7 @@ function AddToStreamModal(rg: RenderGroup<{
                 insertNewTaskStreamAt(state, state.currentTaskStreamIdx, "new stream");
                 viewAllTaskStreamsState.isRenaming = true;
                 handled = true;
-            } else if (viewStreamState) {
+            } else {
                 if (viewAllTaskStreamsState.isRenaming) {
                     if (e.key === "Enter") {
                         viewAllTaskStreamsState.isRenaming = false;
@@ -1879,64 +2195,79 @@ function AddToStreamModal(rg: RenderGroup<{
                     if (e.key === "Enter") {
                         if (e.shiftKey) {
                             // enter rename mode
-                            viewAllTaskStreamsState.isRenaming = true;
+                            if (canRename) {
+                                viewAllTaskStreamsState.isRenaming = true;
+                            }
                             handled = true;
                         } else {
                             // TODO: needs to preserve the note's position in the stream itself before we removed it, unless we close the modal
-                            toggleNoteInTaskStream(viewStreamState.taskStream, currentNote);
-                            recomputeViewTaskStreamState(viewStreamState, state, viewStreamState.taskStream, false);
+                            toggleNoteInTaskStream(viewStreamState ? viewStreamState.taskStream : null, currentNote);
+                            if (viewStreamState) {
+                                recomputeViewTaskStreamState(viewStreamState, state, viewStreamState.taskStream, false);
+                            }
                             handled = true;
                         }
                     } else if (e.key === "Delete" && viewAllTaskStreamsState.canDelete) {
                         // TODO: warn about this. At least we don't allow deleting non-empty streams
 
-                        deleteTaskStream(state, state.taskStreams[state.currentTaskStreamIdx]);
-                        state.currentTaskStreamIdx = clampIndexToArrayBounds(state.currentTaskStreamIdx, state.taskStreams);
-                        handled = true;
-                    } else if (navInput) {
-                        // handled navigating streams list.
-                        const oldIdx = state.currentTaskStreamIdx;
-                        let newIdx = oldIdx;
-                        if (navInput.moveDelta) {
-                            if (navInput.moveToEnd) {
-                                newIdx = navInput.moveDelta < 0 ? 0 : state.taskStreams.length - 1;
-                            } else if (navInput.moveToImportant) {
-                                if (navInput.moveDelta < 0) {
-                                    for (let i = oldIdx - 1; i >= 0; i--) {
-                                        const stream = state.taskStreams[i];
-                                        if (isNoteInTaskStream(stream, currentNote)) {
-                                            newIdx = i;
-                                            break;
-                                        }
-                                    }
-                                } else {
-                                    for (let i = oldIdx + 1; i < state.taskStreams.length; i++) {
-                                        const stream = state.taskStreams[i];
-                                        if (isNoteInTaskStream(stream, currentNote)) {
-                                            newIdx = i;
-                                            break;
-                                        }
-                                    }
-                                }
-                            } else {
-                                newIdx += navInput.moveDelta;
-                            }
-                            newIdx = clampIndexToArrayBounds(newIdx, state.taskStreams);
-
-                            if (navInput.doDrag) {
-                                moveArrayItem(state.taskStreams, oldIdx, newIdx);
-                            }
-
-                            if (newIdx !== oldIdx) {
-                                state.currentTaskStreamIdx = newIdx;
-                                handled = true;
-                            }
+                        if (state.currentTaskStreamIdx >= 0) {
+                            deleteTaskStream(state, state.taskStreams[state.currentTaskStreamIdx]);
                         }
-                    } else if (e.key === "ArrowRight") {
-                        viewAllTaskStreamsState.isViewingCurrentStream = true;
+                        state.currentTaskStreamIdx = clamp(state.currentTaskStreamIdx, MIN_TASK_STREAM_IDX, state.taskStreams.length - 1);
                         handled = true;
                     }
                 }
+            } 
+
+            if (!handled) {
+                const navInput = getKeyboardNavigationInput(e);
+                if (navInput) {
+                    // handled navigating streams list.
+                    const oldIdx = state.currentTaskStreamIdx;
+                    let newIdx = oldIdx;
+                    if (navInput.moveDelta || navInput.absoluteMovement !== -1) {
+                        if (navInput.absoluteMovement !== -1) {
+                            newIdx = navInput.absoluteMovement + MIN_TASK_STREAM_IDX;
+                        } else if (navInput.moveToEnd) {
+                            newIdx = navInput.moveDelta < 0 ? MIN_TASK_STREAM_IDX : state.taskStreams.length - 1;
+                        } else if (navInput.moveToImportant) {
+                            if (navInput.moveDelta < 0) {
+                                for (let i = oldIdx - 1; i >= 0; i--) {
+                                    const stream = state.taskStreams[i];
+                                    if (isNoteInTaskStream(stream, currentNote)) {
+                                        newIdx = i;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                for (let i = oldIdx + 1; i < state.taskStreams.length; i++) {
+                                    const stream = state.taskStreams[i];
+                                    if (isNoteInTaskStream(stream, currentNote)) {
+                                        newIdx = i;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            newIdx += navInput.moveDelta;
+                        }
+                        newIdx = clamp(newIdx, MIN_TASK_STREAM_IDX, state.taskStreams.length - 1);
+
+                        if (navInput.doDrag) {
+                            moveArrayItem(state.taskStreams, oldIdx, newIdx);
+                        }
+
+                        if (newIdx !== oldIdx) {
+                            state.currentTaskStreamIdx = newIdx;
+                            handled = true;
+                        }
+                    }
+                }
+            } 
+
+            if (!handled && e.key === "ArrowRight") {
+                viewAllTaskStreamsState.isViewingCurrentStream = true;
+                handled = true;
             }
         }
 
@@ -1964,7 +2295,9 @@ function AddToStreamModal(rg: RenderGroup<{
 
                             if (viewStreamState) {
                                 toggleNoteInTaskStream(stream, note);
-                                recomputeViewTaskStreamState(viewStreamState, state, stream, false);
+                                if (stream) {
+                                    recomputeViewTaskStreamState(viewStreamState, state, stream, false);
+                                }
                                 rerenderApp();
                             }
                         },
@@ -1981,15 +2314,12 @@ function AddToStreamModal(rg: RenderGroup<{
                     }
                 }, rg => rg.c(ViewTaskStream, (c, { viewStreamState }) => c.render({ 
                         state: viewStreamState!,
-                        goBack: () => {
-                            viewAllTaskStreamsState.isViewingCurrentStream = false;
-                            rerenderApp();
-                        }
+                        goBack: goToAllStreams,
                     })),
                 ),
                 rg.else(
-                    rg => div({}, "Something has gone wrong here...")
-                )
+                    rg => rg.c(ViewCurrentSchedule, (c) => c.render(scheduleViewState))
+                ),
             ])
         ])
     );
@@ -2075,7 +2405,7 @@ function LoadBackupModal(rg: RenderGroup<{
                 div({}, ["Make sure this looks reasonable before you load the backup:"]),
                 div({}, ["Notes: ", tree.getSizeExcludingRoot(backupState.notes).toString()]),
                 div({}, ["Activities: ", backupState.activities.length.toString()]),
-                div({}, ["Last Online: ", !lastOnline ? "No idea" : formatDate(lastOnline)]),
+                div({}, ["Last Online: ", !lastOnline ? "No idea" : formatDateTime(lastOnline)]),
                 div({}, ["Last Theme: ", theme]),
             ]);
 
@@ -2409,6 +2739,8 @@ type NoteRowInputArgs = {
     forceMultipleLines: boolean;
 
     orignalOffsetTop: number;
+
+    durationInfoOnNewLine?: boolean;
 };
 
 
@@ -2640,6 +2972,10 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                 div({ style: "width: 10px" }),
                 div({}, [
                     rg.text((s) => {
+                        if (s.note.data._isScheduled) {
+                            return "S->";
+                        }
+
                         const count = s.note.data._taskStreams.length;
 
                         if (count === 0) {
@@ -2762,12 +3098,20 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
                     }
                 }), initializeNoteTreeTextArea),
                 div({ class: [cn.row, cn.alignItemsCenter], style: "padding-right: 4px" }, [
-                    rg.c(NoteRowDurationInfo, (c, { note }) => {
-                        c.render({ note });
-                    }),
+                    rg.if(s => !s.durationInfoOnNewLine, rg =>
+                        rg.c(NoteRowDurationInfo, (c, { note }) => {
+                            c.render({ note });
+                        }),
+                    ),
                     rg.text(s => s.note.data._shelved ? "[Shelved]" : ""),
-                ])
+                ]),
             ]),
+            // Looks kinda bad, but this is the best we can do for now.
+            rg.if(s => !!s.durationInfoOnNewLine, rg =>
+                rg.c(NoteRowDurationInfo, (c, { note }) => {
+                    c.render({ note });
+                }),
+            ),
             rg.if(() => isShowingDurations, rg =>
                 rg.realtime(rg =>
                     rg.inlineFn(
@@ -2865,6 +3209,7 @@ function NotesList(rg: RenderGroup<{
     noteDepths?: number[];
     scrollParentOverride?: HTMLElement;
     enableSticky?: boolean;
+    durationInfoOnNewLine?: boolean;
 }>) {
     const root = div({
         class: [cn.flex1, cn.w100, cnApp.sb1b, cnApp.sb1t],
@@ -2975,6 +3320,7 @@ function NotesList(rg: RenderGroup<{
                     orignalOffsetTop: -420,
                     forceOneLine,
                     forceMultipleLines: s.alwaysMultipleLines,
+                    durationInfoOnNewLine: s.durationInfoOnNewLine,
                 });
 
                 if (isSticky) {
@@ -4749,7 +5095,7 @@ function StatusIndicator(rg: RenderGroup) {
                 const now = new Date();
                 const useColon = now.getTime() % 1000 < 500;    // top notch animation
 
-                return formatDate(new Date(), useColon ? ":" : " ") + " - [Press F1 for help]";
+                return formatDateTime(new Date(), useColon ? ":" : " ") + " - [Press F1 for help]";
             })
         ),
         rg.style("color", () => statusTextColor),
