@@ -51,6 +51,7 @@ import {
     Boolean7,
     CurrentDateScope,
     DockableMenu,
+    ESTIMATE_START_PREFIX,
     FuzzyFindState,
     InProgressNotesState,
     MIN_TASK_STREAM_IDX,
@@ -78,6 +79,7 @@ import {
     dfsPre,
     findNextActiviyIndex,
     findPreviousActiviyIndex,
+    formatDurationAsEstimate,
     fuzzySearchNotes,
     getActivityDurationMs,
     getActivityText,
@@ -162,7 +164,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.12";
+const VERSION_NUMBER = "1.02.13";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -1677,13 +1679,16 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                         const estimate = getNoteEstimate(s.note);
                         if (estimate === -1) {
                             if (s.hasFocus) {
-                                return `No estimate! Press <E> to add one`;
+                                return `No estimate! Press [E] to estimate a total, or [R] to estimate the remaining time`;
                             }
 
                             return `No estimate!`
                         }
 
                         if (s.c.remaining < 0) {
+                            if (s.hasFocus) {
+                                return "No time remaining! Press [R] to re-estimate the remaining time";
+                            }
                             return "No time remaining!";
                         }
 
@@ -1731,18 +1736,24 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                 });
             })(),
             rg.if(s => s.shouldRenderDate, rg =>
-                el("H3", { style: "margin: 0;" }, rg.text(s => formatDate(s.c.date))),
+                el("H3", { style: "margin: 0;" }, rg.text(s => s.c.date.toDateString())),
             ),
             scrollNavItem,
             rg.if(s => s.hasFocus && s.s.isEstimating, rg =>
                 div({ class: [cn.row] }, [
-                    div({}, [ "New estimate: " ]),
+                    div({}, [ 
+                        rg.text(s => s.s.isEstimatingRemainder ? "New estimate (remaining): " : "New estimate: " ),
+                    ]),
                     rg.c(TextInput, (c, s) => {
                         let text = s.note.data.text;
                         let [estimate, start, end] = parseNoteEstimate(text);
+
                         if (start === -1) {
                             text += " E=0h00m";
+
                             s.note.data.text = text;
+                            rerenderAppNextFrame();
+
                             [estimate, start, end] = parseNoteEstimate(text);
 
                             if (estimate === -1) {
@@ -1750,20 +1761,35 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                             }
                         }
 
-                        c.render({
-                            value: s.note.data.text.substring(start, end),
-                            onChange: (newValue: string) => {
-                                s.note.data.text = text.substring(0, start) + newValue + text.substring(end);
-                                debouncedSave();
-                                rerenderApp();
-                            },
-                            /** 
-                             * Should this component recieve focus? 
-                             * It's up to you to make sure only one thing in your app is focused at a time.
-                             **/
-                            focus: true,
-                            autoSize: true,
-                        })
+                        if (s.s.isEstimatingRemainder) {
+                            c.render({
+                                value: s.s.remainderText || "0h0m",
+                                onChange: (newValue: string) => {
+                                    s.s.remainderText = newValue;
+
+                                    const duration = getNoteDurationWithoutRange(state, s.note);
+                                    const [remainderEstimate] = parseNoteEstimate(ESTIMATE_START_PREFIX + s.s.remainderText);
+                                    if (!isNaN(remainderEstimate)) {
+                                        s.note.data.text = text.substring(0, start) + formatDurationAsEstimate(duration + remainderEstimate) + text.substring(end);
+                                        debouncedSave();
+                                        rerenderApp();
+                                    }
+                                },
+                                focus: true,
+                                autoSize: true,
+                            })
+                        } else {
+                            c.render({
+                                value: s.note.data.text.substring(start + ESTIMATE_START_PREFIX.length, end),
+                                onChange: (newValue: string) => {
+                                    s.note.data.text = text.substring(0, start + ESTIMATE_START_PREFIX.length) + newValue + text.substring(end);
+                                    debouncedSave();
+                                    rerenderApp();
+                                },
+                                focus: true,
+                                autoSize: true,
+                            })
+                        }
                     })
                 ])
             )
@@ -2366,6 +2392,8 @@ function AddToStreamModal(rg: RenderGroup<{
             noteIdx: 0,
             goBack: goToAllStreams,
             isEstimating: false,
+            isEstimatingRemainder: false,
+            remainderText: "",
             isConfiguringWorkday: false,
         }
     };
@@ -2393,6 +2421,7 @@ function AddToStreamModal(rg: RenderGroup<{
         if (changed) {
             initialNoteId = currentNote.id;
             scheduleViewState.isEstimating = false;
+            scheduleViewState.isEstimatingRemainder = false;
         }
 
         viewStreamState = getCurrentTaskStreamState(viewAllTaskStreamsState, state);
@@ -2501,10 +2530,12 @@ function AddToStreamModal(rg: RenderGroup<{
                 if (scheduleViewState.isEstimating) {
                     if (e.key === "Escape") {
                         scheduleViewState.isEstimating = false;
+                        scheduleViewState.isEstimatingRemainder = false;
                         handled = true;
                         e.stopImmediatePropagation();
                     } else if (e.key === "Enter") {
                         scheduleViewState.isEstimating = false;
+                        scheduleViewState.isEstimatingRemainder = false;
                         handled = true;
                         e.stopImmediatePropagation();
                     }
@@ -2521,7 +2552,6 @@ function AddToStreamModal(rg: RenderGroup<{
                     if (state.scheduledNoteIds.length > 0) {
                         const noteIds = state.scheduledNoteIds;
                         const noteId = state.scheduledNoteIds[scheduleViewState.noteIdx];
-                        const note = getNote(state, noteId);
 
                         const navInput = getKeyboardNavigationInput(e);
                         if (e.key === "Enter") {
@@ -2530,6 +2560,16 @@ function AddToStreamModal(rg: RenderGroup<{
                         } else if (e.key === "e" || e.key === "E") {
                             if (!scheduleViewState.isEstimating) {
                                 scheduleViewState.isEstimating = true;
+                                scheduleViewState.isEstimatingRemainder = false;
+                                e.preventDefault();
+                            }
+
+                            handled = true;
+                        } else if (e.key === "r" || e.key === "R") {
+                            if (!scheduleViewState.isEstimatingRemainder) {
+                                scheduleViewState.isEstimating = true;
+                                scheduleViewState.isEstimatingRemainder = true;
+                                scheduleViewState.remainderText = "";
                                 e.preventDefault();
                             }
 

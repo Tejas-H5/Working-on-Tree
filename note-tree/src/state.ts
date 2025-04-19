@@ -1,6 +1,6 @@
 import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
-import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_HOUR, ONE_MINUTE, ONE_SECOND, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
+import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
 import * as tree from "src/utils/int-tree";
@@ -1780,16 +1780,16 @@ function isHms(c: string | undefined) {
     return c === undefined || c === "h" || c === "m" || c === "s";
 }
 
+export const ESTIMATE_START_PREFIX = "E=";
 export function parseNoteEstimate(text: string): [estimate: number, start: number, end: number] {
-    const DELIMITER = "E=";
-    const start = text.indexOf(DELIMITER);
+    const start = text.indexOf(ESTIMATE_START_PREFIX);
     if (start === -1) {
         return [-1, -1, -1];
     }
 
     let totalMs = 0;
 
-    let iLast = start + DELIMITER.length;
+    let iLast = start + ESTIMATE_START_PREFIX.length;
     for (let i = iLast; i <= text.length; i++) {
         if (isNumber(text[i])) {
             continue;
@@ -1816,6 +1816,15 @@ export function parseNoteEstimate(text: string): [estimate: number, start: numbe
     }
 
     return [totalMs, start, iLast + 1];
+}
+
+export function formatDurationAsEstimate(totalMs: number): string {
+    const hours = Math.floor(totalMs / ONE_HOUR);
+    const minutes = Math.floor((totalMs % ONE_HOUR) / ONE_MINUTE);
+    const seconds = Math.floor(((totalMs % ONE_HOUR) % ONE_MINUTE) / ONE_SECOND);
+
+    // Why tf do we support seconds for our estimates. lol. lmao even.
+    return ESTIMATE_START_PREFIX + hours + "h" + pad2(minutes) + "m" + seconds + "s";
 }
 
 export function getParentNoteWithEstimate(state: NoteTreeGlobalState, note: TreeNote): TreeNote | undefined {
@@ -2544,6 +2553,8 @@ export function removeNoteFromNoteIds(noteIds: NoteId[], id: NoteId) {
 export type ViewCurrentScheduleState = {
     noteIdx: number;
     isEstimating: boolean;
+    isEstimatingRemainder: boolean;
+    remainderText: string;
     isConfiguringWorkday: boolean;
     goBack(): void;
 };
@@ -2965,7 +2976,13 @@ function resetIterator(it: WorkdayIterator) {
         it.endOfDay = 0;
         it.timeOfDayNow = 0;
     } else {
-        it.startOfDay = config.dayStartHour * ONE_HOUR;
+        // We actually start this iterator at the current time _now_, and only use the dayStartHour for the following days.
+        if (it.workdayOffset === 0) {
+            const now = new Date();
+            it.startOfDay = now.getHours() * ONE_HOUR + now.getMinutes() * ONE_MINUTE;
+        } else {
+            it.startOfDay = config.dayStartHour * ONE_HOUR;
+        }
         it.endOfDay = it.startOfDay + Math.max(config.workingHours, 0) * ONE_HOUR;
         it.timeOfDayNow = it.startOfDay;
     }
