@@ -1,8 +1,8 @@
-import {AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
+import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, filterInPlace, moveArrayItem, newArray } from "src/utils/array-utils";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, ONE_HOUR, addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatTime, getTimestamp, pad2, parseDateSafe, truncate } from "src/utils/datetime";
+import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, extractDateFromText, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatIsoDate, formatTime, getDatePlaceholder, getTimestamp, isValidDate, parseDateSafe, parseIsoDate, parseLocaleDateString, truncate } from "src/utils/datetime";
 import {
     Component,
     Insertable,
@@ -48,21 +48,30 @@ import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
     AppTheme,
+    Boolean7,
     CurrentDateScope,
     DockableMenu,
     FuzzyFindState,
     InProgressNotesState,
+    MIN_TASK_STREAM_IDX,
     NoteId,
     NoteTreeGlobalState,
     STATUS_ASSUMED_DONE,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
+    TaskCompletion,
+    TaskCompletions,
     TaskStream,
     TreeNote,
     ViewAllTaskStreamsState,
+    ViewCurrentScheduleState,
     ViewTaskStreamState,
+    WorkdayConfig,
+    WorkdayConfigHoliday,
+    WorkdayConfigWeekDay,
     addNoteToTaskStream,
     applyPendingScratchpadWrites,
+    clamp,
     deleteDoneNote,
     deleteNoteIfEmpty,
     deleteTaskStream,
@@ -100,6 +109,8 @@ import {
     getParentNoteWithEstimate,
     getQuicklistIndex,
     getRootNote,
+    getWorkdayConfigHolidayDate,
+    hasAnyTimeAtAll,
     hasNote,
     idIsNil,
     idIsNilOrRoot,
@@ -116,9 +127,10 @@ import {
     isNoteUnderParent,
     loadState,
     loadStateFromBackup,
-    MIN_TASK_STREAM_IDX,
     newBreakActivity,
     noteStatusToString,
+    parseNoteEstimate,
+    predictTaskCompletions,
     pushBreakActivity,
     recomputeState,
     recomputeViewAllTaskStreamsState,
@@ -138,18 +150,7 @@ import {
     setTheme,
     shouldScrollToNotes,
     state,
-    toggleActivityScopedNote,
-    clamp,
-    ViewCurrentScheduleState,
-    TaskCompletions,
-    predictTaskCompletions,
-    WorkdayConfig,
-    TaskCompletion,
-    parseNoteEstimate,
-    WorkdayConfigWeekDay,
-    getNextActivityWithNoteIdx,
-    Boolean7,
-    hasAnyTimeAtAll
+    toggleActivityScopedNote
 } from "./state";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
@@ -1758,6 +1759,85 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     const allowedDays: Boolean7 = [false, false, false, false, false, false, false];
     const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto ] }), () => newComponent(TaskItem));
 
+    let holidayName = "";
+    let holidayDateStr = "";
+    let holidayError = "";
+    let holidayIsValid = true;
+
+    const datePlaceholder = getDatePlaceholder();
+
+    function dateFromDayMonthOptionalYear(date: number, monthIdx: number, year: number): Date | null {
+        if (monthIdx !== -1 && date !== -1) {
+            // We successfuly inferred something resembling a date.
+
+            let inferredYear = false;
+            if (year === -1) {
+                year = (new Date()).getFullYear();
+                inferredYear = true;
+            }
+
+            const dateObj = new Date(year, monthIdx, date);
+            if (inferredYear && dateObj < new Date()) {
+                dateObj.setFullYear(year + 1);
+                dateObj.setMonth(monthIdx);
+                dateObj.setDate(date);
+            }
+
+            return dateObj;
+        }
+
+        return null;
+    }
+
+    function checkHoliday() {
+        holidayIsValid = false;
+        holidayError = "";
+
+        if (!holidayDateStr && !holidayName) {
+            // No error, but still not valid.
+            return;
+        }
+
+        if (holidayName && !holidayDateStr) {
+            let { date, monthIdx, year } = extractDateFromText(holidayName);
+            const holidayDate = dateFromDayMonthOptionalYear(date, monthIdx, year);
+            if (holidayDate ){
+                holidayDateStr = holidayDate.toLocaleDateString();
+            }
+        }
+
+        let holidayDate = parseLocaleDateString(holidayDateStr);
+        if (!holidayDate) {
+            holidayDate = parseIsoDate(holidayDateStr);
+            if (!holidayDate) {
+                let { date, monthIdx, year } = extractDateFromText(holidayDateStr);
+                holidayDate = dateFromDayMonthOptionalYear(date, monthIdx, year);
+            }
+        } 
+
+        if (!holidayDate || !isValidDate(holidayDate)) {
+            if (holidayDateStr) {
+                console.log(holidayDateStr);
+                // dont tell me 'invalid date' unless I've actually typed in a date.
+                holidayError = "expected date format: " + datePlaceholder;
+            }
+
+            return;
+        }
+
+        holidayDateStr = holidayDate.toLocaleDateString();
+
+        if (holidayDate < new Date()) {
+            holidayError = "date can't be in the past";
+            return;
+        }
+
+        holidayIsValid = true;
+    }
+
+    checkHoliday();
+
+
     rg.preRenderFn(function renderFindResultItem(s) {
         predictTaskCompletions(state, state.scheduledNoteIds, state.workdayConfig, completions);
 
@@ -1784,23 +1864,18 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     return div({ class: [cn.flex1, cn.h100, cn.col] }, [
         rg.if(s => s.isConfiguringWorkday, rg => 
             div({ class: [cn.flex1, cn.col, cn.alignItemsStretch] }, [
-                el("H3", { class: [cn.row, cn.alignItemsCenter, cnApp.gap10] }, [
-                    rg.c(Button, (c, s) => c.render({
-                        label: "<-",
-                        onClick: () => {
-                            s.isConfiguringWorkday = false;
-                            rerenderApp();
-                        }
-                    })),
-                    "Workday Config",
-                ]),
-                rg.if(s => !hasAnyTimeAtAll(state.workdayConfig), rg =>
-                    div({}, [
-                        "Really? You've got no time at all?? None?"
-                    ])
-                ),
                 div({ class: [cn.flex1, cn.row, cnApp.gap10] }, [
                     div({ class: [cn.flex1, cn.col, cnApp.gap10] }, [
+                        el("H3", { class: [cn.row, cn.alignItemsCenter, cnApp.gap10] }, [
+                            rg.c(Button, (c, s) => c.render({
+                                label: "<-",
+                                onClick: () => {
+                                    s.isConfiguringWorkday = false;
+                                    rerenderApp();
+                                }
+                            })),
+                            "Workday Config",
+                        ]),
                         (() => {
                             function ConfigItem(rg: RenderGroup<{
                                 wc: WorkdayConfig;
@@ -1916,10 +1991,131 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                                     debouncedSave();
                                 }
                             })),
-                        )
+                        ),
+                        rg.if(s => !hasAnyTimeAtAll(state.workdayConfig), rg =>
+                            div({}, [
+                                "Really? You've got no time at all?? None?"
+                            ])
+                        ),
                     ]),
                     div({ class: [cn.flex1] }, [
                         el("H3", {}, ["Holidays"]),
+                        rg.if(s => state.workdayConfig.holidays.length === 0, rg => 
+                            div({}, ["None :("]),
+                        ),
+                        div({ class: [cn.table, cn.w100] }, [
+                            (() => {
+                                function HolidayItem(rg: RenderGroup<{
+                                    wc: WorkdayConfig;
+                                    i: number;
+                                    wh: WorkdayConfigHoliday;
+                                }>) {
+                                    let isOldDate = false;
+
+                                    rg.preRenderFn(s => {
+                                        const date = getWorkdayConfigHolidayDate(s.wh);
+                                        isOldDate = date < new Date();
+                                    });
+
+                                    return div({ class: [cn.tableRow, cn.alignItemsCenter, cnApp.gap10] }, [
+                                        span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                            rg.class(cnApp.unfocusedTextColor, s => isOldDate),
+                                            rg.text(s => s.wh.name),
+                                        ]),
+                                        span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                            rg.class(cnApp.unfocusedTextColor, s => isOldDate),
+                                            rg.text(s => {
+                                                const date = getWorkdayConfigHolidayDate(s.wh);
+                                                const text = date.toDateString();
+                                                if (isOldDate) {
+                                                    return text + " [old]";
+                                                }
+                                                return text;
+                                            }),
+                                        ]),
+                                        span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                            rg.c(Button, (c, s) => c.render({
+                                                label: "Remove",
+                                                onClick: () => {
+                                                    state.workdayConfig.holidays.splice(s.i, 1);
+                                                    debouncedSave();
+                                                    rerenderApp();
+                                                }
+                                            })),
+                                        ])
+                                    ]);
+                                }
+
+                                return rg.list(contentsDiv(), HolidayItem, (getNext, s) => {
+                                    for (let i = 0; i < state.workdayConfig.holidays.length; i++) {
+                                        const wh = state.workdayConfig.holidays[i];
+                                        getNext().render({ wc: state.workdayConfig, wh, i, });
+                                    }
+                                });
+                            })(),
+                            div({ class: [cn.row, cn.alignItemsCenter, cnApp.gap10, cn.tableRow] }, [
+                                span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                    "Holiday name: ",
+                                    rg.c(TextInput, (c) => c.render({
+                                        value: holidayName,
+                                        placeholder: "Name",
+                                        onChange: val => {
+                                            holidayName = val;
+                                            checkHoliday();
+                                            rerenderApp();
+                                        }
+                                    })),
+                                ]),
+                                span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                    div({}, [
+                                        " Date: ",
+                                        rg.c(TextInput, (c) => c.render({
+                                            value: holidayDateStr,
+                                            placeholder: datePlaceholder,
+                                            onChange: val => {
+                                                holidayDateStr = val;
+
+                                                checkHoliday();
+                                                rerenderApp();
+                                            }
+                                        })),
+                                    ]),
+                                    div({ style: "color: #F00" }, [
+                                        rg.text(s => holidayError),
+                                    ]),
+                                ]),
+                                span({ class: [cn.tableCell], style: "vertical-align: middle" }, [
+                                    rg.c(Button, (c, s) => c.render({
+                                        label: "Add",
+                                        disabled: !holidayIsValid,
+                                        className: holidayIsValid ? undefined : cnApp.unfocusedTextColor,
+                                        onClick: () => {
+                                            if (!holidayIsValid) {
+                                                return;
+                                            }
+
+                                            const date = parseLocaleDateString(holidayDateStr);
+                                            if (!date) {
+                                                return;
+                                            }
+
+                                            state.workdayConfig.holidays.push({
+                                                name: holidayName,
+                                                date: formatIsoDate(date),
+                                            });
+
+                                            holidayDateStr = "";
+                                            holidayName = "";
+
+                                            checkHoliday();
+
+                                            debouncedSave();
+                                            rerenderApp();
+                                        }
+                                    })),
+                                ])
+                            ]),
+                        ]),
                         div({
                             style: "display: flex; flex-wrap: wrap"
                         }, [

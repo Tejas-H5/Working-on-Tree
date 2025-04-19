@@ -1227,7 +1227,7 @@ export class RenderGroup<S = null> {
     /** 
      * Returns functionality that will set attributes on the parent component each render.
      */
-    readonly attr = <U extends ValidElement>(attrName: string, valueFn: (s: S) => string): Functionality<U> => {
+    readonly attr = <U extends ValidElement>(attrName: string, valueFn: (s: S) => string | undefined): Functionality<U> => {
         return (parent) => {
             this.pushRenderFn(this.domRenderFnList, (s) => setAttr(parent, attrName, valueFn(s)), parent);
         }

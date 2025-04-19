@@ -24,6 +24,10 @@ cssb.s(`
 textarea.${cnEditableTextArea} { 
     white-space: pre-wrap; padding: 5px; 
     caret-color: ${CSSVARS_FG};
+    color: transparent;
+}
+textarea.${cnEditableTextArea}:focus { 
+    color: ${CSSVARS_FG};
 }
 textarea.${cnEditableTextArea}:focus { background-color: ${CSSVARS_FOCUS}; }
 `);
@@ -33,7 +37,7 @@ export type EditableTextAreaArgs = {
     isEditing: boolean;
     isOneLine?: boolean;
     onInput(text: string, textArea: HTMLTextAreaElement): void;
-    onInputKeyDown(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
+    onInputKeyDown?(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
     config: EditableTextAreaConfig;
 };
 
@@ -48,13 +52,14 @@ export function EditableTextArea(
 ) => void) {
     const whenEditing = newTextArea();
     setClass(whenEditing, cn.allUnset, true);
+    setClass(whenEditing, cn.absoluteFill, true);
     setClass(whenEditing, cnEditableTextArea, true);
-    setClass(whenEditing, cn.absolute, true);
+    // setClass(whenEditing, cn.absoluteFill, true);
     setStyle(whenEditing, "backgroundColor", "transparent");
     setStyle(whenEditing, "color", "transparent");
 
     const whenNotEditingText = span();
-    const whenNotEditing = div({ class: [cn.handleLongWords] }, [
+    const whenNotEditing = div({ class: [cn.handleLongWords, cn.relative, cn.w100, cn.hFitContent], style: "min-height: 100%" }, [
         rg.class(cn.preWrap, s => !s.isOneLine),
         rg.class(cn.pre, s => !!s.isOneLine),
         rg.class(cn.overflowHidden, s => !!s.isOneLine),
@@ -62,6 +67,7 @@ export function EditableTextArea(
         whenNotEditingText,
         // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
         span({style: "color: transparent;"}, ["."]),
+        whenEditing,
     ]);
     setAttr(whenEditing, "style", "overflow-y: hidden; padding: 0;");
 
@@ -106,9 +112,8 @@ export function EditableTextArea(
         updateTextContentAndSize();
     });
 
-    const root = div({ class: [cn.flex1, cn.row, cn.h100, cn.relative], style: "overflow-y: hidden;" }, [
-        whenNotEditing, 
-        whenEditing,
+    const root = div({ class: [cn.flex1, cn.row, cn.h100, cn.overflowYAuto] }, [
+        whenNotEditing,
     ]);
 
     whenEditing.el.addEventListener("input", () => {
@@ -119,7 +124,7 @@ export function EditableTextArea(
 
     whenEditing.el.addEventListener("keydown", (e) => {
         const s = rg.s;
-        s.onInputKeyDown(e, whenEditing.el);
+        s.onInputKeyDown?.(e, whenEditing.el);
     });
 
 

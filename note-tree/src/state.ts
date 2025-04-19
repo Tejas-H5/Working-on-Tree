@@ -1,6 +1,6 @@
 import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
-import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_HOUR, ONE_MINUTE, ONE_SECOND } from "src/utils/datetime";
+import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_HOUR, ONE_MINUTE, ONE_SECOND, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
 import * as tree from "src/utils/int-tree";
@@ -2845,6 +2845,20 @@ export type Boolean7 = [boolean, boolean, boolean, boolean, boolean, boolean, bo
 export type WorkdayConfigHoliday = {
     date: string;
     name: string;
+    _date?: Date;
+}
+
+export function getWorkdayConfigHolidayDate(wh: WorkdayConfigHoliday): Date {
+    if (!wh._date) {
+        const date = parseIsoDate(wh.date);
+        if (!date) {
+            wh._date = new Date(NaN);
+        } else {
+            wh._date = date;
+        }
+    }
+
+    return wh._date;
 }
 
 export type WorkdayConfig = {

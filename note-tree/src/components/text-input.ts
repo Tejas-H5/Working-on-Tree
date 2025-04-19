@@ -1,8 +1,8 @@
-import { el, on, RenderGroup, setInputValue, setInputValueAndResize } from "src/utils/dom-utils";
+import { el, on, RenderGroup, setAttr, setInputValue, setInputValueAndResize } from "src/utils/dom-utils";
 
 export function TextInput(rg: RenderGroup<{
     value: string;
-    onChange(newValue: string): void;
+    onChange(newValue: string, changed: boolean): void;
     /** 
      * Should this component recieve focus? 
      * It's up to you to make sure only one thing in your app is focused at a time.
@@ -10,12 +10,15 @@ export function TextInput(rg: RenderGroup<{
     focus?: boolean;
     focusWithAllSelected?: boolean;
     autoSize?: boolean;
+    placeholder?: string;
 }>) {
     const input = el<HTMLInputElement>("INPUT");
 
     let focused = false;
 
     rg.preRenderFn((s) => {
+        setAttr(input, "placeholder", s.placeholder);
+
         if (document.activeElement !== input.el) {
             if (s.autoSize) {
                 setInputValueAndResize(input, s.value);
@@ -42,15 +45,16 @@ export function TextInput(rg: RenderGroup<{
 
     });
 
-    function onChange() {
-        rg.s.onChange(input.el.value);
-    }
+    on(input, "input", () => rg.s.onChange(input.el.value, false));
+    on(input, "change", () => rg.s.onChange(input.el.value, true));
 
-    on(input, "input", onChange);
-    on(input, "change", onChange);
+    on(input, "blur", () => {
+        // lots of things can focus/unfocus this input, not just our prop. 
+        // focused must always be up-to-date.
+        focused = false
 
-    // lots of things can focus/unfocus this input, not just our prop. let's respond to all of them.
-    on(input, "blur", () => focused = false);
+        rg.s.onChange(input.el.value, true);
+    });
     on(input, "focus", () => focused = true);
 
     return input;

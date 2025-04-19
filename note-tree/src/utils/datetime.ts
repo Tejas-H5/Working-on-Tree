@@ -1,3 +1,4 @@
+import { isDigit } from "./text-utils";
 
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
@@ -33,7 +34,7 @@ export function formatTime(date: Date | null, seperator?: string, useSeconds = f
 
     const hoursStr = pad2(((hours - 1) % 12) + 1);
     const minStr = pad2(minutes);
-    const secondsStr = useSeconds  ? `:${pad2(seconds)}` : "";
+    const secondsStr = useSeconds ? `:${pad2(seconds)}` : "";
     const amPmStr = hours < 12 ? "am" : "pm";
 
     return `${hoursStr}${seperator}${minStr}${secondsStr} ${amPmStr}`;
@@ -68,7 +69,7 @@ export function truncate(str: string, len: number): string {
 }
 
 type ErrorString = string;
-export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
+export function parseYMDTDateTime(value: string): [Date | null, ErrorString] {
     // Picking a date with the default calender (i.e type="datetime-local" or similar) is always a PAIN. 
     // Especially when you have a very specific thing you're trying to do.
     // I reckon I'll just stick to an input format like 
@@ -88,7 +89,7 @@ export function parseYMDTDateTime(value: string) : [Date | null, ErrorString] {
         _matchStr,
         dateStr,
         monthStr,
-        yearStr, 
+        yearStr,
         hrStr,
         minStr,
         amPmStr
@@ -225,14 +226,223 @@ export function getTimestamp(date: Date) {
 export function parseDateSafe(timestamp: string): Date | null {
     const d = new Date(timestamp);
 
-    if (!(d instanceof Date) || isNaN(d.getTime())) {
+    if (isValidDate(d)) {
         return null;
     }
 
     return d;
 }
 
+export function isValidDate(d: Date) {
+    return d instanceof Date && !isNaN(d.getTime());
+}
+
 export const ONE_SECOND = 1000;
 export const ONE_MINUTE = ONE_SECOND * 60;
 export const ONE_HOUR = 60 * ONE_MINUTE;
+
+export function parseLocaleDateString(str: string): Date | null {
+    let segments;
+    if (str.indexOf("/") !== -1) {
+        segments = str.split("/");
+    } else if (str.indexOf("-") !== -1) {
+        segments = str.split("-");
+    } else if (str.indexOf(".") !== -1) {
+        segments = str.split(".");
+    } else if (str.indexOf(" ") !== -1) {
+        segments = str.split(".");
+    } else {
+        // don't support this separator
+        return null;
+    }
+
+    if (segments.length !== 3) {
+        return null;
+    }
+
+    const order = inferMmDdYyyyOrder();
+    if (!order) {
+        return null;
+    }
+
+    let day = -1;
+    let month = -1;
+    let year = -1;
+    for (let i = 0; i < order.length; i++) {
+        const nextSegmentType = order[i];
+        switch (nextSegmentType) {
+            case 0: { // parse day
+                day = parseInt(segments[i])
+            } break;
+            case 1: { // parse month
+                month = parseInt(segments[i])
+            } break;
+            case 2: { // parse year
+                year = parseInt(segments[i])
+            } break;
+        }
+    }
+
+    if (day === -1 || month === -1 || year === -1) {
+        return null;
+    }
+
+    if (isNaN(day) || isNaN(month) || isNaN(year)) {
+        return null;
+    }
+
+    const date = new Date();
+    date.setFullYear(year);
+    date.setMonth(month - 1);
+    date.setDate(day);
+    floorDateLocalTime(date);
+
+    return date;
+}
+
+function inferMmDdYyyyOrder(): [number, number, number] {
+    const order: [number, number, number] = [0, 1, 2];
+
+    const date = new Date();
+    date.setFullYear(2000); // 2000
+    date.setMonth(11); // 12
+    date.setDate(15); // 15
+
+    const str = date.toLocaleDateString();
+
+    const yearIdx = str.indexOf("2000");
+    const monthIdx = str.indexOf("12");
+    const dayIdx = str.indexOf("15");
+
+    if (yearIdx === -1 || monthIdx === -1 || dayIdx === -1) {
+        throw new Error("The date couldn't be constructed in a predictable manner");
+    }
+
+    const parts = [
+        [dayIdx, 0],
+        [monthIdx, 1],
+        [yearIdx, 2],
+    ];
+    parts.sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < parts.length; i++) {
+        order[i] = parts[i][1];
+    }
+
+    return order;
+}
+
+export function getDatePlaceholder() {
+    const order = inferMmDdYyyyOrder();
+
+    const sb = [];
+
+    for (let i = 0; i < order.length; i++) {
+        const nextSegmentType = order[i];
+        switch (nextSegmentType) {
+            case 0: { // parse day
+                sb.push("dd");
+            } break;
+            case 1: { // parse month
+                sb.push("mm");
+            } break;
+            case 2: { // parse year
+                sb.push("yyyy");
+            } break;
+        }
+    }
+
+    return sb.join("/");
+}
+
+export function isDigit(c: string) {
+    const code = c.charCodeAt(0);
+    // ASCII codes for '0' and '9'
+    return code >= 48 && code <= 57;
+}
+
+// attempt to infer a date, assuming the string might be like
+// Jan 1st 2045
+export function extractDateFromText(text: string): { date: number; monthIdx: number; year: number; } {
+    let monthIdx = -1, date = -1, year = -1;
+    const holidayDateLower = text.toLowerCase();
+    for (let mIdx = 0; mIdx < MONTH_NAMES_ABBREVIATED.length; mIdx++) {
+        const month = MONTH_NAMES_ABBREVIATED[mIdx];
+        const idx = holidayDateLower.indexOf(month);
+        if (idx !== -1) {
+            monthIdx = mIdx;
+            break;
+        }
+    }
+
+    if (monthIdx !== -1) {
+        // parse out the first number. we can assume it's a day
+        for (let i = 0; i < holidayDateLower.length; i++) {
+            if (year === -1 &&
+                i + 3 < holidayDateLower.length &&
+                isDigit(holidayDateLower[i + 0]) &&
+                isDigit(holidayDateLower[i + 1]) &&
+                isDigit(holidayDateLower[i + 2]) &&
+                isDigit(holidayDateLower[i + 3])
+            ) {
+                year = parseInt(holidayDateLower.substring(i, i + 4));
+                i += 3;
+                continue;
+            }
+
+            if (date === -1 &&
+                i + 1 < holidayDateLower.length &&
+                isDigit(holidayDateLower[i + 0]) &&
+                isDigit(holidayDateLower[i + 1])
+            ) {
+                date = parseInt(holidayDateLower.substring(i, i + 2));
+                i += 1;
+                continue;
+            }
+
+            if (date === -1 &&
+                i < holidayDateLower.length &&
+                isDigit(holidayDateLower[i + 0])
+            ) {
+                date = parseInt(holidayDateLower.substring(i, i + 1));
+                continue;
+            }
+        }
+    }
+
+    return { date, monthIdx, year };
+}
+
+export const MONTH_NAMES_ABBREVIATED = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sept",
+    "oct",
+    "nov",
+    "dec"
+];
+
+// yyyy-mm-dd
+export function parseIsoDate(str: string): Date | null {
+    const segments = str.split("-");
+
+    const year = parseInt(segments[0]);
+    const month = parseInt(segments[1]);
+    const date = parseInt(segments[2]);
+
+    if (isNaN(year) || isNaN(month) || isNaN(date)) {
+        return null;
+    }
+
+    return new Date(year, month - 1, date);
+}
+
+export function formatIsoDate(date: Date): string {
+    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+}
 
