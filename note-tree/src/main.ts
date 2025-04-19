@@ -1,3 +1,8 @@
+// Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
+// This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
+// 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
+const VERSION_NUMBER = "1.02.14";
+
 import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
 import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
@@ -160,11 +165,6 @@ import { logTrace } from "./utils/log";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-
-// Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
-// This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
-// 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.13";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -2500,6 +2500,7 @@ function AddToStreamModal(rg: RenderGroup<{
 
                         if (oldIdx !== newIdx && navInput.doDrag) {
                             moveArrayItem(viewStreamState.taskStream.noteIds, oldIdx, newIdx);
+                            debouncedSave();
                         }
 
                         viewStreamState.currentStreamNoteIdx = newIdx;
@@ -2591,6 +2592,7 @@ function AddToStreamModal(rg: RenderGroup<{
 
                             if (oldIdx !== newIdx && navInput.doDrag) {
                                 moveArrayItem(noteIds, oldIdx, newIdx);
+                                debouncedSave();
                             }
 
                             scheduleViewState.noteIdx = newIdx;
@@ -2687,6 +2689,7 @@ function AddToStreamModal(rg: RenderGroup<{
 
                         if (navInput.doDrag) {
                             moveArrayItem(state.taskStreams, oldIdx, newIdx);
+                            debouncedSave();
                         }
 
                         if (newIdx !== oldIdx) {

@@ -1,6 +1,6 @@
 import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
-import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
+import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_DAY, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
 import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
 import * as tree from "src/utils/int-tree";
@@ -2584,6 +2584,7 @@ export function recomputeViewAllTaskStreamsState(
     if (init) {
         state.isRenaming = false;
         state.scheduleViewState.isEstimating = false;
+        state.scheduleViewState.isEstimatingRemainder = false;
     }
 
     // NOTE: this may be expensive...
@@ -2620,43 +2621,43 @@ export function recomputeViewAllTaskStreamsState(
             state.isViewingCurrentStream = true;
             state.scheduleViewState.noteIdx = scheduleIdx;
             globalState.currentTaskStreamIdx = -1;
-        }
-
-        // we should open this modal to where this current note is, if possible.
-        // Let's find the closest ancestor that is in any task stream:
-        let noteWithStreams: TreeNote | undefined;
-        {
-            let parentNote = currentNote;
-            while (!idIsNil(parentNote.parentId)) {
-                if (parentNote.data._taskStreams.length > 0) {
-                    break;
-                }
-
-                parentNote = getNote(globalState, parentNote.parentId);
-            }
-            noteWithStreams = parentNote;
-        }
-
-        if (noteWithStreams) {
-            for (const taskStream of noteWithStreams.data._taskStreams) {
-                globalState.currentTaskStreamIdx = taskStream._idx;
-                state.isViewingCurrentStream = true;
-
-                // If the current note is in the inProgressIds, let's focus that as well.
-                const streamViewState = getCurrentTaskStreamState(state, globalState);
-                if (streamViewState) {
-                    streamViewState.isViewingInProgress = false;
-                    const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
-                    assert(streamNoteIdx !== -1, "streamNoteIdx !== -1 because taskStream was taken from noteWithStreams");
-
-                    assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length, "taskStream.noteIds.length === streamViewState.inProgressNotes.length");
-                    const inProgressState = streamViewState.inProgressNotes[streamNoteIdx];
-                    const inProgressIdx = inProgressState.inProgressIds.indexOf(currentNote.id);
-                    if (inProgressIdx !== -1) {
-                        streamViewState.isViewingInProgress = true;
-                        inProgressState.currentInProgressNoteIdx = inProgressIdx;
-                        // we found a stream where we were also in the progress ids. no need to continue looking
+        } else {
+            // we should open this modal to where this current note is, if possible.
+            // Let's find the closest ancestor that is in any task stream:
+            let noteWithStreams: TreeNote | undefined;
+            {
+                let parentNote = currentNote;
+                while (!idIsNil(parentNote.parentId)) {
+                    if (parentNote.data._taskStreams.length > 0) {
                         break;
+                    }
+
+                    parentNote = getNote(globalState, parentNote.parentId);
+                }
+                noteWithStreams = parentNote;
+            }
+
+            if (noteWithStreams) {
+                for (const taskStream of noteWithStreams.data._taskStreams) {
+                    globalState.currentTaskStreamIdx = taskStream._idx;
+                    state.isViewingCurrentStream = true;
+
+                    // If the current note is in the inProgressIds, let's focus that as well.
+                    const streamViewState = getCurrentTaskStreamState(state, globalState);
+                    if (streamViewState) {
+                        streamViewState.isViewingInProgress = false;
+                        const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
+                        assert(streamNoteIdx !== -1, "streamNoteIdx !== -1 because taskStream was taken from noteWithStreams");
+
+                        assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length, "taskStream.noteIds.length === streamViewState.inProgressNotes.length");
+                        const inProgressState = streamViewState.inProgressNotes[streamNoteIdx];
+                        const inProgressIdx = inProgressState.inProgressIds.indexOf(currentNote.id);
+                        if (inProgressIdx !== -1) {
+                            streamViewState.isViewingInProgress = true;
+                            inProgressState.currentInProgressNoteIdx = inProgressIdx;
+                            // we found a stream where we were also in the progress ids. no need to continue looking
+                            break;
+                        }
                     }
                 }
             }
@@ -2983,7 +2984,8 @@ function resetIterator(it: WorkdayIterator) {
         } else {
             it.startOfDay = config.dayStartHour * ONE_HOUR;
         }
-        it.endOfDay = it.startOfDay + Math.max(config.workingHours, 0) * ONE_HOUR;
+        // Assume we won't pull an all-nighter - limit endOfDay to 24 hrs
+        it.endOfDay = Math.min(ONE_DAY, it.startOfDay + Math.max(config.workingHours, 0) * ONE_HOUR);
         it.timeOfDayNow = it.startOfDay;
     }
 }
