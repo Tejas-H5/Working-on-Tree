@@ -1,5 +1,3 @@
-import { isDigit } from "./text-utils";
-
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
     "Mon",

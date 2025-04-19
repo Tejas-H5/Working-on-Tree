@@ -2870,6 +2870,7 @@ type WorkdayIterator = {
     wc: WorkdayConfig;
     workdayOffset: number;
     weekday: number;
+    date: Date;
     timeOfDayNow: number;
     startOfDay: number;
     endOfDay: number;
@@ -2887,22 +2888,27 @@ export function hasAnyTimeAtAll(wc: WorkdayConfig): boolean {
     return false;
 }
 
+const DAYS_IN_LIFETIME = 365 * 200;
+
 function advanceWorkdayIterator(it: WorkdayIterator, ms: number): boolean {
-    let safety = 0;
+    let daysSimulated = 0;
     while (ms > 0) {
-        if (safety++ > 10000) {
-            throw new Error("Burh");
+        if (daysSimulated > DAYS_IN_LIFETIME) {
+            break;
         }
 
         const config = getTodayConfig(it);
         if (
             !config ||
             config.workingHours === 0 ||
-            !config.weekdayFlags[it.weekday]
+            !config.weekdayFlags[it.weekday] ||
+            isHoliday(it)
         ) {
             it.workdayOffset++;
             it.weekday = (it.weekday + 1) % 7;
+            addDays(it.date, 1);
             resetIterator(it);
+            daysSimulated++;
             continue;
         }
 
@@ -2915,7 +2921,10 @@ function advanceWorkdayIterator(it: WorkdayIterator, ms: number): boolean {
             ms -= remainingTime;
             it.workdayOffset++;
             it.weekday = (it.weekday + 1) % 7;
+            addDays(it.date, 1);
             resetIterator(it);
+            daysSimulated++;
+            continue;
         }
     }
 
@@ -2933,6 +2942,21 @@ function getTodayConfig(it: WorkdayIterator): WorkdayConfigWeekDay | undefined {
     return config;
 }
 
+function isHoliday(it: WorkdayIterator): boolean {
+    for (const wh of it.wc.holidays) {
+        const date = getWorkdayConfigHolidayDate(wh);
+        if (
+            it.date.getFullYear() === date.getFullYear() && 
+            it.date.getMonth() === date.getMonth() &&
+            it.date.getDate() === date.getDate()
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function resetIterator(it: WorkdayIterator) {
     const config = getTodayConfig(it);
 
@@ -2947,6 +2971,7 @@ function resetIterator(it: WorkdayIterator) {
     }
 }
 
+// NOTE: calling this method will sort the holidays in the workday config
 export function predictTaskCompletions(
     state: NoteTreeGlobalState, 
     noteIds: NoteId[], 
@@ -2955,6 +2980,11 @@ export function predictTaskCompletions(
 ) {
     dst.length = 0;
 
+    wc.holidays.sort((a, b) => {
+        return getWorkdayConfigHolidayDate(a).getTime() 
+            - getWorkdayConfigHolidayDate(b).getTime();
+    });
+
     if (!hasAnyTimeAtAll(wc)) {
         return;
     }
@@ -2962,7 +2992,9 @@ export function predictTaskCompletions(
     const it: WorkdayIterator = { 
         wc, startOfDay: 0, endOfDay: 0, timeOfDayNow: 0, workdayOffset: 0, 
         weekday: (new Date()).getDay(),
+        date: new Date(),
     };
+    floorDateLocalTime(it.date);
     resetIterator(it);
 
     for (let i = 0; i < noteIds.length; i++) {

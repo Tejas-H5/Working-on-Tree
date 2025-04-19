@@ -162,7 +162,7 @@ const ERROR_TIMEOUT_TIME = 5000;
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.11";
+const VERSION_NUMBER = "1.02.12";
 
 const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
 const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
@@ -1657,7 +1657,8 @@ function AddToStreamModalItem(rg: RenderGroup<{
 
 function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     function TaskItem(rg: RenderGroup<{
-        renderDate: boolean;
+        holidays: WorkdayConfigHoliday[];
+        shouldRenderDate: boolean;
         c: TaskCompletion;
         s: ViewCurrentScheduleState;
         note: TreeNote;
@@ -1714,7 +1715,22 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
         })
 
         const root = div({}, [
-            rg.if(s => s.renderDate, rg =>
+            (() => {
+                function HolidayItem(rg: RenderGroup<WorkdayConfigHoliday>) {
+                    return el("H3", {
+                        style: "margin: 0; text-align: center;"
+                    }, [
+                        rg.text(s => getWorkdayConfigHolidayDate(s).toLocaleDateString() + " - " + s.name)
+                    ]);
+                }
+
+                return rg.list(div(), HolidayItem, (getNext, s) => {
+                    for (const h of s.holidays) {
+                        getNext().render(h);
+                    }
+                });
+            })(),
+            rg.if(s => s.shouldRenderDate, rg =>
                 el("H3", { style: "margin: 0;" }, rg.text(s => formatDate(s.c.date))),
             ),
             scrollNavItem,
@@ -1842,19 +1858,35 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
         predictTaskCompletions(state, state.scheduledNoteIds, state.workdayConfig, completions);
 
         resultList.render((getNext) => {
+            let lastCompletionDate = new Date();
+            let holidays: WorkdayConfigHoliday[] = [];
             for (const c of completions) {
                 let isFirst = true;
+
+                for (const h of state.workdayConfig.holidays) {
+                    const hDate = getWorkdayConfigHolidayDate(h);
+                    if (lastCompletionDate < hDate && hDate <= c.dateFloored) {
+                        holidays.push(h);
+                    }
+                }
+
+                lastCompletionDate = c.dateFloored;
+
                 for (const ci of c.completions) {
                     const note = getNote(state, ci.taskId);
-                    getNext().render({ 
-                        note, 
+
+                    getNext().render({
+                        holidays,
+                        note,
                         hasFocus: state.scheduledNoteIds[s.noteIdx] === note.id,
                         isCursorActive: true,
                         c: ci,
-                        s: s,
-                        renderDate: isFirst,
+                        s,
+                        shouldRenderDate: isFirst,
                         wc: state.workdayConfig,
                     });
+
+                    holidays.length = 0;
                     isFirst = false;
                 }
             }
@@ -2141,7 +2173,6 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                             rerenderApp();
                         }
                     })),
-                    div({ class: [cn.flex1] }),
                 ]),
                 resultList,
             ]),
