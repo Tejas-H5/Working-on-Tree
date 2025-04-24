@@ -54,7 +54,6 @@ export function EditableTextArea(
     setClass(whenEditing, cn.allUnset, true);
     setClass(whenEditing, cn.absoluteFill, true);
     setClass(whenEditing, cnEditableTextArea, true);
-    // setClass(whenEditing, cn.absoluteFill, true);
     setStyle(whenEditing, "backgroundColor", "transparent");
     setStyle(whenEditing, "color", "transparent");
 

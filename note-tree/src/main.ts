@@ -1,7 +1,7 @@
 // Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.14";
+const VERSION_NUMBER = "1.02.15";
 
 import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
@@ -4774,6 +4774,9 @@ const cnInfoButton = cssb.cn("info-button", [` {
     `:active { background-color: #00F; color: ${cssVars.bgColor}; }`
 ]);
 
+
+const DATETIME_T0 = Date.now();
+
 // Singleton modals
 const helpModal = newComponent(HelpModal);
 const scratchPadModal = newComponent(ScratchPadModal);
@@ -5378,6 +5381,7 @@ export function App(rg: RenderGroup) {
         }, checkIntervalMs);
     });
     worker.onmessage = () => {
+        console.log("Ran worker", Date.now() - DATETIME_T0);
         autoInsertBreakIfRequired();
     };
     worker.onerror = (e) => {

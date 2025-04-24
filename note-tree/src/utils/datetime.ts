@@ -224,7 +224,7 @@ export function getTimestamp(date: Date) {
 export function parseDateSafe(timestamp: string): Date | null {
     const d = new Date(timestamp);
 
-    if (isValidDate(d)) {
+    if (!isValidDate(d)) {
         return null;
     }
 
