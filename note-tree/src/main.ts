@@ -4774,9 +4774,6 @@ const cnInfoButton = cssb.cn("info-button", [` {
     `:active { background-color: #00F; color: ${cssVars.bgColor}; }`
 ]);
 
-
-const DATETIME_T0 = Date.now();
-
 // Singleton modals
 const helpModal = newComponent(HelpModal);
 const scratchPadModal = newComponent(ScratchPadModal);
@@ -5381,7 +5378,6 @@ export function App(rg: RenderGroup) {
         }, checkIntervalMs);
     });
     worker.onmessage = () => {
-        console.log("Ran worker", Date.now() - DATETIME_T0);
         autoInsertBreakIfRequired();
     };
     worker.onerror = (e) => {
