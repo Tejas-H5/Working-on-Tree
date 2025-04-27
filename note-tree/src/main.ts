@@ -1,7 +1,7 @@
-// Doesn't really follow any convention. I bump it up by however big I feel the change I made was.
+// oesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.15";
+const VERSION_NUMBER = "1.02.16";
 
 import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
 import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
@@ -1375,14 +1375,12 @@ type KeyboardNavigationResult = {
     moveDelta: number;
     moveToEnd: boolean;
     moveToImportant: boolean;
-    absoluteMovement: number;
     doRangeSelect: boolean;
     doDrag: boolean;
 };
 
 function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult | undefined {
     const result: KeyboardNavigationResult = {
-        absoluteMovement: -1,
         moveDelta: 0,
         moveToEnd: false,
         moveToImportant: false,
@@ -1423,36 +1421,6 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
         case "Home": {
             result.moveDelta = -1;
             result.moveToEnd = true;
-        } break;
-        case "1": {
-            result.absoluteMovement = 0;
-        } break;
-        case "2": {
-            result.absoluteMovement = 1;
-        } break;
-        case "3": {
-            result.absoluteMovement = 2;
-        } break;
-        case "4": {
-            result.absoluteMovement = 3;
-        } break;
-        case "5": {
-            result.absoluteMovement = 4;
-        } break;
-        case "6": {
-            result.absoluteMovement = 5;
-        } break;
-        case "7": {
-            result.absoluteMovement = 6;
-        } break;
-        case "8": {
-            result.absoluteMovement = 7;
-        } break;
-        case "9": {
-            result.absoluteMovement = 8;
-        } break;
-        case "0": {
-            result.absoluteMovement = 0;
         } break;
         default: {
             handled = false;
@@ -2659,10 +2627,8 @@ function AddToStreamModal(rg: RenderGroup<{
                     // handled navigating streams list.
                     const oldIdx = state.currentTaskStreamIdx;
                     let newIdx = oldIdx;
-                    if (navInput.moveDelta || navInput.absoluteMovement !== -1) {
-                        if (navInput.absoluteMovement !== -1) {
-                            newIdx = navInput.absoluteMovement + MIN_TASK_STREAM_IDX;
-                        } else if (navInput.moveToEnd) {
+                    if (navInput.moveDelta) {
+                        if (navInput.moveToEnd) {
                             newIdx = navInput.moveDelta < 0 ? MIN_TASK_STREAM_IDX : state.taskStreams.length - 1;
                         } else if (navInput.moveToImportant) {
                             if (navInput.moveDelta < 0) {
