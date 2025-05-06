@@ -954,26 +954,74 @@ function newLine(canvasState: CanvasState) {
     moveCursor(canvasState, canvasState.cursorRowCol.i + 1, typingStartCol);
 }
 
-function backspace(canvasState: CanvasState) {
-    const cursorCell = getCursorCell(canvasState);
+function backspaceNum(canvas: CanvasState, count: number, shouldMoveCursor: boolean) {
+    const cursorCell = getCursorCell(canvas);
     if (!cursorCell) return;
 
-    moveCursor(canvasState, cursorCell.i, cursorCell.j - 1);
-    setCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j - 1, ' ');
+    if (cursorCell.j - count < 0) count = cursorCell.j;
+    if (count === 0) return;
+
+    const end = findVirtualEnd(canvas, cursorCell.i, cursorCell.j);
+    for (let i = cursorCell.j - count; i < end; i++) {
+        const char = getCharOnCurrentLayer(canvas, cursorCell.i, i + count);
+        setCharOnCurrentLayer(canvas, cursorCell.i, i + count, ' ');
+        setCharOnCurrentLayer(canvas, cursorCell.i, i, char);
+    }
+
+    if (shouldMoveCursor) {
+        moveCursor(canvas, cursorCell.i, cursorCell.j - count);
+    }
+}
+
+// Useful when we want to shift a tightly-packed group of characters, without touching anything past a whitespace.
+//  lasjds lsajdkls ksll                          lasdkjkaldsf
+//  ^^^^^^^^^^^^^^^^^^^^  <- we only want to move these around. Hence, virtual end
+function findVirtualEnd(canvasState: CanvasState, row: number, colAt: number) {
+    const WHITESPACE_DISTANCE = 4;
+
+    const numCols = getNumCols(canvasState);
+
+    let run = 0;
+    let end = numCols - 1;
+    for (let col = colAt; col < numCols; col++) {
+        const char = getCharOnCurrentLayer(canvasState, row, col);
+        if (char === ' ') {
+            run++;
+        } else {
+            run = 0
+        }
+        if (run > WHITESPACE_DISTANCE) {
+            end = col - WHITESPACE_DISTANCE;
+            break;
+        }
+    }
+
+    return end;
 }
 
 function typeChar(canvasState: CanvasState, key: string) {
     const cursorCell = getCursorCell(canvasState);
     if (!cursorCell) return;
 
+    const numCols = getNumCols(canvasState);
+
+    const end = findVirtualEnd(canvasState, cursorCell.i, cursorCell.j);
+
+    // shift this stuff one to the right
+    
+    for (let col = end; col >= cursorCell.j; col--) {
+        const row = cursorCell.i;
+        const char = getCharOnCurrentLayer(canvasState, row, col);
+
+        if (col === numCols - 1) {
+            resizeLayers(canvasState, getNumRows(canvasState), numCols + 1);
+        }
+        setCharOnCurrentLayer(canvasState, row, col + 1, char);
+    }
+
     // Type this letter using the cursor cell
     setCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j, key);
-
-    if (cursorCell.j === getNumCols(canvasState) - 1) {
-        newLine(canvasState);
-    } else {
-        moveCursor(canvasState, cursorCell.i, cursorCell.j + 1);
-    }
+    moveCursor(canvasState, cursorCell.i, cursorCell.j + 1);
 }
 
 function moveToNonWhitespaceOrSelected(
@@ -984,6 +1032,7 @@ function moveToNonWhitespaceOrSelected(
     isWhitespace = true,
     backwards = true,
     stopBefore = false,
+    doSecondPart = true,    //lmao, we really just be piling shit ontop of shit
 ): number {
     let pos = start;
     const dir = backwards ? -1 : 1;
@@ -1002,13 +1051,15 @@ function moveToNonWhitespaceOrSelected(
         pos += dir;
     }
 
-    while (
-        pos + dir >= limitLower
-        && pos + dir <= limitHigher
-        && (getChar(pos) === ' ') === isWhitespace
-        && (initialSelected === getSelected(pos))
-    ) {
-        pos += dir;
+    if (doSecondPart) {
+        while (
+            pos + dir >= limitLower
+            && pos + dir <= limitHigher
+            && (getChar(pos) === ' ') === isWhitespace
+            && (initialSelected === getSelected(pos))
+        ) {
+            pos += dir;
+        }
     }
 
     if (stopBefore) {
@@ -1582,9 +1633,6 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
         }
 
         let key = e.key;
-        if (key === "Backspace" || key === "Delete") {
-            key = ' ';
-        }
 
         let len = 0;
         // iterating 1 code point at a time
@@ -1619,6 +1667,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             horizontal: boolean,
             backwards: boolean,
             stopBefore: boolean,
+            doSecondPart = true,
         ) {
             const cursorCell = getCursorCell(canvasState);
             if (!cursorCell) return;
@@ -1646,6 +1695,7 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
                 false,
                 backwards,
                 stopBefore,
+                doSecondPart,
             );
 
             if (horizontal) {
@@ -1747,17 +1797,38 @@ function Canvas(rg: RenderGroup<CanvasArgs>) {
             }
         } else if (e.key === "Backspace") {
             if (ctrlPressed) {
-                moveToToNonWhitespaceOrSelection(true, true, true);
-                let cursorCell;
-                while (
-                    (cursorCell = getCursorCell(canvasState)) &&
-                    getCharOnCurrentLayer(canvasState, cursorCell.i, cursorCell.j - 1) !== ' ' &&
-                    cursorCell.j >= 0
-                ) {
-                    backspace(canvasState);
+                moveToToNonWhitespaceOrSelection(true, true, true, false);
+                const cursorCell = getCursorCell(canvasState);
+                if (cursorCell) {
+                    let num = 0;
+                    for (let i = cursorCell.j; i >= 0; i--) {
+                        if (getCharOnCurrentLayer(canvasState, cursorCell.i, i - 1) === ' ') break;
+                        num++;
+                    }
+
+                    backspaceNum(canvasState, num, true);
                 }
             } else {
-                backspace(canvasState);
+                backspaceNum(canvasState, 1, true);
+            }
+        } else if (e.key === "Delete") {
+            if (ctrlPressed) {
+                moveToToNonWhitespaceOrSelection(true, false, true, false);
+                const cursorCell = getCursorCell(canvasState);
+                if (cursorCell) {
+                    let num = 0;
+                    const numCols = getNumCols(canvasState);
+                    for (let i = cursorCell.j; i <= numCols; i++) {
+                        num++;
+                        if (getCharOnCurrentLayer(canvasState, cursorCell.i, i + 1) === ' ') break;
+                    }
+
+                    moveCursor(canvasState, cursorCell.i, cursorCell.j + num);
+                    backspaceNum(canvasState, num, true);
+                }
+            } else {
+                moveCursor(canvasState, cursorCell.i, cursorCell.j + 1);
+                backspaceNum(canvasState, 1, true);
             }
         } else {
             if (key.length !== 1) {
