@@ -4,6 +4,7 @@ import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible, span } from "src/utils/dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 import { cnApp, cssVars } from "./styling";
+import { assert } from "./utils/assert";
 
 type CanvasArgs = {
     state: CanvasState;
@@ -816,8 +817,8 @@ function getCurrentLineStart(canvas: CanvasState, rowStart: number, col: number)
 }
 
 function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
-    while (canvas.undoLog.length - 1 > canvas.undoLogPosition) {
-        canvas.undoLog.pop();
+    if (canvas.undoLog.length !== canvas.undoLogPosition + 1) {
+        canvas.undoLog.length = canvas.undoLogPosition + 1;
     }
 
     canvas.undoLog.push({
@@ -828,18 +829,12 @@ function logUndoableChange(canvas: CanvasState, entryData: UndoLogEntryData) {
     canvas.undoLogPosition += 1;
 }
 
-function getCurrentChange(canvas: CanvasState): UndoLogEntry | undefined {
-    return canvas.undoLog[canvas.undoLogPosition];
-}
-function getNextChange(canvas: CanvasState): UndoLogEntry | undefined {
-    return canvas.undoLog[canvas.undoLogPosition + 1];
-}
 function canUndo(canvas: CanvasState): boolean {
-    return !!getCurrentChange(canvas);
+    return canvas.undoLogPosition >= 0;
 }
 
 function resetUndoLog(canvas: CanvasState) {
-    canvas.undoLog.splice(0, canvas.undoLog.length);
+    canvas.undoLog.length = 0;
     canvas.undoLogPosition = -1;
 }
 
@@ -847,73 +842,68 @@ function moveThroughUndoLog(canvas: CanvasState, {
     timeWithinMs = 100,
     backwards = true,
 } = {}) {
-    let currentChange = backwards ? getCurrentChange(canvas) : getNextChange(canvas);
-    if (!currentChange) {
+    if (canvas.undoLog.length === 0) {
         return;
     }
 
-    const t0 = currentChange.timestampMs;
+    assert(canvas.undoLogPosition >= -1 && canvas.undoLogPosition < canvas.undoLog.length);
 
-    let safetyCounter = 0;
-
-    while (
-        !!currentChange &&
-        Math.abs(currentChange.timestampMs - t0) < timeWithinMs
-    ) {
-        safetyCounter++;
-        if (safetyCounter > 100000) {
-            throw new Error("BRUH what u doin");
-        }
-
-        // The current undo position is always on the last change that was applied. 
-        // Undoing a change needs to undo the change at the current cursor, and redoing a change needs to 
-        // apply the next change and increment the postion up to that
-
-        if (!currentChange) {
-            break;
-        }
-
-        const { row, col, char, selection } = currentChange.data;
-
-        const cell: CanvasCellArgs | undefined = getCellOrUndefined(canvas, row, col);
-        if (!cell) {
-            // We currently don't undo/redo resizing, so dont worry about handling cell being undefined
-            continue;
-        }
-
-        if (backwards) {
-            if (char) {
-                const layer = canvas.layers[char.layerIdx];
-                if (!layer) {
-                    throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+    if (backwards) {
+        if (canUndo(canvas)) {
+            const t0 = canvas.undoLog[canvas.undoLogPosition].timestampMs;
+            while (canUndo(canvas)) {
+                const currentChange = canvas.undoLog[canvas.undoLogPosition];
+                if (Math.abs(currentChange.timestampMs - t0) > timeWithinMs) {
+                    break;
                 }
 
-                setCharOnLayer(canvas, row, col, char.prev, layer, false);
-            }
+                canvas.undoLogPosition--;
 
-            if (selection) {
-                selectCell(canvas, row, col, selection.prev, true);
-            }
+                const { row, col, char, selection } = currentChange.data;
 
-            canvas.undoLogPosition--;
-        } else {
-            if (char) {
-                const layer = canvas.layers[char.layerIdx];
-                if (!layer) {
-                    throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+                if (char) {
+                    const layer = canvas.layers[char.layerIdx];
+                    if (!layer) {
+                        throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+                    }
+
+                    setCharOnLayer(canvas, row, col, char.prev, layer, true);
                 }
 
-                setCharOnLayer(canvas, row, col, char.new, layer, false);
+                if (selection) {
+                    selectCell(canvas, row, col, selection.prev, true);
+                }
             }
-
-            if (selection) {
-                selectCell(canvas, row, col, selection.new, true);
-            }
-
-            canvas.undoLogPosition++;
         }
+    } else {
+        if (canRedo(canvas)) {
+            const t0 = canvas.undoLog[canvas.undoLogPosition + 1].timestampMs;
 
-        currentChange = backwards ? getCurrentChange(canvas) : getNextChange(canvas);
+            while (canRedo(canvas)) {
+                const currentChange = canvas.undoLog[canvas.undoLogPosition + 1];
+
+                if (Math.abs(currentChange.timestampMs - t0) > timeWithinMs) {
+                    break;
+                }
+
+                canvas.undoLogPosition++;
+
+                const { row, col, char, selection } = currentChange.data;
+
+                if (char) {
+                    const layer = canvas.layers[char.layerIdx];
+                    if (!layer) {
+                        throw new Error("Addition/removal of layers wasn't correctly undone/redone!");
+                    }
+
+                    setCharOnLayer(canvas, row, col, char.new, layer, true);
+                }
+
+                if (selection) {
+                    selectCell(canvas, row, col, selection.new, true);
+                }
+            }
+        }
     }
 }
 
@@ -926,8 +916,9 @@ function undoWithinTime(canvas: CanvasState) {
 }
 
 function canRedo(canvas: CanvasState): boolean {
-    return !!getNextChange(canvas);
+    return canvas.undoLogPosition < canvas.undoLog.length - 1;
 }
+
 function redoWithinTime(canvas: CanvasState) {
     moveThroughUndoLog(canvas, {
         timeWithinMs: UNDO_REDO_THERSHOLD_MS,
