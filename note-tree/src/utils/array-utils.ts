@@ -120,7 +120,7 @@ export function findLastIndex<T>(arr: T[], fn: (val: T) => boolean, start = -1):
 }
 
 export function clearArray(arr: unknown[]) {
-    arr.splice(0, arr.length);
+    arr.length = 0;
 }
 
 // Mainly for correct typing - use it when you know it could be out of bounds

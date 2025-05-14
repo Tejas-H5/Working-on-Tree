@@ -60,6 +60,7 @@ export type CurrentDateScope = "any" | "week";
 export type FuzzyFindState = {
     query: string;
     matches: NoteFuzzyFindMatches[];
+    exactMatchSucceeded: boolean;
     counts: {
         numInProgress: number;
         numFinished: number;
@@ -75,6 +76,7 @@ function newFuzzyFindState(): FuzzyFindState {
     return {
         query: "",
         matches: [],
+        exactMatchSucceeded: false,
         counts: {
             numInProgress: 0,
             numFinished: 0,
@@ -1059,7 +1061,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
         const useDurations = state._isShowingDurations && hasValidRange;
         if (useDurations || !idIsNil(state._currentActivityScopedNoteId)) {
             state._useActivityIndices = true;
-            state._activityIndices.splice(0, state._activityIndices.length);
+            clearArray(state._activityIndices);
 
             let start = useDurations ? state._activitiesFromIdx : 0;
             let end = useDurations ? state._activitiesToIdx : state.activities.length - 1;
@@ -1924,7 +1926,7 @@ export function newAnalyticsSeries(): AnalyticsSeries {
 }
 
 export function resetAnalyticsSeries(series: AnalyticsSeries) {
-    series.activityIndices.splice(0, series.activityIndices.length);
+    clearArray(state._activityIndices);
     series.duration = 0;
 }
 
@@ -2183,20 +2185,20 @@ type NoteFuzzyFindMatches = {
     score: number;
 };
 
+
 // NOTE: this thing currently populates the quicklist
-export function fuzzySearchNotes(
+export function searchAllNotesForText(
     state: NoteTreeGlobalState,
     rootNote: TreeNote,
     query: string,
-    matches: NoteFuzzyFindMatches[],
+    dstMatches: NoteFuzzyFindMatches[],
+    fuzzySearch: boolean,
 ) {
-    clearArray(matches);
+    clearArray(dstMatches);
 
     if (query.length === 0) {
         // if no query, default to just the current task stream.
 
-        if (state.currentTaskStreamIdx >= 0) {
-        }
         const noteIds = state.currentTaskStreamIdx < 0 ? state.scheduledNoteIds :
             state.taskStreams[state.currentTaskStreamIdx]?.noteIds;
         if (noteIds) {
@@ -2209,13 +2211,13 @@ export function fuzzySearchNotes(
                         continue;
                     }
 
-                    if (matches.find(m => m.note === note)) {
+                    if (dstMatches.find(m => m.note === note)) {
                         // this note appears in the stream, and as a child of another note in the stream. forgeddabadit.
                         continue;
                     }
 
                     if (note.childIds.length === 0) {
-                        matches.push({
+                        dstMatches.push({
                             note: note,
                             ranges: null,
                             // no need for sorting tbh - we're already iterating in order!
@@ -2231,7 +2233,7 @@ export function fuzzySearchNotes(
             for (let i = 0; i < noteIds.length; i++) {
                 const id = noteIds[i];
                 const note = getNote(state, id);
-                matches.push({
+                dstMatches.push({
                     note: note,
                     ranges: null,
                     // no need for sorting tbh - we're already iterating in order!
@@ -2319,7 +2321,7 @@ export function fuzzySearchNotes(
         }
 
         if (sortMethod === SORT_BY_SCORE && query.trim().length > 0) {
-            let results = fuzzyFind(text, query, {});
+            let results = fuzzyFind(text, query, { allowableMistakes: fuzzySearch ? 1 : 0 });
             if (results.ranges.length > 0) {
                 let score = 0;
                 score = results.score;
@@ -2327,7 +2329,7 @@ export function fuzzySearchNotes(
                     score *= 2;
                 }
 
-                matches.push({
+                dstMatches.push({
                     note: n,
                     ranges: results.ranges,
                     score,
@@ -2337,7 +2339,7 @@ export function fuzzySearchNotes(
             // score by recency by default
             let score = n.data._activityListMostRecentIdx;
 
-            matches.push({
+            dstMatches.push({
                 note: n,
                 ranges: null,
                 score,
@@ -2346,7 +2348,7 @@ export function fuzzySearchNotes(
 
     });
 
-    matches.sort((a, b) => {
+    dstMatches.sort((a, b) => {
         return b.score - a.score;
     });
 }
@@ -2689,11 +2691,6 @@ export function getCurrentTaskStreamState(state: ViewAllTaskStreamsState, global
     return state.viewTaskStreamStates[globalState.currentTaskStreamIdx];
 }
 
-function filterFn(query: string, target: string): boolean {
-    const result = fuzzyFind(target, query, { limit: 1 });
-    return result.ranges.length > 0;
-}
-
 export function recomputeViewTaskStreamState(
     state: ViewTaskStreamState,
     globalState: NoteTreeGlobalState,
@@ -2764,7 +2761,9 @@ export function recomputeViewTaskStreamState(
 
                 for (let i = 0; i < current.inProgressIds.length; i++) {
                     const note = getNote(globalState, current.inProgressIds[i]);
-                    if (!filterFn(state.currentQuery, note.data.text)) {
+
+                    const result = fuzzyFind(note.data.text, state.currentQuery, { limit: 1, allowableMistakes: 1 });
+                    if (result.ranges.length === 0) {
                         continue;
                     }
 

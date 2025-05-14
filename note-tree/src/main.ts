@@ -1,13 +1,52 @@
 // oesn't really follow any convention. I bump it up by however big I feel the change I made was.
 // This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
 // 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.17";
+const VERSION_NUMBER = "1.02.18";
 
-import { AsciiCanvas, newCanvasState, resetCanvas } from "src/canvas";
-import { Button, Checkbox, DateTimeInput, Modal, PaginationControl, ScrollContainer } from "src/components";
-import { ASCII_MOON_STARS, ASCII_SUN, AsciiIconData } from "src/icons";
-import { clampIndexToArrayBounds, clampIndexToBounds, countOccurances, moveArrayItem, newArray } from "src/utils/array-utils";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, addDays, extractDateFromText, floorDateLocalTime, floorDateToWeekLocalTime, formatDate, formatDateTime, formatDuration, formatDurationAsHours, formatIsoDate, formatTime, getDatePlaceholder, getTimestamp, isValidDate, parseDateSafe, parseIsoDate, parseLocaleDateString, truncate } from "src/utils/datetime";
+import {
+    AsciiCanvas,
+    newCanvasState,
+    resetCanvas
+} from "src/canvas";
+import {
+    Button,
+    Checkbox,
+    DateTimeInput,
+    Modal,
+    PaginationControl,
+    ScrollContainer
+} from "src/components";
+import {
+    ASCII_MOON_STARS,
+    ASCII_SUN,
+    AsciiIconData
+} from "src/icons";
+import {
+    clampIndexToArrayBounds,
+    clampIndexToBounds,
+    countOccurances,
+    moveArrayItem,
+    newArray
+} from "src/utils/array-utils";
+import {
+    DAYS_OF_THE_WEEK_ABBREVIATED,
+    addDays,
+    extractDateFromText,
+    floorDateLocalTime,
+    floorDateToWeekLocalTime,
+    formatDateTime,
+    formatDuration,
+    formatDurationAsHours,
+    formatIsoDate,
+    formatTime,
+    getDatePlaceholder,
+    getTimestamp,
+    isValidDate,
+    parseDateSafe,
+    parseIsoDate,
+    parseLocaleDateString,
+    truncate
+} from "src/utils/datetime";
 import {
     Component,
     Insertable,
@@ -85,7 +124,6 @@ import {
     findNextActiviyIndex,
     findPreviousActiviyIndex,
     formatDurationAsEstimate,
-    fuzzySearchNotes,
     getActivityDurationMs,
     getActivityText,
     getActivityTime,
@@ -145,6 +183,7 @@ import {
     removeNoteFromNoteIds,
     resetState,
     saveState,
+    searchAllNotesForText,
     setActivityRangeToThisWeek,
     setActivityRangeToToday,
     setActivityTime,
@@ -1058,7 +1097,11 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
 
     const matches = finderState.matches;
 
-    fuzzySearchNotes(state, rootNote, finderState.query, matches);
+    searchAllNotesForText(state, rootNote, finderState.query, matches, false);
+    finderState.exactMatchSucceeded = matches.length > 0;
+    if (!finderState.exactMatchSucceeded) {
+        searchAllNotesForText(state, rootNote, finderState.query, matches, true);
+    }
 
     const MAX_MATCHES = 100;
     if (matches.length > MAX_MATCHES) {
@@ -1203,7 +1246,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
         return root;
     };
 
-    const resultList = newListRenderer(div({ class: [cn.h100, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
+    const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
 
     rg.preRenderFn(({ finderState, compact, isCursorActive }) => {
         resultList.render((getNext) => {
@@ -1220,7 +1263,23 @@ function FuzzyFindResultsList(rg: RenderGroup<{
         });
     });
 
-    return resultList;
+    return div({ class: [cn.h100, cn.col] }, [
+        rg.if(s => !s.compact && !s.finderState.exactMatchSucceeded, rg =>
+            div({ class: [cnApp.pad10] }, [
+                rg.text(({ finderState }) => {
+                    const fuzzyMatchSucceeded = finderState.matches.length > 0;
+
+                    if (fuzzyMatchSucceeded) {
+                        const plural = finderState.matches.length === 1 ? "is" : "are";
+                        return `Found 0 exact matches, but found ${finderState.matches.length} that ${plural} close enough`;
+                    }
+
+                    return `Found no matches`;
+                })
+            ])
+        ),
+        resultList,
+    ]);
 }
 
 function FuzzyFinder(rg: RenderGroup<{

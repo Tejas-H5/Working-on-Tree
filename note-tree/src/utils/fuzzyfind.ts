@@ -25,10 +25,13 @@ function containsNonLatinCodepoints(s: string) {
 }
 
 export function fuzzyFind(text: string, query: string, {
+    // NOTE: you probably never want to set this to anything higher than 1
+    allowableMistakes = 1,
     mistakePenalty = 5,
     prefixBuff = 1,
     limit = 20,
 }: {
+    allowableMistakes?: number;
     mistakePenalty?: number;
     prefixBuff?: number;
     limit?: number;
@@ -38,9 +41,6 @@ export function fuzzyFind(text: string, query: string, {
     if (query.length === 0) {
         return result;
     }
-
-    // NOTE: you probably never want to set this to anything higher.
-    let allowableMistakes = 1;
 
     // singular emoji have 2 length...
     if (query.length <= 2) {
