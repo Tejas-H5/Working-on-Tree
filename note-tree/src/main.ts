@@ -14,7 +14,7 @@ import {
     DateTimeInput,
     Modal,
     PaginationControl,
-    ScrollContainer
+    imScrollContainer
 } from "src/components";
 import {
     ASCII_MOON_STARS,
@@ -58,6 +58,11 @@ import {
     div,
     el,
     getCurrentNumAnimations,
+    imBeginDiv,
+    imEnd,
+    imInit,
+    imMemo,
+    imOn,
     initializeDomUtils,
     isDebugging,
     isEditingInput,
@@ -73,12 +78,13 @@ import {
     setAttrs,
     setClass,
     setDebugMode,
+    setInnerText,
     setInputValue,
     setStyle,
     setText,
     setVisible,
     span,
-} from "src/utils/dom-utils";
+} from "src/utils/im-dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range } from "src/utils/fuzzyfind";
 import * as tree from "src/utils/int-tree";
@@ -201,6 +207,7 @@ import {
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
 import { logTrace } from "./utils/log";
+import { imInitStyles } from "./layout";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -218,26 +225,39 @@ const cnHoverLink = cssb.cn("hover-link", [
     `:hover::after { content: " -->"; }`,
 ]);
 
-function NoteLink(rg: RenderGroup<{
-    text: string;
-    shouldScroll: boolean;
-    focusAnyway?: boolean;
-    noteId?: NoteId;
-}>) {
-    return div({ style: "padding:5px; ", class: [cn.handleLongWords] }, [
-        rg.class(cnHoverLink, (s) => !idIsNilOrUndefined(s.noteId)),
-        rg.style("backgroundColor", (s) => (!!s.focusAnyway || state.currentNoteId === s.noteId) ? (
-            `${cssVars.bgColorFocus}`
-        ) : (
-            `${cssVars.bgColor}`
-        )),
-        rg.text((s) => truncate(s.text, 500)),
-        rg.on("click", ({ noteId, shouldScroll }, e) => {
-            e.stopImmediatePropagation();
+function NoteLink(
+    text: string,
+    shouldScroll: boolean,
+    focusAnyway: boolean = false,
+    noteId?: NoteId,
+) {
+    imBeginDiv(); {
+        if (imInitStyles("padding: 5px")) {
+            setClass(cn.handleLongWords);
+        }
+
+        const focused = focusAnyway || state.currentNoteId === noteId;
+        if (imMemo(focused)) {
+            setStyle("backgroundColor", focused ? cssVars.bgColorFocus : cssVars.bgColor);
+        }
+
+        const hasNote = !idIsNilOrUndefined(noteId);
+        if (imMemo(hasNote)) {
+            setClass(cnHoverLink, hasNote);
+        }
+
+        if (imMemo(text)) {
+            setInnerText(truncate(text, 500));
+        }
+
+        const click = imOn("click");
+        if (click) {
+            click.stopImmediatePropagation();
 
             // setTimeout here because of a funny bug when clicking on a list of note links that gets inserted into 
             // while we are clicking will cause the click event to be called on both of those links. Only in HTML is
             // something like this allowed to happen. LOL.
+            // TODO: check if this still happens. lmao.
             setTimeout(() => {
                 if (!idIsNilOrUndefined(noteId)) {
                     setCurrentNote(state, noteId);
@@ -246,29 +266,51 @@ function NoteLink(rg: RenderGroup<{
                     rerenderApp();
                 }
             }, 1);
-        }),
-    ]);
+        }
+    } imEnd();
 }
 
-function ScrollNavItem(rg: RenderGroup<{
-    isCursorVisible: boolean;
-    isCursorActive: boolean;
-    isGreyedOut?: boolean;
-    isFocused: boolean;
-}>, children: Insertable[]) {
-    return div({ class: [cn.row, cn.alignItemsStretch] }, [
-        rg.style(`backgroundColor`, (s) => s.isFocused ? `${cssVars.bgColorFocus}` : ``),
-        rg.style(`color`, (s) => s.isGreyedOut ? `${cssVars.unfocusTextColor}` : ``),
-        div({ style: "min-width: 5px;" }, [
-            rg.style("opacity", s => s.isCursorVisible ? "1" : "0"),
-            rg.style("backgroundColor", (s) => {
-                return s.isCursorActive ? `${cssVars.fgColor}` : cssVars.bgColorFocus2
-            }),
-        ]),
-        div({ class: [cn.flex1, cn.handleLongWords] }, [
-            ...children,
-        ]),
-    ]);
+function imBeginScrollNavItem(
+    isCursorVisible: boolean,
+    isCursorActive: boolean,
+    isFocused: boolean,
+    isGreyedOut = false,
+) {
+    imBeginDiv(); {
+        if (imInit()) {
+            setClass(cn.row);
+            setClass(cn.alignItemsStretch);
+        }
+
+        if (imMemo(isFocused)) {
+            setStyle("backgroundColor", isFocused ? cssVars.bgColorFocus : "");
+        }
+
+        imBeginDiv(); {
+            imInitStyles("min-width: 5px;");
+            if (imMemo(!!isGreyedOut)) {
+                setStyle("color", isGreyedOut ? cssVars.unfocusTextColor : "");
+            }
+            if (imMemo(isCursorVisible)) {
+                setStyle("opacity", isCursorVisible ? "1" : "0");
+            }
+            if (imMemo(isCursorActive)) {
+                setStyle("backgroundColor", isCursorActive ? cssVars.fgColor : cssVars.bgColorFocus2);
+            }
+        } imEnd();
+
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+                setClass(cn.handleLongWords);
+            }
+        } // imEnd();
+    } // imEnd();
+}
+
+function imEndScrollNavItem() {
+        imEnd();
+    imEnd();
 }
 
 const NIL_HLT_HEADING = "<No higher level task>";

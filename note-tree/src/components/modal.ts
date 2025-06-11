@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { DomUtilsChildren, RenderGroup, div, newCssBuilder } from "src/utils/dom-utils";
+import { DomUtilsChildren, RenderGroup, div, newCssBuilder } from "src/utils/im-dom-utils";
 
 const BG_COLOR = cssVars.bgColor;
 const UNDERLAY_COLOR = "rgba(0, 0, 0, 0.5)";

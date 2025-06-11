@@ -1,4 +1,4 @@
-import { Color, newCssBuilder } from "src/utils/dom-utils";
+import { Color, newCssBuilder } from "src/utils/im-dom-utils";
 
 export const cssVars = {
     bgInProgress: "var(--bgInProgress)",

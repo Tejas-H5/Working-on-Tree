@@ -1,5 +1,5 @@
 import { cnApp } from "src/styling";
-import { RenderGroup, cn, el } from "src/utils/dom-utils";
+import { RenderGroup, cn, el } from "src/utils/im-dom-utils";
 
 const BUTTON_CLASSES = [
     cnApp.solidBorder, 

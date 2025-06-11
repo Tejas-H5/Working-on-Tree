@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on, newCssBuilder, span } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on, newCssBuilder, span } from "src/utils/im-dom-utils";
 import { getLineBeforePos } from "src/utils/text-utils";
 
 const CSSVARS_FOCUS = cssVars.bgColorFocus;

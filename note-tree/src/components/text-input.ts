@@ -1,4 +1,4 @@
-import { el, on, RenderGroup, setAttr, setInputValue, setInputValueAndResize } from "src/utils/dom-utils";
+import { el, on, RenderGroup, setAttr, setInputValue, setInputValueAndResize } from "src/utils/im-dom-utils";
 
 export function TextInput(rg: RenderGroup<{
     value: string;

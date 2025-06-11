@@ -1,7 +1,7 @@
 import { newTextArea } from "./components/text-area";
 import { initializeNoteTreeTextArea } from "./state";
 import { cssVars } from "./styling";
-import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
+import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/im-dom-utils";
 import { newDragManager } from "./utils/drag-handlers";
 import { newUuid } from "./utils/uuid";
 

@@ -1,5 +1,5 @@
 import { cssVars } from "src/styling";
-import { cn, div, newCssBuilder, RenderGroup } from "src/utils/dom-utils";
+import { cn, div, newCssBuilder, RenderGroup } from "src/utils/im-dom-utils";
 
 const sg = newCssBuilder("checkbox");
 

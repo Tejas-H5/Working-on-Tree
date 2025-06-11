@@ -9,7 +9,7 @@ import * as oldTree from "src/utils/tree";
 import { GraphData, newGraphData } from "./interactive-graph";
 import { Theme } from "./styling";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars, on, contentsDiv } from "./utils/dom-utils";
+import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars, on, contentsDiv } from "./utils/im-dom-utils";
 import { fuzzyFind, Range } from "./utils/fuzzyfind";
 import { getLineBeforePos } from "./utils/text-utils";
 

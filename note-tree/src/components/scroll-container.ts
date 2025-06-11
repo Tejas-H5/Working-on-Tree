@@ -1,117 +1,102 @@
-import { DomUtilsChildren, Insertable, RenderGroup, cn, div, on, scrollIntoView } from "src/utils/dom-utils";
+import {
+    HORIZONTAL,
+    imBeginDiv,
+    imMemo,
+    imOn,
+    imRef,
+    imTrackSize,
+    scrollIntoViewVH,
+    setClass,
+    UIRoot,
+    VERTICAL
+} from "src/utils/im-dom-utils";
+import { cn } from "src/utils/cssb";
 
-export function ScrollContainer(rg: RenderGroup<{
-    rescrollMs?: number;
-    axes?: "h" | "v" | "hv";
-    scrollEl: Insertable<HTMLElement> | null;
-}>, children?: DomUtilsChildren) {
-    const root = div({ class: [cn.overflowYAuto] }, children);
+type ScrollContainerState = {
+    root: UIRoot<HTMLDivElement>;
+    scrollTimeout: number;
+    lastWidth: number;
+    newWidth: number;
+    lastHeight: number;
+    newHeight: number;
+    scrollTo: HTMLElement | null;
+    isScrolling: boolean;
+};
 
-    let scrollTimeout = 0;
-    let lastScrollEl : Insertable<HTMLElement> | null | undefined = undefined;
-    let lastWidth = 0;
-    let newWidth = 0;
-    let lastHeight = 0;
-    let newHeight = 0;
+function newScrollContainerState(root: UIRoot<HTMLDivElement>): ScrollContainerState {
+    return {
+        root,
+        scrollTimeout: 0,
+        lastWidth: 0,
+        newWidth: 0,
+        lastHeight: 0,
+        newHeight: 0,
+        scrollTo: null,
+        isScrolling: false,
+    };
+}
 
-    const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            if (entry.target !== root.el) {
-                continue;
-            }
+export function imBeginScrollContainer(
+    axes = VERTICAL,
+    /** After we scroll manually, how long should we wait before we scroll back to the focused element? */
+    rescrollMs?: number,
+) {
+    const root = imBeginDiv(); // {
+    const stateRef = imRef<ScrollContainerState>();
+    if (stateRef.val === null) {
+        stateRef.val = newScrollContainerState(root);
+        setClass(cn.overflowYAuto);
+    }
+    const s = stateRef.val;
 
-            newWidth = entry.contentRect.width;
-            newHeight = entry.contentRect.width;
-            break;
+    const { size } = imTrackSize();
+
+    const widthChanged = imMemo(size.width);
+    const heightChanged = imMemo(size.height);
+    const scrollToChanged = imMemo(s.scrollTo);
+
+    const horizontal = axes & HORIZONTAL;
+    const vertical = axes & VERTICAL;
+
+    if (
+        scrollToChanged ||
+        (vertical && heightChanged) ||
+        (horizontal && widthChanged) 
+    ) {
+        s.isScrolling = true;
+    }
+
+    const scroll = imOn("scroll");
+    if (scroll) {
+        if (rescrollMs) {
+            clearTimeout(s.scrollTimeout);
+            s.scrollTimeout = setTimeout(() => {
+                s.isScrolling = true;
+            }, rescrollMs);
         }
-    });
-
-    observer.observe(root.el);
-
-    function isH() {
-        const s = rg.s;
-        return s.axes === "h" || s.axes === "hv";
     }
 
-    function isV() {
-        // default to vertical
-        const s = rg.s;
-        return s.axes === "v" || s.axes === "hv" || !s.axes;
-    }
-
-    function scrollToLastElement() {
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            const scrollParent = root.el;
-            if (lastScrollEl) {
+    if (s.isScrolling) {
+        s.isScrolling = false;
+        // TODO: we can now consider implementing smooth-scroll, since we're running in an animation loop.
+        
+        clearTimeout(s.scrollTimeout);
+        s.scrollTimeout = setTimeout(() => {
+            const scrollParent = s.root.root;
+            if (s.scrollTo) {
                 // The same scroll container can be used for both or either axis!
 
-                if (isH()) {
-                    scrollIntoView(scrollParent, lastScrollEl, 0.5, 0.5, true);
-                }
+                if (horizontal) {
+                    const hOffset = horizontal ? 0.5 : null;
+                    const vOffset = vertical ? 0.5 : null;
 
-                if (isV()) {
-                    scrollIntoView(scrollParent, lastScrollEl, 0.5, 0.5, false);
+                    scrollIntoViewVH(scrollParent, s.scrollTo, hOffset, vOffset);
                 }
-            } else {
-                scrollParent.scrollTop = 0;
             }
         }, 1);
     }
 
-    function shouldRerender() {
-        const s = rg.s;
-        let shouldRerender = false;
+    // imEnd();
 
-        const { scrollEl } = s;
-
-        if (scrollEl !== lastScrollEl) {
-            lastScrollEl = scrollEl;
-            shouldRerender = true;
-        }
-
-        if (isH()) {
-            if (newWidth !== lastWidth) {
-                lastWidth = newWidth;
-                shouldRerender = true;
-            }
-        }
-
-        if (isV()) {
-            if (newHeight !== lastHeight) {
-                lastHeight = newHeight;
-                shouldRerender = true;
-            }
-        }
-
-        return shouldRerender;
-    }
-
-    rg.preRenderFn(function renderScrollContainer(s) {
-        if (!shouldRerender()) {
-            return;
-        }
-
-        const { scrollEl } = s;
-
-        lastScrollEl = scrollEl;
-        scrollToLastElement();
-    });
-
-    on(root, "scroll", () => {
-        const s = rg.s;
-        const { rescrollMs } = s;
-
-        if (!rescrollMs) {
-            // We simply won't scroll back to where we were before.
-            return;
-        }
-
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-             scrollToLastElement();
-        }, rescrollMs);
-    });
-
-    return root;
+    return s;
 }

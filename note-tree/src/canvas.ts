@@ -1,7 +1,7 @@
 import { Button, ScrollContainer } from "src/components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
-import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible, span } from "src/utils/dom-utils";
+import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible, span } from "src/utils/im-dom-utils";
 import { KeyboardState, handleKeyDownKeyboardState, handleKeyUpKeyboardState, newKeyboardState } from "./keyboard-input";
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
