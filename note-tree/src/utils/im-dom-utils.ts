@@ -10,10 +10,15 @@
 //      The only exceptions are: 
 //          - The control-flow helpers: `imIf`, `imElseIf`, `imElse`, `imSwitch`, `imTry`, `imCatch`, `imFor`, `imWhile`.
 //          - `imEnd`. It's the same as imEndRoot. Used very often, and since a large number of abstractions end up being just 1 root deep, it can be used
-//          to end a lot of different things.
+//          to end a lot of different things. 
+//          - If you can guarantee that your imBeginX method only needs a single imEnd method to finalize it well into the future, then 
+//              you don't need to provide your own imEndX method.
+//
 //      Be very conservative when adding your own exceptions to this rule.
 
 import { assert } from "./assert";
+
+"use strict";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -93,10 +98,10 @@ export function getScrollVH(
         // offsetTop is relative to the document, not the scroll parent. lmao
         const scrollToElOffsetTop = scrollTo.offsetTop - scrollParent.offsetTop;
 
-        scrollTop = wantedScrollTop - scrollParent.scrollTop;
+        scrollTop = scrollToElOffsetTop - scrollOffset + elementHeightOffset;
     }
 
-    return { scrollLeft, scrollTop };
+    return { scrollTop, scrollLeft };
 }
 
 /**
@@ -1505,6 +1510,65 @@ export function imMemoArray(...val: unknown[]): boolean {
     return changed;
 }
 
+const IM_MEMO_MANY_SENTINAL = {};
+
+function newImMemoManyState(): {
+    arg0: any;
+    arg1: any;
+    arg2: any;
+    arg3: any;
+    arg4: any;
+    arg5: any;
+    arg6: any;
+    arg7: any;
+} {
+    return {
+        arg0: IM_MEMO_MANY_SENTINAL,
+        arg1: IM_MEMO_MANY_SENTINAL,
+        arg2: IM_MEMO_MANY_SENTINAL,
+        arg3: IM_MEMO_MANY_SENTINAL,
+        arg4: IM_MEMO_MANY_SENTINAL,
+        arg5: IM_MEMO_MANY_SENTINAL,
+        arg6: IM_MEMO_MANY_SENTINAL,
+        arg7: IM_MEMO_MANY_SENTINAL,
+    };
+}
+
+export function imMemoMany(
+    arg0: any = IM_MEMO_MANY_SENTINAL,
+    arg1: any = IM_MEMO_MANY_SENTINAL,
+    arg2: any = IM_MEMO_MANY_SENTINAL,
+    arg3: any = IM_MEMO_MANY_SENTINAL,
+    arg4: any = IM_MEMO_MANY_SENTINAL,
+    arg5: any = IM_MEMO_MANY_SENTINAL,
+    arg6: any = IM_MEMO_MANY_SENTINAL,
+    arg7: any = IM_MEMO_MANY_SENTINAL,
+) {
+    const s = imState(newImMemoManyState);
+    
+    // TODO: actually test that this is faster than imMemoArray.
+    const changed = 
+        s.arg0 !== arg0 ||
+        s.arg1 !== arg1 ||
+        s.arg2 !== arg2 ||
+        s.arg3 !== arg3 ||
+        s.arg4 !== arg4 ||
+        s.arg5 !== arg5 ||
+        s.arg6 !== arg6 ||
+        s.arg7 !== arg7;
+
+    s.arg0 = arg0;
+    s.arg1 = arg1;
+    s.arg2 = arg2;
+    s.arg3 = arg3;
+    s.arg4 = arg4;
+    s.arg5 = arg5;
+    s.arg6 = arg6;
+    s.arg7 = arg7;
+
+    return changed;
+}
+
 export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
     const arr = imArray();
 
@@ -2021,5 +2085,8 @@ export function imTrackSize() {
 }
 
 
+// Doing string comparisons every frame kills performance, if done for every singe DOM node.
 // TODO: enum for all events
 // TODO: enum for all styles
+// TODO: enum for all DOM node types
+//

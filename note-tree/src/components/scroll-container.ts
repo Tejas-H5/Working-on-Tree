@@ -1,6 +1,7 @@
 import {
     HORIZONTAL,
     imBeginDiv,
+    imEnd,
     imMemo,
     imOn,
     imRef,
@@ -96,7 +97,9 @@ export function imBeginScrollContainer(
         }, 1);
     }
 
-    // imEnd();
-
     return s;
+}
+
+export function imEndScrollContainer() {
+    return imEnd();
 }

@@ -12,9 +12,12 @@ import {
     Button,
     Checkbox,
     DateTimeInput,
+    imBeginModal,
+    imBeginScrollContainer,
+    imEndModal,
+    imEndScrollContainer,
     Modal,
     PaginationControl,
-    imScrollContainer
 } from "src/components";
 import {
     ASCII_MOON_STARS,
@@ -48,42 +51,27 @@ import {
     truncate
 } from "src/utils/datetime";
 import {
-    Component,
-    Insertable,
-    RenderGroup,
-    addChildren,
-    appendChild,
-    cn,
-    contentsDiv,
-    div,
-    el,
-    getCurrentNumAnimations,
+    getAttr,
     imBeginDiv,
+    imBeginRoot,
+    imElse,
     imEnd,
+    imEndIf,
+    imEndMemoized,
+    imIf,
     imInit,
     imMemo,
+    imMemoArray,
+    imMemoMany,
     imOn,
-    initializeDomUtils,
-    isDebugging,
     isEditingInput,
     isEditingTextSomewhereInDocument,
-    newComponent,
-    newComponentArgs,
-    newCssBuilder,
-    newInsertable,
-    newListRenderer,
-    replaceChildren,
-    scrollIntoView,
     setAttr,
-    setAttrs,
     setClass,
-    setDebugMode,
     setInnerText,
     setInputValue,
     setStyle,
-    setText,
-    setVisible,
-    span,
+    VERTICAL,
 } from "src/utils/im-dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
 import { Range } from "src/utils/fuzzyfind";
@@ -208,6 +196,7 @@ import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
 import { logTrace } from "./utils/log";
 import { imInitStyles } from "./layout";
+import { cn, newCssBuilder } from "./utils/cssb";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -225,13 +214,13 @@ const cnHoverLink = cssb.cn("hover-link", [
     `:hover::after { content: " -->"; }`,
 ]);
 
-function NoteLink(
+function imBeginNoteLink(
     text: string,
     shouldScroll: boolean,
     focusAnyway: boolean = false,
     noteId?: NoteId,
 ) {
-    imBeginDiv(); {
+    const root = imBeginDiv(); {
         if (imInitStyles("padding: 5px")) {
             setClass(cn.handleLongWords);
         }
@@ -267,7 +256,9 @@ function NoteLink(
                 }
             }, 1);
         }
-    } imEnd();
+    } // imEnd();
+
+    return root;
 }
 
 function imBeginScrollNavItem(
@@ -315,25 +306,29 @@ function imEndScrollNavItem() {
 
 const NIL_HLT_HEADING = "<No higher level task>";
 
-function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
-    const listInternal = newComponent(FuzzyFindResultsList);
-    const empty = div({}, [
-        "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down]. ",
-        "If the query is empty, notes from the task stream that was selected last will be used instead.",
-    ]);
-    const scrollContainer = newComponent(ScrollContainer);
-    const root = div({ class: [cn.flex1, cn.col] }, [
-        el("H3", { style: "user-select: none; padding-left: 10px; text-align: center;" }, [
-            rg.text(() => {
+
+function imQuickList(cursorNoteId?: NoteId) {
+    imBeginDiv(); {
+        if (imInitStyles("")) {
+            setClass(cn.flex1);
+            setClass(cn.col);
+        }
+
+        imBeginRoot(newH3); {
+            imInitStyles("user-select: none; padding-left: 10px; text-align: center;");
+
+            // TODO: optimize - use setters
+            let text = "";
+            {
                 let query = "";
                 if (state._fuzzyFindState.query) {
                     query = `"${state._fuzzyFindState.query}"`;
-                } else{
+                } else {
                     const taskStream = state.taskStreams[state.currentTaskStreamIdx];
                     if (taskStream) {
                         query = "Task stream [" + taskStream.name + "]"
                     } else {
-                        query = "No query. Notes will appear here once you search for something, or create some task streams.";
+                        query = "No query";
                     }
                 }
 
@@ -345,455 +340,422 @@ function QuickList(rg: RenderGroup<{ cursorNoteId?: NoteId; }>) {
                     }
                 }
 
-                return `${query} - [${scope}]`;
-            }),
-        ]),
-        div({ style: `border-bottom: 1px solid ${cssVars.bgColorFocus2}` }),
-        addChildren(setAttrs(scrollContainer, { class: [cn.flex1, cn.col] }, true), [
-            empty,
-            listInternal,
-        ])
-    ]);
+                text = `${query} - [${scope}]`;
+            }
 
-    rg.preRenderFn((s) => {
-        setVisible(empty, state._fuzzyFindState.matches.length === 0);
+            setInnerText(text);
+        } imEnd();
+        imBeginDiv(); {
+            imInitStyles(`border-bottom: 1px solid ${cssVars.bgColorFocus2}`);
+        } imEnd();
 
-        let scrollEl: Insertable | null = null;
+        imBeginScrollContainer(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+                setClass(cn.col);
+            }
 
-        listInternal.render({
-            finderState: state._fuzzyFindState,
-            compact: true,
-            isCursorActive: isInQuicklist,
-        });
+            if (imIf() && state._fuzzyFindState.matches.length === 0) {
+                imBeginDiv(); setInnerText(
+                    "Search for some notes, and then fast-travel through the results with [Ctrl] + [Shift] + [Up/Down]. " +
+                    "If the query is empty, notes from the task stream that was selected last will be used instead."
+                ); imEnd();
+            } imEndIf();
 
-        scrollContainer.render({
-            scrollEl,
-            rescrollMs: 5000,
-        });
-    });
-
-    return root;
+            imBeginScrollContainer(VERTICAL, 5000); {
+                imFuzzyFinderResultsList(
+                    state._fuzzyFindState,
+                    true,
+                    isInQuicklist,
+                );
+            } imEndScrollContainer();
+        } imEndScrollContainer();
+    } imEnd();
 }
 
-function BreakInput(rg: RenderGroup) {
-    const breakInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
-    const breakButton = newComponent(Button);
-    const root = div({ style: "padding: 5px;" }, [
-        // I'm putting it here above the break input because it seems fitting amongst the other activity times, however,
+
+function imBreakInput() {
+    imBeginDiv(); {
+        imInitStyles("padding: 5px");
+
+        // I'm putting this clock here above the break input because it seems fitting amongst the other activity times, however,
         // this clock is really just a way for me to know that my app hasn't frozen.
         // So if I ever want to delete it, I _must_ put it somewhere else.
-        div({}, [
-            rg.realtime(rg =>
-                rg.text(() => formatDateTime(new Date(), undefined, true, true))
-            )
-        ]),
-        div({ class: [cn.row, cn.alignItemsCenter] }, [
-            div({ class: [cn.flex1] }, [breakInput]),
-            div({}, [breakButton]),
-        ]),
-    ]);
+        imBeginDiv(); {
+            setInnerText(formatDateTime(new Date(), undefined, true, true));
+        } imEnd()
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.row);
+                setClass(cn.alignItemsCenter);
+            }
 
-    rg.preRenderFn(function renderBreakInput() {
-        const isTakingABreak = isCurrentlyTakingABreak(state);
+            let addBreak = false;
+            let breakInput: HTMLInputElement;
 
-        breakButton.render({
-            label: isTakingABreak ? "Extend break" : "Take a break",
-            onClick: addBreak,
-        });
+            imBeginDiv(); {
+                if (imInit()) {
+                    setClass(cn.flex1);
+                }
 
-        setAttr(breakInput, "placeholder", "Enter break reason (optional)");
-    });
+                breakInput = imBeginRoot(newInput).root; {
+                    if (imInit()) {
+                        setClass(cn.w100);
+                        setAttr("placeholder", "Enter break reason (optional)");
+                    }
 
-    function addBreak(e: Event) {
-        e.preventDefault();
-        let text = breakInput.el.value || "Taking a break ...";
+                    const keydown = imOn("keydown");
+                    if (keydown) {
+                        if (keydown.key === "Enter") {
+                            addBreak = true;
+                        }
+                    }
 
-        // When we add a break, we don't want to clear whatever state was preventing us from pressing 'enter' to start editing a note
-        // Hence, the timeout
-        setTimeout(() => {
+                } imEnd();
+            } imEnd();
+            imBeginDiv(); {
+                const isTakingABreak = isCurrentlyTakingABreak(state);
+                addBreak = imButton(isTakingABreak ? "Extend break" : "Take a break")
+                    || addBreak;
+            } imEnd();
 
-            pushBreakActivity(state, newBreakActivity(text, new Date(), true));
-            breakInput.el.value = "";
-
-            debouncedSave();
-            rerenderApp();
-        }, 1);
-
-    }
-
-    breakInput.el.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter") {
-            return;
-        }
-
-        addBreak(e);
-    });
-
-    return root;
+            if (addBreak && breakInput) {
+                let text = breakInput.value || "Taking a break ...";
+                breakInput.value = "";
+                pushBreakActivity(state, newBreakActivity(text, new Date(), true));
+                debouncedSave();
+            }
+        } imEnd();
+    } imEnd();
 }
 
-function ActivityListItem(rg: RenderGroup<{
-    previousActivity: Activity | undefined;
-    activity: Activity;
-    nextActivity: Activity | undefined;
-    showDuration: boolean;
-    focus: boolean;
-    greyedOut?: boolean;
-    hasCursor: boolean;
-}>) {
-    const breakEdit = el<HTMLInputElement>(
-        "INPUT", { class: [cn.preWrap, cn.w100, cnApp.solidBorderSmRounded], style: "padding-left: 5px" }
-    );
+function imActivityListItem(
+    previousActivity: Activity | undefined,
+    activity: Activity,
+    nextActivity: Activity | undefined,
+    showDuration: boolean,
+    focus: boolean,
+    hasCursor: boolean,
+    greyedOut: boolean,
+) {
+    const isEditable = !greyedOut && isEditableBreak(activity);
 
-    function deleteBreak() {
-        const s = rg.s;
-        const { activity } = s;
+    // I think all break text should just be editable...
+    // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
+    const canEditBreakText = !greyedOut && isBreak(activity);
 
-        if (!isEditableBreak(activity)) {
-            // can only delete breaks
-            return;
-        }
+    const activityText = getActivityText(state, activity);
 
-        const idx = state.activities.indexOf(activity);
-        if (idx === -1) {
-            return;
-        }
-
-        state.activities.splice(idx, 1);
-        rerenderApp();
-    };
-
-    function insertBreak() {
-        const s = rg.s;
-        const { activity, nextActivity } = s;
-
-        const idx = state.activities.indexOf(activity);
-        if (idx === -1) {
-            return;
-        }
-
-        const timeA = getActivityTime(activity).getTime();
-        const duration = getActivityDurationMs(activity, nextActivity);
-        const midpoint = timeA + duration / 2;
-
-        const newBreak = newBreakActivity("New break", new Date(midpoint), false);
-        state.activities.splice(idx + 1, 0, newBreak);
-
-        debouncedSave();
-        rerenderApp();
-    };
-
-    const noteLink = newComponent(NoteLink);
-    const timestamp = newComponent(DateTimeInput);
-    const timestampWrapper = div({ style: "" }, [timestamp]);
-    const cursorRow = newComponentArgs(ScrollNavItem, [[
-        div({ class: [cn.hoverParent, cn.borderBox], style: "min-height: 10px" }, [
-            div({ class: [cn.hoverTarget] }, [
-                div({ class: [cn.row, cn.alignItemsCenter, cn.justifyContentCenter] }, [
-                    div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
-                    rg.c(Button, c => c.render({
-                        label: "+ Insert break here",
-                        onClick: insertBreak,
-                    })),
-                    div({ class: [cn.flex1], style: `border-bottom: 1px solid ${cssVars.fgColor}` }),
-                ])
-            ]),
-        ]),
-        div({ class: [cn.row], style: "gap: 20px; padding: 5px 0;" }, [
-            div({ class: [cn.flex1] }, [
-                timestampWrapper,
-                div({ class: [cn.row, cn.alignItemsCenter], style: "padding-left: 20px" }, [
-                    noteLink,
-                    breakEdit,
-                    rg.if(
-                        isEditable,
-                        rg => rg.c(Button, c => c.render({
-                            label: " x ",
-                            onClick: deleteBreak,
-                        }))
-                    ),
-                ]),
-            ]),
-            rg.if(s => s.activity === state.activities[state.activities.length - 1], rg =>
-                rg.realtime(rg =>
-                    rg.inlineFn(
-                        div({ style: "padding-left: 10px; padding-right: 10px;" }),
-                        (c, s) => {
-                            renderDuration(
-                                c,
-                                s.activity,
-                                s.nextActivity,
-                                s.showDuration,
-                            );
-                        }
-                    )
-                )
-            ),
-            rg.else(rg =>
-                rg.inlineFn(
-                    div({ style: "padding-left: 10px; padding-right: 10px;" }),
-                    (c, s) => {
-                        renderDuration(
-                            c,
-                            s.activity,
-                            s.nextActivity,
-                            s.showDuration,
-                        );
-                    }
-                )
-            )
-        ])
-    ]]);
-
-    const root = div({}, [
-        cursorRow,
-    ]);
-
-    function isEditable() {
-        const s = rg.s;
-        const { activity, greyedOut } = s;
-        return !greyedOut && isEditableBreak(activity);
-    }
-
-    function renderDuration(
-        el: Insertable<HTMLElement>,
-        activity: Activity,
-        nextActivity: Activity | undefined,
-        showDuration: boolean,
-    ) {
+    let durationStr = "";
+    if (showDuration) {
         // The idea is that only breaks we insert ourselves retroactively are editable, as these times
         // did not come from the computer's sytem time but our own subjective memory
-        const isAnApproximation = isEditable();
+        const isAnApproximation = isEditable;
 
-        if (setVisible(el, showDuration)) {
-            const durationStr = (isAnApproximation ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
-            setText(el, durationStr);
-        }
+        durationStr = (isAnApproximation ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
     }
 
-    rg.preRenderFn(function renderActivityListItem(s) {
-        const { activity, greyedOut, focus, hasCursor } = s;
+    imBeginDiv(); {
+        imBeginScrollNavItem(
+            hasCursor,
+            isInHotlist,
+            focus,
+            greyedOut
+        ); {
+            // Insert break here handler
+            imBeginDiv(); {
+                if (imInitStyles("min-height: 10px")) {
+                    setClass(cn.hoverParent);
+                    setClass(cn.borderBox);
+                }
 
-        cursorRow.render({
-            isCursorVisible: hasCursor,
-            isCursorActive: isInHotlist,
-            isFocused: focus,
-            isGreyedOut: greyedOut,
-        });
+                imBeginDiv(); {
+                    if (imInitStyles("")) {
+                        setClass(cn.hoverTarget);
+                    }
 
-        // I think all break text should just be editable...
-        // I'm thinking we should be able to categorize breaks somehow, so we can filter out the ones we dont care about...
-        const canEditBreakText = !greyedOut && isBreak(activity);
+                    imBeginDiv(); {
+                        if (imInitStyles("")) {
+                            setClass(cn.row);
+                            setClass(cn.alignItemsCenter);
+                            setClass(cn.justifyContentCenter);
+                        }
 
-        const activityText = getActivityText(state, activity);
+                        imBeginDiv(); {
+                            if (imInitStyles(`border-bottom: 1px solid ${cssVars.fgColor}`)) {
+                                setClass(cn.flex1);
+                            }
 
-        if (setVisible(
-            breakEdit,
-            canEditBreakText,
-        )) {
-            if (!isEditingInput(breakEdit)) {
-                setInputValue(breakEdit, activity.breakInfo!);
-            }
-        }
+                            if (imButton("+ Insert break here")) {
+                                const idx = state.activities.indexOf(activity);
+                                if (idx === -1) {
+                                    return;
+                                }
 
-        if (setVisible(noteLink, !canEditBreakText)) {
-            noteLink.render({
-                focusAnyway: focus,
-                noteId: activity.nId,
-                text: activityText,
-                shouldScroll: true,
-            });
+                                const timeA = getActivityTime(activity).getTime();
+                                const duration = getActivityDurationMs(activity, nextActivity);
+                                const midpoint = timeA + duration / 2;
 
-            setClass(noteLink, cnHoverLink, !!activity.nId);
-            noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
-        }
+                                const newBreak = newBreakActivity("New break", new Date(midpoint), false);
+                                state.activities.splice(idx + 1, 0, newBreak);
 
-        timestamp.render({
-            label: "",
-            value: getActivityTime(activity),
-            onChange: updateActivityTime,
-            readOnly: false,
-            nullable: false,
-        });
-    });
+                                debouncedSave();
+                            }
+                        } imEnd();
+                        imBeginDiv(); {
+                            if (imInitStyles(`border-bottom: 1px solid ${cssVars.fgColor}`)) {
 
-    function updateActivityTime(date: Date | null) {
-        if (!date) {
-            return;
-        }
+                                setClass(cn.flex1);
+                            }
+                        } imEnd();
+                    } imEnd();
+                } imEnd();
+            } imEnd();
+            // main row
+            imBeginDiv(); {
+                if (imInitStyles("gap: 20px; padding: 5px 0;")) {
+                    setClass(cn.row);
+                }
+                imBeginDiv(); {
+                    if (imInitStyles("")) {
+                        setClass(cn.flex1);
+                    }
 
-        const s = rg.s;
-        const { previousActivity, activity, nextActivity } = s;
+                    imBeginDiv(); {
+                        // TODO: rethink this. it isn't quite right.
+                        const date = imDateTimeInput("", getActivityTime(activity));
+                        if (date) {
+                            let handled = false;
+                            if (previousActivity) {
+                                // don't update our date to be before the previous time
+                                const prevTime = getActivityTime(previousActivity);
+                                if (prevTime.getTime() > date.getTime()) {
+                                    showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
+                                    handled = true;
+                                }
+                            } 
 
-        if (previousActivity) {
-            // don't update our date to be before the previous time
-            const prevTime = getActivityTime(previousActivity);
-            if (prevTime.getTime() > date.getTime()) {
-                showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
-                return;
-            }
-        }
+                            if (!handled) {
+                                let nextTime = nextActivity ? getActivityTime(nextActivity) : new Date();
+                                if (nextTime.getTime() < date.getTime()) {
+                                    showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
+                                    handled = true;
+                                }
+                            }
 
-        let nextTime = nextActivity ? getActivityTime(nextActivity) : new Date();
-        if (nextTime.getTime() < date.getTime()) {
-            showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
-            return;
-        }
+                            if (!handled) {
+                                setActivityTime(activity, date);
+                                debouncedSave();
+                            }
+                        }
+                    } imEnd();
 
-        setActivityTime(activity, date);
-        rerenderApp();
-        debouncedSave();
-    }
+                    imBeginDiv(); {
+                        if (imInitStyles("padding-left: 20px")) {
+                            setClass(cn.row);
+                            setClass(cn.alignItemsCenter);
+                        }
 
-    noteLink.el.addEventListener("click", () => {
-        const s = rg.s;
-        const { activity } = s;
-        if (!activity.nId) {
-            return;
-        }
+                        if (imIf() && !canEditBreakText) {
+                            imBeginNoteLink(activityText, true, focus, activity.nId); {
+                                setStyle("paddingLeft", activity.nId ? "0" : "40px",);
 
-        setCurrentNote(state, activity.nId);
-        rerenderApp();
-    });
+                                const click = imOn("click");
+                                if (click) {
+                                    if (!idIsNilOrUndefined(activity.nId)) {
+                                        setCurrentNote(state, activity.nId);
+                                    }
+                                }
+                            } imEnd();
+                        } else {
+                            imElse();
 
-    function handleBreakTextEdit() {
-        const s = rg.s;
-        const { activity } = s;
+                            const breakEdit = imBeginRoot(newInput).root; {
+                                if (imInitStyles("padding-left: 5px")) {
+                                    setClass(cn.preWrap);
+                                    setClass(cn.w100);
+                                    setClass(cnApp.solidBorderSmRounded);
+                                }
 
-        // 'prevent' clearing it out
-        const val = breakEdit.el.value || activity.breakInfo;
+                                const isEditing = isEditingInput(breakEdit);
+                                const info = activity.breakInfo;
+                                if (imMemoArray(isEditing, info)) {
+                                    if (!isEditing) {
+                                        setInputValue(breakEdit, activity.breakInfo!);
+                                    }
+                                }
 
-        activity.breakInfo = val;
-        rerenderApp();
-        debouncedSave();
-    }
+                                const keypress = imOn("keypress");
+                                const blur = imOn("blur");
+                                if (keypress || blur) {
+                                    if (blur || (keypress && keypress.key === "Enter")) {
+                                        const val = breakEdit.value;
+                                        if (val && activity.breakInfo !== val) {
+                                            activity.breakInfo = val;
+                                            debouncedSave();
+                                        }
+                                    }
+                                }
+                            } imEnd();
+                        } imEndIf();
 
-    breakEdit.el.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-            handleBreakTextEdit();
-        }
-    })
+                        // can only delete breaks that we inserted ourselves
+                        if (imIf() && isEditable) {
+                            if (imButton(" x ")) {
+                                const idx = state.activities.indexOf(activity);
+                                if (idx === -1) {
+                                    return;
+                                }
 
-    breakEdit.el.addEventListener("blur", () => {
-        handleBreakTextEdit();
-    });
+                                state.activities.splice(idx, 1);
+                                debouncedSave();
+                            }
+                        } imEndIf();
+                    } imEnd();
+                } imEnd();
+                // Before, we rendered the same component twice - only the most recent activity
+                // would update in a realtime animation loop. Now we don't gaf.
+                imBeginDiv(); {
+                    imInitStyles("padding-left: 10px; padding-right: 10px;");
+                    setInnerText(durationStr);
+                } imEnd();
+            } imEnd();
+        } imEndScrollNavItem();
+    } imEnd();
 
     return root;
 }
 
-function ExportModal(rg: RenderGroup) {
-    return rg.cArgs(Modal, (c) => c.render({
-        onClose: () => setCurrentModalAndRerenderApp(null),
-    }), [
-        div({ class: [cn.col], style: "align-items: stretch" }, [
-            rg.c(Button, c => c.render({
-                label: "Clear all",
-                onClick: () => {
+let currentModal = -1;
+
+const MODAL_EXPORT = 1;
+const MODAL_DELETE = 2;
+
+function imExportModal() {
+    if (imIf() && currentModal === MODAL_EXPORT) {
+        imBeginModal(); {
+            imBeginDiv(); {
+                if (imInit()) {
+                    setClass(cn.col);
+                    setClass(cn.alignItemsStretch);
+                }
+
+                if (imButton("Clear all")) {
                     if (!confirm("Are you sure you want to clear your note tree?")) {
                         return;
                     }
 
                     resetState();
-                    rerenderApp();
-
                     showStatusText("Cleared notes");
                 }
-            })),
-            rg.c(Button, c => c.render({
-                label: "Download JSON",
-                onClick: () => {
+                if (imButton("Download JSON")) {
                     handleErrors(() => {
                         // TODO: custom method to generate a new file name
                         saveText(getCurrentStateAsJSON(), `Note-Tree Backup - ${formatDateTime(new Date()).replace(/\//g, "-")}.json`);
                     });
                 }
-            }))
-        ])
-    ]);
+            } imEnd();
+        } if (!imEndModal()) {
+            currentModal = -1;
+        }
+    } imEndIf();
 }
 
-function DeleteModal(rg: RenderGroup) {
-    const heading = el("H2", { style: "text-align: center" }, ["Delete current note"]);
-    const textEl = div();
-    const countEl = div();
-    const timeEl = div();
-    const recentEl = div();
-    const deleteButton = newComponent(Button);
-    const cantDelete = div({
-        class: [cnApp.solidBorder], style: `padding: 10px; background: ${cssVars.fgColor}; color: red;`
-    }, [
-        "This note is still in progress!!!"
-    ]);
-    const root = newComponentArgs(Modal, [[
-        div({ style: modalPaddingStyles(10, 70, 50) }, [
-            heading,
-            textEl,
-            div({ style: "height: 20px" }),
-            countEl,
-            timeEl,
-            recentEl,
-            div({ style: "height: 20px" }),
-            div({ class: [cn.row, cn.justifyContentCenter] }, [
-                deleteButton,
-                cantDelete,
-            ]),
-            div({ style: "height: 20px" }),
-            div({ style: "text-align: center" }, [
-                "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
-            ])
-        ])
-    ]]);
-
-    function deleteNote(e: MouseEvent) {
-        e.preventDefault();
-
-        const currentNote = getCurrentNote(state);
-        if (currentNote.data._status !== STATUS_DONE) {
-            return;
-        }
-
-        deleteDoneNote(state, currentNote);
-        setCurrentModalAndRerenderApp(null);
-        showStatusText(
-            "Deleted!" +
-            (Math.random() < 0.05 ? " - Good riddance..." : "")
-        );
-    };
-
-    rg.preRenderFn(function renderDeleteModal() {
+function imDeleteModal() {
+    if (imIf() && currentModal === MODAL_DELETE) {
         const currentNote = getCurrentNote(state);
 
-        root.render({
-            onClose: () => setCurrentModalAndRerenderApp(null),
-        });
+        imBeginModal(); {
+            if (imInit()) {
+                setAttr("style", getAttr("style") + ";" + modalPaddingStyles(10, 70, 50));
+            }
 
-        setText(textEl, currentNote.data.text);
+            imBeginRoot(newH2); {
+                if (imInit()) {
+                    setClass(cn.textAlignCenter);
+                    setInnerText("Delete current note");
+                }
+            } imEnd();
+            imBeginDiv(); {
+                setInnerText(currentNote.data.text);
+            } imEnd();
+            imBeginDiv(); imInitStyles("height: 20px"); imEnd();
+            imBeginDiv(); {
+                if (imMemo(currentNote)) {
+                    let count = 0;
+                    dfsPre(state, currentNote, () => count++);
+                    setInnerText(count + " notes in total");
+                }
+            } imEnd();
+            imBeginDiv(); {
+                if (imMemo(currentNote)) {
+                    let totalTimeMs = getNoteDurationWithoutRange(state, currentNote);
+                    setInnerText(formatDuration(totalTimeMs) + " in total");
+                }
+            } imEnd();
+            imBeginDiv(); {
+                if (imMemo(currentNote)) {
+                    let set = false;
+                    const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
+                    if (idx) {
+                        const activity = state.activities[idx];
+                        if (activity) {
+                            setInnerText(
+                                "The last activity under this note was on " +
+                                formatDateTime(getActivityTime(activity), undefined, true)
+                            );
+                            set = true;
+                        } 
+                    }
 
-        let count = 0;
-        dfsPre(state, currentNote, () => count++);
-        setText(countEl, count + " notes in total");
+                    if (!set) {
+                        setInnerText("No activities");
+                    }
+                }
+            } imEnd();
+            imBeginDiv(); imInitStyles("height: 20px"); imEnd();
+            imBeginDiv(); {
+                if (imInit()) {
+                    setClass(cn.row);
+                    setClass(cn.justifyContentCenter);
+                }
 
-        let totalTimeMs = getNoteDurationWithoutRange(state, currentNote);
-        setText(timeEl, formatDuration(totalTimeMs) + " in total");
+                const canDelete = currentNote.data._status === STATUS_DONE;
+                if (imIf() && canDelete) {
+                    if (imButton("Delete note")) {
+                        const currentNote = getCurrentNote(state);
+                        deleteDoneNote(state, currentNote);
+                        setCurrentModalAndRerenderApp(null);
+                        showStatusText(
+                            "Deleted!" +
+                            (Math.random() < 0.05 ? " - Good riddance..." : "")
+                        );
+                    }
+                } else {
+                    imElse();
 
-        const idx = getMostRecentlyWorkedOnChildActivityIdx(state, currentNote);
-        setVisible(recentEl, !!idx)
-        if (idx !== undefined) {
-            const activity = state.activities[idx];
-            setText(recentEl, "The last activity under this note was on " + formatDateTime(getActivityTime(activity), undefined, true));
+                    imBeginDiv(); {
+                        if (imInitStyles(`padding: 10px; background: ${cssVars.fgColor}; color: red;`)) {
+                            setClass(cnApp.solidBorder);
+                            // well it _can_ be deleted, I am just not going to let you do it so easy
+                            setInnerText("This note is still in progress, so it can't be deleted!");
+                        }
+                    } imEnd()
+                } imEndIf();
+            } imEnd();
+            imBeginDiv(); imInitStyles("height: 20px"); imEnd();
+            imBeginDiv(); {
+                if (imInit()) {
+                    setClass(cn.textAlignCenter);
+                    setInnerText(
+                        "NOTE: I only added the ability to delete notes as a way to improve performance, if typing were to start lagging all of a sudden. You may not need to delete notes for quite some time, although more testing on my end is still required."
+                    );
+                }
+            } imEnd();
+        } if (!imEndModal()) {
+            currentModal = -1;
         }
-
-        const canDelete = currentNote.data._status === STATUS_DONE;
-        if (setVisible(deleteButton, canDelete)) {
-            deleteButton.render({
-                label: "Delete Note",
-                onClick: deleteNote
-            });
-        }
-        setVisible(cantDelete, !canDelete);
-    });
-
-    return root;
+    } imEndIf();
 }
 
 function LinkNavModal(rg: RenderGroup) {
@@ -5723,9 +5685,6 @@ const renderSettings = {
 };
 
 function rerenderApp() {
-    app.render(null);
-
-    renderSettings.shouldScroll = false;
 }
 
 let renderNextFrameTimeout = 0;
@@ -5738,3 +5697,16 @@ initState(() => {
     autoInsertBreakIfRequired();
     rerenderApp();
 });
+
+
+function newH3() {
+    return document.createElement("h3");
+}
+
+function newH2() {
+    return document.createElement("h2");
+}
+
+function newInput() {
+    return document.createElement("input");
+}

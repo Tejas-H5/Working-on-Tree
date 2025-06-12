@@ -640,6 +640,7 @@ export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => voi
 }
 
 export function getLastActivity(state: NoteTreeGlobalState): Activity | undefined {
+    if (state.activities.length === 0) return undefined;
     return state.activities[state.activities.length - 1];
 }
 
