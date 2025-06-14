@@ -51,21 +51,29 @@ import {
     truncate
 } from "src/utils/datetime";
 import {
+    disableIm,
+    enableIm,
     getAttr,
+    getCurrentRoot,
+    getImKeys,
     imBeginDiv,
     imBeginRoot,
     imElse,
     imEnd,
+    imEndFor,
     imEndIf,
     imEndMemoized,
+    imFor,
     imIf,
     imInit,
     imMemo,
     imMemoArray,
     imMemoMany,
     imOn,
+    imState,
     isEditingInput,
     isEditingTextSomewhereInDocument,
+    nextListRoot,
     setAttr,
     setClass,
     setInnerText,
@@ -267,7 +275,7 @@ function imBeginScrollNavItem(
     isFocused: boolean,
     isGreyedOut = false,
 ) {
-    imBeginDiv(); {
+    const root = imBeginDiv(); {
         if (imInit()) {
             setClass(cn.row);
             setClass(cn.alignItemsStretch);
@@ -297,6 +305,8 @@ function imBeginScrollNavItem(
             }
         } // imEnd();
     } // imEnd();
+
+    return root;
 }
 
 function imEndScrollNavItem() {
@@ -630,9 +640,11 @@ let currentModal = -1;
 
 const MODAL_EXPORT = 1;
 const MODAL_DELETE = 2;
+const MODAL_LINK_NAV_MODAL = 3;
 
 function imExportModal() {
-    if (imIf() && currentModal === MODAL_EXPORT) {
+    const open = currentModal === MODAL_EXPORT;
+    if (imIf() && open) {
         imBeginModal(); {
             imBeginDiv(); {
                 if (imInit()) {
@@ -658,6 +670,7 @@ function imExportModal() {
         } if (!imEndModal()) {
             currentModal = -1;
         }
+
     } imEndIf();
 }
 
@@ -752,197 +765,187 @@ function imDeleteModal() {
                     );
                 }
             } imEnd();
-        } if (!imEndModal()) {
-            currentModal = -1;
-        }
+        } if (!imEndModal()) currentModal = -1;
     } imEndIf();
 }
 
-function LinkNavModal(rg: RenderGroup) {
-    function LinkItem(rg: RenderGroup<{
-        noteId: NoteId;
-        text: string;
-        range: Range;
-        url: string;
-        isFocused: boolean;
-    }>) {
-        const textEl = newComponent(HighlightedText);
-        const root = newComponentArgs(ScrollNavItem, [[textEl]]);
+type LinkNavModalStateUrl = {
+    url: string;
+    text: string;
+    range: Range;
+    isFocused: boolean;
+    note: TreeNote;
+}
 
-        rg.preRenderFn(function renderLinkItem(s) {
-            const { text, range, isFocused } = s;
+type LinkNavModalState = {
+    idx: number; // indexes urls
+    urls: LinkNavModalStateUrl[];
+};
 
-            textEl.render({
-                text,
-                highlightedRanges: [range]
+function linkNavModalMoveIdx(s: LinkNavModalState, amount: number) {
+    s.idx = Math.max(0, Math.min(s.urls.length - 1, s.idx + amount));
+}
+
+function newLinkNavModalState(): LinkNavModalState {
+    return {
+        idx: 0,
+        urls: [],
+    };
+}
+
+function getUrlsForNote(s: LinkNavModalState) {
+    function addAllLinks(note: TreeNote) {
+        s.idx = 0;
+        s.urls.length = 0;
+
+        let urlCount = 0;
+
+        forEachUrlPosition(note.data.text, (start, end) => {
+            const url = note.data.text.substring(start, end);
+            s.urls.push({
+                url,
+                text: note.data.text,
+                range: [start, end],
+                isFocused: false,
+                note: note,
             });
 
-            root.render({
-                isCursorVisible: isFocused,
-                isCursorActive: true,
-                isFocused: isFocused,
-            });
+            urlCount++;
         });
 
-        return root;
+        return urlCount;
     }
 
-    const scrollView = newComponent(ScrollContainer);
-    const linkList = newListRenderer(scrollView, () => newComponent(LinkItem));
-    const content = div({ class: [cn.col, cn.flex1], style: "padding: 20px" }, [
-        el("H2", {}, ["URLs above or under the current note"]),
-        linkList,
-    ]);
-    const empty = div({ style: "padding: 40px" }, ["Couldn't find any URLs above or below the current note."]);
-    const root = newComponentArgs(Modal, [[
-        div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
-            content,
-            empty,
-        ])
-    ]]);
+    const currentNote = getCurrentNote(state);
+    let notes: TreeNote[] = [];
+    let lastNote = currentNote;
 
-    let idx = 0;
-    let lastNote: TreeNote | undefined;
+    let note = currentNote;
+    while (!idIsNilOrRoot(note.parentId)) {
+        note = getNote(state, note.parentId);
 
-    rg.preRenderFn(function renderLinkNavModal() {
-        const currentNote = getCurrentNote(state);
-        if (lastNote === currentNote) {
-            return;
-        }
+        notes.push(note);
 
-        lastNote = currentNote;
-
-        root.render({
-            onClose: () => setCurrentModalAndRerenderApp(null),
-        });
-
-        idx = 0;
-        linkList.render((getNext) => {
-
-            function renderLinks(note: TreeNote) {
-                let urlCount = 0;
-
-                forEachUrlPosition(note.data.text, (start, end) => {
-                    const url = note.data.text.substring(start, end);
-                    getNext().render({
-                        url,
-                        text: note.data.text,
-                        range: [start, end],
-                        isFocused: false,
-                        noteId: note.id,
-                    });
-
-                    urlCount++;
-                });
-
-                return urlCount;
+        // Also search children 1 level underneath parents. This is very very helpful.
+        for (let id of note.childIds) {
+            const note = getNote(state, id);
+            if (note === lastNote) {
+                // don't collect urls from the same note twice.
+                continue;
             }
 
+            notes.push(note);
+        }
 
-            let notes: TreeNote[] = [];
-            let lastNote = currentNote;
-            {
-                let note = currentNote;
-                while (!idIsNilOrRoot(note.parentId)) {
-                    note = getNote(state, note.parentId);
+        lastNote = note;
+    }
 
-                    notes.push(note);
+    // we want the urls to appear highest to lowest.
+    for (let i = notes.length - 1; i >= 0; i--) {
+        addAllLinks(notes[i]);
+    }
 
-                    // Also search children 1 level underneath parents. This is very very helpful.
-                    for (let id of note.childIds) {
-                        const note = getNote(state, id);
-                        if (note === lastNote) {
-                            // don't collect urls from the same note twice.
-                            continue;
+    s.idx = s.urls.length - 1;
+
+    // Dont even need to collect these into an array before rendering them. lmao. 
+    dfsPre(state, currentNote, (note) => {
+        addAllLinks(note);
+    });
+}
+
+function imLinkNavModal() {
+    const open = currentModal === MODAL_LINK_NAV_MODAL;
+    const openChanged = imMemo(open);;
+    if (imIf() && open) {
+        imBeginModal(); {
+            const s = imState(newLinkNavModalState);
+            if (openChanged && open) {
+                getUrlsForNote(s);
+            }
+
+            const keys = getImKeys();
+            if (keys.keyDown) {
+                const e = keys.keyDown;
+                keys.keyDown = null;
+
+                if (e.key === "ArrowUp") {
+                    linkNavModalMoveIdx(s, -1);
+                } else if (e.key === "PageUp") {
+                    linkNavModalMoveIdx(s, -10);
+                } else if (e.key === "ArrowDown") {
+                    linkNavModalMoveIdx(s, 1);
+                } else if (e.key === "PageDown") {
+                    linkNavModalMoveIdx(s, 10);
+                } else if (e.key === "Enter") {
+                    const { url, note } = s.urls[s.idx];
+
+                    if (e.shiftKey) {
+                        if (note.id !== state.currentNoteId) {
+                            setCurrentNote(state, note.id, state.currentNoteId);
+                            rerenderApp();
+                        }
+                    } else {
+                        openUrlInNewTab(url);
+                        setCurrentModalAndRerenderApp(null);
+                    }
+                }
+            }
+
+            imBeginDiv(); {
+                if (imInit()) {
+                    setAttr("style", modalPaddingStyles(0));
+                    setClass(cn.col);
+                    setClass(cn.h100);
+                }
+
+                if (imIf() && s.urls.length > 0) {
+                    imBeginDiv(); {
+                        if (imInitStyles("padding: 20px")) {
+                            setClass(cn.col);
+                            setClass(cn.flex1);
                         }
 
-                        notes.push(note);
-                    }
+                        imBeginRoot(newH2); {
+                            if (imInit()) {
+                                setInnerText("URLs above or under the current note");
+                            }
+                        } imEnd();
 
-                    lastNote = note;
-                }
-            }
+                        const scrollContainer = imBeginScrollContainer(VERTICAL, 5000); {
+                            imFor(); for (let i = 0; i < s.urls.length; i++) {
+                                nextListRoot();
 
-            // we want the urls to appear highest to lowest.
-            idx = 0;
-            for (let i = notes.length - 1; i >= 0; i--) {
-                idx += renderLinks(notes[i]);
-            }
+                                const url = s.urls[i];
 
-            // Dont even need to collect these into an array before rendering them. lmao. 
-            dfsPre(state, currentNote, (note) => {
-                renderLinks(note);
-            });
-        });
+                                let isFocused = i === s.idx;
+                                const root = imBeginScrollNavItem(isFocused, true, isFocused, false); {
+                                    imHighlightedText(url.text, url.range);
+                                } imEndScrollContainer();
 
-        rerenderItems();
+                                if (isFocused) {
+                                    scrollContainer.scrollTo = root.root;
+                                }
+                            } imEndFor();
+                        } imEndScrollContainer();
+                    } imEnd();
+                } else {
+                    imElse();
 
-        setVisible(content, linkList.components.length > 0);
-        setVisible(empty, linkList.components.length === 0);
-    });
-
-    function rerenderItems() {
-        let scrollEl: Insertable<HTMLElement> | null = null;
-        for (let i = 0; i < linkList.components.length; i++) {
-            const c = linkList.components[i];
-            const s = c.s;
-            s.isFocused = i === idx;
-            c.renderWithCurrentState();
-            if (s.isFocused) {
-                scrollEl = c;
-            }
-        }
-        scrollView.render({ scrollEl });
-    }
-
-    function moveIndex(amount: number) {
-        idx = Math.max(0, Math.min(linkList.components.length - 1, idx + amount));
-        rerenderItems();
-    }
-
-    document.addEventListener("keydown", (e) => {
-        if (state._currentModal?.el !== root.el) {
-            // Don't let this code execute  when this modal is closed...
-            return;
-        }
-
-
-        if (e.key === "ArrowUp") {
-            e.preventDefault();
-            moveIndex(-1);
-        } else if (e.key === "PageUp") {
-            e.preventDefault();
-            moveIndex(-10);
-        } else if (e.key === "ArrowDown") {
-            e.preventDefault();
-            moveIndex(1);
-        } else if (e.key === "PageDown") {
-            e.preventDefault();
-            moveIndex(10);
-        } else if (e.key === "Enter") {
-            e.preventDefault();
-
-            const { url, noteId } = linkList.components[idx].s;
-            e.stopImmediatePropagation();
-
-            if (e.shiftKey) {
-                if (noteId !== state.currentNoteId) {
-                    setCurrentNote(state, noteId, state.currentNoteId);
-                    rerenderApp();
-                }
-            } else {
-
-                openUrlInNewTab(url);
-                setCurrentModalAndRerenderApp(null);
-            }
-        }
-    });
+                    imBeginDiv(); {
+                        if (imInitStyles("padding: 40px")) {
+                            setInnerText("Couldn't find any URLs above or below the current note.");
+                        }
+                    } imEnd();
+                } imEndIf();
+            } imEnd();
+        } if (!imEndModal()) currentModal = -1;
+    } imEndIf();
 
     return root;
 }
 
 
-function EditableActivityList(rg: RenderGroup<{
+function imEditableActivityList(rg: RenderGroup<{
     activityIndexes: number[] | undefined;
     pageSize?: number;
 }>) {

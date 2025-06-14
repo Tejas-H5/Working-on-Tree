@@ -1,6 +1,6 @@
 import { cssVars } from "src/styling";
 import { newCssBuilder } from "src/utils/cssb";
-import { elementHasMousePress, imBeginDiv, imEnd, imInit, imOn, setAttr, setClass } from "src/utils/im-dom-utils";
+import { elementHasMousePress, imBeginDiv, imEnd, imEndIf, imIf, imInit, imMemo, imOn, setAttr, setClass } from "src/utils/im-dom-utils";
 
 const BG_COLOR = cssVars.bgColor;
 const UNDERLAY_COLOR = "rgba(0, 0, 0, 0.5)";
@@ -14,7 +14,7 @@ const cnModal = cssb.cn("cnModal", [` {
 }`]);
 
 export function imBeginModal() {
-    const root = imBeginDiv(); {
+    imBeginDiv(); {
         if (imInit()) {
             setClass(cnModal);
         }
@@ -26,8 +26,6 @@ export function imBeginModal() {
 
         } // imEnd();
     } // imEnd();
-
-    return root;
 }
 
 export function imEndModal(): boolean {
