@@ -1,17 +1,17 @@
 import { AsciiCanvasLayer, getLayersString } from "src/canvas";
 import { assert } from "src/utils/assert";
-import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_DAY, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate, parseLocaleDateString } from "src/utils/datetime";
+import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_DAY, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate } from "src/utils/datetime";
+import * as tree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
-import * as tree from "src/utils/int-tree";
 import * as oldTree from "src/utils/tree";
 
 import { GraphData, newGraphData } from "./interactive-graph";
 import { Theme } from "./styling";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars, on, contentsDiv } from "./utils/dom-utils";
+import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { fuzzyFind, Range } from "./utils/fuzzyfind";
-import { getLineBeforePos } from "./utils/text-utils";
+import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 const lightThemeColours: Theme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
@@ -146,6 +146,10 @@ export type NoteTreeGlobalState = {
     // non-serializable fields start with _
 
     _criticalLoadingError: string;
+    // If true, error modals will include additional info on where to report the error.
+    // If false, the user can do something about it, and they don't have anything to report.
+    _criticalLoadingErrorWasOurFault: boolean;
+    
 
     _currentlyViewingActivityIdx: number;
     // TODO: doesn't need to be a reference
@@ -468,6 +472,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
 
         // don't set this if our tree is corrupted!
         _criticalLoadingError: "",
+        _criticalLoadingErrorWasOurFault: false,
 
         _currentlyViewingActivityIdx: 0,
         _currentActivityScopedNoteId: -1,
@@ -607,7 +612,7 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
     // I should actually be doing mgrations and validations here but I'm far too lazy
 }
 
-export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => void) {
+export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: string) => void) {
     if (typeof savedStateJSON !== "string") {
         logTrace("Got a blob, converting to string before using...");
 
@@ -627,6 +632,7 @@ export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => voi
     if (loaded.criticalError) {
         logTrace("Loading a new state would be a mistake right about now");
         state._criticalLoadingError = loaded.criticalError;
+        state._criticalLoadingErrorWasOurFault = true;
     } else if (loaded.error) {
         logTrace("Couldn't load state - " + loaded.error);
         state = newNoteTreeGlobalState();
@@ -635,7 +641,7 @@ export function setStateFromJSON(savedStateJSON: string | Blob, then?: () => voi
     }
 
     // NOTE: even the error paths should call `then`
-    then?.();
+    then?.(loaded.criticalError || loaded.error || "Unknown error occured");
 
 }
 
@@ -2357,18 +2363,64 @@ export function searchAllNotesForText(
 export let state = newNoteTreeGlobalState();
 
 
+// We need to prevent a second stale tab from corrupting our data.
+// This can happen when we have a second browser window or tab that we havent touched in days, 
+// and we close our most recent window, and switch to this stale window. Without
+// this extra code that auto-reloads on focus, we'll overwrite our new data with the state data.
+// Don't ask how I found this out ... :'(
+// (Also I have other projects on local storage so we should prefix these)
+const PROJECT_NAME = "note-tree";
+const LAST_SAVED_TIMESTAMP_KEY = PROJECT_NAME + "-lastSavedTimestamp";
+const LAST_SAVED_VERSION_KEY = PROJECT_NAME + "-lastSavedVersion";
+let lastLoadedTime = "";
+let loading = false;
+
 let db: IDBDatabase | undefined;
 
 // TODO: (low priority) - Promisify and asincify this callback spam.
 // But honestly, even thoguh it looks bad, it works. The wrapper design might require some thought. 
-export function loadState(then: () => void) {
+export function loadState(then: (error: string) => void) {
     // This app will have looked a lot different if I hadn't used localStorage as the storage API, and started with indexedDB.
+
+
+    const lastSavedVersion = localStorage.getItem(LAST_SAVED_VERSION_KEY);
+    if (lastSavedVersion) {
+        const versionInt = parseInt(lastSavedVersion);
+        if (versionInt !== null) {
+            if (versionInt > VERSION_NUMBER_MONOTONIC) {
+                const message = "Your state has been saved using a newer version of the app. You shold close this older version and open that one in order to avoid data loss. Saving has been disabled for this session.";
+                logTrace(message);
+                state._criticalLoadingError = message;
+                state._criticalLoadingErrorWasOurFault = false;
+                then("OLD_VERSION");
+                return;
+            }
+        }
+    }
+
+    if (loading) {
+        logTrace("Already loading!");
+        return;
+    }
+
+    if (lastLoadedTime === localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY)) {
+        logTrace("We're already at the latest version, no need to reload");
+        return;
+    }
+
+    loading = true;
+    const thenInternal = (error: string) => {
+        loading = false;
+        lastLoadedTime = localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY) || "";
+        then(error);
+    };
 
     logTrace("Opening DB...");
     const request = window.indexedDB.open(INDEXED_DB_KV_STORE_NAME, 1);
     request.onerror = (e) => {
         loadStateFromLocalStorage();
         console.error("Error requesting db - ", e, request.error);
+        loading = false;
     }
 
     request.onupgradeneeded = () => {
@@ -2395,6 +2447,7 @@ export function loadState(then: () => void) {
         const txRequest = kvStore.get(KV_STORE_STATE_KEY);
         txRequest.onerror = (e) => {
             console.error("Error getting kv store - ", e, request.error);
+            loading = false;
         }
 
         txRequest.onsuccess = () => {
@@ -2406,12 +2459,12 @@ export function loadState(then: () => void) {
                 // Let's just load the state from local storage in case it exists...
                 loadStateFromLocalStorage();
 
-                then();
+                thenInternal("");
                 return;
             }
 
             logTrace("Loaded data from IndexedDB (and not localStorage)");
-            setStateFromJSON(savedStateJSONWrapper.value, then);
+            setStateFromJSON(savedStateJSONWrapper.value, thenInternal);
         }
     };
 }
@@ -2447,6 +2500,11 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
 
     // Do something when all the data is added to the database.
     kvStoreTx.oncomplete = () => {
+        const timestamp = new Date().toISOString();
+        const version = VERSION_NUMBER_MONOTONIC;
+        localStorage.setItem(LAST_SAVED_TIMESTAMP_KEY, timestamp);
+        localStorage.setItem(LAST_SAVED_VERSION_KEY, version.toString());
+
         logTrace("Saved! (as a blob this time, and not text!)");
         then(serialized);
     };

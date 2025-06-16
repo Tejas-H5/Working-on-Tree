@@ -1,8 +1,3 @@
-// oesn't really follow any convention. I bump it up by however big I feel the change I made was.
-// This will need to change if this number ever starts mattering more than "Is the one I have now the same as latest?"
-// 'X' will also denote an unstable/experimental build. I never push anything up if I think it will break things, but still
-const VERSION_NUMBER = "1.02.18";
-
 import {
     AsciiCanvas,
     newCanvasState,
@@ -201,6 +196,7 @@ import {
 import { cnApp, cssVars } from "./styling";
 import { assert } from "./utils/assert";
 import { logTrace } from "./utils/log";
+import { VERSION_NUMBER } from "./version-number";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -4967,19 +4963,23 @@ export function App(rg: RenderGroup) {
                     div({}, [
                         rg.text(() => "Loading save state failed: " + state._criticalLoadingError),
                     ]),
-                    div({}, [
-                        "Saving will be disabled till this issue gets fixed on our end - you'll need to report it.",
-                    ]),
+                    rg.if(() => state._criticalLoadingErrorWasOurFault, rg =>
+                        div({}, [
+                            "Saving will be disabled till this issue gets fixed on our end - you'll need to report it.",
+                        ])
+                    ),
                 ]),
             ),
-            div({}, [
-                "Report issues here: ",
-                el("A", {
-                    class: [cnHoverLink],
-                    style: `color: currentColor;`,
-                    href: GITHUB_PAGE_ISSUES,
-                }, [GITHUB_PAGE_ISSUES]),
-            ])
+            rg.if(() => state._criticalLoadingErrorWasOurFault, rg =>
+                div({}, [
+                    "Report issues here: ",
+                    el("A", {
+                        class: [cnHoverLink],
+                        style: `color: currentColor;`,
+                        href: GITHUB_PAGE_ISSUES,
+                    }, [GITHUB_PAGE_ISSUES]),
+                ])
+            )
         ])
     );
     const notesScrollRoot = div({ class: [cn.col, cn.flex1, cn.overflowYAuto] });
@@ -5387,6 +5387,25 @@ export function App(rg: RenderGroup) {
         }
     });
 
+    // We need to reload state as soon as the window focuses, so that we can avoid stale state in this tab corrupting our datastore
+    // that may have been freshly edited in another tab.
+    window.addEventListener("focus", () => {
+        initState(() => {
+            logTrace("Reloaded!");
+            rerenderApp();
+        });
+
+        // The other tab may have just saved it in a debounce. we need to additionally reload it after the same debounce.
+        // It'll take some time to type a bunch of stuff, then switch to a different tab or window, so we don't really need to add
+        // any tolerance - we get this for free
+        setTimeout(() => {
+            initState(() => {
+                logTrace("Reloaded x2!");
+                rerenderApp();
+            });
+        }, SAVE_DEBOUNCE);
+    });
+
     // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
     // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
     // closes the tab, which is what we want here
@@ -5650,11 +5669,8 @@ const saveCurrentState = ({ debounced } = { debounced: false }) => {
         return;
     }
 
-    if (saveTimeout) {
-        clearTimeout(saveTimeout);
-    }
-
     showStatusText(`Saving...`, `${cssVars.fgColor}`, -1);
+    clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
         save();
     }, SAVE_DEBOUNCE);
