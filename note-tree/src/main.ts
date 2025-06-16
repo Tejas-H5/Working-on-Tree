@@ -9,15 +9,14 @@ import {
     resetCanvas
 } from "src/canvas";
 import {
-    Button,
     Checkbox,
     DateTimeInput,
     imBeginModal,
     imBeginScrollContainer,
+    imButton,
     imEndModal,
     imEndScrollContainer,
-    Modal,
-    PaginationControl,
+    imPaginationControl,
 } from "src/components";
 import {
     ASCII_MOON_STARS,
@@ -56,8 +55,10 @@ import {
     getAttr,
     getCurrentRoot,
     getImKeys,
+    imArray,
     imBeginDiv,
     imBeginRoot,
+    imBeginSpan,
     imElse,
     imEnd,
     imEndFor,
@@ -70,10 +71,14 @@ import {
     imMemoArray,
     imMemoMany,
     imOn,
+    imRef,
     imState,
+    imTextSpan,
     isEditingInput,
     isEditingTextSomewhereInDocument,
     nextListRoot,
+    pushAttr,
+    scrollIntoViewVH,
     setAttr,
     setClass,
     setInnerText,
@@ -89,7 +94,7 @@ import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { bytesToMegabytes, utf8ByteLength } from "src/utils/utf8";
 import { newWebWorker } from "src/utils/web-workers";
 import { EditableTextArea } from "./components/text-area";
-import { TextInput } from "./components/text-input";
+import { imTextInput, TextInput } from "./components/text-input";
 import { InteractiveGraph } from "./interactive-graph";
 import {
     Activity,
@@ -175,6 +180,7 @@ import {
     loadState,
     loadStateFromBackup,
     newBreakActivity,
+    newNoteTreeGlobalState,
     noteStatusToString,
     parseNoteEstimate,
     predictTaskCompletions,
@@ -310,7 +316,7 @@ function imBeginScrollNavItem(
 }
 
 function imEndScrollNavItem() {
-        imEnd();
+    imEnd();
     imEnd();
 }
 
@@ -373,7 +379,7 @@ function imQuickList(cursorNoteId?: NoteId) {
             } imEndIf();
 
             imBeginScrollContainer(VERTICAL, 5000); {
-                imFuzzyFinderResultsList(
+                imFuzzyFindResultsList(
                     state._fuzzyFindState,
                     true,
                     isInQuicklist,
@@ -425,7 +431,7 @@ function imBreakInput() {
             } imEnd();
             imBeginDiv(); {
                 const isTakingABreak = isCurrentlyTakingABreak(state);
-                addBreak = imButton(isTakingABreak ? "Extend break" : "Take a break")
+                addBreak = !!imButton(isTakingABreak ? "Extend break" : "Take a break")
                     || addBreak;
             } imEnd();
 
@@ -439,15 +445,27 @@ function imBreakInput() {
     } imEnd();
 }
 
-function imActivityListItem(
-    previousActivity: Activity | undefined,
-    activity: Activity,
-    nextActivity: Activity | undefined,
-    showDuration: boolean,
-    focus: boolean,
-    hasCursor: boolean,
-    greyedOut: boolean,
-) {
+type ActivityListItemState = {
+    previousActivity: Activity | undefined;
+    activity: Activity;
+    nextActivity: Activity | undefined;
+    showDuration: boolean;
+    focus: boolean;
+    hasCursor: boolean;
+    greyedOut: boolean;
+};
+
+function imActivityListItem(s: ActivityListItemState) {
+    const {
+        previousActivity,
+        activity,
+        nextActivity,
+        showDuration,
+        focus,
+        hasCursor,
+        greyedOut,
+    } = s;
+
     const isEditable = !greyedOut && isEditableBreak(activity);
 
     // I think all break text should just be editable...
@@ -465,7 +483,7 @@ function imActivityListItem(
         durationStr = (isAnApproximation ? "~" : "") + formatDuration(getActivityDurationMs(activity, nextActivity));
     }
 
-    imBeginDiv(); {
+    const root = imBeginDiv(); {
         imBeginScrollNavItem(
             hasCursor,
             isInHotlist,
@@ -498,18 +516,16 @@ function imActivityListItem(
 
                             if (imButton("+ Insert break here")) {
                                 const idx = state.activities.indexOf(activity);
-                                if (idx === -1) {
-                                    return;
+                                if (idx !== -1) {
+                                    const timeA = getActivityTime(activity).getTime();
+                                    const duration = getActivityDurationMs(activity, nextActivity);
+                                    const midpoint = timeA + duration / 2;
+
+                                    const newBreak = newBreakActivity("New break", new Date(midpoint), false);
+                                    state.activities.splice(idx + 1, 0, newBreak);
+
+                                    debouncedSave();
                                 }
-
-                                const timeA = getActivityTime(activity).getTime();
-                                const duration = getActivityDurationMs(activity, nextActivity);
-                                const midpoint = timeA + duration / 2;
-
-                                const newBreak = newBreakActivity("New break", new Date(midpoint), false);
-                                state.activities.splice(idx + 1, 0, newBreak);
-
-                                debouncedSave();
                             }
                         } imEnd();
                         imBeginDiv(); {
@@ -543,7 +559,7 @@ function imActivityListItem(
                                     showStatusText(`Can't set time to ${formatDateTime(date)} as it would re-order the activities`);
                                     handled = true;
                                 }
-                            } 
+                            }
 
                             if (!handled) {
                                 let nextTime = nextActivity ? getActivityTime(nextActivity) : new Date();
@@ -613,12 +629,10 @@ function imActivityListItem(
                         if (imIf() && isEditable) {
                             if (imButton(" x ")) {
                                 const idx = state.activities.indexOf(activity);
-                                if (idx === -1) {
-                                    return;
+                                if (idx !== -1) {
+                                    state.activities.splice(idx, 1);
+                                    debouncedSave();
                                 }
-
-                                state.activities.splice(idx, 1);
-                                debouncedSave();
                             }
                         } imEndIf();
                     } imEnd();
@@ -641,6 +655,7 @@ let currentModal = -1;
 const MODAL_EXPORT = 1;
 const MODAL_DELETE = 2;
 const MODAL_LINK_NAV_MODAL = 3;
+const MODAL_FUZZY_FIND_MODAL = 4;
 
 function imExportModal() {
     const open = currentModal === MODAL_EXPORT;
@@ -718,7 +733,7 @@ function imDeleteModal() {
                                 formatDateTime(getActivityTime(activity), undefined, true)
                             );
                             set = true;
-                        } 
+                        }
                     }
 
                     if (!set) {
@@ -772,7 +787,7 @@ function imDeleteModal() {
 type LinkNavModalStateUrl = {
     url: string;
     text: string;
-    range: Range;
+    ranges: Range[];
     isFocused: boolean;
     note: TreeNote;
 }
@@ -805,7 +820,7 @@ function getUrlsForNote(s: LinkNavModalState) {
             s.urls.push({
                 url,
                 text: note.data.text,
-                range: [start, end],
+                ranges: [[start, end]],
                 isFocused: false,
                 note: note,
             });
@@ -919,7 +934,7 @@ function imLinkNavModal() {
 
                                 let isFocused = i === s.idx;
                                 const root = imBeginScrollNavItem(isFocused, true, isFocused, false); {
-                                    imHighlightedText(url.text, url.range);
+                                    imHighlightedText(url.text, url.ranges);
                                 } imEndScrollContainer();
 
                                 if (isFocused) {
@@ -940,144 +955,146 @@ function imLinkNavModal() {
             } imEnd();
         } if (!imEndModal()) currentModal = -1;
     } imEndIf();
-
-    return root;
 }
 
 
-function imEditableActivityList(rg: RenderGroup<{
-    activityIndexes: number[] | undefined;
-    pageSize?: number;
-}>) {
-    const pagination: Pagination = { pageSize: 10, start: 0, totalCount: 0 }
-    const paginationControl = newComponent(PaginationControl);
+function newEditableActivityListState(): {
+    pagination: Pagination;
+    activities: ActivityListItemState[];
+} {
+    return {
+        pagination: { start: 0, pageSize: 10, totalCount: 0 },
+        activities: [],
+    };
+}
 
-    const listRoot = newListRenderer(div({ style: "" }), () => newComponent(ActivityListItem));
-    const listScrollContainer = newComponent(ScrollContainer);
-    addChildren(setAttrs(listScrollContainer, { class: [cn.flex1] }, true), [
-        listRoot,
-    ]);
-    const statusTextEl = div({ class: [cn.textAlignCenter] }, []);
-    const root = div({ class: [cn.w100, cn.flex1, cn.col], style: "" }, [
-        statusTextEl,
-        listScrollContainer,
-        paginationControl,
-    ]);
 
-    let lastIdx = -1;
+function imEditableActivityList(
+    activityIndexes: number[] | undefined,
+    pageSize: number,
+) {
+    const s = imState(newEditableActivityListState);
 
-    rg.preRenderFn(function rerenderActivityList(s) {
-        const { pageSize, activityIndexes } = s;
-
-        pagination.pageSize = pageSize || 10;
-        if (lastIdx !== state._currentlyViewingActivityIdx) {
-            lastIdx = state._currentlyViewingActivityIdx;
-            setPage(pagination, idxToPage(pagination, state.activities.length - 1 - lastIdx));
+    imBeginDiv(); {
+        if (imInit()) {
+            setClass(cn.w100);
+            setClass(cn.flex1);
+            setClass(cn.col);
         }
-        paginationControl.render({
-            pagination,
-            totalCount: activityIndexes ? activityIndexes.length : state.activities.length,
-            rerender: rg.renderWithCurrentState,
-        });
 
-        const activities = state.activities;
-        const start = getStart(pagination);
-        const end = getCurrentEnd(pagination);
-        const activitiesToRender = end - start;
+        const scrollContainer = imBeginScrollContainer(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+            }
 
-        let scrollEl: Insertable | null = null;
-        listRoot.render((getNext) => {
-            let lastRenderedIdx = -1;
+            imBeginDiv(); {
+                // TODO: memoize on any state change
+                if (imMemo(state.activities.length)) {
+                    disableIm();
 
-            // make the elements, so we can render them backwards
-            for (let i = 0; i < activitiesToRender; i++) {
-                const iFromTheEnd = activitiesToRender - 1 - i;
-                const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
-                const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
+                    s.activities.length = 0;
 
-                const previousActivity = activities[idx - 1];
-                const activity = activities[idx];
-                const nextActivity = activities[idx + 1];
+                    const activities = state.activities;
+                    const start = getStart(s.pagination);
+                    const end = getCurrentEnd(s.pagination);
+                    const activitiesToRender = end - start;
 
-                // If there was a discontinuity in the activities/indicies, we want to render the next activity.
-                // This gives us more peace of mind in terms of where the duration came from
-                const hasDiscontinuity = idx !== -1 &&
-                    idx + 1 < activities.length - 1 &&
-                    lastRenderedIdx !== idx + 1;
-                lastRenderedIdx = idx;
+                    let lastRenderedIdx = -1;
+                    // make the elements, so we can render them backwards
+                    for (let i = 0; i < activitiesToRender; i++) {
+                        const iFromTheEnd = activitiesToRender - 1 - i;
+                        const idxIntoArray = (activityIndexes ? activityIndexes.length : activities.length) - end + iFromTheEnd;
+                        const idx = activityIndexes ? activityIndexes[idxIntoArray] : idxIntoArray;
 
-                if (hasDiscontinuity) {
-                    const nextNextActivity = activities[idx + 2];
-                    getNext().render({
-                        previousActivity: activity,
-                        activity: nextActivity,
-                        nextActivity: nextNextActivity,
-                        showDuration: true,
-                        focus: false,
-                        greyedOut: true,
-                        hasCursor: false,
-                    });
+                        const previousActivity = activities[idx - 1];
+                        const activity = activities[idx];
+                        const nextActivity = activities[idx + 1];
+
+                        // If there was a discontinuity in the activities/indicies, we want to render the next activity.
+                        // This gives us more peace of mind in terms of where the duration came from
+                        const hasDiscontinuity = idx !== -1 &&
+                            idx + 1 < activities.length - 1 &&
+                            lastRenderedIdx !== idx + 1;
+                        lastRenderedIdx = idx;
+
+                        if (hasDiscontinuity) {
+                            const nextNextActivity = activities[idx + 2];
+                            s.activities.push({
+                                previousActivity: activity,
+                                activity: nextActivity,
+                                nextActivity: nextNextActivity,
+                                showDuration: true,
+                                focus: false,
+                                greyedOut: true,
+                                hasCursor: false,
+                            });
+                        }
+
+                        const activityNote = getNoteOrUndefined(state, activity.nId);
+
+                        s.activities.push({
+                            previousActivity,
+                            activity,
+                            nextActivity,
+                            showDuration: true,
+                            // focus: activity.nId === state.currentNoteId,
+                            focus: !!activityNote && isNoteUnderParent(state, state.currentNoteId, activityNote),
+                            hasCursor: false,
+                            greyedOut: false,
+                        });
+
+                        if (
+                            i + 1 === activitiesToRender &&
+                            idx - 2 >= 0
+                        ) {
+                            const previousPreviousActivity = activities[idx - 2];
+                            // Also render the activity before this list. so we can see the 1 activity before the ones in the list
+                            s.activities.push({
+                                previousActivity: previousPreviousActivity,
+                                activity: previousActivity,
+                                nextActivity: activity,
+                                showDuration: true,
+                                focus: false,
+                                greyedOut: true,
+                                hasCursor: false,
+                            });
+                        }
+                    }
+
+                    enableIm();
                 }
 
-                const activityNote = getNoteOrUndefined(state, activity.nId);
-
-                const hasCursor = idx === state._currentlyViewingActivityIdx;
-
-                const c = getNext();
-                c.render({
-                    previousActivity,
-                    activity,
-                    nextActivity,
-                    showDuration: true,
-                    // focus: activity.nId === state.currentNoteId,
-                    focus: !!activityNote && isNoteUnderParent(state, state.currentNoteId, activityNote),
-                    hasCursor,
-                });
-
-                if (hasCursor) {
-                    scrollEl = c;
-                }
-
-                if (
-                    i + 1 === activitiesToRender &&
-                    idx - 2 >= 0
+                imFor(); for (
+                    let i = 0;
+                    i < s.activities.length;
+                    i++
                 ) {
-                    const previousPreviousActivity = activities[idx - 2];
-                    // Also render the activity before this list. so we can see the 1 activity before the ones in the lsit
-                    getNext().render({
-                        previousActivity: previousPreviousActivity,
-                        activity: previousActivity,
-                        nextActivity: activity,
-                        showDuration: true,
-                        focus: false,
-                        greyedOut: true,
-                        hasCursor: false,
-                    });
-                }
-            }
-        });
+                    nextListRoot();
 
-        listScrollContainer.render({ scrollEl });
+                    const activity = s.activities[i];
+                    activity.hasCursor = i === state._currentlyViewingActivityIdx;
+                    const root = imActivityListItem(activity);
+                    if (activity.hasCursor) {
+                        scrollContainer.scrollTo = root.root;
+                    }
+                } imEndFor();
+            } imEnd();
+        } imEndScrollContainer();
 
-        let statusText = "";
-        if (activityIndexes) {
-            if (lastIdx === activities.length - 1) {
-                statusText = "Reached most recent activity";
-            } else if (activityIndexes.length === 0) {
-                if (!idIsNil(state._currentActivityScopedNoteId)) {
-                    statusText = "0 results under the selected note";
-                } else {
-                    statusText = "0 results in this date range";
-                }
-            }
+
+        s.pagination.pageSize = pageSize || 10;
+        const idx = state._currentlyViewingActivityIdx;
+        const idxChanged = imMemo(idx);
+        if (idxChanged) {
+            const newPage = idxToPage(s.pagination, state.activities.length - 1 - idx);
+            setPage(s.pagination, newPage);
         }
 
-        if (setVisible(statusTextEl, !!statusText)) {
-            setText(statusTextEl, statusText);
-        }
-    });
+        s.pagination.totalCount = activityIndexes ?
+            activityIndexes.length : state.activities.length;
 
-    return root;
+        imPaginationControl(s.pagination);
+    } imEnd();
 }
 
 function getNoteProgressCountText(note: TreeNote): string {
@@ -1139,217 +1156,207 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
     }
 }
 
+function imHighlightedTextPart(
+    text: string,
+    highlighted: boolean
+) {
+    imBeginSpan(); {
+        if (imMemo(highlighted)) {
+            setClass(cnApp.unfocusedTextColor, !highlighted);
+        }
 
-function HighlightedText(rg: RenderGroup<{
-    text: string;
-    highlightedRanges: Range[];
-}>) {
-    function HighlightedTextSpan(rg: RenderGroup<{
-        highlighted: boolean;
-        text: string;
-    }>) {
-        return span({}, [
-            rg.class(cnApp.unfocusedTextColor, (s) => !s.highlighted),
-            rg.text((s) => s.text),
-        ]);
-    }
+        if (imMemo(text)) {
+            setInnerText(text);
+        }
+    } imEnd();
+}
 
-    return rg.list(div(), HighlightedTextSpan, (getNext, s) => {
-        const { highlightedRanges: ranges, text } = s;
-
+function imHighlightedText(
+    text: string,
+    highlightedRanges: Range[],
+) {
+    imBeginDiv(); {
         let last = 0;
-        for (const [start, end] of ranges) {
-            const part1 = text.substring(last, start);
-            if (part1) {
-                getNext().render({ text: part1, highlighted: false });
+        imFor(); {
+            for (const [start, end] of highlightedRanges) {
+                nextListRoot();
+                const part1 = text.substring(last, start);
+                if (part1) {
+                    imHighlightedTextPart(part1, false);
+                }
+
+                nextListRoot();
+                const part2 = text.substring(start, end);
+                if (part2) {
+                    imHighlightedTextPart(part2, true);
+                }
+                last = end;
             }
 
-            const part2 = text.substring(start, end);
-            if (part2) {
-                getNext().render({ text: part2, highlighted: true });
-            }
-
-            last = end;
-        }
-
-        const lastPart = text.substring(last);
-        if (lastPart) {
-            getNext().render({ text: lastPart, highlighted: false });
-        }
-    });
+            nextListRoot();
+            const lastPart = text.substring(last);
+            imHighlightedTextPart(lastPart, false);
+        } imEndFor();
+    } imEnd();
 }
 
-function FuzzyFindResultsList(rg: RenderGroup<{
-    finderState: FuzzyFindState;
-    compact: boolean;
-    isCursorActive: boolean;
-}>) {
-    function FuzzyFinderResultItem(rg: RenderGroup<{
-        note: TreeNote;
-        ranges: Range[];
-        hasFocus: boolean;
-        compact: boolean;
-        isCursorActive: boolean;
-    }>) {
-        const textDiv = newComponent(HighlightedText);
-        const children = [
-            div({
-                class: [cn.row, cn.justifyContentStart],
-                style: "padding-right: 20px; padding: 10px;"
-            }, [
-                rg.if(s => !s.compact, rg =>
-                    div({ class: [cn.pre] }, [
-                        rg.text(({ note }) => {
-                            return getNoteProgressCountText(note) + " - ";
-                        })
-                    ])
-                ),
-                div({ class: [cn.flex1] }, [
-                    textDiv,
-                ]),
-            ]),
-            rg.if(s => s.hasFocus, rg =>
-                rg.with(s => {
-                    const note = getMostRecentlyWorkedOnChildActivityNote(state, s.note);
-                    if (note) {
-                        return [s, note] as const;
-                    }
-                }, rg =>
-                    div({
-                        class: [cn.row, cn.justifyContentStart, cn.preWrap],
-                        style: "padding: 10px 10px 10px 10px;"
-                    }, [
-                        rg.style("paddingLeft", s => s[0].compact ? "10px" : "100px"),
-                        div({ class: [cn.flex1], style: `border: 1px solid ${cssVars.fgColor}; padding: 10px;` }, [
-                            rg.text(s => s[1].data.text)
-                        ])
-                    ])
-                )
-            ),
-        ];
-        const root = newComponentArgs(ScrollNavItem, [children]);
-        let lastRanges: any = null;
+function imFuzzyFindResultsList(
+    finderState: FuzzyFindState,
+    compact: boolean,
+    isCursorActive: boolean,
+) {
+    imBeginDiv(); {
+        if (imInit()) {
+            setClass(cn.h100);
+            setClass(cn.col);
+        }
 
-        rg.preRenderFn(function renderFindResultItem(s) {
-            const { ranges, hasFocus, note } = s;
+        if (imIf() && !compact && !finderState.exactMatchSucceeded) {
+            imBeginDiv(); {
+                if (imInit()) {
+                    setClass(cnApp.pad10);
+                }
 
-            // This is basically the same as the React code, to render a diff list, actually, useMemo and all
-            if (ranges !== lastRanges) {
-                textDiv.render({ text: note.data.text, highlightedRanges: ranges });
+
+                let text;
+
+                const fuzzyMatchSucceeded = finderState.matches.length > 0;
+                if (fuzzyMatchSucceeded) {
+                    const plural = finderState.matches.length === 1 ? "is" : "are";
+                    text = `Found 0 exact matches, but found ${finderState.matches.length} that ${plural} close enough`;
+                } else {
+                    text = `Found no matches`;
+                }
+
+                setInnerText(text);
+            } imEnd();
+        } imEndIf();
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+                setClass(cn.overflowYAuto);
             }
 
-            root.render({
-                isFocused: hasFocus,
-                isCursorVisible: hasFocus,
-                isCursorActive: s.isCursorActive,
-            });
+            const arr = imArray<{
+                note: TreeNote;
+                ranges: Range[];
+                hasFocus: boolean;
+                compact: boolean;
+                isCursorActive: boolean;
+            }>();
 
-            if (hasFocus) {
-                const scrollParent = root.el.parentElement!;
-                scrollIntoView(scrollParent, root, 0.5, 0.5);
+
+            // TODO: memo on the right thing
+            if (imMemo(finderState.matches.length)) {
+                arr.length = 0;
+                for (let i = 0; i < finderState.matches.length; i++) {
+                    const m = finderState.matches[i];
+                    arr.push({
+                        note: m.note,
+                        ranges: m.ranges || [[0, m.note.data.text.length]],
+                        hasFocus: i === finderState.currentIdx,
+                        compact,
+                        isCursorActive
+                    });
+                }
             }
-        });
 
-        return root;
+            imFor();
+            for (let i = 0; i < arr.length; i++) {
+                nextListRoot();
+
+                const item = arr[i];
+
+                const root = imBeginScrollNavItem(
+                    item.hasFocus,
+                    item.isCursorActive,
+                    item.hasFocus
+                ); {
+                    imBeginDiv(); {
+                        if (imInitStyles("padding-right: 20px; padding: 10px;")) {
+                            setClass(cn.row);
+                            setClass(cn.justifyContentCenter);
+                        }
+
+                        if (imIf() && !item.compact) {
+                            imBeginDiv(); {
+                                if (imInit()) {
+                                    setClass(cn.pre);
+                                }
+
+                                setInnerText(
+                                    getNoteProgressCountText(item.note) + " - "
+                                );
+                            } imEnd();
+                        } imEndIf();
+                        imBeginDiv(); {
+                            if (imInit()) {
+                                setClass(cn.flex1);
+                            }
+
+                            imHighlightedText(item.note.data.text, item.ranges);
+                        } imEnd();
+                    } imEnd();
+                    if (imIf() && item.hasFocus) {
+                        const note = getMostRecentlyWorkedOnChildActivityNote(state, item.note);
+                        if (imIf() && note) {
+                            imBeginDiv(); {
+                                if (imInitStyles("padding: 10px 10px 10px 10px;")) {
+                                    setClass(cn.row);
+                                    setClass(cn.justifyContentStart);
+                                    setClass(cn.preWrap);
+                                }
+
+                                setStyle("paddingLeft", item.compact ? "10px" : "100px");
+
+                                imBeginDiv(); {
+                                    if (imInitStyles(`border: 1px solid ${cssVars.fgColor}; padding: 10px;`)) {
+                                        setClass(cn.flex1);
+                                    }
+
+                                    setInnerText(note.data.text);
+                                } imEnd();
+                            } imEnd();
+                        } imEndIf();
+                    } imEndIf();
+                } imEndScrollNavItem();
+
+                if (imMemo(item.hasFocus)) {
+                    const scrollParent = root.root.parentElement!;
+                    scrollIntoViewVH(scrollParent, root.root, 0.5, null);
+                }
+            }
+            imEndFor();
+        } imEnd();
+    } imEnd();
+}
+
+function newFuzzyFinderInteranlState() {
+    return {
+        matchesInvalid: true,
+        toggleCurrentNoteVsEverywhere: true,
+        isVisble: false,
+        timeoutId: 0,
     };
-
-    const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto] }), () => newComponent(FuzzyFinderResultItem));
-
-    rg.preRenderFn(({ finderState, compact, isCursorActive }) => {
-        resultList.render((getNext) => {
-            for (let i = 0; i < finderState.matches.length; i++) {
-                const m = finderState.matches[i];
-                getNext().render({
-                    note: m.note,
-                    ranges: m.ranges || [[0, m.note.data.text.length]],
-                    hasFocus: i === finderState.currentIdx,
-                    compact,
-                    isCursorActive
-                });
-            }
-        });
-    });
-
-    return div({ class: [cn.h100, cn.col] }, [
-        rg.if(s => !s.compact && !s.finderState.exactMatchSucceeded, rg =>
-            div({ class: [cnApp.pad10] }, [
-                rg.text(({ finderState }) => {
-                    const fuzzyMatchSucceeded = finderState.matches.length > 0;
-
-                    if (fuzzyMatchSucceeded) {
-                        const plural = finderState.matches.length === 1 ? "is" : "are";
-                        return `Found 0 exact matches, but found ${finderState.matches.length} that ${plural} close enough`;
-                    }
-
-                    return `Found no matches`;
-                })
-            ])
-        ),
-        resultList,
-    ]);
 }
 
-function FuzzyFinder(rg: RenderGroup<{
-    visible: boolean;
-    state: FuzzyFindState;
-}>) {
-    const searchInput = el<HTMLInputElement>("INPUT", { class: [cn.w100] });
-    const root = div({ class: [cn.flex1, cn.col] }, [
-        div({ style: "padding: 10px; gap: 10px;", class: [cn.noWrap, cn.row] }, [
-            rg.text(s => !idIsNil(s.state.scopedToNoteId) ? "Search (Current note)" : "Search (Everywhere)"),
-            div({}, " - "),
-            rg.text(s => s.state.counts.numInProgress + " in progress, " +
-                s.state.counts.numFinished + " done, " +
-                s.state.counts.numShelved + " shelved"
-            ),
-        ]),
-        div({ class: [cn.row, cn.alignItemsCenter], }, [
-            div({ style: "width: 10px" }),
-            searchInput,
-            div({ style: "width: 10px" }),
-        ]),
-        div({ style: "height: 10px" }),
-        div({ class: [cn.flex1] }, [
-            rg.c(FuzzyFindResultsList, (c, s) => c.render({
-                finderState: s.state,
-                compact: false,
-                isCursorActive: true,
-            })),
-        ]),
-    ]);
+function imFuzzyFinder(
+    visible: boolean,
+    finderState: FuzzyFindState,
+) {
+    const s = imState(newFuzzyFinderInteranlState);
+    const visibleChanged = imMemo(visible);
 
-    let timeoutId = 0;
-    const DEBOUNCE_MS = 10;
-    function recomputeMatches(query: string) {
-        const finderState = rg.s.state;
-
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-            state._fuzzyFindState.query = query;
-            recomputeFuzzyFinderMatches(finderState)
-
-            rg.renderWithCurrentState();
-        }, DEBOUNCE_MS);
+    if (finderState.currentIdx >= finderState.matches.length) {
+        finderState.currentIdx = 0;
     }
 
-    let matchesInvalid = true;
-    let toggleCurrentNoteVsEverywhere = true;
-    let isVisble = false;
-
-    rg.preRenderFn(function renderFuzzyFinder(s) {
-        const visibleChanged = isVisble !== s.visible;
-        isVisble = s.visible;
-        if (!isVisble) {
-            return;
-        }
-
-        const finderState = s.state;
-
-        if (matchesInvalid || visibleChanged) {
-            matchesInvalid = false;
+    if (imMemo(visibleChanged) && visible) {
+        if (s.matchesInvalid || visibleChanged) {
+            s.matchesInvalid = false;
             if (visibleChanged) {
                 finderState.scopedToNoteId = -1;
-            } else if (toggleCurrentNoteVsEverywhere) {
+            } else if (s.toggleCurrentNoteVsEverywhere) {
                 if (idIsNil(finderState.scopedToNoteId)) {
                     finderState.scopedToNoteId = state.currentNoteId;
                 } else {
@@ -1357,84 +1364,131 @@ function FuzzyFinder(rg: RenderGroup<{
                 }
             }
 
-            recomputeMatches(finderState.query);
-            toggleCurrentNoteVsEverywhere = false;
-            return;
+            const DEBOUNCE_MS = 10;
+            clearTimeout(s.timeoutId);
+            s.timeoutId = setTimeout(() => {
+                recomputeFuzzyFinderMatches(finderState)
+            }, DEBOUNCE_MS);
+            s.toggleCurrentNoteVsEverywhere = false;
+        }
+    }
+
+    imBeginDiv(); {
+        if (imInit()) {
+            setClass(cn.flex1);
+            setClass(cn.col);
         }
 
-        searchInput.el.focus();
-
-        if (finderState.currentIdx >= finderState.matches.length) {
-            finderState.currentIdx = 0;
-        }
-    });
-
-    searchInput.el.addEventListener("keydown", (e) => {
-        const finderState = rg.s.state;
-
-        const note = finderState.matches[finderState.currentIdx]?.note as TreeNote | undefined;
-
-        if (note && e.key === "Enter") {
-            e.preventDefault();
-            const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
-            setCurrentNote(state, (previewNote ?? note).id, state.currentNoteId);
-            setCurrentModalAndRerenderApp(null);
-            rerenderApp();
-            return;
-        } else if (note && handleAddOrRemoveToStream(e)) {
-            // no need to re-sort the results. better if we don't actually
-            rerenderApp();
-            return;
-        }
-
-
-        let handled = false;
-
-        const navInput = getKeyboardNavigationInput(e);
-        if (navInput) {
-            if (
-                navInput.moveDelta && 
-                // NOTE: not handling home/end here - we want to use these in the text input
-                !navInput.moveToEnd
-            ) {
-                let idx;
-                if (navInput.moveToEnd) {
-                    idx = navInput.moveDelta < 0 ? 0 : finderState.matches.length - 1;
-                } else {
-                    idx = rg.s.state.currentIdx + navInput.moveDelta;
-                }
-                rg.s.state.currentIdx = clampIndexToArrayBounds(idx, finderState.matches);
-                handled = true;
+        imBeginDiv(); {
+            if (imInitStyles("padding: 10px; gap: 10px;")) {
+                setClass(cn.noWrap);
+                setClass(cn.row);
             }
-        } else if (
-            (e.ctrlKey || e.metaKey)
-            && e.shiftKey
-            && e.key === "F"
-        ) {
-            matchesInvalid = true;
-            toggleCurrentNoteVsEverywhere = true;
-            handled = true;
-        }
 
-        if (handled) {
-            e.preventDefault();
-            setFuzzyFindIndex(finderState, finderState.currentIdx);
-            rg.renderWithCurrentState();
-        }
-    });
+            imTextSpan(
+                !idIsNil(finderState.scopedToNoteId) ?
+                    "Search (Current note)" : "Search (Everywhere)"
+            )
 
-    searchInput.el.addEventListener("input", () => {
-        const finderState = rg.s.state;
+            imBeginDiv(); {
+                setInnerText(" - ");
+            } imEnd();
 
-        finderState.query = searchInput.el.value.toLowerCase();
-        finderState.currentIdx = 0;
-        finderState.currentIdxGlobal = 0;
-        finderState.currentIdxLocal = 0;
-        matchesInvalid = true;
-        rg.renderWithCurrentState();
-    });
+            imTextSpan(
+                finderState.counts.numInProgress + " in progress, " +
+                finderState.counts.numFinished + " done, " +
+                finderState.counts.numShelved + " shelved"
+            );
+        } imEnd();
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.row);
+                setClass(cn.alignItemsCenter);
+            }
 
-    return root;
+            imBeginDiv(); imInitStyles("width: 10px"); imEnd();
+
+            const searchInput = imBeginRoot(newInput); {
+                if (imInit()) {
+                    setClass(cn.w100);
+                }
+
+                if (visibleChanged && visible) {
+                    searchInput.root.focus();
+                }
+
+                const keydown = imOn("keydown");
+                if (keydown) {
+                    const note = finderState.matches[finderState.currentIdx]?.note as TreeNote | undefined;
+                    const e =  keydown;
+
+                    if (note && e.key === "Enter") {
+                        e.preventDefault();
+                        const previewNote = getMostRecentlyWorkedOnChildActivityNote(state, note);
+                        setCurrentNote(state, (previewNote ?? note).id, state.currentNoteId);
+                        setCurrentModalAndRerenderApp(null);
+                        rerenderApp();
+                    } else if (note && handleAddOrRemoveToStream(e)) {
+                        // no need to re-sort the results. better if we don't actually
+                        rerenderApp();
+                    } else {
+
+                        let handled = false;
+
+                        const navInput = getKeyboardNavigationInput(e);
+                        if (navInput) {
+                            if (
+                                navInput.moveDelta &&
+                                // NOTE: not handling home/end here - we want to use these in the text input
+                                !navInput.moveToEnd
+                            ) {
+                                let idx;
+                                if (navInput.moveToEnd) {
+                                    idx = navInput.moveDelta < 0 ? 0 : finderState.matches.length - 1;
+                                } else {
+                                    idx = finderState.currentIdx + navInput.moveDelta;
+                                }
+                                finderState.currentIdx = clampIndexToArrayBounds(idx, finderState.matches);
+                                handled = true;
+                            }
+                        } else if (
+                            (e.ctrlKey || e.metaKey)
+                            && e.shiftKey
+                            && e.key === "F"
+                        ) {
+                            s.matchesInvalid = true;
+                            s.toggleCurrentNoteVsEverywhere = true;
+                            handled = true;
+                        }
+
+                        if (handled) {
+                            e.preventDefault();
+                            setFuzzyFindIndex(finderState, finderState.currentIdx);
+                        }
+                    }
+                }
+
+                const input = imOn("input");
+                if (input) {
+                    finderState.query = searchInput.root.value.toLowerCase();
+                    finderState.currentIdx = 0;
+                    finderState.currentIdxGlobal = 0;
+                    finderState.currentIdxLocal = 0;
+                    s.matchesInvalid = true;
+                }
+            } imEnd();
+
+            imBeginDiv(); imInitStyles("width: 10px"); imEnd();
+        } imEnd();
+        imBeginDiv(); imInitStyles("height: 10px"); imEnd();
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+            }
+
+            imFuzzyFindResultsList(finderState, false, true);
+        } imEnd();
+    } imEnd();
 }
 
 type KeyboardNavigationResult = {
@@ -1504,76 +1558,88 @@ function getKeyboardNavigationInput(e: KeyboardEvent): KeyboardNavigationResult 
     return result;
 }
 
-function FuzzyFindModal(rg: RenderGroup<{
-    visible: boolean;
-}>) {
-    return rg.if(
-        s => s.visible,
-        rg => rg.cArgs(Modal, c => c.render({
-            onClose: () => setCurrentModalAndRerenderApp(null),
-        }), [
-            div({ class: [cn.col, cn.h100], style: modalPaddingStyles(0) }, [
-                rg.c(FuzzyFinder, (c, s) => c.render({
-                    visible: s.visible,
-                    state: state._fuzzyFindState,
-                })),
-            ])
-        ])
-    );
+function imFuzzyFindModal() {
+    if (imIf() && currentModal === MODAL_FUZZY_FIND_MODAL) {
+        imBeginModal(); {
+            imBeginDiv(); {
+                if (imInit()) {
+                    setAttr("style", modalPaddingStyles(0));
+                    setClass(cn.col);
+                    setClass(cn.h100);
+                }
+
+                // TODO: this thing isn't going to close properly...
+                imFuzzyFinder(true, state._fuzzyFindState);
+            } imEnd();
+        } if (!imEndModal()) {
+            currentModal = -1;
+        }
+    } imEndIf();
 }
 
-function AddToStreamModalItem(rg: RenderGroup<{
-    currentNote: TreeNote;
-    isFocused: boolean;
-    state: ViewAllTaskStreamsState;
+function imAddToStreamModalItem({
+    currentNote,
+    isFocused,
+    taskStreamsState,
+    nextState,
+    isChecked,
+    count,
+    toggle,
+    navigate,
+}: {
+    currentNote: TreeNote,
+    isFocused: boolean,
+    taskStreamsState: ViewAllTaskStreamsState,
     // right now, null means that this represents the schedule instead of a normal task stream
-    nextState: ViewTaskStreamState | null;
-    isChecked: boolean;
-    count: number;
-    toggle: (stream: TaskStream | null, note: TreeNote) => void;
-    navigate: () => void;
-}>) {
-    let isNoteInStream = false;
-    let numParentsInStream = 0;
-    let name = "";
+    nextState: ViewTaskStreamState | null,
+    isChecked: boolean,
+    count: number,
+    toggle: (stream: TaskStream | null, note: TreeNote) => void,
+    navigate: () => void,
+}) {
+    let isNoteInStream = isChecked;
+    let numParentsInStream = count;
 
-    rg.preRenderFn(s => {
-        isNoteInStream = s.isChecked;
-        numParentsInStream = s.count;
+    imBeginScrollNavItem(
+        isFocused,
+        true,
+        isFocused,
+        false,
+    ); {
+        imBeginDiv(); {
+            if (imInitStyles("padding: 10px")) {
+                setClass(cn.row)
+                setClass(cn.alignItemsCenter)
+                setClass(cn.preWrap)
+                setClass(cn.justifyContentCenter);
+            }
 
-        if (s.nextState) {
-            name = s.nextState.taskStream.name;
-        } else {
-            name = "[[[ Schedule ]]]";
-        }
-    });
+            setStyle("fontSize", nextState ?  "" : "1.2em");
+            setStyle("fontWeight", nextState ?  "" : "bold");
 
-    return rg.cArgs(ScrollNavItem, (c, s) => c.render({
-        isFocused: s.isFocused,
-        isGreyedOut: false,
-        isCursorVisible: s.isFocused,
-        isCursorActive: true,
-    }), [
-        div({
-            class: [cn.row, cn.alignItemsCenter, cn.preWrap, cn.justifyContentCenter],
-            style: "padding: 10px",
-        }, [
-            // Schedule item is a little bit bigger - to give it more visual importance
-            rg.style("fontSize", s => s.nextState ? "" : "1.2em"),
-            rg.style("fontWeight", s => s.nextState ? "" : "bold"),
-            div({
-                style: "width: 20ch",
-                class: [cn.row, cn.alignItemsCenter, cn.preWrap],
-            }, [
-                rg.style("color", s => (!isNoteInStream && numParentsInStream === 0) ? cssVars.unfocusTextColor : ""),
-                rg.c(Checkbox, (c, s) => c.render({
-                    value: isNoteInStream,
-                    onChange: () => {
-                        s.toggle(s.nextState ? s.nextState.taskStream : null, s.currentNote); 
-                    },
-                })),
-                div({ style: "width: 10px" }),
-                rg.text(s => {
+            imBeginDiv(); {
+                if (imInitStyles("width: 20ch")) {
+                    setClass(cn.row);
+                    setClass(cn.alignItemsCenter);
+                    setClass(cn.preWrap);
+                }
+
+                setStyle(
+                    "color",
+                    (!isNoteInStream && numParentsInStream === 0) ? cssVars.unfocusTextColor : ""
+                );
+
+                // TODO: make more performant
+                const val = imCheckbox(isNoteInStream);
+                if (val !== isNoteInStream) {
+                    toggle(nextState ? nextState.taskStream : null, currentNote);
+                }
+
+                imBeginDiv(); imInitStyles("width: 10px"); imEnd();
+
+                let textRef = imRef<string>();
+                // TODO: memoize the right thing
+                if (imMemo(currentNote)) {
                     const sb = [];
                     if (isNoteInStream) {
                         sb.push("this note");
@@ -1583,112 +1649,139 @@ function AddToStreamModalItem(rg: RenderGroup<{
                     }
 
                     if (sb.length === 0) {
-                        return "not in stream";
+                        textRef.val = "not in stream";
+                    } else {
+                        textRef.val = sb.join(", ");
                     }
-                    return sb.join(", ");
-                }),
-            ]),
-
-            // the name
-
-            rg.if(s => s.isFocused && s.state.isRenaming && !!s.nextState, rg =>
-                rg.c(TextInput, (c, s) => c.render({
-                    focus: s.isFocused,
-                    focusWithAllSelected: true,
-                    value: s.nextState!.taskStream.name,
-                    autoSize: true,
-                    onChange: (val) => {
-                        s.nextState!.taskStream.name = val;
-                        rerenderApp();
-                    }
-                })),
-            ),
-            rg.else(rg =>
-                rg.text((s) => name),
-            ),
-
-            // more info
-            div({ style: "width: 3ch" }),
-
-            rg.text(s => {
-                let n;
-                if (s.nextState) {
-                    n = s.nextState.taskStream.noteIds.length;
-                } else {
-                    n = state.scheduledNoteIds.length;
                 }
 
-                if (n === 0) {
-                    return "no notes";
-                }
+                imTextSpan(textRef.val || "");
+            } imEnd();
+        } imEnd();
 
-                if (n === 1) {
-                    return "1 note";
-                }
+        // the name
+        
+        if (imIf() && isFocused && taskStreamsState.isRenaming && !!nextState) {
+            const e = imTextInput({
+                focus: isFocused,
+                focusWithAllSelected: true,
+                value: nextState!.taskStream.name,
+            });
+            if (e && e.type === "change") {
+                nextState!.taskStream.name = e.text;
+            }
+        } else {
+            imElse();
 
-                return `${n} notes`;
-            }),
-            " - ",
-            rg.text(s => {
-                if (!s.nextState) {
-                    return "-";
-                }
+            let name;
+            if (nextState) {
+                name = nextState.taskStream.name;
+            } else {
+                name = "[[[ Schedule ]]]";
+            }
 
+            imTextSpan(name);
+        } imEndIf();
+
+        // more info
+        imBeginDiv(); imInitStyles("width: 3px"); imEnd();
+
+        {
+            let text;
+            let n;
+            if (nextState) {
+                n = nextState.taskStream.noteIds.length;
+            } else {
+                n = state.scheduledNoteIds.length;
+            }
+
+            if (n === 0) {
+                text = "no notes";
+            } else if (n === 1) {
+                text = "1 note";
+            } else {
+                text = `${n} notes`;
+            }
+
+            imTextSpan(text);
+        }
+
+        imTextSpan(" - ");
+
+        {
+            let text;
+            if (!nextState) {
+                text = "-";
+            } else {
                 let n = 0;
-                for (const p of s.nextState.inProgressNotes) {
+                for (const p of nextState.inProgressNotes) {
                     n += p.inProgressIds.length;
                 }
 
                 if (n === 0) {
-                    return "none in progress";
+                    text  = "none in progress";
+                } else if (n === 1) {
+                    text = "1 in progress";
+                } else {
+                    text = `${n} in progress`;
                 }
+            }
 
-                if (n === 1) {
-                    return "1 in progress";
+            imTextSpan(text);
+        }
+
+        imTextSpan(" - ");
+
+        {
+            let duration = 0;
+
+            const noteIds = nextState ? nextState.taskStream.noteIds : state.scheduledNoteIds;
+            for (const id of noteIds) {
+                const note = getNote(state, id);
+                duration += getNoteDurationWithoutRange(state, note);
+            }
+
+            const text = formatDurationAsHours(duration) + " spent";
+            imTextSpan(text);
+        }
+
+        imTextSpan(" - ");
+
+        {
+            let estimate = 0;
+            let hasEstimate = false;
+            const noteIds = nextState ? nextState.taskStream.noteIds : state.scheduledNoteIds;
+            for (const id of noteIds) {
+                const note = getNote(state, id);
+                const noteEstimate = getNoteEstimate(note);
+                if (noteEstimate !== -1) {
+                    estimate += noteEstimate;
+                    hasEstimate = true;
                 }
+            }
 
-                return `${n} in progress`;
-            }),
-            " - ",
-            rg.text(s => {
-                let duration = 0;
+            let text;
+            if (!hasEstimate) {
+                text = "no estimates";
+            } else {
+                text = formatDurationAsHours(estimate) + " estimated";
+            }
 
-                const noteIds = s.nextState ? s.nextState.taskStream.noteIds : state.scheduledNoteIds;
-                for (const id of noteIds) {
-                    const note = getNote(state, id);
-                    duration += getNoteDurationWithoutRange(state, note);
-                }
+            imTextSpan(text);
+        }
 
-                return formatDurationAsHours(duration) + " spent";
-            }),
-            " - ",
-            rg.text(s => {
-                let estimate = 0;
-                let hasEstimate = false;
-                const noteIds = s.nextState ? s.nextState.taskStream.noteIds : state.scheduledNoteIds;
-                for (const id of noteIds) {
-                    const note = getNote(state, id);
-                    const noteEstimate = getNoteEstimate(note);
-                    if (noteEstimate !== -1) {
-                        estimate += noteEstimate;
-                        hasEstimate = true;
-                    }
-                }
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+            }
+        } imEnd();
 
-                if (!hasEstimate) {
-                    return "no estimates";
-                }
+        imBeginDiv(); imInitStyles("width: 3px"); imEnd();
 
-                return formatDurationAsHours(estimate) + " estimated";
-            }),
-            div({ class: [cn.flex1] }),
-            div({ style: "width: 3ch" }),
-            rg.c(Button, (c, s) => c.render({
-                label: "->",
-                onClick: () => s.navigate(),
-            }))
-        ])
-    ]);
+        if (imButton("->")) {
+            navigate();
+        }
+    } imEndScrollNavItem();
 }
 
 function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
@@ -1740,7 +1833,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
         ];
         const scrollNavItem = newComponentArgs(ScrollNavItem, [children]);
 
-        rg.preRenderFn(({hasFocus, isCursorActive}) => {
+        rg.preRenderFn(({ hasFocus, isCursorActive }) => {
             scrollNavItem.render({
                 isFocused: hasFocus,
                 isCursorVisible: hasFocus,
@@ -1775,8 +1868,8 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
             scrollNavItem,
             rg.if(s => s.hasFocus && s.s.isEstimating, rg =>
                 div({ class: [cn.row] }, [
-                    div({}, [ 
-                        rg.text(s => s.s.isEstimatingRemainder ? "New estimate (remaining): " : "New estimate: " ),
+                    div({}, [
+                        rg.text(s => s.s.isEstimatingRemainder ? "New estimate (remaining): " : "New estimate: "),
                     ]),
                     rg.c(TextInput, (c, s) => {
                         let text = s.note.data.text;
@@ -1833,7 +1926,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
 
     let completions: TaskCompletions[] = [];
     const allowedDays: Boolean7 = [false, false, false, false, false, false, false];
-    const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto ] }), () => newComponent(TaskItem));
+    const resultList = newListRenderer(div({ class: [cn.flex1, cn.overflowYAuto] }), () => newComponent(TaskItem));
 
     let holidayName = "";
     let holidayDateStr = "";
@@ -1877,7 +1970,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
         if (holidayName && !holidayDateStr) {
             let { date, monthIdx, year } = extractDateFromText(holidayName);
             const holidayDate = dateFromDayMonthOptionalYear(date, monthIdx, year);
-            if (holidayDate ){
+            if (holidayDate) {
                 holidayDateStr = holidayDate.toLocaleDateString();
             }
         }
@@ -1889,7 +1982,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                 let { date, monthIdx, year } = extractDateFromText(holidayDateStr);
                 holidayDate = dateFromDayMonthOptionalYear(date, monthIdx, year);
             }
-        } 
+        }
 
         if (!holidayDate || !isValidDate(holidayDate)) {
             if (holidayDateStr) {
@@ -1954,7 +2047,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     });
 
     return div({ class: [cn.flex1, cn.h100, cn.col] }, [
-        rg.if(s => s.isConfiguringWorkday, rg => 
+        rg.if(s => s.isConfiguringWorkday, rg =>
             div({ class: [cn.flex1, cn.col, cn.alignItemsStretch] }, [
                 div({ class: [cn.flex1, cn.row, cnApp.gap10] }, [
                     div({ class: [cn.flex1, cn.col, cnApp.gap10] }, [
@@ -2092,7 +2185,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
                     ]),
                     div({ class: [cn.flex1] }, [
                         el("H3", {}, ["Holidays"]),
-                        rg.if(s => state.workdayConfig.holidays.length === 0, rg => 
+                        rg.if(s => state.workdayConfig.holidays.length === 0, rg =>
                             div({}, ["None :("]),
                         ),
                         div({ class: [cn.table, cn.w100] }, [
@@ -2240,9 +2333,9 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
     ]);
 }
 
-function ViewTaskStream(rg: RenderGroup<{ 
-    state: ViewTaskStreamState; 
-    goBack: () => void; 
+function ViewTaskStream(rg: RenderGroup<{
+    state: ViewTaskStreamState;
+    goBack: () => void;
 }>) {
     let inProgressState: InProgressNotesState | undefined;
     let numInProgress = 0;
@@ -2685,7 +2778,7 @@ function AddToStreamModal(rg: RenderGroup<{
                         handled = true;
                     }
                 }
-            } 
+            }
 
             if (!handled) {
                 const navInput = getKeyboardNavigationInput(e);
@@ -2730,7 +2823,7 @@ function AddToStreamModal(rg: RenderGroup<{
                         }
                     }
                 }
-            } 
+            }
 
             if (!handled && e.key === "ArrowRight") {
                 viewAllTaskStreamsState.isViewingCurrentStream = true;
@@ -2779,10 +2872,10 @@ function AddToStreamModal(rg: RenderGroup<{
                     if (viewAllTaskStreamsState.isViewingCurrentStream && !!viewStreamState) {
                         return { viewStreamState: viewStreamState };
                     }
-                }, rg => rg.c(ViewTaskStream, (c, { viewStreamState }) => c.render({ 
-                        state: viewStreamState!,
-                        goBack: goToAllStreams,
-                    })),
+                }, rg => rg.c(ViewTaskStream, (c, { viewStreamState }) => c.render({
+                    state: viewStreamState!,
+                    goBack: goToAllStreams,
+                })),
                 ),
                 rg.else(
                     rg => rg.c(ViewCurrentSchedule, (c) => c.render(scheduleViewState))
@@ -3274,7 +3367,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         } else if (e.key === "ArrowDown") {
             shouldPreventDefault = false;
             handled = true;
-        } 
+        }
 
         if (handled) {
             if (shouldPreventDefault) {
@@ -3611,7 +3704,7 @@ export type TreeVisualsInfo = {
 
     // for the tree visuals
     _isVisualLeaf: boolean; // Does this note have it's children expanded in the tree note view?
-    _selectedPathDepth: number;  
+    _selectedPathDepth: number;
     _selectedPathDepthIsFirst: boolean;  // Is this the first note on the selected path at this depth? (Nothing to do with Depth first search xD)
 }
 
@@ -5370,7 +5463,7 @@ export function App(rg: RenderGroup) {
                     // move into note
                     handled = handleMovingIn();
                 }
-            } 
+            }
         } else if (e.key === "Escape") {
             if (isEditingSomeText) {
                 setIsEditingCurrentNote(state, false);
@@ -5379,7 +5472,7 @@ export function App(rg: RenderGroup) {
                 setCurrentModal(null);
                 handled = true;
             }
-        } 
+        }
 
         if (handled) {
             if (shouldPreventDefault) {
@@ -5678,7 +5771,7 @@ function setAppHeader(newHeader: string) {
     currentAppHeader = newHeader;
 }
 
-const root = newInsertable(document.body);
+// const root = newInsertable(document.body);
 initializeDomUtils(root);
 const app = newComponent(App);
 appendChild(root, app);

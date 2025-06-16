@@ -1,68 +1,76 @@
-import { RenderGroup, cn, div } from "src/utils/im-dom-utils";
-import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage, setTotalCount } from "src/utils/pagination";
-import { Button } from "./button";
+import { imBeginDiv, imEnd, imEndIf, imIf, imInit, setAttr, setClass, setInnerText, setStyle } from "src/utils/im-dom-utils";
+import { Pagination, getCurrentEnd, getMaxPages, getPage, getStart, idxToPage, setPage } from "src/utils/pagination";
+import { cn } from "src/utils/cssb";
+import { imButton } from "./button";
 
-export function PaginationControl(rg: RenderGroup<{
-    totalCount: number;
-    pagination: Pagination;
-    rerender(): void;
-}>) {
-    function previousPage() {
-        const { pagination, rerender } = rg.s;
-        setPage(pagination, getPage(pagination) - 1);
-        rerender();
-    }
 
-    function firstPage() {
-        const { pagination, rerender } = rg.s;
-        pagination.start = 0;
-        rerender();
-    }
+function previousPage(pagination: Pagination) {
+    setPage(pagination, getPage(pagination) - 1);
+}
 
-    function nextPage() {
-        const { pagination, rerender } = rg.s;
-        setPage(pagination, getPage(pagination) + 1);
-        rerender();
-    }
+function firstPage(pagination: Pagination) {
+    pagination.start = 0;
+}
 
-    function lastPage() {
-        const { pagination, rerender } = rg.s;
-        pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
-        rerender();
-    }
+function nextPage(pagination: Pagination) {
+    setPage(pagination, getPage(pagination) + 1);
+}
 
-    let page = 0, start = 0, end = 0, maxPages = 0;
-    rg.preRenderFn(function renderPaginationControl(s) {
-        const { pagination, totalCount } = s;
+function lastPage(pagination: Pagination) {
+    pagination.start = idxToPage(pagination, pagination.totalCount) * pagination.pageSize;
+}
 
-        setTotalCount(pagination, totalCount);
+export function imPaginationControl(pagination: Pagination) {
+    const page = getPage(pagination);
+    const start = getStart(pagination) + 1;
+    const end = getCurrentEnd(pagination);
+    const maxPages = getMaxPages(pagination);
 
-        page = getPage(pagination);
-        start = getStart(pagination) + 1;
-        end = getCurrentEnd(pagination);
-        maxPages = getMaxPages(pagination);
-    });
+    imBeginDiv(); {
+        if (imInit()) {
+            setAttr("style", `border-top: 1px solid currentColor;`);
+            setClass(cn.row);
+            setClass(cn.alignItemsCenter);
+        }
 
-    return div({ style: `border-top: 1px solid currentColor;`, class: [cn.row, cn.alignItemsCenter] }, [
-        div({ style: "" }, [
-            rg.text((s) => `Page ${page + 1} (${start}) - ${end} / ${s.pagination.totalCount})`)
-        ]),
-        div({ class: [cn.flex1] }),
-        div({ style: "width: 100px", class: [cn.row] }, [
-            rg.if(() => page !== 0, rg => 
-                rg.c(Button, c => c.render({ label: "<<", onClick: firstPage })),
-            ),
-            rg.if(() => page !== 0, rg => 
-                rg.c(Button, c => c.render({ label: "<", onClick: previousPage }))
-            )
-        ]),
-        div({ style: "width: 100px", class: [cn.row, cn.justifyContentRight] }, [
-            rg.if(() => page !== maxPages, rg => 
-                rg.c(Button, c => c.render({ label: ">", onClick: nextPage }))
-            ),
-            rg.if(() => page !== maxPages, rg => 
-                rg.c(Button, c => c.render({ label: ">>", onClick: lastPage }))
-            ),
-        ]),
-    ]);
+        imBeginDiv(); {
+            setInnerText(`Page ${page + 1} (${start}) - ${end} / ${pagination.totalCount})`);
+        } imEnd();
+        imBeginDiv(); {
+            if (imInit()) {
+                setClass(cn.flex1);
+            }
+        } imEnd();
+
+        imBeginDiv(); {
+            if (imInit()) {
+                setStyle("width", "100px");
+                setClass(cn.row);
+            }
+
+            if (imIf() && page !== 0) {
+                if (imButton("<<")) {
+                    firstPage(pagination);
+                }
+                if (imButton("<")) {
+                    previousPage(pagination);
+                }
+            } imEndIf();
+        } imEnd();
+        imBeginDiv(); {
+            if (imInit()) {
+                setStyle("width", "100px");
+                setClass(cn.row);
+            }
+
+            if (imIf() && page !== maxPages) {
+                if (imButton(">")) {
+                    nextPage(pagination);
+                }
+                if (imButton(">>")) {
+                    lastPage(pagination);
+                }
+            } imEndIf();
+        } imEnd();
+    } imEnd();
 }

@@ -16,6 +16,7 @@
 //
 //      Be very conservative when adding your own exceptions to this rule.
 
+import { getCurrentNote } from "src/state";
 import { assert } from "./assert";
 
 "use strict";
@@ -624,6 +625,10 @@ export function setAttrElement(e: ValidElement, attr: string, val: string | null
 
 export function setAttr(k: string, v: string, r = getCurrentRoot()) {
     return setAttrElement(r.root, k, v);
+}
+
+export function pushAttr(k: string, v: string, r = getCurrentRoot()) {
+    return setAttrElement(r.root, k, getAttr(k, r) + v);
 }
 
 export function getAttr(k: string, r = getCurrentRoot()) : string {
