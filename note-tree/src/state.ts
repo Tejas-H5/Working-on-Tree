@@ -2504,6 +2504,7 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
         const version = VERSION_NUMBER_MONOTONIC;
         localStorage.setItem(LAST_SAVED_TIMESTAMP_KEY, timestamp);
         localStorage.setItem(LAST_SAVED_VERSION_KEY, version.toString());
+        lastLoadedTime = timestamp;
 
         logTrace("Saved! (as a blob this time, and not text!)");
         then(serialized);
