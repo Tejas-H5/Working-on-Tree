@@ -1,61 +1,66 @@
-import { el, on, RenderGroup, setAttr, setInputValue, setInputValueAndResize } from "src/utils/dom-utils";
+import { newCssBuilder } from "src/utils/cssb";
+import { imBeginRoot, imEnd, imMemo, imOn, isFirstRender, setAttr, setClass } from "src/utils/im-dom-utils";
+import { cssVars } from "./core/stylesheets";
+import { FOCUS_RESULT_FOCUSED, imFocusCurrentElement, imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 
-export function TextInput(rg: RenderGroup<{
+function newInput() {
+    return document.createElement("input");
+}
+
+const cssb = newCssBuilder();
+
+
+const cnInput = cssb.newClassName("im-text-input");
+cssb.s(`
+input.${cnInput} {
+    all: unset;
+    resize: none;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px;
+}
+
+input.${cnInput}:focus, input.${cnInput}:hover {
+    background-color: ${cssVars.bg2};
+}
+`);
+
+
+export function imTextInput({
+    value,
+    focus,
+    focusWithAllSelected,
+    placeholder = "",
+}: {
     value: string;
-    onChange(newValue: string, changed: boolean): void;
     /** 
      * Should this component recieve focus? 
      * It's up to you to make sure only one thing in your app is focused at a time.
      **/
     focus?: boolean;
     focusWithAllSelected?: boolean;
-    autoSize?: boolean;
     placeholder?: string;
-}>) {
-    const input = el<HTMLInputElement>("INPUT");
+}): ImTextInputEvent | null {
+    let e: ImTextInputEvent | null = null;
 
-    let focused = false;
-
-    rg.preRenderFn((s) => {
-        setAttr(input, "placeholder", s.placeholder);
-
-        if (document.activeElement !== input.el) {
-            if (s.autoSize) {
-                setInputValueAndResize(input, s.value);
-            } else {
-                setInputValue(input, s.value);
-            }
+    const input = imBeginRoot(newInput); {
+        if (isFirstRender()) {
+            setClass(cnInput);
+            setAttr("type", "text");
         }
 
-        if (s.focus !== undefined) {
-            const changed = s.focus !== focused;
-
-            if (changed) {
-                if (s.focus) {
-                    input.el.focus();
-                    if (s.focusWithAllSelected) {
-                        input.el.selectionStart = 0;
-                        input.el.selectionEnd = s.value.length;
-                    }
-                } else {
-                    input.el.blur();
-                }
-            } 
+        if (imMemo(placeholder)) {
+            setAttr("placeholder", placeholder);
         }
 
-    });
+        const result = imFocusCurrentElement(focus);
+        if (focusWithAllSelected && result === FOCUS_RESULT_FOCUSED) {
+            input.root.selectionStart = 0;
+            input.root.selectionEnd = value.length;
+        }
 
-    on(input, "input", () => rg.s.onChange(input.el.value, false));
-    on(input, "change", () => rg.s.onChange(input.el.value, true));
+        e = imGetTextInputEvent(input.root);
+    } imEnd();
 
-    on(input, "blur", () => {
-        // lots of things can focus/unfocus this input, not just our prop. 
-        // focused must always be up-to-date.
-        focused = false
-
-        rg.s.onChange(input.el.value, true);
-    });
-    on(input, "focus", () => focused = true);
-
-    return input;
+    return e;
 }

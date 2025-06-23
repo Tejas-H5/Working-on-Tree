@@ -1,4 +1,4 @@
-import { AsciiCanvasLayer, getLayersString } from "src/canvas";
+import { AsciiCanvasLayer, getLayersString } from "src/legacy-app-components/canvas-state";
 import { assert } from "src/utils/assert";
 import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_DAY, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate } from "src/utils/datetime";
 import * as tree from "src/utils/int-tree";
@@ -6,44 +6,20 @@ import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
 import * as oldTree from "src/utils/tree";
 
-import { GraphData, newGraphData } from "./interactive-graph";
-import { Theme } from "./styling";
+import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { Insertable, isEditingTextSomewhereInDocument, newColor, newColorFromHex, setCssVars } from "./utils/dom-utils";
 import { fuzzyFind, Range } from "./utils/fuzzyfind";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-
-const lightThemeColours: Theme = {
-    bgInProgress: newColor(1, 0, 0, 0.1),
-    fgInProgress: newColorFromHex("#FFF"),
-    bgColor: newColorFromHex("#FFF"),
-    bgColorFocus: newColorFromHex("#CCC"),
-    bgColorFocus2: newColor(0, 0, 0, 0.4),
-    fgColor: newColorFromHex("#000"),
-    unfocusTextColor: newColorFromHex("#A0A0A0"),
-    focusedTreePathWidth: "4px",
-    unfocusedTreePathWidth: "1px",
-};
-
-const darkThemeColours: Theme = {
-    bgInProgress: newColor(1, 0, 0, 0.1),
-    fgInProgress: newColorFromHex("#FFF"),
-    bgColor: newColorFromHex("#000"),
-    bgColorFocus: newColorFromHex("#333"),
-    bgColorFocus2: newColor(1, 1, 1, 0.4),
-    fgColor: newColorFromHex("#EEE"),
-    unfocusTextColor: newColorFromHex("#707070"),
-    focusedTreePathWidth: "4px",
-    unfocusedTreePathWidth: "1px",
-};
+import { setCssVars } from "./utils/cssb";
+import { darkTheme, lightTheme } from "./app-styling";
 
 export function setTheme(newTheme: AppTheme) {
     state.currentTheme = newTheme;
 
     if (newTheme === "Light") {
-        setCssVars(lightThemeColours);
+        setCssVars(lightTheme);
     } else {
-        setCssVars(darkThemeColours);
+        setCssVars(darkTheme);
     }
 };
 

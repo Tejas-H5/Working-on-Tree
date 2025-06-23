@@ -1,4 +1,4 @@
-import { cssVars } from "src/styling";
+import { cssVars } from "src/legacy-styling";
 import { formatDateTime, parseYMDTDateTime } from "src/utils/datetime";
 import { cn, div, el, isEditingInput, newComponent, RenderGroup, setInputValueAndResize, setStyle, setText, setVisible } from "src/utils/dom-utils";
 import { Checkbox } from "./checkbox";

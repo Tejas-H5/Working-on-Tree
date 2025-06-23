@@ -1,4 +1,4 @@
-import { cssVars } from "src/styling";
+import { cssVars } from "src/legacy-styling";
 import { Insertable, RenderGroup, cn, div, el, setAttr, setClass, setInputValue, setStyle, setText, setVisible, on, newCssBuilder, span } from "src/utils/dom-utils";
 import { getLineBeforePos } from "src/utils/text-utils";
 

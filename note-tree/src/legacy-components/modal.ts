@@ -1,4 +1,4 @@
-import { cssVars } from "src/styling";
+import { cssVars } from "src/legacy-styling";
 import { DomUtilsChildren, RenderGroup, div, newCssBuilder } from "src/utils/dom-utils";
 
 const BG_COLOR = cssVars.bgColor;
