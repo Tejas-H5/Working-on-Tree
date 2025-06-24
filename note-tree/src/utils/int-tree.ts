@@ -1,15 +1,18 @@
 // This tree is supposed to be JSON-serializable. 
 // T is an index into the TreeStore which stores the actual data, rather than an in-memory reference
 
+export type TreeId = number & { __treeId: void; };
+
+
 // to the node object.
 // NOTE: in hindsight, this is a bit of a blunder caused by mindlessness. There's no reason to use uuids here - we should have just used
 // an index into an array. I could change it but I would need to create migration scripts.
 export type TreeNode<T> = {
     // NOTE: id=0 will always be _the_ root node. There may still be other root nodes, however...
-    id: number;
-    parentId: number;
+    id: TreeId;
+    parentId: TreeId;
     idxInParentList: number; // NOTE: this id is transient, and can always change as nodes are added/removed.
-    childIds: number[];
+    childIds: TreeId[];
     data: T;
 };
 
@@ -26,11 +29,14 @@ export function forEachNode<T>(tree: TreeStore<T>, fn: (n: TreeNode<T>) => void)
     }
 }
 
+export const ROOT_ID = 0 as TreeId;
+export const NIL_ID = -1 as TreeId;
+
 export function newTreeStore<T>(rootNoteData: T): TreeStore<T> {
     const rootNode : TreeNode<T> = {
-        id: 0,
-        parentId: -1,
-        idxInParentList: -1,
+        id: ROOT_ID,
+        parentId: NIL_ID,
+        idxInParentList: NIL_ID,
         childIds: [],
         data: rootNoteData
     };
@@ -92,8 +98,8 @@ export function getSizeExcludingRoot(tree: TreeStore<unknown>) {
 
 export function newTreeNode<T>(data: T) : TreeNode<T> {
     const node: TreeNode<T> = {
-        id: -1,
-        parentId: -1,
+        id: NIL_ID,
+        parentId: NIL_ID,
         idxInParentList: -1,
         childIds: [],
         data
@@ -117,7 +123,7 @@ export function detatch(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     reindexChildren(tree, parent, idxInParentList);
 
     // clear out the parent
-    node.parentId = -1;
+    node.parentId = NIL_ID;
     node.idxInParentList = -1;
 
 }
@@ -134,7 +140,7 @@ export function remove(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     tree.nodes[node.id] = null;
 
     // A node's index only makes sense only if it's actually in the tree.
-    node.id = -1;
+    node.id = NIL_ID;
 }
 
 // children must be re-indexed whenever they are moved around in their array
@@ -160,14 +166,14 @@ export function addAsRoot(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
     detatch(tree, node);
 }
 
-function getNextAvailableIndex(tree: TreeStore<unknown>): number {
+function getNextAvailableIndex(tree: TreeStore<unknown>): TreeId {
     for (let i = 0; i < tree.nodes.length; i++) {
         if (tree.nodes[i] === null) {
-            return i;
+            return i as TreeId;
         }
     }
 
-    return tree.nodes.length;
+    return tree.nodes.length as TreeId;
 }
 
 export function addUnder(tree: TreeStore<unknown>, parent: TreeNode<unknown>, nodeToAdd: TreeNode<unknown>) {

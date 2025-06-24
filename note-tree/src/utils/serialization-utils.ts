@@ -28,51 +28,45 @@ export function recursiveCloneNonComputedFields(obj: any): any {
 
 
 /**
- * Automatically sets unset values to their defaults and removes values that aren't present in an object.
+ * Copies over values from the loaded object to the default object.
  * This is more than enough to implement a custom migration method for 99% of local state migrations.
  * This is only recursive down plain objects (and not arrays, for isntance), and all happens in-place.
+ *
+ * WARNING:if you use objects as a container for kv pairs, this method will clear out said object.
  */
-export function autoMigrate<T extends object>(loadedData: T, currentSchemaVerCreator: () => T) {
+export function autoMigrate<T extends object>(loadedData: T, currentSchemaVerCreator: () => T): T {
     const currentObjectVersion = currentSchemaVerCreator();
-    autoMigrateInternal(loadedData, currentObjectVersion);
+    return autoMigrateInternal(loadedData, currentObjectVersion);
 }
 
+// Implementation detail: By copying the loaded data _into_ the default data, all loaded date can share the same hidden class as the default data.
+// This allows the javascript engine to treat the data as a class with a static number of kv pairs, rather than a map that 
+// we constantly read and write to.
+//
 // Don't let people accidentally reuse the same default schema in multiple places, which would create strange cyclical references.
-export function autoMigrateInternal<T extends object>(loadedData: T, defaultSchema: T) {
-    // delete keys we no longer care about
-    for (const k in loadedData) {
-        if (!(k in defaultSchema)) {
-            delete loadedData[k];
-        }
-    }
-
-    for (const k in defaultSchema) {
-        const defaultValue = defaultSchema[k];
-
-        // update the keys that we didn't set
-        if (!(k in loadedData)) {
-            loadedData[k] = defaultValue;
-            continue;
+function autoMigrateInternal<T extends object>(loadedData: T, defaultSchema: T): T {
+    for (const key in loadedData) {
+        if (!(key in defaultSchema)) {
+            continue
         }
 
-        const val = loadedData[k];
-        if (val === undefined) {
-            // If you've loaded data from JSON, this should never happen
-            delete loadedData[k];
-            continue;
-        }
+        const defaultValue = defaultSchema[key];
+        let loadedValue = loadedData[key];
 
         // recurse down objects
-        if (isPlainObject(defaultValue)) {
-            if (!isPlainObject(val)) {
-                throw new Error(`Migration failed - the type of ${k} appears to have changed.`);
+        if (isPlainObject(loadedValue)) {
+            if (!isPlainObject(defaultValue)) {
+                throw new Error(`Migration failed - loaded a plain object when the default value wasn't a plain object.`);
             }
 
             // If you've loaded data from JSON, this should never happen
-            autoMigrateInternal(val, defaultValue);
-            continue;
+            loadedValue = autoMigrateInternal(loadedValue, defaultValue);
         }
+
+        defaultSchema[key] = loadedData[key];
     }
+
+    return defaultSchema;
 }
 
 function isPlainObject(val: unknown): val is object {

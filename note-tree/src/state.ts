@@ -1,6 +1,19 @@
 import { AsciiCanvasLayer, getLayersString } from "src/legacy-app-components/canvas-state";
 import { assert } from "src/utils/assert";
-import { addDays, floorDateLocalTime, floorDateToWeekLocalTime, formatDateTime, formatDuration, getTimestamp, ONE_DAY, ONE_HOUR, ONE_MINUTE, ONE_SECOND, pad2, parseIsoDate } from "src/utils/datetime";
+import {
+    addDays,
+    floorDateLocalTime,
+    floorDateToWeekLocalTime,
+    formatDateTime,
+    formatDuration,
+    getTimestamp,
+    ONE_DAY,
+    ONE_HOUR,
+    ONE_MINUTE,
+    ONE_SECOND,
+    pad2,
+    parseIsoDate
+} from "src/utils/datetime";
 import * as tree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
@@ -12,6 +25,7 @@ import { fuzzyFind, Range } from "./utils/fuzzyfind";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 import { setCssVars } from "./utils/cssb";
 import { darkTheme, lightTheme } from "./app-styling";
+import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
 
 export function setTheme(newTheme: AppTheme) {
     state.currentTheme = newTheme;
@@ -24,7 +38,7 @@ export function setTheme(newTheme: AppTheme) {
 };
 
 
-export type NoteId = number;
+export type NoteId = tree.TreeId;
 
 export type TreeNote = tree.TreeNode<Note>;
 
@@ -61,7 +75,7 @@ function newFuzzyFindState(): FuzzyFindState {
         currentIdx: 0,
         currentIdxLocal: 0,
         currentIdxGlobal: 0,
-        scopedToNoteId: -1,
+        scopedToNoteId: tree.NIL_ID,
     };
 }
 
@@ -153,7 +167,7 @@ export type NoteTreeGlobalState = {
     _fuzzyFindState: FuzzyFindState;
 
     // App state
-    _currentModal: Insertable | null;
+    _currentModal: number;
 
     // notifications
 
@@ -412,13 +426,13 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         schemaMajorVersion: 2,
 
         notes,
-        currentNoteId: -1,
+        currentNoteId: tree.NIL_ID,
         dockedMenu: "activities",
         showDockedMenu: false,
         activities: [],
 
         _scratchPadCanvasLayers: [],
-        _scratchPadCanvasCurrentNoteIdPendingSave: -1,
+        _scratchPadCanvasCurrentNoteIdPendingSave: tree.NIL_ID,
 
         mainGraphData: newGraphData(),
         settings: newAppSettings(),
@@ -432,7 +446,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         currentTaskStreamIdx: 0,
 
         textOnArrival: "",
-        textOnArrivalNoteId: -1,
+        textOnArrivalNoteId: tree.NIL_ID,
 
         workdayConfig: {
             weekdayConfigs: [{
@@ -451,7 +465,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _criticalLoadingErrorWasOurFault: false,
 
         _currentlyViewingActivityIdx: 0,
-        _currentActivityScopedNoteId: -1,
+        _currentActivityScopedNoteId: tree.NIL_ID,
         _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesFromIdx: -1,
@@ -462,11 +476,11 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _lastNoteId: undefined,
         _currentDateScope: "week",
         _currentDateScopeWeekDay: -1,
-        _currentFlatNotesRootId: -1,
-        _currentFlatNotesRootHltId: -1,
+        _currentFlatNotesRootId: tree.NIL_ID,
+        _currentFlatNotesRootHltId: tree.NIL_ID,
         _fuzzyFindState: newFuzzyFindState(),
 
-        _currentModal: null,
+        _currentModal: 0,
 
         _showStatusText: false,
         _statusText: "",
@@ -490,8 +504,8 @@ export function loadStateFromJSON(savedStateJSON: string): LoadStateFromJSONResu
     }
 
     try {
-        const loadedState = JSON.parse(savedStateJSON) as NoteTreeGlobalState;
-        migrateState(loadedState);
+        let loadedState = JSON.parse(savedStateJSON) as NoteTreeGlobalState;
+        loadedState = migrateState(loadedState);
         return { state: loadedState };
     } catch (err: any) {
         return { criticalError: err.message }
@@ -510,7 +524,7 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
     // ---- UNSAFE CODE ----
     // The types on loadedState are not what they seem - we've just loaded it from some JSON, could be literally anything.
 
-    const newIdsMap = new Map<string, number>();
+    const newIdsMap = new Map<string, tree.TreeId>();
 
     // let's build a new tree from our old tree
     {
@@ -547,7 +561,7 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
     {
         loadedState.currentNoteId = newIdsMap.get(
             loadedState.currentNoteId as unknown as string
-        ) ?? -1;
+        ) ?? tree.NIL_ID;
     }
 
     // update references in the activities
@@ -564,7 +578,7 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
     loadedState.schemaMajorVersion = 2;
 }
 
-export function migrateState(loadedState: NoteTreeGlobalState) {
+export function migrateState(loadedState: NoteTreeGlobalState): NoteTreeGlobalState {
     const defaultState = newNoteTreeGlobalState();
 
     migrateToSchemaMajorVersion2(loadedState, defaultState);
@@ -578,14 +592,17 @@ export function migrateState(loadedState: NoteTreeGlobalState) {
 
     // prevents missing item cases that may occur when trying to load an older version of the state.
     // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
-    autoMigrate(loadedState, newNoteTreeGlobalState);
+    loadedState = autoMigrate(loadedState, newNoteTreeGlobalState);
 
     // also automigrate notes
     tree.forEachNode(loadedState.notes, (note) => {
-        autoMigrate(note.data, defaultNote);
+        note.data = autoMigrate(note.data, defaultNote);
     });
 
     // I should actually be doing mgrations and validations here but I'm far too lazy
+    
+
+    return loadedState;
 }
 
 export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: string) => void) {
@@ -649,7 +666,7 @@ export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
 export function defaultNote(): Note {
     return {
         // the following is valuable user data
-        id: -1,
+        id: tree.NIL_ID,
         text: "",
         openedAt: getTimestamp(new Date()),
         lastSelectedChildIdx: 0,
@@ -659,7 +676,7 @@ export function defaultNote(): Note {
         _status: STATUS_IN_PROGRESS,
         _shelved: false,
         _everyChildNoteDone: false,
-        _higherLevelTaskId: -1,
+        _higherLevelTaskId: tree.NIL_ID,
         _isSelected: false,
         _isUnderCurrent: false,
         _depth: 0,
@@ -1078,8 +1095,8 @@ export function recomputeState(state: NoteTreeGlobalState) {
         }
 
         if (state._showAllNotes) {
-            state._currentFlatNotesRootId = 0;
-            state._currentFlatNotesRootHltId = 0;
+            state._currentFlatNotesRootId = tree.ROOT_ID;
+            state._currentFlatNotesRootHltId = tree.ROOT_ID;
 
             clearArray(state._flatNoteIds);
             tree.forEachNode(state.notes, (note) => {
@@ -1309,7 +1326,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
             // We can actually restore the text something more sane than the legacy behaviour
             note.data.text = state.textOnArrival;
             state.textOnArrival = "";
-            state.textOnArrivalNoteId = -1;
+            state.textOnArrivalNoteId = tree.NIL_ID;
         } else {
             // Fallback to legacy behaviour
             note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
@@ -1406,7 +1423,7 @@ export function getNote(state: NoteTreeGlobalState, id: NoteId) {
     return tree.getNode(state.notes, id);
 }
 
-export function idIsNilOrUndefined(id: NoteId | null | undefined): id is -1 | null | undefined {
+export function idIsNilOrUndefined(id: NoteId | null | undefined): id is typeof tree.NIL_ID | null | undefined {
     return id === -1 || id === null || id === undefined;
 }
 
@@ -1414,18 +1431,18 @@ export function idIsNilOrUndefined(id: NoteId | null | undefined): id is -1 | nu
  * mainly used in parent traversals when we do want to start on the current note. 
  */
 export function idIsNil(id: NoteId): boolean {
-    return id === -1;
+    return id === tree.NIL_ID;
 }
 
 /** 
  * mainly used in parent traversals when we don't want to start on the current note.
  */
 export function idIsNilOrRoot(id: NoteId): boolean {
-    return id === -1 || id === 0;
+    return id === tree.NIL_ID || id === tree.ROOT_ID;
 }
 
 export function idIsRoot(id: NoteId): boolean {
-    return id === 0;
+    return id === tree.ROOT_ID;
 }
 
 export function getNoteOrUndefined(state: NoteTreeGlobalState, id: NoteId | null | undefined): TreeNote | undefined {
@@ -1719,7 +1736,7 @@ export function dfsPre(state: NoteTreeGlobalState, note: TreeNote, fn: (n: TreeN
 }
 
 export function getRootNote(state: NoteTreeGlobalState) {
-    return getNote(state, 0);
+    return getNote(state, tree.ROOT_ID);
 }
 
 export function getTimeStr(note: Note) {
@@ -2518,7 +2535,7 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
 
 export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
     if (!idIsNil(state._currentActivityScopedNoteId)) {
-        state._currentActivityScopedNoteId = -1;
+        state._currentActivityScopedNoteId = tree.NIL_ID;
     } else {
         state._currentActivityScopedNoteId = state.currentNoteId;
     }
@@ -2823,7 +2840,7 @@ export function recomputeViewTaskStreamState(
 }
 
 export type InProgressNotesState = {
-    inProgressIds: number[];
+    inProgressIds: NoteId[];
     currentInProgressNoteIdx: number;
     inProgressNoteDepths: number[];
 };
@@ -2859,12 +2876,7 @@ export function applyPendingScratchpadWrites(state: NoteTreeGlobalState) {
     scratchpadNote.data.text = text;
 
     // we don't need to update the text every time - just when we've actually written to it
-    state._scratchPadCanvasCurrentNoteIdPendingSave = -1;
-}
-
-
-export function initializeNoteTreeTextArea(textArea: Insertable<HTMLTextAreaElement>) {
-    
+    state._scratchPadCanvasCurrentNoteIdPendingSave = tree.NIL_ID;
 }
 
 export type TaskCompletion = {
@@ -3110,7 +3122,7 @@ export function getCurrentStateAsJSON() {
 }
 
 export function loadStateFromBackup(text: string): NoteTreeGlobalState | null {
-    const obj = JSON.parse(text);
+    let obj = JSON.parse(text);
     if (LOCAL_STORAGE_KEY_LEGACY in obj) {
         logTrace("Loading legacy backup format");
         return loadStateFromJSON(obj[LOCAL_STORAGE_KEY_LEGACY]).state ?? null;
@@ -3119,7 +3131,7 @@ export function loadStateFromBackup(text: string): NoteTreeGlobalState | null {
     // I expect there to be 1 more format if I ever start storing multiple keys in the kv store. But
     // I have already decided against this due to the much higher potential for bugs r.e partial saving
     logTrace("Loading backup format v2");
-    migrateState(obj as NoteTreeGlobalState);
+    obj = migrateState(obj as NoteTreeGlobalState);
     return obj;
 }
 

@@ -132,7 +132,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
     imBeginDiv(); {
         if (isFirstRender()) {
             setStyle("position", "absolute");
-            setStyle("top", "5px");
+            setStyle("bottom", "5px");
             setStyle("right", "5px");
             setStyle("padding", "5px");
             setStyle("backgroundColor", cssVars.bg);

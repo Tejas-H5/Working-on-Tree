@@ -16,7 +16,12 @@ export const cssVarsApp = {
     unfocusedTreePathWidth: "var(--unfocusedTreePathWidth)",
 } as const;
 
-const normalStyle = ` font-family: Arial; font-size: ${cssVars.normalText}; color: ${cssVars.fg}; background: ${cssVars.bg}; font-size: 1em; `;
+const normalStyle = ` 
+font-family: Source Code Pro, monospace; 
+font-size: ${cssVars.normalText}; 
+color: ${cssVars.fg}; 
+background: ${cssVars.bg}; 
+font-size: 18px; `;
 
 export const lightTheme = {
     bgInProgress: newColor(1, 0, 0, 0.1),

@@ -118,10 +118,9 @@ export const INLINE_BLOCK = 2 as DisplayTypeInstance;
 export const INLINE = 3 as DisplayTypeInstance;
 export const ROW = 4 as DisplayTypeInstance;
 export const COL = 5 as DisplayTypeInstance;
-export const FLEX = 6 as DisplayTypeInstance;
-export const TABLE = 7 as DisplayTypeInstance;
-export const TABLE_ROW = 8 as DisplayTypeInstance;
-export const TABLE_CELL = 9 as DisplayTypeInstance;
+export const TABLE = 6 as DisplayTypeInstance;
+export const TABLE_ROW = 7 as DisplayTypeInstance;
+export const TABLE_CELL = 8 as DisplayTypeInstance;
 
 type DisplayType = 
     typeof BLOCK |
@@ -140,11 +139,9 @@ export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
         setClass(cn.inline, type === INLINE);
         setClass(cn.row, type === ROW);
         setClass(cn.col, type === COL);
-        setClass(cn.flex1, type === FLEX);
         setClass(cn.table, type === TABLE);
         setClass(cn.tableRow, type === TABLE_ROW);
         setClass(cn.tableCell, type === TABLE_CELL);
-        setClass(cn.row, type === COL);
     }
 
     return root;
@@ -160,7 +157,7 @@ export function imFixed(
     top: number | null,
     left: number | null,
     bottom: number | null,
-    right: number | null
+    right: number | null,
 ) {
     if (isFirstRender()) {
         setClass(cn.fixed);

@@ -606,7 +606,10 @@ export function setInnerText(text: string, r = getCurrentRoot()) {
 
     assertNotDerived(r);
 
+    // While this is a performance optimization, we also kinda need to do this - 
+    // otherwise, if we're constantly mutating the text, we can never select it!
     if (r.lastText === text) return;
+    r.lastText = text;
 
     if (r.root.childNodes.length === 0) {
         r.root.appendChild(document.createTextNode(text));
@@ -1103,6 +1106,7 @@ export function imState<T>(supplier: () => T): T {
  * WARNING: using this method won't allow you to catch out-of-order im-state-rendering bugs at runtime, 
  * leading to potential data corruption. 
  *
+ * I assume allocating the closure every frame is probably also not ideal.
  */
 export function imStateInline<T>(supplier: () => T) : T {
     return imStateInternal(supplier, true);
