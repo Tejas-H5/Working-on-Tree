@@ -1,6 +1,6 @@
 import { newTextArea } from "../legacy-components/text-area";
 import { initializeNoteTreeTextArea } from "../state";
-import { cssVars } from "../legacy-styling";
+import { cssVars } from "./legacy-styling";
 import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
 import { newDragManager } from "../utils/drag-handlers";
 import { newUuid } from "../utils/uuid";

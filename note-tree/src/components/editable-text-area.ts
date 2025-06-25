@@ -8,7 +8,7 @@ import {
     isFirstRender,
     setAttr,
     setClass,
-    setInnerText,
+    setText,
     setInputValue,
     setStyle,
     type Ref
@@ -146,10 +146,10 @@ export function imBeginTextArea({
                     const valueChanged = imMemo(value);
                     if (placeholderChanged || valueChanged) {
                         if (placeholder && !value) {
-                            setInnerText(placeholder);
+                            setText(placeholder);
                             setStyle("color", cssVars.fg2);
                         } else {
-                            setInnerText(value);
+                            setText(value);
                             setStyle("color", cssVars.fg);
                         }
                     }
@@ -159,7 +159,7 @@ export function imBeginTextArea({
                 imBegin(INLINE); {
                     if (isFirstRender()) {
                         setAttr("style", "color: transparent");
-                        setInnerText(".");
+                        setText(".");
                     }
                 } imEnd();
 

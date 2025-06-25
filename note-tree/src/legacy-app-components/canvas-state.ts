@@ -1,5 +1,5 @@
 import { boundsCheck } from "src/utils/array-utils";
-import { KeyboardState, newKeyboardState } from "../legacy-keyboard-input";
+import { KeyboardState, newKeyboardState } from "./legacy-keyboard-input";
 import { assert } from "src/utils/assert";
 
 // I want the canvas to be like a diagram board, where I append a slab of vertical rows to the page 

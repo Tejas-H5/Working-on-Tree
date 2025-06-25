@@ -2,7 +2,7 @@ import { Button, ScrollContainer } from "src/legacy-components";
 import { boundsCheck } from "src/utils/array-utils";
 import { copyToClipboard, readFromClipboard } from "src/utils/clipboard";
 import { Insertable, RenderGroup, cn, div, el, isVisible, newComponent, newListRenderer, setAttrs, setClass, setStyle, setText, setVisible, span } from "src/utils/dom-utils";
-import { cnApp, cssVars } from "../legacy-styling";
+import { cnApp, cssVars } from "./legacy-styling";
 import { assert } from "../utils/assert";
 import { 
 NUM_ROWS_INCR_AMOUNT,

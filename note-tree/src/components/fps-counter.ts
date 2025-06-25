@@ -2,7 +2,7 @@ import {
     deltaTimeSeconds,
     elementHasMousePress,
     imEnd,
-    setInnerText,
+    setText,
     setStyle,
     imMemo,
     getNumItemsRendered,
@@ -142,11 +142,11 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         // r.text(screenHz + "hz screen, " + renderHz + "hz code");
 
         imBeginDiv(); {
-            setInnerText(fps.baselineLocked ? (fps.baselineFrameMs + "ms baseline, ") : "computing baseline...");
+            setText(fps.baselineLocked ? (fps.baselineFrameMs + "ms baseline, ") : "computing baseline...");
         } imEnd();
 
         imBeginDiv(); {
-            setInnerText(fps.framesMsRounded + "ms frame, ");
+            setText(fps.framesMsRounded + "ms frame, ");
         } imEnd();
 
         imBeginDiv(); {
@@ -155,7 +155,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
                 if (fpsChanged) {
                     setStyle("color", fps.renderMsRounded / fps.baselineFrameMs > 0.5 ? "red" : "");
                 }
-                setInnerText(fps.renderMsRounded + "ms render");
+                setText(fps.renderMsRounded + "ms render");
             } imEnd();
         } imEnd();
         // setStyle("transform", "rotate(" + angle + "deg)");
@@ -165,7 +165,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         }
 
         imBeginDiv(); {
-            setInnerText(getNumItemsRendered() + " IM entries");
+            setText(getNumItemsRendered() + " IM entries");
         } imEnd();
 
     } imEnd();

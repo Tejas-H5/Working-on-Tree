@@ -40,10 +40,7 @@ export function isEditingInput(el: HTMLElement): boolean {
 /**
  * Sets an input's value while retaining it's selection and undo history
  */
-export function setInputValue(
-    el: HTMLInputElement | HTMLTextAreaElement,
-    text: string
-) {
+export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (el.value === text) {
         // performance speedup
         return;
@@ -381,7 +378,7 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
  */
 const defaultContext = newImContext();
 
-// Contains ALL the state. Depending on the usecase, there may be multiple contexts that must switch between each other.
+// Contains ALL the state. In an atypical usecase, there may be multiple contexts that must switch between each other.
 let imCtx = defaultContext;
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -600,7 +597,7 @@ export function setClass(val: string, enabled: boolean | number = true) {
     return !!enabled;
 }
 
-export function setInnerText(text: string, r = getCurrentRoot()) {
+export function setText(text: string, r = getCurrentRoot()) {
     // don't overwrite the real children!
     assert(r.hasRealChildren === false);
 

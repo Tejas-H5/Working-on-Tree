@@ -1,4 +1,4 @@
-import { cnApp } from "src/legacy-styling";
+import { cnApp } from "src/legacy-app-components/legacy-styling";
 import { RenderGroup, cn, el } from "src/utils/dom-utils";
 
 const BUTTON_CLASSES = [

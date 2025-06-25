@@ -1,4 +1,4 @@
-import { cssVars } from "src/legacy-styling";
+import { cssVars } from "src/legacy-app-components/legacy-styling";
 import { cn, div, newCssBuilder, RenderGroup } from "src/utils/dom-utils";
 
 const sg = newCssBuilder("checkbox");

@@ -17,8 +17,6 @@ import {
 } from 'src/utils/im-dom-utils.ts';
 import { cn, cssVars } from "./stylesheets.ts";
 
-const cssb = newCssBuilder();
-
 export type SizeUnitInstance = number & { __sizeUnit: void; };
 
 export const PX = 10001 as SizeUnitInstance;
@@ -56,13 +54,15 @@ export function imSize(
     if (val.width !== width || val.wType !== wType) {
         val.width = width;
         val.wType = wType;
-        setStyle("width", getSize(width, wType));
+        setStyle("minWidth", getSize(width, wType));
+        setStyle("maxWidth", getSize(width, wType));
     }
 
     if (val.height !== height || val.hType !== hType) {
         val.height = height;
         val.hType = hType;
-        setStyle("height", getSize(height, hType));
+        setStyle("minHeight", getSize(height, hType));
+        setStyle("maxHeight", getSize(height, hType));
     }
 }
 
@@ -150,6 +150,16 @@ export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
 export function imFlex(val = 1) {
     if (imMemo(val)) {
         setStyle("flex", "" + val);
+    }
+}
+
+export function imScrollContainer(vScroll = true, hScroll = false) {
+    if (imMemo(vScroll)) {
+        setClass(cn.overflowYAuto, vScroll);
+    }
+
+    if (imMemo(hScroll)) {
+        setClass(cn.overflowXAuto, hScroll);
     }
 }
 
