@@ -58,7 +58,9 @@ export const cn = Object.freeze({
     allUnset: cssb.cn("allUnset", [` { all: unset; }`]),
 
     row: cssb.cn("row", [` { display: flex; flex-direction: row; }`]),
+    rowReverse: cssb.cn("row-reverse", [` { display: flex; flex-direction: row-reverse; }`]),
     col: cssb.cn("col", [` { display: flex; flex-direction: column; }`]),
+    colReverse: cssb.cn("col-reverse", [` { display: flex; flex-direction: column-reverse; }`]),
     flexWrap: cssb.cn("flexWrap", [` { display: flex; flex-flow: wrap; }`]),
 
     /** The min-width and min-height here is the secret sauce. Now the flex containers won't keep overflowing lmao */

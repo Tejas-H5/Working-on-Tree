@@ -8,6 +8,7 @@ import {
     imMemoMany,
     imRef,
     imState,
+    isExcessEventRender,
     isFirstRender,
     newDiv,
     pushAttr,
@@ -23,15 +24,18 @@ export const PX = 10001 as SizeUnitInstance;
 export const EM = 20001 as SizeUnitInstance;
 export const PERCENT = 30001 as SizeUnitInstance;
 export const NOT_SET = 40001 as SizeUnitInstance;
+export const REM = 50001 as SizeUnitInstance;
 
 export type SizeUnits = typeof PX |
     typeof EM |
+    typeof REM |
     typeof PERCENT |
     typeof NOT_SET;
 
 function getUnits(num: SizeUnits) {
     switch(num) {
         case EM: return "em";
+        case REM: return "rem";
         case PERCENT: return "%";
         default: return "px";
     }
@@ -66,6 +70,12 @@ export function imSize(
     }
 }
 
+export function imOpacity(val: number) {
+    if (imMemo(val)) {
+        setStyle("opacity", "" + val);
+    }
+}
+
 function newPaddingState(): {
     left: number, leftType: SizeUnits,
     right: number, rightType: SizeUnits, 
@@ -88,19 +98,27 @@ export function imPadding(
 ) {
     const val = imState(newPaddingState);
 
-    if (val.left !== bottom || val.leftType !== leftType) {
+    if (isExcessEventRender()) {
+        return;
+    }
+
+    if (val.left !== left || val.leftType !== leftType) {
+        val.left = left; val.leftType = leftType;
         setStyle("paddingLeft", getSize(left, leftType));
     }
 
-    if (val.right !== bottom || val.rightType !== rightType) {
+    if (val.right !== right || val.rightType !== rightType) {
+        val.right = right; val.rightType = rightType;
         setStyle("paddingRight", getSize(right, rightType));
     }
 
-    if (val.top !== bottom || val.topType !== topType) {
+    if (val.top !== top || val.topType !== topType) {
+        val.top = top; val.topType = topType;
         setStyle("paddingTop", getSize(top, topType));
     }
 
     if (val.bottom !== bottom || val.bottomType !== bottomType) {
+        val.bottom = bottom; val.bottomType = bottomType;
         setStyle("paddingBottom", getSize(bottom, bottomType));
     }
 }
@@ -111,22 +129,32 @@ export function imRelative() {
     }
 }
 
+export function imBg(colour: string) {
+    if (imMemo(colour)) {
+        setStyle("backgroundColor", colour);
+    }
+}
+
 export type DisplayTypeInstance = number & { __displayType: void; };
 
 export const BLOCK = 1 as DisplayTypeInstance;
 export const INLINE_BLOCK = 2 as DisplayTypeInstance;
 export const INLINE = 3 as DisplayTypeInstance;
 export const ROW = 4 as DisplayTypeInstance;
-export const COL = 5 as DisplayTypeInstance;
-export const TABLE = 6 as DisplayTypeInstance;
-export const TABLE_ROW = 7 as DisplayTypeInstance;
-export const TABLE_CELL = 8 as DisplayTypeInstance;
+export const ROW_REVERSE = 5 as DisplayTypeInstance;
+export const COL = 6 as DisplayTypeInstance;
+export const COL_REVERSE = 7 as DisplayTypeInstance;
+export const TABLE = 8 as DisplayTypeInstance;
+export const TABLE_ROW = 9 as DisplayTypeInstance;
+export const TABLE_CELL = 10 as DisplayTypeInstance;
 
 type DisplayType = 
     typeof BLOCK |
     typeof INLINE_BLOCK |
     typeof ROW |
+    typeof ROW_REVERSE |
     typeof COL |
+    typeof COL_REVERSE |
     typeof TABLE |
     typeof TABLE_ROW |
     typeof TABLE_CELL;
@@ -138,7 +166,9 @@ export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
         setClass(cn.inlineBlock, type === INLINE_BLOCK);
         setClass(cn.inline, type === INLINE);
         setClass(cn.row, type === ROW);
+        setClass(cn.rowReverse, type === ROW_REVERSE);
         setClass(cn.col, type === COL);
+        setClass(cn.colReverse, type === COL_REVERSE);
         setClass(cn.table, type === TABLE);
         setClass(cn.tableRow, type === TABLE_ROW);
         setClass(cn.tableCell, type === TABLE_CELL);
@@ -182,21 +212,40 @@ export function imFixed(
 }
 
 export function imAbsolute(
-    top: number | null,
-    left: number | null,
-    bottom: number | null,
-    right: number | null
+    left: number, leftType: SizeUnits,
+    right: number, rightType: SizeUnits, 
+    top: number, topType: SizeUnits,
+    bottom: number, bottomType: SizeUnits, 
 ) {
     if (isFirstRender()) {
         setClass(cn.absolute);
     }
+
+    const val = imState(newPaddingState);
+
+    if (isExcessEventRender()) {
+        return;
+    }
     
-    if (imMemoMany(top, bottom, left, right)) {
-        setStyle("top", top === null ? "" : top + "px");
-        setStyle("left", left === null ? "" : left + "px");
-        setStyle("bottom", bottom === null ? "" : bottom + "px");
-        setStyle("right", right === null ? "" : right + "px");
-    } 
+    if (val.left !== left || val.leftType !== leftType) {
+        val.left = left; val.leftType = leftType;
+        setStyle("left", getSize(left, leftType));
+    }
+
+    if (val.right !== right || val.rightType !== rightType) {
+        val.right = right; val.rightType = rightType;
+        setStyle("right", getSize(right, rightType));
+    }
+
+    if (val.top !== top || val.topType !== topType) {
+        val.top = top; val.topType = topType;
+        setStyle("top", getSize(top, topType));
+    }
+
+    if (val.bottom !== bottom || val.bottomType !== bottomType) {
+        val.bottom = bottom; val.bottomType = bottomType;
+        setStyle("bottom", getSize(bottom, bottomType));
+    }
 }
 
 export function imBeginScrollContainer(noScroll: boolean = false) {

@@ -13,7 +13,7 @@ import {
     handleImKeysInput,
     newGlobalContext
 } from "./global-context";
-import { imNoteTreeView } from "./note-tree-view-state";
+import { imNoteTreeView } from "./note-tree-view";
 import {
     loadState,
     recomputeState,

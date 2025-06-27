@@ -783,6 +783,7 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
+// TODO: delete this method in favour of real programming
 export function recomputeState(state: NoteTreeGlobalState) {
     assert(!!state, "WTF");
 

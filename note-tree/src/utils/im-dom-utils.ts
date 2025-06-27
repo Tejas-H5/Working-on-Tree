@@ -18,6 +18,7 @@
 //
 //      Be very conservative when adding your own exceptions to this rule.
 
+import { getCurrentNote } from "src/state";
 import { assert } from "./assert";
 
 ///////
@@ -395,6 +396,8 @@ export type UIRootItem = UIRoot | ListRenderer | StateItem;
 export type DomAppender<E extends ValidElement = ValidElement> = {
     root: E;
     idx: number;
+    /** NOTE: we don't know anything about children that weren't appended via the framework */
+    children: ValidElement[];
 };
 
 export function resetDomAppender(domAppender: DomAppender, idx = -1) {
@@ -405,13 +408,26 @@ export function appendToDomRoot(domAppender: DomAppender, child: ValidElement) {
     const i = ++domAppender.idx;
 
     const root = domAppender.root;
-    const children = root.children;
 
-    if (i === children.length) {
+    // NOTE: it appears there's not much difference between querying the real children vs having a separate array.
+    // const children = root.children;
+    // if (i === children.length) {
+    //     root.appendChild(child);
+    // } else if (children[i] !== child) {
+    //     root.insertBefore(child, children[i]);
+    // }
+
+    if (i === domAppender.children.length) {
         root.appendChild(child);
-    } else if (children[i] !== child) {
-        root.insertBefore(child, children[i]);
+        domAppender.children.push(child);
+    } else if (domAppender.children[i] !== child) {
+        root.insertBefore(child, domAppender.children[i]);
+        domAppender.children[i] = child;
     }
+}
+
+export function finalizeDomRoot(domAppender: DomAppender) {
+    domAppender.children.length = domAppender.idx + 1;
 }
 
 export type RenderPoint =  {
@@ -543,7 +559,7 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
     if (domAppender === null) {
         assert(supplier !== null);
         root = supplier();
-        domAppender = { root, idx: -1  };
+        domAppender = { root, idx: -1,  children: [],  };
     } else {
         assert(domAppender !== null);
         root = domAppender.root;
@@ -1258,12 +1274,90 @@ export function imEnd() {
  * Same as imEnd, but doesn't remove anything if we don't render anything.
  * I've not used it yet.
  */
-export function imEndMemoized() {
+function imEndMemoized() {
     const r = getCurrentRoot();
 
-    // we rendered nothing to r root, do nothing.
+    // ignore the result, do nothing whether we rendered 0 or n items.
     imEndRootInternal(r)
 }
+
+/**
+ * This behaves almost the same as {@link imIf}/{@link imEndIf} -
+ * except that we won't detatch this region if zero things were rendered.
+ *
+ * ```
+ * if (imBeginMemo() && <condition. Something changed? something is onscreen? up to you>) {
+ *      
+ * } imEndMemo();
+ * ```
+ *
+ * WARNING: Be EXTREMELY careful using this API. I was encountering so many stale
+ * UI bugs that I deleted this pair from im-dom-utils, and didn't re-add it till
+ * I started worrying about performance. You're better off not using this unless you
+ * really need to.
+ *
+ * An alternate API like `imBeginMemo(<condition>)` would not allow for type-narrowing.
+ * But if it did, I would change it to that.
+ */
+export function imBeginMemo() {
+    return imIf();
+}
+
+/**
+ * @see imBeginMemo
+ */
+export function imEndMemo() {
+    const ctx = imCtx;
+    if (ctx.currentRoot) {
+        imEndMemoized();
+    }
+
+    imEndIf();
+}
+
+// export function isOnScreenVertically() {
+//     const r = getCurrentRoot();
+//     var rect = r.root.getBoundingClientRect();
+//     var viewHeight = window.innerHeight;
+//     const offscreen = rect.bottom < 0 || viewHeight < rect.top;
+//     return !offscreen;
+// }
+//
+// export function isOnScreenHorizontally() {
+//     const r = getCurrentRoot();
+//     var rect = r.root.getBoundingClientRect();
+//     var viewWidth = window.innerWidth;
+//     const offscreen = rect.right < 0 || viewWidth < rect.left;
+//     return !offscreen;
+// }
+
+
+function newIsOnScreenState() {
+    const r = getCurrentRoot();
+    const self = {
+        isOnScreen: false,
+        observer: new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                self.isOnScreen = entry.isIntersecting;
+            }
+        })
+    };
+
+    self.observer.observe(r.root);
+    numIntersectionObservers++;
+    addDestructor(r, () => {
+        numIntersectionObservers--;
+        self.observer.disconnect()
+    });
+
+    return self;
+}
+
+export function imIsOnScreen() {
+    const isOnScreenRef = imState(newIsOnScreenState);
+    return isOnScreenRef.isOnScreen;
+}
+
 
 function imEndRootInternal(r: UIRoot): boolean {
     // close out this UI Root.
@@ -1271,6 +1365,8 @@ function imEndRootInternal(r: UIRoot): boolean {
     const mouse = getImMouse();
 
     if (isDerived(r) === false) {
+        finalizeDomRoot(r.domAppender);
+
         // Defer the mouse events upwards, so that parent elements can handle it if they want
         const el = r.root;
         const parent = el.parentNode;
@@ -2028,11 +2124,16 @@ export function imPreventScrollEventPropagation() {
     return state;
 }
 
-export function getNumItemsRendered() {
+export function getNumItemsRenderedLastFrame() {
     return imCtx.itemsRenderedLastFrame;
 }
 
+export function getNumItemsRenderedThisFrame() {
+    return imCtx.itemsRendered;
+}
+
 let numResizeObservers = 0;
+let numIntersectionObservers = 0;
 
 export type SizeState = {
     width: number;

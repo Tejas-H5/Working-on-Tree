@@ -5,7 +5,7 @@ import {
     setText,
     setStyle,
     imMemo,
-    getNumItemsRendered,
+    getNumItemsRenderedLastFrame,
     isExcessEventRender,
     isFirstRender,
     imBeginDiv,
@@ -165,7 +165,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         }
 
         imBeginDiv(); {
-            setText(getNumItemsRendered() + " IM entries");
+            setText(getNumItemsRenderedLastFrame() + " IM entries");
         } imEnd();
 
     } imEnd();

@@ -1,5 +1,6 @@
 import { newTimer, TimerState } from "./app-utils/timer";
-import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view-state";
+import { TreeVisualsInfo } from "./legacy-main";
+import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { getImKeys } from "./utils/im-dom-utils";
 
 type KeyState = {
