@@ -706,27 +706,37 @@ export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
     return noteIds;
 }
 
-export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId[], currentNote: TreeNote, includeParents: boolean) {
+export function recomputeNoteParents(
+    state: NoteTreeGlobalState,
+    flatNotes: TreeNote[],
+    currentNote: TreeNote,
+) {
     clearArray(flatNotes);
 
-    const parent = getNoteOrUndefined(state, currentNote.parentId);
-    if (!parent) {
-        return;
+    // Add the parents to the top of the list
+    let note = currentNote;
+    while (!idIsNil(note.parentId)) {
+        flatNotes.push(note);
+        note = getNote(state, note.parentId);
     }
 
-    if (includeParents) {
-        // Add the parents to the top of the list
-        let note = currentNote;
-        while (!idIsNilOrRoot(note.parentId)) {
-            note = getNote(state, note.parentId);
-            flatNotes.push(note.id);
-        }
+    flatNotes.reverse();
+}
 
-        flatNotes.reverse();
+export function recomputeFlatNotes(
+    state: NoteTreeGlobalState,
+    flatNotes: TreeNote[],
+    rootNote: TreeNote,
+    includeParents = true
+) {
+    clearArray(flatNotes);
+
+    if (includeParents) {
+        recomputeNoteParents(state, flatNotes, rootNote);
     }
 
     const dfs = (note: TreeNote) => {
-        flatNotes.push(note.id);
+        flatNotes.push(note);
 
         const noChildren = note.childIds.length === 0;
         const isVisualLeaf = !noChildren &&
@@ -740,7 +750,7 @@ export function recomputeFlatNotes(state: NoteTreeGlobalState, flatNotes: NoteId
         }
     }
 
-    for (const childId of parent.childIds) {
+    for (const childId of rootNote.childIds) {
         const note = getNote(state, childId);
         dfs(note);
     }
@@ -1090,7 +1100,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 
     // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
-    {
+    /* {
         if (!state._flatNoteIds) {
             state._flatNoteIds = [];
         }
@@ -1120,7 +1130,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
             recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
         }
-    }
+    } */
 
     // recompute the stream indexes
     {
@@ -1196,7 +1206,7 @@ export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, 
 // The `upwards` param allows it to be assymetrical with respect to uwpards and downwards traversals.
 export function isStoppingPointForNotViewExpansion(state: NoteTreeGlobalState, note: TreeNote): boolean {
     return isHigherLevelTask(note)
-        || note.id === 0
+        || note.id === tree.ROOT_ID
         || (
             note.data._status !== STATUS_IN_PROGRESS &&
             !(note.data._isSelected && note.id !== state.currentNoteId)

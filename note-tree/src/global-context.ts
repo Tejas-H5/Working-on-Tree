@@ -1,5 +1,4 @@
 import { newTimer, TimerState } from "./app-utils/timer";
-import { TreeVisualsInfo } from "./legacy-main";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { getImKeys } from "./utils/im-dom-utils";
 

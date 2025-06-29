@@ -27,6 +27,7 @@ export function getNavigableListInput(ctx: GlobalContext): number {
     return 0;
 }
 
+// NOTE: if all we need is idx, let's just inline it.
 export type NavigableList = {
     idx: number;
 };

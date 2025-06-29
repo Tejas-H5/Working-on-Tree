@@ -1,3 +1,4 @@
+import { imHLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { newTimer, timerHasReached, updateTimer } from "./app-utils/timer";
 import {
@@ -23,7 +24,20 @@ import { cn } from "./components/core/stylesheets";
 import { GlobalContext } from "./global-context";
 import { lerp } from "./legacy-app-components/canvas-state";
 import { clampedListIdx, getNavigableListInput, NavigableList, newListState } from "./navigable-list";
-import { getCurrentNote, getNote, idIsNil, NoteId, noteStatusToString, recomputeState, state, TreeNote } from "./state";
+import {
+    getCurrentNote,
+    getNote,
+    idIsNil,
+    idIsNilOrRoot,
+    idIsRoot,
+    isStoppingPointForNotViewExpansion,
+    noteStatusToString,
+    recomputeFlatNotes,
+    recomputeNoteParents,
+    state,
+    STATUS_IN_PROGRESS,
+    TreeNote
+} from "./state";
 import { boundsCheck } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import {
@@ -31,254 +45,244 @@ import {
     disableIm,
     enableIm,
     getScrollVH,
-    imBeginMemo,
     imBeginRoot,
     imBeginSpan,
     imEnd,
     imEndFor,
     imEndIf,
-    imEndMemo,
     imFor,
     imIf,
+    imIsOnScreen,
     imMemo,
     imNextRoot,
+    imState,
     isFirstRender,
-    imIsOnScreen,
     setClass,
     setStyle,
     setText,
-    imRef,
-    imState,
-    getNumItemsRenderedThisFrame
+    UIRoot
 } from "./utils/im-dom-utils";
-import { ROOT_ID } from "./utils/int-tree";
 
-
-/** Non-serializable. All fields can be derived from other state. */
 export type NoteTreeViewState = {
-    parentNotes:    TreeNote[];
-    childNotesFlat: TreeNote[];
-    currentRootId:  NoteId;
-    isScrolling:    boolean;
-    list:           NavigableList;
-    treeVisuals:    TreeVisualsInfo[];
+    note:                TreeNote;
+    noteParentNotes:     TreeNote[];
+    viewRoot:            TreeNote;
+    viewRootParentNotes: TreeNote[];
+    childNotes:          TreeNote[];
+
+    scrollContainer: UIRoot<HTMLElement> | null;
+    isScrolling:  boolean;
+    smoothScroll: boolean;
+    list:         NavigableList;
+
 
     // Debugging
     numVisible: number;
 };
 
-export type TreeVisualsInfo = {
-    depth: number;
+function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
+    if (invalidate || s.note !== note) {
+        s.note = note;
+        s.isScrolling = true;
+        s.smoothScroll = true;
+        recomputeNoteParents(state, s.noteParentNotes, s.note);
 
-    // for the tree visuals
-    isVisualLeaf: boolean; // Does this note have it's children expanded in the tree note view?
-    selectedPathDepth: number;  
-    selectedPathDepthIsFirst: boolean;  // Is this the first note on the selected path at this depth? (Nothing to do with Depth first search xD)
+        const viewRoot = getNoteViewRoot(note);
+        if (invalidate || s.viewRoot !== viewRoot) {
+            s.viewRoot = viewRoot;
+            state._currentFlatNotesRootId = viewRoot.id;
+            recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
+            recomputeFlatNotes(state, s.childNotes, s.viewRoot, false);
+            assert(s.childNotes.length === 0 || s.list.idx !== -1);
+            s.smoothScroll = false;
+        }
+
+        s.list.idx = s.childNotes.indexOf(note);
+    }
 }
 
+function getNoteViewRoot(note: TreeNote) {
+    let current = note;
+    while (!idIsNil(current.parentId)) {
+        current = getNote(state, current.parentId);
+        if (isStoppingPointForNotViewExpansion(state, current)) {
+            break;
+        }
+    }
+    return current;
+}
 
 export function newNoteTreeViewState(): NoteTreeViewState {
+    const note = getCurrentNote(state);
+    const viewRoot = getNoteViewRoot(note);
     const s: NoteTreeViewState = {
-        parentNotes: [],
-        childNotesFlat: [],
-        currentRootId: ROOT_ID,
-        list: newListState(),
-        treeVisuals: [],
-        isScrolling: false,
+        note,
+        viewRoot,
+        noteParentNotes:     [],
+        viewRootParentNotes: [],
+        childNotes:          [],
+        scrollContainer:     null,
 
-        numVisible: 0,
+        list:           newListState(),
+        isScrolling:    false,
+        smoothScroll:   false,
+
+        numVisible:     0,
     };
 
-    recomputeState(state);
-    const root = getCurrentNote(state);
-    setRootNote(s, root);
+    setNote(s, s.note, true);
 
     return s;
 }
 
 function setIdx(s: NoteTreeViewState, idx: number) {
-    s.list.idx = clampedListIdx(idx, s.childNotesFlat.length);
-    if (s.list.idx !== -1) {
-        state.currentNoteId = s.childNotesFlat[s.list.idx].id;
-        s.isScrolling = true;
-    } 
+    s.list.idx = clampedListIdx(idx, s.childNotes.length);
+    if (s.list.idx === -1) return;
+
+    const note = s.childNotes[s.list.idx];
+    state.currentNoteId = note.id;
+    setNote(s, note);
+}
+
+function setIdxLocal(s: NoteTreeViewState, localIdx: number) {
+    const parent = getNote(state, s.note.parentId);
+
+    localIdx = clampedListIdx(localIdx, parent.childIds.length);
+    if (!boundsCheck(parent.childIds, localIdx)) return;
+    const childId = parent.childIds[localIdx];
+
+    const note = getNote(state, childId);
+    setNote(s, note);
 }
 
 function moveIdx(s: NoteTreeViewState, amount: number) {
     setIdx(s, s.list.idx + amount);
 }
 
-function moveOutOfCurrent(s: NoteTreeViewState) {
-    const note = getNote(state, s.currentRootId);
-    if (note.id === ROOT_ID) return;
-
-    const parent = getNote(state, note.parentId);
-
-    const noteIdxInParent = parent.childIds.indexOf(note.id);
-    assert(noteIdxInParent !== -1);
-
-    parent.data.lastSelectedChildIdx = noteIdxInParent;
-    setRootNote(s, parent);
+function moveIdxLocal(s: NoteTreeViewState, amount: number) {
+    const localIdx = s.note.data._index;
+    setIdxLocal(s, localIdx + amount);
 }
 
-function setRootNote(s: NoteTreeViewState, note: TreeNote) {
-    s.currentRootId = note.id;
+function moveOutOfCurrent(s: NoteTreeViewState) {
+    if (idIsNilOrRoot(s.note.parentId)) return;
 
-    if (0) {
-    // Update parent note ids
-    s.parentNotes.length = 0;
-    let current = note;
-    while (!idIsNil(current.parentId)) {
-        s.parentNotes.push(current);
-        current = getNote(state, current.parentId);
-    }
-    s.parentNotes.reverse();
-
-    // Update child note ids
-    // TODO: traverse till L2 task
-    s.childNotesFlat.length = 0;
-    for (const id of note.childIds) {
-        const note = getNote(state, id);
-        s.childNotesFlat.push(note);
-    }
-    }
-
-    s.parentNotes.length = 0;
-    s.childNotesFlat.length = 0;
-    let i = 0
-    for (const note of state.notes.nodes) {
-        i++;
-        // With tree view
-        // if (i > 1000) break;
-        // without tree view
-        // if (i > 16000) break;
-        if (note) {
-            s.childNotesFlat.push(note);
-        }
-    }
-
-    setIdx(s, note.data.lastSelectedChildIdx);
+    const parent = getNote(state, s.note.parentId);
+    setNote(s, parent);
 }
 
 function moveIntoCurrent(s: NoteTreeViewState) {
-    if (!boundsCheck(s.childNotesFlat, s.list.idx)) return;
+    if (!boundsCheck(s.childNotes, s.list.idx)) return;
 
-    const nextRoot = s.childNotesFlat[s.list.idx];
+    const nextRoot = s.childNotes[s.list.idx];
 
     if (nextRoot.childIds.length === 0) return;
 
-    setRootNote(s, nextRoot);
+    if (!boundsCheck(nextRoot.childIds, nextRoot.data.lastSelectedChildIdx)) {
+        nextRoot.data.lastSelectedChildIdx = nextRoot.childIds.length - 1;
+    }
+
+    const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
+    const nextChild = getNote(state, nextChildId);
+    setNote(s, nextChild);
 }
 
 export function imNoteTreeView(ctx: GlobalContext) {
     const s = ctx.noteTreeViewState;
 
+    imBegin(); {
+        s.numVisible = 0;
+        imFor(); for (const row of s.viewRootParentNotes) {
+            imNextRoot();
+
+            imBeginListRow(false); {
+                imNoteTreeRow(s, true, row);
+            } imEndListRow();
+        } imEndFor();
+    } imEnd();
+
+    imHLine(!!s.scrollContainer && s.scrollContainer.root.scrollTop > 1);
+
+    const scrollParent = imBegin(); imFlex(); imScrollContainer(); 
+    s.scrollContainer = scrollParent; {
+        // TODO: fix. timer.start, timer.stop.
+        const timeout = imState(newTimer);
+        timeout.enabled = s.isScrolling;
+        updateTimer(timeout, deltaTimeSeconds());
+        const SCROLL_TIMEOUT_SECONDS = 1;
+        if (timerHasReached(timeout, SCROLL_TIMEOUT_SECONDS)) {
+            s.isScrolling = false;
+        }
+
+        imFor(); for (let i = 0; i < s.childNotes.length; i++) {
+            imNextRoot();
+
+            const row = s.childNotes[i];
+            const focused = s.list.idx === i;
+
+            const root = imBeginListRow(focused); {
+                imNoteTreeRow(s, false, row, i, focused);
+            } imEndListRow();
+
+            // Scrolling. Only 1 thing can be focused at a time.
+            if (focused && s.isScrolling) {
+                const { scrollTop } = getScrollVH(
+                    scrollParent.root, root.root,
+                    0.5, null
+                );
+
+                if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
+                    s.isScrolling = false;
+                } else {
+                    if (s.smoothScroll) {
+                        scrollParent.root.scrollTop = lerp(
+                            scrollParent.root.scrollTop,
+                            scrollTop,
+                            20 * deltaTimeSeconds()
+                        );
+                    } else {
+                        scrollParent.root.scrollTop = scrollTop;
+
+                    }
+                }
+            }
+        } imEndFor();
+
+        // Want to scroll off the bottom a bit
+        imBegin(); imSize(0, NOT_SET, 200, PX); imEnd();
+    } imEnd();
+
     disableIm(); {
         const delta = getNavigableListInput(ctx);
 
         if (delta) {
-            moveIdx(s, delta);
+            moveIdxLocal(s, delta);
         } else if (ctx.keyboard.left.pressed) {
             moveOutOfCurrent(s);
         } else if (ctx.keyboard.right.pressed) {
             moveIntoCurrent(s);
         }
     } enableIm();
-
-    const rootNote = getNote(state, s.currentRootId);
-
-    imBegin(COL); imFixed(0, 0, 0, 0); {
-        imBeginRoot(newH1);
-        imPadding(10, PX, 0, NOT_SET, 0, NOT_SET, 0, NOT_SET); {
-            if (isFirstRender()) {
-                setStyle("textOverflow", "ellipsis");
-                setStyle("whiteSpace", "nowrap");
-            }
-
-            imBeginSpan(); setText("Note tree"); imEnd();
-            imBeginSpan(); setText(" - " + s.numVisible + " things visible - "); imEnd();
-            s.numVisible = 0;
-
-            if (imIf() && rootNote.id !== ROOT_ID) {
-                imBeginSpan(); setText(" :: "); imEnd();
-                imBeginSpan(); setText(rootNote.data.text); imEnd();
-            } imEndIf();
-        } imEnd();
-
-        imBegin(); {
-            imFor(); for (const note of s.parentNotes) {
-                imNextRoot();
-                imNoteTreeRow(s, note, false, true);
-            } imEndFor();
-        } imEnd();
-
-        imBegin(); imSize(0, NOT_SET, 3, PX); {
-            if (isFirstRender()) {
-                setStyle("backgroundColor", cssVarsApp.fgColor);
-            }
-        } imEnd();
-
-        const scrollParent = imBegin();
-        imFlex(); imScrollContainer(); {
-            const timeout = imState(newTimer);
-            timeout.enabled = s.isScrolling;
-            updateTimer(timeout, deltaTimeSeconds());
-            const SCROLL_TIMEOUT_SECONDS = 1;
-            if (timerHasReached(timeout, SCROLL_TIMEOUT_SECONDS)) {
-                s.isScrolling = false;
-            }
-
-            imFor(); for (let i = 0; i < s.childNotesFlat.length; i++) {
-                imNextRoot();
-
-                const note = s.childNotesFlat[i];
-                const focused = s.list.idx === i;
-                const inPath = i <= s.list.idx;
-
-                if (imBeginMemo()) {
-                } imEndMemo();
-
-                const root = imBeginListRow(focused); {
-                    const isOnScreen = imIsOnScreen();
-                    if (imBeginMemo() && isOnScreen) {
-                        imNoteTreeRow(s, note, focused, inPath);
-                    } imEndMemo();
-                } imEndListRow();
-
-                // Smooth scroll. only 1 thing can be focused at a time.
-                if (focused && s.isScrolling) {
-                    const { scrollTop } = getScrollVH(
-                        scrollParent.root, root.root,
-                        0.5, null
-                    );
-
-                    if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
-                        s.isScrolling = false;
-                    } else {
-                        scrollParent.root.scrollTop = lerp(
-                            scrollParent.root.scrollTop,
-                            scrollTop,
-                            20 * deltaTimeSeconds()
-                        );
-                    }
-                }
-            } imEndFor();
-
-            // Want to scroll off the bottom a bit
-            imBegin(); imSize(0, NOT_SET, 200, PX); imEnd();
-        } imEnd();
-    } imEnd();
 }
 
 function imNoteTreeRow(
     s: NoteTreeViewState,
-    note: TreeNote,
-    focused: boolean,
-    inPath: boolean,
+    aboveTheLine: boolean,
+    note: TreeNote, 
+    idx = -1, focused = true
 ) {
     s.numVisible++;
 
-    const numRendered = getNumItemsRenderedThisFrame();
+    let numInProgress = 0;
+    let numDone = 0;
+    for (const id of note.childIds) {
+        const note = getNote(state, id);
+        if (note.data._status === STATUS_IN_PROGRESS) {
+            numInProgress++;
+        } else {
+            numDone++;
+        }
+    }
 
     imBegin(ROW); imFlex(); {
         setClass(cn.preWrap, focused);
@@ -286,14 +290,19 @@ function imNoteTreeRow(
         // The tree visuals
         imBegin(ROW_REVERSE); {
             imFor();
-            let current = note;
-            // TODO: make the tree visuals somehow. xd.
-            while (!idIsNil(current.parentId)) {
+
+            const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
+
+            let it = note;
+            let foundLineInPath = false;
+            let depth = -1;
+
+            while (!idIsNil(it.parentId)) {
                 imNextRoot();
 
-                const prev = current;
-                current = getNote(state, current.parentId);
-                const isLineInPath = inPath && prev === note;
+                const itPrev = it;
+                it = getNote(state, it.parentId);
+                depth++;
 
                 // |---->| indent
                 // [  x  ]Vertical line should line up with the note status above it:
@@ -302,12 +311,26 @@ function imNoteTreeRow(
                 //    |
                 //    +-- [ x ] >> blah blah blah
 
-                const hasHLine = current.id === note.parentId;
+                // const isLineInPath = inPath && prev === note;
+
+                const itIsParent = s.noteParentNotes.includes(it) || idIsRoot(it.id);
+
+                const isLineInPath: boolean = 
+                    !foundLineInPath && 
+                    idx <= s.list.idx && 
+                    itIsParent;
+
+                foundLineInPath ||= isLineInPath;
+
+                const hasHLine = itPrev.id === note.id;
                 const indent = 30;
                 const bulletStart = 5;
-                const thickness = isLineInPath ? 4 : 1;
-                const isLast = prev.data._index === prev.data._numSiblings - 1;
-                const bottomVLineThickness = (focused) ? 1 : thickness;
+
+                const smallThicnkess = 1;
+                const largeThicnkess = 4;
+                const isLast = itPrev.data._index === itPrev.data._numSiblings - 1;
+
+                let pathGoesRight = (noteIsParent || it.id === note.id);
 
                 // if (0) 
                 {
@@ -316,7 +339,11 @@ function imNoteTreeRow(
                         if (imIf() && hasHLine) {
                             imBegin();
                             imAbsolute(0, NOT_SET, 0, PX, 1, EM, 0, NOT_SET);
-                            imSize(bulletStart, PX, thickness, PX);
+                            const isThick = isLineInPath && pathGoesRight;
+                            imSize(
+                                bulletStart, PX,
+                                isThick ? largeThicnkess: smallThicnkess, PX,
+                            );
                             imBg(cssVarsApp.fgColor); {
                                 if (isFirstRender()) {
                                     setStyle("transform", "translate(0, -100%)");
@@ -324,7 +351,7 @@ function imNoteTreeRow(
                             } imEnd();
                         } imEndIf();
 
-                        const canDrawVerticalLine = !isLast || note === prev;
+                        const canDrawVerticalLine = !isLast || note === itPrev;
 
                         if (imIf() && canDrawVerticalLine) {
                             let midpointLen = 1;
@@ -336,7 +363,10 @@ function imNoteTreeRow(
                                 0, NOT_SET, bulletStart, PX,
                                 0, PX, 0, isLast ? NOT_SET : PX,
                             );
-                            imSize(thickness, PX, midpointLen, midpointUnits);
+                            imSize(
+                                isLineInPath ? largeThicnkess: smallThicnkess, PX, 
+                                midpointLen, midpointUnits
+                            );
                             imBg(cssVarsApp.fgColor); {
                             } imEnd();
 
@@ -346,7 +376,11 @@ function imNoteTreeRow(
                                 0, NOT_SET, bulletStart, PX,
                                 midpointLen, midpointUnits, 0, isLast ? NOT_SET : PX,
                             );
-                            imSize(bottomVLineThickness, PX, 0, NOT_SET);
+                            const isThick = isLineInPath && !pathGoesRight;
+                            imSize(
+                                isThick ? largeThicnkess: smallThicnkess, PX, 
+                                0, NOT_SET
+                            );
                             imOpacity(isLast ? 0 : 1);
                             imBg(cssVarsApp.fgColor); {
                             } imEnd();
@@ -358,8 +392,15 @@ function imNoteTreeRow(
         } imEnd();
 
         imBegin(ROW); imFlex(); imPadding(8, PX, 3, PX, 3, PX, 3, PX); {
+            if (imMemo(note.data._status)) {
+                setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
+            }
+
             imBegin(); imFlex(); {
                 imBeginSpan(); setText(noteStatusToString(note.data._status)); imEnd();
+                if (imIf() && (numInProgress + numDone) > 0) {
+                    imBeginSpan(); setText(` (${numDone}/${numInProgress+numDone}) `); imEnd();
+                } imEndIf();
                 imBeginSpan(); {
                     if (imMemo(note.data.text)) {
                         let text = note.data.text;
@@ -372,10 +413,6 @@ function imNoteTreeRow(
                 } imEnd();
             } imEnd();
         } imEnd();
-    } imEnd();
-
-    imBegin(); {
-        imBeginSpan(); setText("" + (getNumItemsRenderedThisFrame() - numRendered)); imEnd();
     } imEnd();
 }
 

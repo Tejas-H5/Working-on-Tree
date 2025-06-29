@@ -18,7 +18,6 @@
 //
 //      Be very conservative when adding your own exceptions to this rule.
 
-import { getCurrentNote } from "src/state";
 import { assert } from "./assert";
 
 ///////
@@ -223,6 +222,8 @@ export type ImContext = {
     /** These are used to display performance metrics in the UI. */
     itemsRendered: number;
     itemsRenderedLastFrame: number;
+    numResizeObservers: number;
+    numIntersectionObservers: number;
 };
 
 const ITEM_LIST_RENDERER = 2;
@@ -288,6 +289,8 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
 
         itemsRendered: 0,
         itemsRenderedLastFrame: 0,
+        numResizeObservers: 0,
+        numIntersectionObservers: 0,
 
         // Event handlers
         globalEventHandlers: {
@@ -397,7 +400,7 @@ export type DomAppender<E extends ValidElement = ValidElement> = {
     root: E;
     idx: number;
     /** NOTE: we don't know anything about children that weren't appended via the framework */
-    children: ValidElement[];
+    // children: ValidElement[];
 };
 
 export function resetDomAppender(domAppender: DomAppender, idx = -1) {
@@ -410,24 +413,25 @@ export function appendToDomRoot(domAppender: DomAppender, child: ValidElement) {
     const root = domAppender.root;
 
     // NOTE: it appears there's not much difference between querying the real children vs having a separate array.
-    // const children = root.children;
-    // if (i === children.length) {
-    //     root.appendChild(child);
-    // } else if (children[i] !== child) {
-    //     root.insertBefore(child, children[i]);
-    // }
-
-    if (i === domAppender.children.length) {
+    const children = root.children;
+    if (i === children.length) {
         root.appendChild(child);
-        domAppender.children.push(child);
-    } else if (domAppender.children[i] !== child) {
-        root.insertBefore(child, domAppender.children[i]);
-        domAppender.children[i] = child;
+    } else if (children[i] !== child) {
+        root.insertBefore(child, children[i]);
     }
+
+    // NOTE: THere appears to be a bug in this code which isn't present in the above
+    // if (i === domAppender.children.length) {
+    //     root.appendChild(child);
+    //     domAppender.children.push(child);
+    // } else if (domAppender.children[i] !== child) {
+    //     root.insertBefore(child, domAppender.children[i]);
+    //     domAppender.children[i] = child;
+    // }
 }
 
 export function finalizeDomRoot(domAppender: DomAppender) {
-    domAppender.children.length = domAppender.idx + 1;
+    // domAppender.children.length = domAppender.idx + 1e
 }
 
 export type RenderPoint =  {
@@ -559,7 +563,7 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
     if (domAppender === null) {
         assert(supplier !== null);
         root = supplier();
-        domAppender = { root, idx: -1,  children: [],  };
+        domAppender = { root, idx: -1 };
     } else {
         assert(domAppender !== null);
         root = domAppender.root;
@@ -812,6 +816,8 @@ export function imBeginList(): ListRenderer {
     }
 
     __beginListRenderer(result);
+
+    imCtx.itemsRendered++;
 
     return result;
 }
@@ -1089,6 +1095,8 @@ However, imStateInline will not catch any out-of-order rendering errors, which m
         items.push(box);
     }
 
+    imCtx.itemsRendered++;
+
     return result;
 }
 
@@ -1234,6 +1242,8 @@ ${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`
         items.push(result);
     }
 
+    imCtx.itemsRendered++;
+
     return result as UIRoot<E>;
 } 
 
@@ -1315,23 +1325,6 @@ export function imEndMemo() {
     imEndIf();
 }
 
-// export function isOnScreenVertically() {
-//     const r = getCurrentRoot();
-//     var rect = r.root.getBoundingClientRect();
-//     var viewHeight = window.innerHeight;
-//     const offscreen = rect.bottom < 0 || viewHeight < rect.top;
-//     return !offscreen;
-// }
-//
-// export function isOnScreenHorizontally() {
-//     const r = getCurrentRoot();
-//     var rect = r.root.getBoundingClientRect();
-//     var viewWidth = window.innerWidth;
-//     const offscreen = rect.right < 0 || viewWidth < rect.left;
-//     return !offscreen;
-// }
-
-
 function newIsOnScreenState() {
     const r = getCurrentRoot();
     const self = {
@@ -1343,10 +1336,11 @@ function newIsOnScreenState() {
         })
     };
 
+    const ctx = imCtx;
     self.observer.observe(r.root);
-    numIntersectionObservers++;
+    ctx.numIntersectionObservers++;
     addDestructor(r, () => {
-        numIntersectionObservers--;
+        ctx.numIntersectionObservers--;
         self.observer.disconnect()
     });
 
@@ -1381,8 +1375,6 @@ function imEndRootInternal(r: UIRoot): boolean {
             mouse.hoverElement = parent;
         }
     }
-
-    imCtx.itemsRendered += r.items.length;
 
     let result = false;
 
@@ -1432,11 +1424,6 @@ export function imEndList() {
     const l = getCurrentListRendererInternal();
 
     // close out this list renderer.
-
-    ctx.itemsRendered += l.builders.length;
-    if (l.keys) {
-        ctx.itemsRendered += l.keys.size;
-    }
 
     // remove all the UI components that may have been added by other builders in the previous render.
     for (let i = l.builderIdx; i < l.builders.length; i++) {
@@ -2132,9 +2119,6 @@ export function getNumItemsRenderedThisFrame() {
     return imCtx.itemsRendered;
 }
 
-let numResizeObservers = 0;
-let numIntersectionObservers = 0;
-
 export type SizeState = {
     width: number;
     height: number;
@@ -2164,9 +2148,9 @@ function newImGetSizeState(): {
     };
 
     self.observer.observe(r.root);
-    numResizeObservers++;
+    ctx.numResizeObservers++;
     addDestructor(r, () => {
-        numResizeObservers--;
+        ctx.numResizeObservers--;
         self.observer.disconnect()
     });
 
