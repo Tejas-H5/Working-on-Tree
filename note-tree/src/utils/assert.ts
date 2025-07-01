@@ -3,6 +3,12 @@
 // You won't need to do this in 99.9999% of your code, but it 
 // would be nice if the library did it.
 export function assert(value: boolean, message: string = "Open up the dev-tools debugger to find out why"): asserts value {
-    if (value === true) return;
-    throw new Error("Assertion failed - " + message);
+    // Funnily enough - writing it like this ends up being very slow with the dev tools open. 
+    // I'm guessing the JIT can't inline methods with early returns when some debug=true setting has been set somewhere.
+    // if (value === true) return;
+    // throw new Error("Assertion failed - " + message);
+
+    if (value === false) {
+        throw new Error("Assertion failed - " + message);
+    }
 }

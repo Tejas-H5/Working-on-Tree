@@ -42,7 +42,7 @@ export function isEditingInput(el: HTMLElement): boolean {
  */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (el.value === text) {
-        // performance speedup
+        // performance speedup, and allows users to select the text
         return;
     }
 

@@ -3254,7 +3254,7 @@ function NoteRowInput(rg: RenderGroup<NoteRowInputArgs>) {
         if (e.key === "Enter" && handleEnterPress(ctrlPressed, shiftPressed)) {
             handled = true;
         } else if (e.key === "Backspace") {
-            deleteNoteIfEmpty(state, currentNote.id);
+            deleteNoteIfEmpty(state, currentNote);
             shouldPreventDefault = false;
             handled = true;
         } else if (e.key === "ArrowUp") {

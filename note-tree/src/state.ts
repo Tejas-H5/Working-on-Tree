@@ -206,6 +206,7 @@ function newAppSettings() {
 
 export type Note = {
     id: NoteId;
+    // set this via {@link setNoteText}
     text: string;
 
     // will be populated as soon as the note is created.
@@ -227,8 +228,6 @@ export type Note = {
     _durationRanged: number;
     _durationRangedOpenSince?: Date;
     _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
-    _index: number; // which position is this in the current child list?
-    _numSiblings: number;
 
     _taskStreams: TaskStream[];
     _isScheduled: boolean; 
@@ -263,31 +262,27 @@ export type Activity = {
     deleted?: true;
 }
 
-const donePrefixes = [
-    "DONE",
-    "RESOLVED",
-    "FIXED",
-    "MERGED",
-    "DECLINED",
-    "REJECTED",
-];
+// bro uses git? no way dude.
+const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
 
-function getDoneNotePrefix(note: Note): string | undefined {
-    for (const prefix of donePrefixes) {
-        if (note.text.startsWith(prefix)) {
-            return prefix;
+function getDoneNoteSuffix(note: Note): string | undefined {
+    for (const suffix of doneSuffixes) {
+        if (note.text.trimEnd().endsWith(suffix)) {
+            return suffix;
         }
     }
 
     return undefined;
 }
 
+// @deprecated. just call getDoneNoteSuffix(note)
 export function isDoneNote(note: Note) {
-    return !!getDoneNotePrefix(note);
+    return false;
 }
 
-export function isDoneNoteWithExtraInfo(note: Note): boolean {
-    const prefix = getDoneNotePrefix(note);
+// @deprecated. Just call getDoneNoteSuffix.
+export function isDoneNoteWithExtraInfoDepracatadXd(note: Note): boolean {
+    const prefix = getDoneNoteSuffix(note);
     if (!prefix) {
         return false;
     }
@@ -378,23 +373,31 @@ export function getTodoNotePriority(note: Note): number {
     return priority;
 }
 
-export type NoteStatus = 1 | 2 | 3;
+type  NoteStatusInstance = number & { __noteStatus: void; };
+
+export const STATUS_NOT_COMPUTED = 0 as NoteStatusInstance;
 
 /** This is a task that is currently in progress */
-export const STATUS_IN_PROGRESS: NoteStatus = 1;
+export const STATUS_IN_PROGRESS = 1 as NoteStatusInstance;
 /**
  * This is a task that you haven't marked as DONE, but we are assuming it is done,
  * because you've moved on to the next task.
  * This status exists, so that you dont have to manually close off every single tas with a new - Done note under it.
  */
-export const STATUS_ASSUMED_DONE: NoteStatus = 2;
+export const STATUS_ASSUMED_DONE = 2 as NoteStatusInstance;
 /**
  * This is a task that is marked as DONE at the end.
  * Marking a note as DONE marks all notes before it as DONE, i.e no longer assumed done, but actually done.
  * Only these tasks may be moved out of a note.
  * This ensures that even in the 'done' tree, all notes are calculated as done.
  */
-export const STATUS_DONE: NoteStatus = 3;
+export const STATUS_DONE = 3 as NoteStatusInstance;
+
+export type NoteStatus = 
+    typeof STATUS_NOT_COMPUTED |
+    typeof STATUS_IN_PROGRESS |
+    typeof STATUS_ASSUMED_DONE |
+    typeof STATUS_DONE;
 
 export function noteStatusToString(noteStatus: NoteStatus) {
     switch (noteStatus) {
@@ -673,7 +676,7 @@ export function defaultNote(): Note {
 
         // the following are just visual flags which are frequently recomputed
 
-        _status: STATUS_IN_PROGRESS,
+        _status: STATUS_NOT_COMPUTED,
         _shelved: false,
         _everyChildNoteDone: false,
         _higherLevelTaskId: tree.NIL_ID,
@@ -683,8 +686,6 @@ export function defaultNote(): Note {
         _durationUnranged: 0,
         _durationRanged: 0,
         _activityListMostRecentIdx: 0,
-        _index: 0,
-        _numSiblings: 0,
         _taskStreams: [],
         _isScheduled: false,
     };
@@ -790,10 +791,78 @@ export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
     return val;
 }
 
+export function setNoteText(
+    state: NoteTreeGlobalState,
+    note: TreeNote,
+    text: string
+) {
+    note.data.text = text;
+    recomputeNoteStatusRecursively(state, note);
+}
+
+// Incrementally recompute status of notes in the tree. Rules:
+// - Only the very last note under another note can be considered STATUS_IN_PROGRESS, if it has no children. All notes before this are STATUS_ASSUMED_DONE.
+//      - If the last note has children, it can't be in progress. in fact, no other note can be in progress either.
+// - If a note has no children, and ends with a 'done suffix', then that note, and every other note on that level before it without children can
+//      be  marked as STATUS_DONE. No longer an assumption.
+// - A note with children is only done when all of it's children have a DONE status.
+function recomputeNoteStatusRecursively(
+    state: NoteTreeGlobalState,
+    note: TreeNote,
+) {
+    let recomputeParents = false;
+    if (note.childIds.length === 0) {
+        recomputeParents = true;
+    } else if (note.childIds.length > 0) {
+        let status = STATUS_DONE;
+        let foundDoneNoteUnderThisParent = false;
+        for (let i = note.childIds.length - 1; i >= 0; i--) {
+            const id = note.childIds[i];
+            const child = getNote(state, id);
+
+            if (child.childIds.length > 0) {
+                if (child.data._status === STATUS_NOT_COMPUTED) {
+                    recomputeNoteStatusRecursively(state, child);
+                    assert(child.data._status !== STATUS_NOT_COMPUTED);
+                }
+            } else {
+                const doneSuffix = getDoneNoteSuffix(child.data);
+                if (doneSuffix || foundDoneNoteUnderThisParent) {
+                    child.data._status = STATUS_DONE;
+                    foundDoneNoteUnderThisParent = true;
+                } else if (i === note.childIds.length - 1) {
+                    child.data._status = STATUS_IN_PROGRESS;
+                } else {
+                    child.data._status = STATUS_ASSUMED_DONE;
+                }
+            }
+
+            if (!foundDoneNoteUnderThisParent) {
+                status = STATUS_IN_PROGRESS;
+            }
+        }
+
+        if (note.data._status !== status) {
+            if (note.data._status !== STATUS_NOT_COMPUTED) {
+                recomputeParents = true;
+            }
+
+            note.data._status = status;
+        }
+    }
+
+    if (recomputeParents) {
+        if (!idIsNil(note.parentId)) {
+            const parent = getNote(state, note.parentId);
+            recomputeNoteStatusRecursively(state, parent);
+        }
+    }
+}
+
 // called just before we render things.
 // It recomputes all state that needs to be recomputed
 // TODO: super inefficient, need to set up a compute graph or something more complicated
-// TODO: delete this method in favour of real programming
+// TODO: deprecate this method once we've reached a point where we don't need to ever call it again.
 export function recomputeState(state: NoteTreeGlobalState) {
     assert(!!state, "WTF");
 
@@ -801,7 +870,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     {
         tree.forEachNode(state.notes, (n) => {
             if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
-                deleteNoteIfEmpty(state, n.id)
+                deleteNoteIfEmpty(state, n)
             }
         });
     }
@@ -811,8 +880,6 @@ export function recomputeState(state: NoteTreeGlobalState) {
     {
         const dfs = (note: TreeNote, depth: number, index: number, numSiblings: number) => {
             note.data._depth = depth;
-            note.data._index = index;
-            note.data._numSiblings = numSiblings;
 
             for (let i = 0; i < note.childIds.length; i++) {
                 const c = getNote(state, note.childIds[i]);
@@ -857,8 +924,8 @@ export function recomputeState(state: NoteTreeGlobalState) {
         dfs(getRootNote(state));
     }
 
-    // recompute _status, do some sorting
-    {
+    // recompute _status, do some sorting (OLD)
+    if (0) {
         tree.forEachNode(state.notes, (note) => {
             note.data._status = STATUS_IN_PROGRESS;
         });
@@ -919,7 +986,11 @@ export function recomputeState(state: NoteTreeGlobalState) {
         };
 
         dfs(getRootNote(state));
+    } else {
+        recomputeNoteStatusRecursively(state, getRootNote(state));
     }
+
+    // TODO: new status recomputation
 
     // recompute _isSelected to just be the current note + all parent notes 
     {
@@ -1326,14 +1397,13 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
 }
 
 
-export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
-    const note = getNote(state, id);
+export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote) {
     if (note.data.text.length > 0) {
         return false;
     }
 
     if (!note.data.text && note.childIds.length > 0) {
-        if (state.textOnArrivalNoteId === id && state.textOnArrival) {
+        if (state.textOnArrivalNoteId === note.id && state.textOnArrival) {
             // We can actually restore the text something more sane than the legacy behaviour
             note.data.text = state.textOnArrival;
             state.textOnArrival = "";
@@ -1359,12 +1429,6 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
         return false
     }
 
-    const noteToMoveTo = getNoteNUp(state, note, false) || getNoteNDown(state, note, false);
-    if (!noteToMoveTo) {
-        // cant delete this note if there are no other notes we can move to
-        return false;
-    }
-
     const nId = note.id;
     const parentId = note.parentId;
 
@@ -1386,12 +1450,9 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, id: NoteId) {
 
     // delete this note from streams.
     for (const stream of state.taskStreams) {
-        removeNoteFromNoteIds(stream.noteIds, id);
+        removeNoteFromNoteIds(stream.noteIds, note.id);
     }
-    removeNoteFromNoteIds(state.scheduledNoteIds, id);
-
-    // setting the note appends an activity. so we have to do it at the end
-    setCurrentNote(state, noteToMoveTo);
+    removeNoteFromNoteIds(state.scheduledNoteIds, note.id);
 
     return true;
 }
@@ -1586,6 +1647,7 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
     return undefined;
 }
 
+// TODO: fix this method.
 export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null, noteIdJumpedFrom?: NoteId | undefined) {
     if (!noteId) {
         return;
@@ -1610,7 +1672,7 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
     state._lastNoteId = noteIdJumpedFrom;
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
-    deleteNoteIfEmpty(state, currentNoteBeforeMove.id);
+    deleteNoteIfEmpty(state, currentNoteBeforeMove);
     setCurrentActivityIdxToCurrentNote(state);
 
     return true;
@@ -2543,6 +2605,16 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
     return undefined;
 }
 
+export function getNumSiblings(state: NoteTreeGlobalState, note: TreeNote): number {
+    if (idIsNil(note.parentId)) return 0;
+    const parent = getNote(state, note.parentId);
+    return parent.childIds.length;
+}
+
+export function isLastNote(state: NoteTreeGlobalState, note: TreeNote) {
+    const numSiblings = getNumSiblings(state, note);
+    return note.idxInParentList === numSiblings - 1;
+}
 
 export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
     if (!idIsNil(state._currentActivityScopedNoteId)) {

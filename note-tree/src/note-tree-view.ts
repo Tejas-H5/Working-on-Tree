@@ -2,38 +2,45 @@ import { imHLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { newTimer, timerHasReached, updateTimer } from "./app-utils/timer";
 import {
-    COL,
     EM,
     imAbsolute,
     imBegin,
     imBg,
-    imFixed,
     imFlex,
     imOpacity,
     imPadding,
     imRelative,
     imScrollContainer,
     imSize,
+    INLINE_BLOCK,
     NOT_SET,
     PX,
     ROW,
     ROW_REVERSE
 } from "./components/core/layout";
-import { newH1 } from "./components/core/new-dom-nodes";
 import { cn } from "./components/core/stylesheets";
+import { imTextArea } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
 import { lerp } from "./legacy-app-components/canvas-state";
 import { clampedListIdx, getNavigableListInput, NavigableList, newListState } from "./navigable-list";
 import {
+    createNewNote,
+    deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
+    getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
+    insertNoteAfterCurrent,
     isStoppingPointForNotViewExpansion,
     noteStatusToString,
+    NoteTreeGlobalState,
     recomputeFlatNotes,
     recomputeNoteParents,
+    setCurrentNote,
+    setIsEditingCurrentNote,
+    setNoteText,
     state,
     STATUS_IN_PROGRESS,
     TreeNote
@@ -44,15 +51,15 @@ import {
     deltaTimeSeconds,
     disableIm,
     enableIm,
+    getImKeys,
     getScrollVH,
-    imBeginRoot,
     imBeginSpan,
+    imElse,
     imEnd,
     imEndFor,
     imEndIf,
     imFor,
     imIf,
-    imIsOnScreen,
     imMemo,
     imNextRoot,
     imState,
@@ -62,6 +69,7 @@ import {
     setText,
     UIRoot
 } from "./utils/im-dom-utils";
+import * as tree from "./utils/int-tree";
 
 export type NoteTreeViewState = {
     note:                TreeNote;
@@ -75,17 +83,21 @@ export type NoteTreeViewState = {
     smoothScroll: boolean;
     list:         NavigableList;
 
-
     // Debugging
     numVisible: number;
 };
 
 function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
     if (invalidate || s.note !== note) {
+        if (s.note !== note) {
+            invalidate ||= deleteNoteIfEmpty(state, s.note);
+        }
+
         s.note = note;
         s.isScrolling = true;
         s.smoothScroll = true;
         recomputeNoteParents(state, s.noteParentNotes, s.note);
+        setCurrentNote(state, note.id);
 
         const viewRoot = getNoteViewRoot(note);
         if (invalidate || s.viewRoot !== viewRoot) {
@@ -160,7 +172,7 @@ function moveIdx(s: NoteTreeViewState, amount: number) {
 }
 
 function moveIdxLocal(s: NoteTreeViewState, amount: number) {
-    const localIdx = s.note.data._index;
+    const localIdx = s.note.idxInParentList;
     setIdxLocal(s, localIdx + amount);
 }
 
@@ -189,6 +201,7 @@ function moveIntoCurrent(s: NoteTreeViewState) {
 
 export function imNoteTreeView(ctx: GlobalContext) {
     const s = ctx.noteTreeViewState;
+    handleKeyboardInput(ctx, s);
 
     imBegin(); {
         s.numVisible = 0;
@@ -220,7 +233,7 @@ export function imNoteTreeView(ctx: GlobalContext) {
             const row = s.childNotes[i];
             const focused = s.list.idx === i;
 
-            const root = imBeginListRow(focused); {
+            const root = imBeginListRow(focused, state._isEditingFocusedNote); {
                 imNoteTreeRow(s, false, row, i, focused);
             } imEndListRow();
 
@@ -242,7 +255,6 @@ export function imNoteTreeView(ctx: GlobalContext) {
                         );
                     } else {
                         scrollParent.root.scrollTop = scrollTop;
-
                     }
                 }
             }
@@ -251,25 +263,96 @@ export function imNoteTreeView(ctx: GlobalContext) {
         // Want to scroll off the bottom a bit
         imBegin(); imSize(0, NOT_SET, 200, PX); imEnd();
     } imEnd();
-
-    disableIm(); {
-        const delta = getNavigableListInput(ctx);
-
-        if (delta) {
-            moveIdxLocal(s, delta);
-        } else if (ctx.keyboard.left.pressed) {
-            moveOutOfCurrent(s);
-        } else if (ctx.keyboard.right.pressed) {
-            moveIntoCurrent(s);
-        }
-    } enableIm();
 }
+
+
+function addNoteAfterCurrent(s: NoteTreeViewState): TreeNote {
+    assert(!idIsNil(s.note.parentId), "Cant insert after the root note");
+
+    const newNote = createNewNote(state, "");
+    tree.addAfter(state.notes, s.note, newNote);
+    return newNote;
+}
+
+function addNoteUnderCurrent(s: NoteTreeViewState): TreeNote {
+    assert(!idIsNil(s.note.parentId), "Cant insert under the root note");
+
+    const newNote = createNewNote(state, "");
+    tree.addUnder(state.notes, s.note, newNote);
+    return newNote;
+}
+
+function moveNoteToIdx(s: NoteTreeViewState, delta: number) {
+    if (idIsNil(s.note.parentId)) return;
+    
+    const parent = getNote(state, s.note.parentId);
+    let idx = s.note.idxInParentList + delta;
+    idx = clampedListIdx(idx, parent.childIds.length);
+    tree.insertAt(state.notes, parent, s.note, idx);
+    setNote(s, s.note, true);
+}
+
+function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
+    const { keyboard } = ctx;
+
+    if (!ctx.handled && keyboard.enter.pressed) {
+        let newNote: TreeNote | undefined;
+        if (keyboard.shift.held) {
+            newNote = addNoteAfterCurrent(s);
+        } else if (keyboard.ctrl.held) {
+            newNote = addNoteUnderCurrent(s);
+        }
+
+        if (newNote) {
+            setNote(s, newNote, true);
+            setIsEditingCurrentNote(state, true);
+            ctx.handled = true;
+        }
+    }
+
+    if (!ctx.handled && !state._isEditingFocusedNote) {
+        if (keyboard.enter.pressed) {
+            setIsEditingCurrentNote(state, true);
+            ctx.handled = true;
+        }  else {
+            const delta = getNavigableListInput(ctx);
+            if (delta) {
+                if (keyboard.alt.held) {
+                    moveNoteToIdx(s, delta);
+                    ctx.handled = true;
+                } else {
+                    moveIdxLocal(s, delta);
+                    ctx.handled = true;
+                }
+            } if (keyboard.left.pressed) {
+                moveOutOfCurrent(s);
+                ctx.handled = true;
+            } else if (keyboard.right.pressed) {
+                moveIntoCurrent(s);
+                ctx.handled = true;
+            }
+        }
+    } 
+
+    if (!ctx.handled && state._isEditingFocusedNote) {
+        if (keyboard.escape.pressed) {
+            setIsEditingCurrentNote(state, false);
+            ctx.handled = true;
+        }
+    }
+
+    if (ctx.handled) {
+    }
+}
+
+
 
 function imNoteTreeRow(
     s: NoteTreeViewState,
     aboveTheLine: boolean,
     note: TreeNote, 
-    idx = -1, focused = true
+    idx = -1, 
+    focused = false
 ) {
     s.numVisible++;
 
@@ -301,6 +384,7 @@ function imNoteTreeRow(
                 imNextRoot();
 
                 const itPrev = it;
+                const itPrevNumSiblings = getNumSiblings(state, itPrev);
                 it = getNote(state, it.parentId);
                 depth++;
 
@@ -328,7 +412,7 @@ function imNoteTreeRow(
 
                 const smallThicnkess = 1;
                 const largeThicnkess = 4;
-                const isLast = itPrev.data._index === itPrev.data._numSiblings - 1;
+                const isLast = itPrev.idxInParentList === itPrevNumSiblings - 1;
 
                 let pathGoesRight = (noteIsParent || it.id === note.id);
 
@@ -396,35 +480,68 @@ function imNoteTreeRow(
                 setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
             }
 
-            imBegin(); imFlex(); {
-                imBeginSpan(); setText(noteStatusToString(note.data._status)); imEnd();
-                if (imIf() && (numInProgress + numDone) > 0) {
-                    imBeginSpan(); setText(` (${numDone}/${numInProgress+numDone}) `); imEnd();
-                } imEndIf();
-                imBeginSpan(); {
-                    if (imMemo(note.data.text)) {
-                        let text = note.data.text;
-                        if (text.length > 150) {
-                            text = `[${text.length}ch] - ${text}`;
+            imBegin(ROW); imFlex(); {
+                imBegin(); {
+                    imBegin(); setText(noteStatusToString(note.data._status)); imEnd();
+                    imBegin(); setText(" "); imEnd();
+                } imEnd();
+
+                const isEditing = focused && state._isEditingFocusedNote;
+                if (imIf() && isEditing) {
+                    const [event] = imTextArea({
+                        value: note.data.text,
+                        focus: true
+                    });
+                    if (event) {
+                        if (event.input || event.change) {
+                            setNoteText(state, note, event.text);
+                        }
+                    }
+                } else {
+                    imElse();
+
+                    imBeginSpan(); {
+                        if (imMemo(focused)) {
+                            setClass(cn.preWrap, focused);
+                            setClass(cn.noWrap, !focused);
+                            setClass(cn.overflowHidden, !focused);
                         }
 
-                        setText(text);
-                    }
-                } imEnd();
+                        if (imIf() && (numInProgress + numDone) > 0) {
+                            imBeginSpan(); setText(` (${numDone}/${numInProgress + numDone}) `); imEnd();
+                        } imEndIf();
+                        imBeginSpan(); {
+                            if (imMemo(note.data.text)) {
+                                let text = note.data.text;
+                                if (text.length > 150) {
+                                    text = `[${text.length}ch] - ${text}`;
+                                }
+
+                                setText(text);
+                            }
+                        } imEnd();
+                    } imEnd();
+                } imEndIf();
             } imEnd();
         } imEnd();
     } imEnd();
 }
 
-function imBeginListRow(focused: boolean) {
+
+function imBeginListRow(focused: boolean, editing = false) {
+    const focusChanged = imMemo(focused);
+    const editingChanged = imMemo(editing);
+
     const root = imBegin(ROW); {
-        if (imMemo(focused)) {
+        if (focusChanged) {
             setStyle("backgroundColor", focused ? cssVarsApp.bgColorFocus : "");
         }
 
         imBegin(); imSize(10, PX, 0, NOT_SET); {
-            if (imMemo(focused)) {
-                setStyle("backgroundColor", focused ? cssVarsApp.fgColor : "");
+            if (focusChanged || editingChanged) {
+                setStyle("backgroundColor", 
+                    focused ? ( editing ? cssVarsApp.bgEditing : cssVarsApp.fgColor) : ""
+                );
             }
         } imEnd();
     } // imEnd();

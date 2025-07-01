@@ -17,7 +17,8 @@ import {
 } from "./components/fps-counter";
 import {
     handleImKeysInput,
-    newGlobalContext
+    newGlobalContext,
+    preventImKeysDefault
 } from "./global-context";
 import { imNoteTreeView } from "./note-tree-view";
 import {
@@ -72,6 +73,10 @@ function imMain() {
             imFpsCounterOutput(fpsCounter);
         } imEnd();
     } stopFpsCounter(fpsCounter);
+
+    if (ctx.handled) {
+        preventImKeysDefault();
+    }
 }
 
 

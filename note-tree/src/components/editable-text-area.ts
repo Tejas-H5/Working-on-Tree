@@ -1,5 +1,4 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { execCommand } from "src/utils/depracated-dom-api-wrappers";
 import {
     imBeginRoot,
     imEnd,
@@ -64,20 +63,6 @@ cssb.s(`
 }
 `);
 
-export type EditableTextAreaArgs = {
-    text: string;
-    isEditing: boolean;
-    isOneLine?: boolean;
-    onInput(text: string, textArea: HTMLTextAreaElement): void;
-    onInputKeyDown?(e: KeyboardEvent, textArea: HTMLTextAreaElement): void;
-    config: EditableTextAreaConfig;
-    textAreaRef?: Ref<HTMLTextAreaElement>;
-};
-
-type EditableTextAreaConfig = {
-    useSpacesInsteadOfTabs?: boolean;
-    tabStopSize?: number;
-};
 
 export type TextAreaArgs = {
     value: string;
@@ -159,6 +144,7 @@ export function imBeginTextArea({
                 imBegin(INLINE); {
                     if (isFirstRender()) {
                         setAttr("style", "color: transparent");
+                        setAttr("userSelect", "none");
                         setText(".");
                     }
                 } imEnd();
@@ -202,7 +188,19 @@ export function imEndTextArea() {
 }
 
 
-export function doExtraTextAreaInputHandling(e: KeyboardEvent, textArea: HTMLTextAreaElement, config: EditableTextAreaConfig): boolean {
+
+export type EditableTextAreaConfig = {
+    useSpacesInsteadOfTabs?: boolean;
+    tabStopSize?: number;
+};
+
+export function doExtraTextAreaInputHandling(
+    e: KeyboardEvent,
+    textArea: HTMLTextAreaElement,
+    config: EditableTextAreaConfig
+): boolean {
+    const execCommand = document.execCommand;
+
     // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs (among other things).
     // Using the execCommand API is currently the only way to do this while perserving undo, 
     // and I won't be replacing it till there is really something better.

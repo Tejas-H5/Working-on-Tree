@@ -7,6 +7,7 @@ const cssb = newCssBuilder();
 export const cssVarsApp = {
     bgInProgress: "var(--bgInProgress)",
     fgInProgress: "var(--fgInProgress)",
+    bgEditing: "var(--bgEditing)",
     bgColor: "var(--bgColor)",
     bgColorFocus: "var(--bgColorFocus)",
     bgColorFocus2: "var(--bgColorFocus2)",
@@ -26,6 +27,7 @@ font-size: 18px; `;
 export const lightTheme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
     fgInProgress: newColorFromHex("#FFF"),
+    bgEditing: newColorFromHex("#F00"),
     bgColor: newColorFromHex("#FFF"),
     bgColorFocus: newColorFromHex("#CCC"),
     bgColorFocus2: newColor(0, 0, 0, 0.4),
@@ -40,6 +42,7 @@ type AppTheme = typeof lightTheme;
 export const darkTheme: AppTheme = {
     bgInProgress: newColor(1, 0, 0, 0.1),
     fgInProgress: newColorFromHex("#FFF"),
+    bgEditing: newColorFromHex("#F00"),
     bgColor: newColorFromHex("#000"),
     bgColorFocus: newColorFromHex("#333"),
     bgColorFocus2: newColor(1, 1, 1, 0.4),
