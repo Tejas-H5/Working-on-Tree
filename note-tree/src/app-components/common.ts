@@ -10,8 +10,8 @@ const cnHLine = cssb.cn("hline", [
 ]);
 
 
-export function imHLine(visible = true) {
-    imBegin(); imSize(0, NOT_SET, visible ? 3 : 0, PX); {
+export function imHLine(visible = true, heightPx: number = 2) {
+    imBegin(); imSize(0, NOT_SET, visible ? heightPx : 0, PX); {
         if (isFirstRender()) {
             setStyle("backgroundColor", cssVarsApp.fgColor);
             setClass(cnHLine);

@@ -23,21 +23,25 @@ export type SizeUnitInstance = number & { __sizeUnit: void; };
 export const PX = 10001 as SizeUnitInstance;
 export const EM = 20001 as SizeUnitInstance;
 export const PERCENT = 30001 as SizeUnitInstance;
-export const NOT_SET = 40001 as SizeUnitInstance;
 export const REM = 50001 as SizeUnitInstance;
+export const CH = 50001 as SizeUnitInstance;
+export const NOT_SET = 40001 as SizeUnitInstance;
 
 export type SizeUnits = typeof PX |
     typeof EM |
-    typeof REM |
     typeof PERCENT |
+    typeof REM |
+    typeof CH |
     typeof NOT_SET;
 
 function getUnits(num: SizeUnits) {
     switch(num) {
-        case EM: return "em";
-        case REM: return "rem";
+        case PX:      return "px";
+        case EM:      return "em";
         case PERCENT: return "%";
-        default: return "px";
+        case REM:     return "rem";
+        case CH:      return "ch";
+        default:      return "px";
     }
 }
 

@@ -219,7 +219,7 @@ export type Note = {
     _status: NoteStatus; // used to track if a note is done or not.
     _shelved: boolean; // Is this note or any of it's parents shelved?
     _everyChildNoteDone: boolean;
-    _isSelected: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
+    _isAboveCurrentNote: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
     _higherLevelTaskId: NoteId; // the note's higher level task, as per the To-Do list calculation. This is only valid if it's in the To-Do list.
     _depth: number; // used to visually indent the notes
@@ -680,7 +680,7 @@ export function defaultNote(): Note {
         _shelved: false,
         _everyChildNoteDone: false,
         _higherLevelTaskId: tree.NIL_ID,
-        _isSelected: false,
+        _isAboveCurrentNote: false,
         _isUnderCurrent: false,
         _depth: 0,
         _durationUnranged: 0,
@@ -727,31 +727,32 @@ export function recomputeNoteParents(
 export function recomputeFlatNotes(
     state: NoteTreeGlobalState,
     flatNotes: TreeNote[],
-    rootNote: TreeNote,
+    viewRoot: TreeNote,
+    currentNote: TreeNote,
     includeParents = true
 ) {
     clearArray(flatNotes);
 
     if (includeParents) {
-        recomputeNoteParents(state, flatNotes, rootNote);
+        recomputeNoteParents(state, flatNotes, viewRoot);
     }
 
     const dfs = (note: TreeNote) => {
         flatNotes.push(note);
 
-        const noChildren = note.childIds.length === 0;
-        const isVisualLeaf = !noChildren &&
-            isStoppingPointForNotViewExpansion(state, note);
+        const isVisualLeaf = note.childIds.length === 0 || 
+            isNoteOpaque(state, currentNote, note);
         if (isVisualLeaf) {
             return;
         }
+
         for (const childId of note.childIds) {
             const note = getNote(state, childId);
             dfs(note);
         }
     }
 
-    for (const childId of rootNote.childIds) {
+    for (const childId of viewRoot.childIds) {
         const note = getNote(state, childId);
         dfs(note);
     }
@@ -806,7 +807,7 @@ export function setNoteText(
 // - If a note has no children, and ends with a 'done suffix', then that note, and every other note on that level before it without children can
 //      be  marked as STATUS_DONE. No longer an assumption.
 // - A note with children is only done when all of it's children have a DONE status.
-function recomputeNoteStatusRecursively(
+export function recomputeNoteStatusRecursively(
     state: NoteTreeGlobalState,
     note: TreeNote,
 ) {
@@ -837,7 +838,7 @@ function recomputeNoteStatusRecursively(
                 }
             }
 
-            if (!foundDoneNoteUnderThisParent) {
+            if (child.data._status !== STATUS_DONE) {
                 status = STATUS_IN_PROGRESS;
             }
         }
@@ -995,14 +996,14 @@ export function recomputeState(state: NoteTreeGlobalState) {
     // recompute _isSelected to just be the current note + all parent notes 
     {
         tree.forEachNode(state.notes, (note) => {
-            note.data._isSelected = false;
+            note.data._isAboveCurrentNote = false;
         });
 
         const current = getCurrentNote(state);
 
         let note = current;
         while (!idIsNil(note.parentId)) {
-            note.data._isSelected = true;
+            note.data._isAboveCurrentNote = true;
             note = getNote(state, note.parentId);
         }
     }
@@ -1153,7 +1154,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
                 if (!idIsNil(state._currentActivityScopedNoteId) && (
                     activity.deleted ||
                     !activity.nId ||
-                    !isNoteUnderParent(state, state._currentActivityScopedNoteId, getNote(state, activity.nId),)
+                    !parentNoteContains(state, state._currentActivityScopedNoteId, getNote(state, activity.nId),)
                 )) {
                     continue;
                 }
@@ -1257,11 +1258,11 @@ export function getQuicklistIndex(state: NoteTreeGlobalState): number {
 }
 
 export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
-    return note.data._isSelected ||    // Current note inside this note
-        isNoteUnderParent(state, state.currentNoteId, note);    // Current note directly above this note
+    return note.data._isAboveCurrentNote ||    // Current note inside this note
+        parentNoteContains(state, state.currentNoteId, note);    // Current note directly above this note
 }
 
-export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, note: TreeNote): boolean {
+export function parentNoteContains(state: NoteTreeGlobalState, parentId: NoteId, note: TreeNote): boolean {
     // one of the parents is the current note
     while (!idIsNil(note.parentId)) {
         if (note.id === parentId) {
@@ -1273,15 +1274,19 @@ export function isNoteUnderParent(state: NoteTreeGlobalState, parentId: NoteId, 
     return false;
 }
 
-// The note that we're in may be an 'expanded' note, and not necessarily the root of the view.
-// The `upwards` param allows it to be assymetrical with respect to uwpards and downwards traversals.
-export function isStoppingPointForNotViewExpansion(state: NoteTreeGlobalState, note: TreeNote): boolean {
-    return isHigherLevelTask(note)
-        || note.id === tree.ROOT_ID
-        || (
-            note.data._status !== STATUS_IN_PROGRESS &&
-            !(note.data._isSelected && note.id !== state.currentNoteId)
-        );
+// When we have a particular note selected, and our view is rooted somewhere, can we see this note?
+export function isNoteOpaque(
+    state: NoteTreeGlobalState,
+    currentNote: TreeNote,
+    queryNote: TreeNote,
+): boolean {
+    if (isHigherLevelTask(queryNote)) return true;
+    if (idIsNilOrRoot(queryNote.id)) return true;
+    if (queryNote.data._status !== STATUS_IN_PROGRESS) {
+        return queryNote.id === currentNote.id ||
+            !parentNoteContains(state, queryNote.id, currentNote);
+    }
+    return false;
 }
 
 
@@ -2033,7 +2038,7 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalSta
         }
 
         const activityNote = getNote(state, activity.nId);
-        if (activityNote.id !== note.id && isNoteUnderParent(state, note.id, activityNote)) {
+        if (activityNote.id !== note.id && parentNoteContains(state, note.id, activityNote)) {
             return i;
         }
     }
@@ -2208,7 +2213,7 @@ export function findPreviousActiviyIndex(state: NoteTreeGlobalState, nId: NoteId
         }
 
         const aNote = getNote(state, a.nId);
-        if (isNoteUnderParent(state, nId, aNote)) {
+        if (parentNoteContains(state, nId, aNote)) {
             return i;
         }
     }
@@ -2225,7 +2230,7 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
         }
 
         const aNote = getNote(state, a.nId);
-        if (isNoteUnderParent(state, nId, aNote)) {
+        if (parentNoteContains(state, nId, aNote)) {
             return i;
         }
     }

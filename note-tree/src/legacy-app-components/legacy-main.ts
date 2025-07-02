@@ -164,7 +164,7 @@ import {
     isCurrentlyTakingABreak,
     isEditableBreak,
     isNoteInTaskStream,
-    isNoteUnderParent,
+    parentNoteContains,
     loadState,
     loadStateFromBackup,
     newBreakActivity,
@@ -1019,7 +1019,7 @@ function EditableActivityList(rg: RenderGroup<{
                     nextActivity,
                     showDuration: true,
                     // focus: activity.nId === state.currentNoteId,
-                    focus: !!activityNote && isNoteUnderParent(state, state.currentNoteId, activityNote),
+                    focus: !!activityNote && parentNoteContains(state, state.currentNoteId, activityNote),
                     hasCursor,
                 });
 

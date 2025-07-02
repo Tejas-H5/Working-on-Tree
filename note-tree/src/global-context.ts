@@ -198,7 +198,7 @@ export function handleImKeysInput(ctx: GlobalContext) {
 export function preventImKeysDefault() {
     const { keyDown, keyUp } = getImKeys();
     if (keyDown) keyDown.preventDefault();
-    if (keyUp) keyUp.preventDefault();
+    if (keyUp)   keyUp.preventDefault();
 }
 
 export type GlobalContext = {
