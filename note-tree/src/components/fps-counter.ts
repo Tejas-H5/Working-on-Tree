@@ -10,7 +10,7 @@ import {
     isFirstRender,
     imBeginDiv,
     imBeginSpan,
-    getImContext
+    getImCore
 } from 'src/utils/im-dom-utils';
 import { cssVars } from './core/stylesheets';
 
@@ -168,11 +168,11 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         imBeginDiv(); {
             setText(getNumItemsRenderedLastFrame() + " IM entries");
         } imEnd();
-        const ctx = getImContext();
+        const im = getImCore();
         imBeginDiv(); {
-            imBeginSpan(); setText(ctx.numResizeObservers + " ROs"); imEnd();
+            imBeginSpan(); setText(im.numResizeObservers + " ROs"); imEnd();
             imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); setText(ctx.numIntersectionObservers + " IOs"); imEnd();
+            imBeginSpan(); setText(im.numIntersectionObservers + " IOs"); imEnd();
         } imEnd();
 
     } imEnd();

@@ -1,14 +1,10 @@
-import { imHLineDivider } from "./app-components/common";
+import { imBeginAppHeading, imEndAppHeading } from "./app-heading";
 import {
     COL,
     imBegin,
-    imFixed,
-    imPadding,
-    INLINE,
-    NOT_SET,
-    PX
+    imFixed
 } from "./components/core/layout";
-import { newH1 } from "./components/core/new-dom-nodes";
+import { imT } from "./components/core/text";
 import {
     imFpsCounterOutput,
     newFpsCounterState,
@@ -16,10 +12,12 @@ import {
     stopFpsCounter
 } from "./components/fps-counter";
 import {
+    GlobalContext,
     handleImKeysInput,
     newGlobalContext,
     preventImKeysDefault
 } from "./global-context";
+import { imNoteJournalView } from "./note-journal-view";
 import { imNoteTreeView } from "./note-tree-view";
 import {
     getNoteOrUndefined,
@@ -30,15 +28,9 @@ import {
 } from "./state";
 import { initCssbStyles } from "./utils/cssb";
 import {
-    imBeginRoot,
     imEnd,
-    imEndIf,
-    imIf,
     imState,
-    initImDomUtils,
-    isFirstRender,
-    setStyle,
-    setText
+    initImDomUtils
 } from "./utils/im-dom-utils";
 
 function imMain() {
@@ -49,25 +41,11 @@ function imMain() {
 
     startFpsCounter(fpsCounter); {
         imBegin(COL); imFixed(0, 0, 0, 0); {
-            imBeginRoot(newH1); 
-            imPadding(10, PX, 0, NOT_SET, 0, NOT_SET, 0, NOT_SET); {
-                if (isFirstRender()) {
-                    setStyle("textOverflow", "ellipsis");
-                    setStyle("whiteSpace", "nowrap");
-                }
-
-                imBegin(INLINE); setText("Note tree"); imEnd();
-
-                const headerNote = getNoteOrUndefined(state, state._currentFlatNotesRootId);
-                if (imIf() && headerNote) {
-                    imBegin(INLINE); setText(" :: "); imEnd();
-                    imBegin(INLINE); setText(headerNote.data.text); imEnd();
-                } imEndIf();
-            } imEnd();
-
-            imHLineDivider();
-
-            imNoteTreeView(ctx);
+            if (0) {
+                imAppViewTree(ctx); 
+            } else {
+                imAppViewJournal(ctx); 
+            }
 
             imFpsCounterOutput(fpsCounter);
         } imEnd();
@@ -76,6 +54,27 @@ function imMain() {
     if (ctx.handled) {
         preventImKeysDefault();
     }
+}
+
+function imAppViewTree(ctx: GlobalContext) {
+    imBeginAppHeading(); {
+        imT("Tree"); 
+        const headerNote = getNoteOrUndefined(state, state._currentFlatNotesRootId);
+        if (headerNote) {
+            imT(" :: ");
+            imT(headerNote.data.text);
+        }
+    } imEndAppHeading();
+
+    imNoteTreeView(ctx);
+}
+
+function imAppViewJournal(ctx: GlobalContext) {
+    imBeginAppHeading(); {
+        imT("Journal"); 
+    } imEndAppHeading();
+
+    imNoteJournalView(ctx);
 }
 
 

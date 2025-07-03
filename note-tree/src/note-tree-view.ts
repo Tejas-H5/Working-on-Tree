@@ -203,7 +203,7 @@ function moveIntoCurrent(
     moveNote: boolean,
 ) {
     if (!boundsCheck(s.childNotes, s.list.idx)) return;
-    if (idIsNilOrRoot(s.note.parentId)) return;
+    if (idIsNil(s.note.parentId)) return;
 
     if (moveNote) {
         const parentIdx = s.note.idxInParentList;

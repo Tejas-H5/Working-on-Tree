@@ -80,6 +80,18 @@ function newFuzzyFindState(): FuzzyFindState {
 }
 
 
+type AppViewInstance = number & { __appView: void; };
+
+export const APP_VIEW_TREE = 0 as AppViewInstance;
+export const APP_VIEW_JOURNAL = 1 as AppViewInstance;
+
+export type AppView =
+    typeof APP_VIEW_TREE |
+    typeof APP_VIEW_JOURNAL;
+
+
+// TODO: remove dead state after rewrite
+
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
 export type NoteTreeGlobalState = {
@@ -90,6 +102,8 @@ export type NoteTreeGlobalState = {
     showDockedMenu: boolean;
     breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
+
+    currentScreen: AppView;
 
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
     // (at least with the way I'm using it as a drop-in replacement for localStorage.).

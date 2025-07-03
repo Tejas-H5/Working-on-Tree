@@ -1,4 +1,4 @@
-// *IM* DOM-utils v0.1.0012 - @Tejas-H5
+// *IM* DOM-utils v0.1.02 - @Tejas-H5
 // A variation on DOM-utils with the immediate-mode API isntead of the normal one. I'm still deciding which one I will continue to use.
 // Right now, this one seems better, but the other one has a 'proven' track record of actually working.
 // But in a matter of hours/days, I was able to implement features in this framework that I wasn't able to for months/years in the other one...
@@ -186,8 +186,9 @@ export function getElementExtentNormalized(
 
 function renderStub() {}
 
-export type ImContext = {
+export type ImCore = {
     currentStack: (UIRoot | ListRenderer)[];
+    currentContexts: StateItem[];
     // Only one of these is defined at a time.
     currentRoot: UIRoot | undefined;
     currentListRenderer: ListRenderer | undefined;
@@ -231,9 +232,9 @@ const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
 
 /**
- * Don't forget to initialize this context with {@link initImDomUtils}
+ * Don't forget to initialize this core with {@link initImDomUtils}
  */
-export function newImContext(root: HTMLElement = document.body): ImContext {
+export function newImCore(root: HTMLElement = document.body): ImCore {
     const keyboard: ImKeyboardState = {
         keyDown: null,
         keyUp: null,
@@ -267,8 +268,9 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
         hoverElementOriginal: null,
     };
 
-    const ctx: ImContext = {
+    const core: ImCore = {
         currentStack: [],
+        currentContexts: [],
         currentRoot: undefined,
         currentListRenderer: undefined,
         initialized: false,
@@ -295,8 +297,8 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
         // Event handlers
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
-                const { mouse } = ctx;
-                setClickedElement(ctx, e.target);
+                const { mouse } = core;
+                setClickedElement(core, e.target);
                 mouse.hasMouseEvent = true;
                 if (e.button === 0) {
                     mouse.leftMouseButton = true;
@@ -307,7 +309,7 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
                 }
             },
             mousemove: (e: MouseEvent) => {
-                const { mouse } = ctx;
+                const { mouse } = core;
                 mouse.lastX = mouse.X;
                 mouse.lastY = mouse.Y;
                 mouse.X = e.clientX;
@@ -317,11 +319,11 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
                 mouse.hoverElementOriginal = e.target;
             },
             mouseenter: (e: MouseEvent) => {
-                const { mouse } = ctx;
+                const { mouse } = core;
                 mouse.hoverElementOriginal = e.target;
             },
             mouseup: (e: MouseEvent) => {
-                const { mouse } = ctx;
+                const { mouse } = core;
                 if (mouse.hasMouseEvent) {
                     return;
                 }
@@ -334,63 +336,64 @@ export function newImContext(root: HTMLElement = document.body): ImContext {
                 }
             },
             wheel: (e: WheelEvent) => {
-                const { mouse } = ctx;
+                const { mouse } = core;
                 mouse.scrollWheel += e.deltaX + e.deltaY + e.deltaZ;
                 mouse.hoverElementOriginal = e.target;
                 e.preventDefault();
             },
             keydown: (e: KeyboardEvent) => {
-                const { keyboard } = ctx;
+                const { keyboard } = core;
                 keyboard.keyDown = e;
-                rerenderImContext(ctx, ctx.lastTime, true);
+                rerenderImCore(core, core.lastTime, true);
             },
             keyup: (e: KeyboardEvent) => {
-                const { keyboard } = ctx;
+                const { keyboard } = core;
                 keyboard.keyUp = e;
-                rerenderImContext(ctx, ctx.lastTime, true);
+                rerenderImCore(core, core.lastTime, true);
             },
             blur: () => {
-                resetMouseState(ctx, true);
-                resetKeyboardState(ctx);
-                ctx.keyboard.blur = true;
-                rerenderImContext(ctx, ctx.lastTime, true);
+                resetMouseState(core, true);
+                resetKeyboardState(core);
+                core.keyboard.blur = true;
+                rerenderImCore(core, core.lastTime, true);
             }
         },
     };
-    return ctx;
+    return core;
 }
 
 /** 
- * NOTE: some atypical usecases require multiple contexts,
+ * NOTE: some atypical usecases require multiple cores,
  * so make sure that your event handlers capture the one that is current
  * _at the time of adding the event_.
  *
  * Wrong:
  * ```ts
  * resizeObserver.onResize(() => {
- *      rerenderContext(imCtx);
+ *      rerenderCore(imCore);
  * })
  * ```
  *
  * Right:
  * ```ts
- * const ctx = imCtx;
+ * const core = imCore;
  * resizeObserver.onResize(() => {
- *      rerenderContext(ctx);
+ *      rerenderCore(core);
  * })
  * ```
  */
-const defaultContext = newImContext();
+const defaultCore = newImCore();
 
-// Contains ALL the state. In an atypical usecase, there may be multiple contexts that must switch between each other.
-let imCtx = defaultContext;
+// Contains ALL the state. In an atypical usecase, there may be multiple cores that must switch between each other.
+// This used to be called imContext, but this name was better suited for a React.Context like context feature.
+let imCore = defaultCore;
 
 export type ValidElement = HTMLElement | SVGElement;
 export type StyleObject<U extends ValidElement> = (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"]);
 
-export type StateItem  = {
+export type StateItem<T = unknown>  = {
     t: typeof ITEM_STATE;
-    v: unknown;
+    v: T;
     supplier: () => unknown;
 };
 
@@ -721,16 +724,6 @@ export function __removeAllDomElementsFromUiRoot(r: UIRoot, destroy: boolean) {
     }
 }
 
-export function findRootState<T>(supplier: () => T, r: UIRoot = getCurrentRoot()): T | null {
-    for (let i = 0; i < r.items.length; i++) {
-        const val = r.items[i];
-        if (val.t === ITEM_STATE && val.supplier === supplier) {
-            return val.v as T;
-        }
-    }
-    return null;
-}
-
 export function addDestructor(r: UIRoot, destructor: () => void) {
     r.destructors.push(destructor);
 }
@@ -794,7 +787,7 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  */
 export function imBeginList(): ListRenderer {
     // Don't access immediate mode state when immediate mode is disabled
-    assert(imCtx.imDisabled === false);
+    assert(imCore.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -817,7 +810,7 @@ export function imBeginList(): ListRenderer {
 
     __beginListRenderer(result);
 
-    imCtx.itemsRendered++;
+    imCore.itemsRendered++;
 
     return result;
 }
@@ -995,7 +988,7 @@ export function imEndTry() {
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  */
 export function imNextRoot(key?: ValidKey) {
-    if (imCtx.currentRoot) {
+    if (imCore.currentRoot) {
         imEnd();
     }
 
@@ -1065,13 +1058,13 @@ function nextItem(r: UIRoot) {
 }
 
 
-function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): T {
+function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): StateItem<T> {
     // Don't access immediate mode state when immediate mode is disabled
-    assert(imCtx.imDisabled === false);
+    assert(imCore.imDisabled === false);
 
     const r = getCurrentRoot();
 
-    let result: T;
+    let result: StateItem<T>;
     const items = r.items;
     const idx = ++r.itemsIdx;
     if (idx < items.length) {
@@ -1089,23 +1082,108 @@ However, imStateInline will not catch any out-of-order rendering errors, which m
             );
         }
 
-        result = box.v as T;
+        result = box as StateItem<T>;
     } else {
         assertCanPushImmediateModeStateEntry(r);
 
         // supplier can call getCurrentRoot() internally, and even add destructors.
         // But it shouldn't be doing immediate mode shenanigans.
         disableIm();
-        result = supplier();
+        const v = supplier();
         enableIm();
 
-        const box: StateItem = { t: ITEM_STATE, v: result, supplier };
-        items.push(box);
+        result = { t: ITEM_STATE, v, supplier };
+        items.push(result);
     }
 
-    imCtx.itemsRendered++;
+    imCore.itemsRendered++;
 
     return result;
+}
+
+/**
+ * This framework's equivelant of React.Context. 
+ * It mainly helps reduce noise in certain APIs.
+ * It is basically the same as `imState`, but you can access said state later via child components.
+ *
+ * ```ts
+ * const supplier = () => ({ x: 0 });
+ *
+ * function imMain() {
+ *     imBeginContext(supplier); {
+ *          imThirdPartyComponent(); {
+ *              someComponent();
+ *          } imEndThirdPartyComponent();
+ *     } imEndContext(supplier);
+ *
+ *     // If you didn't wrap this in imBeginContext somewhere up the call stack, this will throw. :)
+ *     someComponent() 
+ * }
+ *
+ * function someComponent() {
+ *      // We didn't need to pass it via args to get it.
+ *      const state = imGetContext(supplier);
+ *      imBegin(); setText(state.x); imEnd();
+ * }
+ *
+ * ```
+ *
+ * Do note that if you're deeply nesting contexts like you would in React, your code is not optimal.
+ * ```
+ * // The React(tm) way:
+ * function imApp() {
+ *      imBeginContext(newStateA); { 
+ *          imBeginContext(newStateB); { 
+ *              imBeginContext(newStateC); {
+ *
+ *              ...
+ * }
+ *
+ * // Better: 
+ * function allTheContexts() {
+ *      return { 
+ *          a: newStateA(),
+ *          b: newStateB(),
+ *          c: newStateC(),
+ *      };
+ * }
+ *
+ * function imApp() {
+ *      imBeginContext(allTheContexts); { 
+ *
+ * }
+ * ```
+ *
+ */
+export function imBeginContext<T>(supplier: () => T): T {
+    const core = imCore;
+    const state = imStateInternal(supplier, false);
+    core.currentContexts.push(state);
+    return state.v;
+}
+
+export function imEndContext<T>(supplier: () => T) {
+    const core = imCore;
+
+    // You've popped more contexts than you've pushed
+    assert(core.currentContexts.length > 0);
+
+    const lastContext = core.currentContexts[core.currentContexts.length - 1];
+    assert(lastContext.supplier === supplier, "Contexts must be popped in the same order that they were pushed");
+    return (core.currentContexts.pop() as StateItem<T>).v;
+}
+
+export function imGetContext<T>(supplier: () => T): T {
+    const core = imCore;
+
+    for (let i = core.currentContexts.length - 1; i >= 0; i--) {
+        const ctx = core.currentContexts[i];
+        if (ctx.supplier === supplier) {
+            return ctx.v as T;
+        }
+    }
+
+    throw new Error("No context for " + supplier.name + " could be found on the context stack");
 }
 
 /**
@@ -1126,7 +1204,7 @@ However, imStateInline will not catch any out-of-order rendering errors, which m
  * In which case, you'll need to use {@link imStateInline} instead. But try not to!
  */
 export function imState<T>(supplier: () => T): T {
-    return imStateInternal(supplier, false);
+    return imStateInternal(supplier, false).v;
 }
 
 /**
@@ -1138,7 +1216,7 @@ export function imState<T>(supplier: () => T): T {
  * I assume allocating the closure every frame is probably also not ideal.
  */
 export function imStateInline<T>(supplier: () => T) : T {
-    return imStateInternal(supplier, true);
+    return imStateInternal(supplier, true).v;
 }
 
 /**
@@ -1146,46 +1224,47 @@ export function imStateInline<T>(supplier: () => T) : T {
  * Mainly for use when you don't care what the type of the root is.
  */
 export function getCurrentRoot(): UIRoot {
-    const ctx = imCtx;
+    const core = imCore;
 
     /** 
      * Can't call this method without opening a new UI root. Common mistakes include: 
      *  - using end() instead of endList() to end lists
      *  - calling beginList() and then rendering a component without wrapping it in nextRoot like `nextRoot(); { ...component code... } end();`
      */
-    assert(ctx.currentRoot !== undefined);
+    assert(core.currentRoot !== undefined);
 
-    return ctx.currentRoot;
+    return core.currentRoot;
 }
 
 // You probably don't want to use this, if you can help it
 export function getCurrentListRendererInternal(): ListRenderer {
-    const ctx = imCtx;
+    const core = imCore;
 
     /** Can't call this method without opening a new list renderer (see {@link imBeginList}) */
-    assert(ctx.currentListRenderer !== undefined, `The last stack element was not a list renderer`)
+    assert(core.currentListRenderer !== undefined, `The last stack element was not a list renderer`)
 
-    return ctx.currentListRenderer;
+    return core.currentListRenderer;
 }
 
 function pushList(l: ListRenderer) {
-    const ctx = imCtx;
+    const core = imCore;
 
-    ctx.currentStack.push(l);
-    ctx.currentRoot = undefined;
-    ctx.currentListRenderer = l;
+    core.currentStack.push(l);
+    core.currentRoot = undefined;
+    core.currentListRenderer = l;
 }
 
 function pushRoot(r: UIRoot) {
-    const ctx = imCtx;
+    const core = imCore;
 
-    ctx.currentStack.push(r);
-    ctx.currentRoot = r;
-    ctx.currentListRenderer = undefined;
+    core.currentStack.push(r);
+    core.currentRoot = r;
+    core.currentListRenderer = undefined;
 }
 
 function startRendering(root: UIRoot, itemIdx: number, domIdx: number) {
-    imCtx.currentStack.length = 0;
+    imCore.currentStack.length = 0;
+    imCore.currentContexts.length = 0;
     enableIm();
     __beginUiRoot(root, itemIdx, domIdx);
 }
@@ -1223,7 +1302,7 @@ Fix: don't use an inline lambda.
 
 export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
     // Don't access immediate mode state when immediate mode is disabled
-    assert(imCtx.imDisabled === false);
+    assert(imCore.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -1250,7 +1329,7 @@ ${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`
         items.push(result);
     }
 
-    imCtx.itemsRendered++;
+    imCore.itemsRendered++;
 
     return result as UIRoot<E>;
 } 
@@ -1325,8 +1404,8 @@ export function imBeginMemo() {
  * @see imBeginMemo
  */
 export function imEndMemo() {
-    const ctx = imCtx;
-    if (ctx.currentRoot) {
+    const core = imCore;
+    if (core.currentRoot) {
         imEndMemoized();
     }
 
@@ -1344,11 +1423,11 @@ function newIsOnScreenState() {
         })
     };
 
-    const ctx = imCtx;
+    const core = imCore;
     self.observer.observe(r.root);
-    ctx.numIntersectionObservers++;
+    core.numIntersectionObservers++;
     addDestructor(r, () => {
-        ctx.numIntersectionObservers--;
+        core.numIntersectionObservers--;
         self.observer.disconnect()
     });
 
@@ -1399,29 +1478,29 @@ function imEndRootInternal(r: UIRoot): boolean {
 
 
 function __popStack() {
-    const ctx = imCtx;
+    const core = imCore;
 
     // fix the `current` variables
-    ctx.currentStack.pop();
-    if (ctx.currentStack.length === 0) {
-        ctx.currentRoot = undefined;
-        ctx.currentListRenderer = undefined;
+    core.currentStack.pop();
+    if (core.currentStack.length === 0) {
+        core.currentRoot = undefined;
+        core.currentListRenderer = undefined;
     } else {
-        const val = ctx.currentStack[ctx.currentStack.length - 1];
+        const val = core.currentStack[core.currentStack.length - 1];
         if (val.t === ITEM_LIST_RENDERER) {
-            ctx.currentListRenderer = val;
-            ctx.currentRoot = undefined;
+            core.currentListRenderer = val;
+            core.currentRoot = undefined;
         } else {
-            ctx.currentListRenderer = undefined;
-            ctx.currentRoot = val;
+            core.currentListRenderer = undefined;
+            core.currentRoot = val;
         }
     }
 }
 
 export function imEndList() {
-    const ctx = imCtx;
+    const core = imCore;
 
-    if (ctx.currentRoot) {
+    if (core.currentRoot) {
         imEnd();
     }
 
@@ -1492,14 +1571,14 @@ export function imBeginSpan(): UIRoot<HTMLSpanElement> {
 }
 
 export function abortListAndRewindUiStack(l: ListRenderer) {
-    const ctx = imCtx;
+    const core = imCore;
 
     // need to wind the stack back to the current list component
-    const idx = ctx.currentStack.lastIndexOf(l);
+    const idx = core.currentStack.lastIndexOf(l);
     assert(idx !== -1);
-    ctx.currentStack.length = idx + 1;
-    ctx.currentRoot = undefined;
-    ctx.currentListRenderer = l;
+    core.currentStack.length = idx + 1;
+    core.currentRoot = undefined;
+    core.currentListRenderer = l;
 
     const r = l.current;
     if (r) {
@@ -1654,19 +1733,19 @@ export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
 }
 
 export function disableIm() {
-    imCtx.imDisabled = true;
+    imCore.imDisabled = true;
 }
 
 export function enableIm() {
-    imCtx.imDisabled = false;
+    imCore.imDisabled = false;
 }
 
-export function getImContext(): ImContext {
-    return imCtx;
+export function getImCore(): ImCore {
+    return imCore;
 }
 
-export function setImContext(ctx: ImContext) {
-    imCtx = ctx;
+export function setImCore(core: ImCore) {
+    imCore = core;
 }
 
 /**
@@ -1685,14 +1764,14 @@ export function imOn<K extends keyof HTMLElementEventMap>(
     type: K
 ): HTMLElementEventMap[K] | null {
     const eventRef = imRef<HTMLElementEventMap[K]>();
-    const ctx = imCtx;
+    const core = imCore;
 
     if (imInit()) {
         const r = getCurrentRoot();
 
         const handler = (e: HTMLElementEventMap[K]) => {
             eventRef.val = e;
-            rerenderImContext(ctx, ctx.lastTime, true);
+            rerenderImCore(core, core.lastTime, true);
         }
         r.root.addEventListener(
             type, 
@@ -1786,7 +1865,7 @@ export type KeyPressEvent = {
 };
 
 export function deltaTimeSeconds(): number {
-    return imCtx.dtSeconds;
+    return imCore.dtSeconds;
 }
 
 
@@ -1808,59 +1887,59 @@ export function deltaTimeSeconds(): number {
  *
  */
 export function isExcessEventRender() {
-    return imCtx._isExcessEventRender;
+    return imCore._isExcessEventRender;
 }
 
 /**
- * This method initializes an imContext you got from {@link newImContext}.
+ * This method initializes an imCore you got from {@link newImCore}.
  * To start rendering to it, you'll either need to call {@link startAnimationLoop},
- * or call {@link rerenderImContext} by hand for a more custom render cycle.
+ * or call {@link rerenderImCore} by hand for a more custom render cycle.
  */
-export function initImContext(ctx: ImContext) {
-    if (ctx.initialized) {
+export function initImCore(core: ImCore) {
+    if (core.initialized) {
         console.warn("You're trying to initialize this context twice!");
         return;
     }
 
-    ctx.initialized = true;
+    core.initialized = true;
 
     // Initialize events
     {
-        document.addEventListener("mousedown", ctx.globalEventHandlers.mousedown);
-        document.addEventListener("mousemove", ctx.globalEventHandlers.mousemove);
-        document.addEventListener("mouseenter", ctx.globalEventHandlers.mouseenter);
-        document.addEventListener("mouseup", ctx.globalEventHandlers.mouseup);
-        document.addEventListener("wheel", ctx.globalEventHandlers.wheel);
-        document.addEventListener("keydown", ctx.globalEventHandlers.keydown);
-        document.addEventListener("keyup", ctx.globalEventHandlers.keyup);
-        window.addEventListener("blur", ctx.globalEventHandlers.blur);
+        document.addEventListener("mousedown", core.globalEventHandlers.mousedown);
+        document.addEventListener("mousemove", core.globalEventHandlers.mousemove);
+        document.addEventListener("mouseenter", core.globalEventHandlers.mouseenter);
+        document.addEventListener("mouseup", core.globalEventHandlers.mouseup);
+        document.addEventListener("wheel", core.globalEventHandlers.wheel);
+        document.addEventListener("keydown", core.globalEventHandlers.keydown);
+        document.addEventListener("keyup", core.globalEventHandlers.keyup);
+        window.addEventListener("blur", core.globalEventHandlers.blur);
     }
 }
 
 
-export function uninitImContext(ctx: ImContext) {
-    if (!ctx.initialized) {
+export function uninitImCore(core: ImCore) {
+    if (!core.initialized) {
         console.warn("This context has not been initialized yet!");
         return;
     }
 
-    if (ctx.uninitialized) {
+    if (core.uninitialized) {
         console.warn("This context has already been uninitialized!");
         return;
     }
 
-    ctx.uninitialized = true;
+    core.uninitialized = true;
 
     // Remove the events
     {
-        document.removeEventListener("mousedown", ctx.globalEventHandlers.mousedown);
-        document.removeEventListener("mousemove", ctx.globalEventHandlers.mousemove);
-        document.removeEventListener("mouseenter", ctx.globalEventHandlers.mouseenter);
-        document.removeEventListener("mouseup", ctx.globalEventHandlers.mouseup);
-        document.removeEventListener("wheel", ctx.globalEventHandlers.wheel);
-        document.removeEventListener("keydown", ctx.globalEventHandlers.keydown);
-        document.removeEventListener("keyup", ctx.globalEventHandlers.keyup);
-        window.removeEventListener("blur", ctx.globalEventHandlers.blur);
+        document.removeEventListener("mousedown", core.globalEventHandlers.mousedown);
+        document.removeEventListener("mousemove", core.globalEventHandlers.mousemove);
+        document.removeEventListener("mouseenter", core.globalEventHandlers.mouseenter);
+        document.removeEventListener("mouseup", core.globalEventHandlers.mouseup);
+        document.removeEventListener("wheel", core.globalEventHandlers.wheel);
+        document.removeEventListener("keydown", core.globalEventHandlers.keydown);
+        document.removeEventListener("keyup", core.globalEventHandlers.keyup);
+        window.removeEventListener("blur", core.globalEventHandlers.blur);
     }
 }
 
@@ -1868,29 +1947,29 @@ export function uninitImContext(ctx: ImContext) {
  * Call this with your render method to fully initialize im-dom-utlis.
  * Take a look inside if you need something more custom.
  */
-export function initImDomUtils(renderFn: () => void): ImContext {
-    initImContext(defaultContext);
-    startAnimationLoop(defaultContext, renderFn);
-    return defaultContext;
+export function initImDomUtils(renderFn: () => void): ImCore {
+    initImCore(defaultCore);
+    startAnimationLoop(defaultCore, renderFn);
+    return defaultCore;
 }
 
 export function startAnimationLoop(
-    ctx: ImContext,
+    core: ImCore,
     renderFn: () => void
 ) {
-    if (ctx.renderFn !== renderStub) {
+    if (core.renderFn !== renderStub) {
         console.warn("Something is trying to start a second animation loop for this context!");
         return;
     }
 
-    ctx.renderFn = renderFn;
+    core.renderFn = renderFn;
 
     const animation = (t: number) => {
-        if (ctx.uninitialized) {
+        if (core.uninitialized) {
             return;
         }
 
-        rerenderImContext(ctx, t, false);
+        rerenderImCore(core, t, false);
 
         requestAnimationFrame(animation);
     };
@@ -1902,54 +1981,59 @@ export function startAnimationLoop(
  * This method is called automatically by the animation loop.
  * You don't ever need to call it manually unless you're doing some custom stuff
  */
-export function rerenderImContext(ctx: ImContext, t: number, isInsideEvent: boolean) {
-    setImContext(ctx);
+export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) {
+    setImCore(core);
 
-    ctx.time = t;
-    ctx.dtSeconds = (t - ctx.lastTime) / 1000;
-    ctx.lastTime = t;
+    core.time = t;
+    core.dtSeconds = (t - core.lastTime) / 1000;
+    core.lastTime = t;
 
-    if (ctx.isRendering) {
+    if (core.isRendering) {
         return;
     }
 
     if (isInsideEvent === false) {
-        ctx._isExcessEventRender = false;
+        core._isExcessEventRender = false;
     }
 
     // begin frame
 
-    ctx.isRendering = true;
-    startRendering(ctx.appRoot, -1, -1);
+    core.isRendering = true;
+    startRendering(core.appRoot, -1, -1);
 
     // persistent things need to be reset every frame, for bubling order to remain consistent per render
-    ctx.mouse.lastClickedElement = ctx.mouse.lastClickedElementOriginal;
-    ctx.mouse.hoverElement = ctx.mouse.hoverElementOriginal;
+    core.mouse.lastClickedElement = core.mouse.lastClickedElementOriginal;
+    core.mouse.hoverElement = core.mouse.hoverElementOriginal;
 
     // It is better to not try-catch this actually.
     // You shouldn't let any exceptions reach here under any circumstances.
-    ctx.renderFn();
+    core.renderFn();
 
     // end frame
  
-    resetKeyboardState(ctx);
-    resetMouseState(ctx, false);
+    resetKeyboardState(core);
+    resetMouseState(core, false);
 
-    ctx.mouse.hasMouseEvent = false;
-    ctx.itemsRenderedLastFrame = ctx.itemsRendered;
-    ctx.itemsRendered = 0;
-    ctx.isRendering = false;
+    core.mouse.hasMouseEvent = false;
+    core.itemsRenderedLastFrame = core.itemsRendered;
+    core.itemsRendered = 0;
+    core.isRendering = false;
     if (isInsideEvent) {
-        ctx._isExcessEventRender = isInsideEvent;
+        core._isExcessEventRender = isInsideEvent;
     }
 
-    if (ctx.currentStack.length !== 1) {
-        if (ctx.currentStack.length < 1) {
-            console.error("You've popped too many things off the stack. There is no good way to find the bug right now, sorry");
+    if (core.currentContexts.length !== 0) {
+        throw new Error(`You've forgotten to pop some contexts: ${core.currentContexts.map(c => c.supplier.name).join(", ")}`);
+    }
+
+    if (core.currentStack.length !== 1) {
+        if (core.currentStack.length < 1) {
+            throw new Error("You've popped too many things off the stack. There is no good way to find the bug right now, sorry");
         } else {
-            console.error("You forgot to pop some things off the stack: ", ctx.currentStack.slice(1));
-            throw new Error(`You forgot to pop some things off the stack:
-            ${ctx.currentStack.slice(1).map(item => {
+            const message = "You forgot to pop some things off the stack: ";
+            console.error(message, core.currentStack.slice(1));
+            throw new Error(`${message}
+            ${core.currentStack.slice(1).map(item => {
                 if (item.t === ITEM_LIST_RENDERER) {
                     return "List renderer"
                 } else {
@@ -1971,8 +2055,8 @@ export type ImKeyboardState = {
     blur: boolean;
 };
 
-function resetKeyboardState(ctx: ImContext) {
-    const keyboard = ctx.keyboard;
+function resetKeyboardState(core: ImCore) {
+    const keyboard = core.keyboard;
     keyboard.keyDown = null;
     keyboard.keyUp = null;
     keyboard.blur = false;
@@ -2005,8 +2089,8 @@ export type ImMouseState = {
     hoverElementOriginal: object | null;
 };
 
-function resetMouseState(ctx: ImContext, clearPersistedStateAsWell: boolean) {
-    const { mouse } = ctx;
+function resetMouseState(core: ImCore, clearPersistedStateAsWell: boolean) {
+    const { mouse } = core;
     
     mouse.dX = 0;
     mouse.dY = 0;
@@ -2029,11 +2113,11 @@ function resetMouseState(ctx: ImContext, clearPersistedStateAsWell: boolean) {
 }
 
 export function getImMouse() {
-    return imCtx.mouse;
+    return imCore.mouse;
 }
 
 export function getImKeys(): ImKeyboardState {
-    return imCtx.keyboard;
+    return imCore.keyboard;
 }
 
 
@@ -2062,23 +2146,23 @@ export function elementHasMouseDown(
     const r = getCurrentRoot();
 
     if (hadClick) {
-        return r.root === imCtx.mouse.lastClickedElement;
+        return r.root === imCore.mouse.lastClickedElement;
     }
 
-    return imCtx.mouse.leftMouseButton && elementHasMouseHover();
+    return imCore.mouse.leftMouseButton && elementHasMouseHover();
 }
 
 export function elementHasMouseHover() {
     const r = getCurrentRoot();
-    return r.root === imCtx.mouse.hoverElement;
+    return r.root === imCore.mouse.hoverElement;
 }
 
 export function getHoveredElement() {
-    return imCtx.mouse.hoverElement;
+    return imCore.mouse.hoverElement;
 }
 
-function setClickedElement(ctx: ImContext, el: object | null) {
-    const { mouse } = ctx;
+function setClickedElement(core: ImCore, el: object | null) {
+    const { mouse } = core;
 
     mouse.clickedElement = el;
     mouse.lastClickedElement = el;
@@ -2120,11 +2204,11 @@ export function imPreventScrollEventPropagation() {
 }
 
 export function getNumItemsRenderedLastFrame() {
-    return imCtx.itemsRenderedLastFrame;
+    return imCore.itemsRenderedLastFrame;
 }
 
 export function getNumItemsRenderedThisFrame() {
-    return imCtx.itemsRendered;
+    return imCore.itemsRendered;
 }
 
 export type SizeState = {
@@ -2138,7 +2222,7 @@ function newImGetSizeState(): {
     resized: boolean;
 } {
     const r = getCurrentRoot();
-    const ctx = imCtx;
+    const core = imCore;
 
     const self = {
         size: { width: 0, height: 0, },
@@ -2151,14 +2235,14 @@ function newImGetSizeState(): {
                 break;
             }
 
-            rerenderImContext(ctx, ctx.lastTime, false);
+            rerenderImCore(core, core.lastTime, false);
         })
     };
 
     self.observer.observe(r.root);
-    ctx.numResizeObservers++;
+    core.numResizeObservers++;
     addDestructor(r, () => {
-        ctx.numResizeObservers--;
+        core.numResizeObservers--;
         self.observer.disconnect()
     });
 
