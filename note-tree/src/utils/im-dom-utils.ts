@@ -1018,7 +1018,15 @@ export function imNextRoot(key?: ValidKey) {
             };
             l.keys.set(key, block);
         } else {
-            // Don't render same list element twice in single render pass, haiyaaaa
+            // NOTE: there is an idea that we should gracefully handle duplicate keys, and
+            // just rerender this again in this new position. 
+            // This is nice for when the list we're rerendering re-orders underneath us.
+            // But this is bad in the orignial case when we actually do have duplicate keys in our list, because
+            // we would be constantly shuffling the duplicate DOM node between two different positions every frame.
+            // Do we just make it work fine the first time and start throwing from the second frame onwards?
+            // The design is no longer as simple as it could be.
+
+            // Don't render same list element twice in single render pass, haiyaaaa.
             assert(block.rendered === false);
         }
 

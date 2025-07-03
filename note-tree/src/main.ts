@@ -22,7 +22,6 @@ import {
 } from "./global-context";
 import { imNoteTreeView } from "./note-tree-view";
 import {
-    getCurrentNote,
     getNoteOrUndefined,
     loadState,
     recomputeState,

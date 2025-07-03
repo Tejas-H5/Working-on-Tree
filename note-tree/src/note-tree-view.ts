@@ -176,27 +176,63 @@ function moveIdxLocal(s: NoteTreeViewState, amount: number) {
     setIdxLocal(s, localIdx + amount);
 }
 
-function moveOutOfCurrent(s: NoteTreeViewState) {
+function moveOutOfCurrent(
+    s: NoteTreeViewState,
+    moveNote: boolean,
+) {
     if (idIsNilOrRoot(s.note.parentId)) return;
 
     const parent = getNote(state, s.note.parentId);
-    setNote(s, parent, true);
+
+    if (moveNote) {
+        if (!idIsNil(parent.parentId)) {
+            // Move this note to after it's parent
+            const parentParent = getNote(state, parent.parentId);
+            const parentIdx = parent.idxInParentList;
+            tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
+            recomputeNoteStatusRecursively(state, parent);
+            setNote(s, s.note, true);
+        }
+    } else {
+        setNote(s, parent, true);
+    }
 }
 
-function moveIntoCurrent(s: NoteTreeViewState) {
+function moveIntoCurrent(
+    s: NoteTreeViewState,
+    moveNote: boolean,
+) {
     if (!boundsCheck(s.childNotes, s.list.idx)) return;
+    if (idIsNilOrRoot(s.note.parentId)) return;
 
-    const nextRoot = s.childNotes[s.list.idx];
+    if (moveNote) {
+        const parentIdx = s.note.idxInParentList;
+        if (parentIdx !== 0) {
+            const parent = getNote(state, s.note.parentId);
+            const prevNoteId = parent.childIds[parentIdx - 1];
+            const prevNote = getNote(state, prevNoteId);
+            let idxUnderPrev = clampedListIdx(
+                prevNote.data.lastSelectedChildIdx + 1,
+                prevNote.childIds.length
+            ) + 1;
+            tree.insertAt(state.notes, prevNote, s.note, idxUnderPrev);
+            prevNote.data.lastSelectedChildIdx = idxUnderPrev;
+            setNote(s, s.note, true);
+            recomputeNoteStatusRecursively(state, prevNote);
+        }
+    } else {
+        const nextRoot = s.childNotes[s.list.idx];
 
-    if (nextRoot.childIds.length === 0) return;
+        if (nextRoot.childIds.length > 0) {
+            if (!boundsCheck(nextRoot.childIds, nextRoot.data.lastSelectedChildIdx)) {
+                nextRoot.data.lastSelectedChildIdx = nextRoot.childIds.length - 1;
+            }
 
-    if (!boundsCheck(nextRoot.childIds, nextRoot.data.lastSelectedChildIdx)) {
-        nextRoot.data.lastSelectedChildIdx = nextRoot.childIds.length - 1;
+            const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
+            const nextChild = getNote(state, nextChildId);
+            setNote(s, nextChild, true);
+        }
     }
-
-    const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
-    const nextChild = getNote(state, nextChildId);
-    setNote(s, nextChild, true);
 }
 
 export function imNoteTreeView(ctx: GlobalContext) {
@@ -293,14 +329,26 @@ function addNoteAtCurrent(s: NoteTreeViewState, insertType: typeof UNDER | typeo
     return newNote;
 }
 
-function moveNoteToIdx(s: NoteTreeViewState, delta: number) {
+function moveToLocalidx(
+    s: NoteTreeViewState,
+    delta: number,
+    moveNote: boolean
+) {
     if (idIsNil(s.note.parentId)) return;
     
     const parent = getNote(state, s.note.parentId);
     let idx = s.note.idxInParentList + delta;
     idx = clampedListIdx(idx, parent.childIds.length);
-    tree.insertAt(state.notes, parent, s.note, idx);
-    setNote(s, s.note, true);
+    if (!boundsCheck(parent.childIds, idx)) return;
+
+    if (moveNote) {
+        tree.insertAt(state.notes, parent, s.note, idx);
+        setNote(s, s.note, true);
+    } else {
+        const childId = parent.childIds[idx];
+        const note = getNote(state, childId);
+        setNote(s, note, true);
+    }
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
@@ -327,19 +375,15 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             ctx.handled = true;
         }  else {
             const delta = getNavigableListInput(ctx);
+            const moveNote = keyboard.alt.held;
             if (delta) {
-                if (keyboard.alt.held) {
-                    moveNoteToIdx(s, delta);
-                    ctx.handled = true;
-                } else {
-                    moveIdxLocal(s, delta);
-                    ctx.handled = true;
-                }
+                moveToLocalidx(s, delta, moveNote);
+                ctx.handled = true;
             } if (keyboard.left.pressed) {
-                moveOutOfCurrent(s);
+                moveOutOfCurrent(s, moveNote);
                 ctx.handled = true;
             } else if (keyboard.right.pressed) {
-                moveIntoCurrent(s);
+                moveIntoCurrent(s, moveNote);
                 ctx.handled = true;
             }
         }
