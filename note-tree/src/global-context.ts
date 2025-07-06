@@ -1,6 +1,28 @@
 import {  newTimer, TimerState } from "./app-utils/timer";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { getImKeys, isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
+import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
+
+export type GlobalContext = {
+    keyboard:          KeyboardState;
+    handled:           boolean;
+    repeatTimer:       TimerState;
+    noteTreeViewState: NoteTreeViewState;
+
+    textAreaToFocus:     UIRoot<HTMLTextAreaElement> | null;
+    focusWithAllSelected: boolean;
+};
+
+export function newGlobalContext(): GlobalContext {
+    return {
+        keyboard:          newKeyboardState(),
+        handled:           false,
+        repeatTimer:       newTimer(),
+        noteTreeViewState: newNoteTreeViewState(),
+
+        textAreaToFocus:      null,
+        focusWithAllSelected: false,
+    };
+}
 
 type KeyState = {
     pressed:  boolean;
@@ -23,12 +45,17 @@ type KeyboardState = {
     pageDownKey: KeyState;
     pageUpKey:   KeyState;
 
+    aKey: KeyState;
+    sKey: KeyState;
+    dKey: KeyState;
+
     enterKey:  KeyState;
     escapeKey: KeyState;
 
     ctrlKey:  KeyState;
     shiftKey: KeyState;
     altKey:   KeyState;
+    tabKey:   KeyState;
 };
 
 function newKeyState(): KeyState {
@@ -55,12 +82,17 @@ function newKeyboardState(): KeyboardState {
         pageDownKey: newKeyState(),
         pageUpKey:   newKeyState(),
 
+        aKey: newKeyState(),
+        sKey: newKeyState(),
+        dKey: newKeyState(),
+
         enterKey:  newKeyState(),
         escapeKey: newKeyState(),
 
         ctrlKey:  newKeyState(),
         shiftKey: newKeyState(),
         altKey:   newKeyState(),
+        tabKey:   newKeyState(),
     };
 
     state.keys.push(state.upKey);
@@ -69,11 +101,15 @@ function newKeyboardState(): KeyboardState {
     state.keys.push(state.rightKey);
     state.keys.push(state.pageDownKey);
     state.keys.push(state.pageUpKey);
+    state.keys.push(state.aKey);
+    state.keys.push(state.sKey);
+    state.keys.push(state.dKey);
     state.keys.push(state.enterKey);
     state.keys.push(state.escapeKey);
     state.keys.push(state.ctrlKey);
     state.keys.push(state.shiftKey);
     state.keys.push(state.altKey);
+    state.keys.push(state.tabKey);
 
     return state;
 }
@@ -126,18 +162,22 @@ function resetKey(state: KeyState) {
 function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
     // vim-query-replace-driven naming
     switch (e.key) {
-        case "ArrowUp":    pressKey(s.upKey, e.repeat);       break;
-        case "ArrowDown":  pressKey(s.downKey, e.repeat);     break;
-        case "ArrowLeft":  pressKey(s.leftKey, e.repeat);     break;
-        case "ArrowRight": pressKey(s.rightKey, e.repeat);    break;
-        case "PageUp":     pressKey(s.pageUpKey, e.repeat);   break;
-        case "PageDown":   pressKey(s.pageDownKey, e.repeat); break; 
-        case "Enter":      pressKey(s.enterKey, e.repeat);    break;
-        case "Escape":     pressKey(s.escapeKey, e.repeat);   break;
-        case "Control":    pressKey(s.ctrlKey, e.repeat);     break;
-        case "Meta":       pressKey(s.ctrlKey, e.repeat);     break;
-        case "Shift":      pressKey(s.shiftKey, e.repeat);    break;
-        case "Alt":        pressKey(s.altKey, e.repeat);      break;
+        case "ArrowUp":     pressKey(s.upKey, e.repeat);       break;
+        case "ArrowDown":   pressKey(s.downKey, e.repeat);     break;
+        case "ArrowLeft":   pressKey(s.leftKey, e.repeat);     break;
+        case "ArrowRight":  pressKey(s.rightKey, e.repeat);    break;
+        case "PageUp":      pressKey(s.pageUpKey, e.repeat);   break;
+        case "PageDown":    pressKey(s.pageDownKey, e.repeat); break; 
+        case "A": case "a": pressKey(s.pageUpKey, e.repeat);   break;
+        case "S": case "s": pressKey(s.pageUpKey, e.repeat);   break;
+        case "D": case "d": pressKey(s.pageUpKey, e.repeat);   break;
+        case "Enter":       pressKey(s.enterKey, e.repeat);    break;
+        case "Escape":      pressKey(s.escapeKey, e.repeat);   break;
+        case "Control":     pressKey(s.ctrlKey, e.repeat);     break;
+        case "Meta":        pressKey(s.ctrlKey, e.repeat);     break;
+        case "Shift":       pressKey(s.shiftKey, e.repeat);    break;
+        case "Alt":         pressKey(s.altKey, e.repeat);      break;
+        case "Tab":         pressKey(s.tabKey, e.repeat);      break;
         default: 
             return;
     }
@@ -145,18 +185,22 @@ function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
 
 function handleKeyUp(s: KeyboardState, e: KeyboardEvent) {
     switch (e.key) {
-        case "ArrowUp":    releaseKey(s.upKey);        break;
-        case "ArrowDown":  releaseKey(s.downKey);      break;
-        case "ArrowLeft":  releaseKey(s.leftKey);      break;
-        case "ArrowRight": releaseKey(s.rightKey);     break;
-        case "PageUp":     releaseKey(s.pageUpKey);    break;
-        case "PageDown":   releaseKey(s.pageDownKey);  break; 
-        case "Enter":      releaseKey(s.enterKey);     break;
-        case "Escape":     releaseKey(s.escapeKey);    break;
-        case "Control":    releaseKey(s.ctrlKey);      break;
-        case "Meta":       releaseKey(s.ctrlKey);      break;
-        case "Shift":      releaseKey(s.shiftKey);     break;
-        case "Alt":        releaseKey(s.altKey);       break;
+        case "ArrowUp":     releaseKey(s.upKey);        break;
+        case "ArrowDown":   releaseKey(s.downKey);      break;
+        case "ArrowLeft":   releaseKey(s.leftKey);      break;
+        case "ArrowRight":  releaseKey(s.rightKey);     break;
+        case "PageUp":      releaseKey(s.pageUpKey);    break;
+        case "PageDown":    releaseKey(s.pageDownKey);  break; 
+        case "A": case "a": releaseKey(s.pageUpKey);    break;
+        case "S": case "s": releaseKey(s.pageUpKey);    break;
+        case "D": case "d": releaseKey(s.pageUpKey);    break;
+        case "Enter":       releaseKey(s.enterKey);     break;
+        case "Escape":      releaseKey(s.escapeKey);    break;
+        case "Control":     releaseKey(s.ctrlKey);      break;
+        case "Meta":        releaseKey(s.ctrlKey);      break;
+        case "Shift":       releaseKey(s.shiftKey);     break;
+        case "Alt":         releaseKey(s.altKey);       break;
+        case "Tab":         releaseKey(s.tabKey);       break;
         default: 
             return;
     }
@@ -201,18 +245,3 @@ export function preventImKeysDefault() {
     if (keyUp)   keyUp.preventDefault();
 }
 
-export type GlobalContext = {
-    keyboard:          KeyboardState;
-    handled:           boolean;
-    repeatTimer:       TimerState;
-    noteTreeViewState: NoteTreeViewState;
-};
-
-export function newGlobalContext(): GlobalContext {
-    return {
-        keyboard:          newKeyboardState(),
-        handled:           false,
-        repeatTimer:       newTimer(),
-        noteTreeViewState: newNoteTreeViewState(),
-    };
-}

@@ -1,36 +1,4 @@
-import { getCurrentRoot, imOn, type UIRoot } from "src/utils/im-dom-utils";
-
-export type FocusResultInstance = number & { __focusResut: void };
-
-export const FOCUS_RESULT_NONE = 0       as FocusResultInstance;
-export const FOCUS_RESULT_FOCUSED = 1    as FocusResultInstance;
-export const FOCUS_RESULT_UNFOCUSED = 2  as FocusResultInstance;
-
-export type FocusResult = typeof FOCUS_RESULT_NONE |
-                          typeof FOCUS_RESULT_FOCUSED |
-                          typeof FOCUS_RESULT_UNFOCUSED;
-    
-
-export function imFocusCurrentElement(focus: boolean | undefined): FocusResult {
-    const input = getCurrentRoot() as UIRoot<HTMLInputElement | HTMLTextAreaElement>;
-
-    const focused = document.activeElement === input.root;
-    const focusChanged = focus !== focused;
-
-    let result = FOCUS_RESULT_NONE;
-
-    if (focusChanged) {
-        if (focus === true) {
-            input.root.focus();
-            result = FOCUS_RESULT_FOCUSED;
-        } else if (focus === false) {
-            input.root.blur();
-            result = FOCUS_RESULT_UNFOCUSED;
-        }
-    }
-
-    return result
-}
+import { imOn } from "src/utils/im-dom-utils";
 
 export type ImTextInputEvent = {
     text: string;

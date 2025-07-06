@@ -16,6 +16,7 @@ export type NavigableList = {
     smoothScroll: boolean;
 };
 
+// NOTE: only works if called in the animation loop
 export function getNavigableListInput(ctx: GlobalContext): number {
     const keyboard = ctx.keyboard;
 

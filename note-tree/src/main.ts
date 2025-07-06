@@ -51,8 +51,32 @@ function imMain() {
         } imEnd();
     } stopFpsCounter(fpsCounter);
 
-    if (ctx.handled) {
-        preventImKeysDefault();
+
+    // post-process events, etc
+    {
+        if (!ctx.handled) {
+            const keyboard = ctx.keyboard;
+            if (keyboard.aKey.pressed && keyboard.ctrlKey.held) {
+                // no, I don't want to select all text being in the DOM, actually
+                ctx.handled = true;
+            }
+        }
+
+        if (ctx.handled) {
+            preventImKeysDefault();
+        }
+
+        // Only one text area can be focued at a time in the entire document.
+        if (ctx.textAreaToFocus) {
+            const textArea = ctx.textAreaToFocus.root;
+            if (document.activeElement !== textArea) {
+                textArea.focus();
+                if (ctx.focusWithAllSelected) {
+                    textArea.selectionStart = 0;
+                    textArea.selectionEnd = textArea.value.length;
+                }
+            }
+        }
     }
 }
 

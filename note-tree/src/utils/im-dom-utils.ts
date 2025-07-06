@@ -19,6 +19,7 @@
 //      Be very conservative when adding your own exceptions to this rule.
 
 import { assert } from "./assert";
+import { remove } from "./int-tree";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -232,6 +233,11 @@ export type ImCore = {
 const ITEM_LIST_RENDERER = 2;
 const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
+
+const NOT_REMOVED = 0;
+const REMOVE_LEVEL_DOM = 1;
+const REMOVE_LEVEL_DESTROY = 2;
+
 
 /**
  * Don't forget to initialize this core with {@link initImDomUtils}
@@ -469,6 +475,8 @@ export function setRenderPoint(p: RenderPoint) {
     startRendering(root, p.domAppenderIdx, p.itemsIdx);
 }
 
+type RemovedLevel = typeof NOT_REMOVED | typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY;
+
 /**
  * Whenever your app starts rendering, a {@link UIRoot} backed by the DOM root is pushed onto {@link currentStack}.
  * {@link imBeginRoot} will create a {@link UIRoot} backed by a custom DOM node, and push it onto {@link currentStack}.
@@ -557,8 +565,8 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     itemsIdx: number;
     lastItemIdx: number;
 
-    hasRealChildren: boolean;    // can we add text to this element ?
-    destroyed: boolean;          // have we destroyed this element ?
+    hasRealChildren:    boolean; // can we add text to this element ?
+    removedLevel:       RemovedLevel; // how much has this been removed?
     completedOneRender: boolean; // have we completed at least one render without erroring?
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
@@ -587,7 +595,7 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        destroyed: false,
+        removedLevel: NOT_REMOVED,
         completedOneRender: false,
         lastText: "",
     }
@@ -663,49 +671,53 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
     return r.root.getAttribute(k) || "";
 }
 
-export function __onRemoveUiRoot(r: UIRoot, destroy: boolean) {
-    for (let i = 0; i < r.items.length; i++) {
-        const item = r.items[i];
+export function __onUIRootDestroy(r: UIRoot) {
+    // ensure only called once
+    if (r.removedLevel === REMOVE_LEVEL_DESTROY) return;
+    r.removedLevel = REMOVE_LEVEL_DESTROY;
+
+    for (let i = 0; i < r.items.length; i++) { const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
-            __onRemoveUiRoot(item, destroy);
+            __onUIRootDestroy(item);
         } else if (item.t === ITEM_LIST_RENDERER) {
             const l = item;
             for (let i = 0; i < l.builders.length; i++) {
-                __onRemoveUiRoot(l.builders[i], destroy);
+                __onUIRootDestroy(l.builders[i]);
             }
             if (l.keys) {
                 for (const v of l.keys.values()) {
-                    __onRemoveUiRoot(v.root, destroy);
+                    __onUIRootDestroy(v.root);
                 }
             }
         }
     }
 
-    if (destroy) {
-        // Don't call r twice.
-        assert(r.destroyed === false);
-        r.destroyed = true;
-
-        for (const d of r.destructors) {
-            try {
-                d();
-            } catch (e) {
-                console.error("A destructor threw an error: ", e);
-            }
+    for (const d of r.destructors) {
+        try {
+            d();
+        } catch (e) {
+            console.error("A destructor threw an error: ", e);
         }
     }
 }
 
-
 // NOTE: If this is being called before we've rendered any components here, it should be ok.
 // if it's being called during a render, then that is typically an incorrect usage - the domAppender's index may or may not be incorrect now, because
 // we will have removed HTML elements out from underneath it. You'll need to ensure that this isn't happening in your use case.
-export function __removeAllDomElementsFromUiRoot(r: UIRoot, destroy: boolean) {
+export function __removeAllDomElementsFromUiRoot(
+    r: UIRoot,
+    removeLevel: typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY
+) {
+    if (r.removedLevel >= removeLevel) return;
+    r.removedLevel == removeLevel
+
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
             item.domAppender.root.remove();
-            __onRemoveUiRoot(item, destroy);
+            if (removeLevel === REMOVE_LEVEL_DESTROY) {
+                __onUIRootDestroy(item);
+            }
         } else if (item.t === ITEM_LIST_RENDERER) {
             // needs to be fully recursive. because even though our UI tree is like
             //
@@ -717,11 +729,11 @@ export function __removeAllDomElementsFromUiRoot(r: UIRoot, destroy: boolean) {
             
             const l = item;
             for (let i = 0; i < l.builders.length; i++) {
-                __removeAllDomElementsFromUiRoot(l.builders[i], destroy);
+                __removeAllDomElementsFromUiRoot(l.builders[i], removeLevel);
             }
             if (l.keys) {
                 for (const v of l.keys.values()) {
-                    __removeAllDomElementsFromUiRoot(v.root, destroy);
+                    __removeAllDomElementsFromUiRoot(v.root, removeLevel);
                 }
             }
         }
@@ -743,6 +755,8 @@ export type ListRenderer = {
 
     builderIdx: number;
     current: UIRoot | null;
+
+    cacheBuilders: boolean;
 }
 
 function __beginListRenderer(l: ListRenderer) {
@@ -788,8 +802,10 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  * }
  * imEnd();
  * ```
+ *
+ * @param cached - if true, doesn't remove things from the DOM. 
  */
-export function imBeginList(): ListRenderer {
+export function imBeginList(cached: boolean = false): ListRenderer {
     // Don't access immediate mode state when immediate mode is disabled
     assert(imCore.imDisabled === false);
 
@@ -813,6 +829,7 @@ export function imBeginList(): ListRenderer {
         imCore.numCacheMisses++;
     }
 
+    result.cacheBuilders = cached;
     __beginListRenderer(result);
 
     imCore.itemsRendered++;
@@ -865,7 +882,7 @@ ${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`);
  * ```
  */
 export function imIf() {
-    imBeginList();
+    imBeginList(true);
     imNextRoot();
     return true as const;
 }
@@ -880,7 +897,7 @@ export function imIf() {
  * ```
  */
 export function imSwitch(key: ValidKey) {
-    imBeginList();
+    imBeginList(true);
     imNextRoot(key);
 }
 
@@ -994,7 +1011,7 @@ export function imEndTry() {
  */
 export function imNextRoot(key?: ValidKey) {
     if (imCore.currentRoot) {
-        imEnd();
+        imEndListRoot(imCore.currentRoot);
     }
 
     const l = getCurrentListRendererInternal();
@@ -1009,7 +1026,7 @@ export function imNextRoot(key?: ValidKey) {
         }
 
         let block = l.keys.get(key);
-        if (block === undefined) {
+        if (block === undefined || block.root.removedLevel === REMOVE_LEVEL_DESTROY) {
             block = {
                 root: newUiRoot(null, l.uiRoot.domAppender),
                 rendered: false
@@ -1344,6 +1361,7 @@ export function imBeginExistingRoot<E extends ValidElement = ValidElement>(root:
     const r = getCurrentRoot();
 
     r.hasRealChildren = true;
+    r.removedLevel = NOT_REMOVED;
     appendToDomRoot(r.domAppender, root.domAppender.root);
 
     __beginUiRoot(root, -1, -1);
@@ -1362,10 +1380,27 @@ export function imBeginRoot<E extends ValidElement = ValidElement>(elementSuppli
 export function imEnd() {
     const r = getCurrentRoot();
 
-    if (imEndRootInternal(r)) {
+    imEndRootInternal(r);
+
+    if (r.itemsIdx === -1) {
         // we rendered nothing to r root, so we should just remove it.
         // however, we may render to it again on a subsequent render.
-        __removeAllDomElementsFromUiRoot(r, false);
+        __removeAllDomElementsFromUiRoot(r, REMOVE_LEVEL_DOM);
+    }
+
+    assert(r.itemsIdx === -1 || r.itemsIdx === r.items.length - 1);
+
+    return true;
+}
+
+function imEndListRoot(r: UIRoot) {
+    imEndRootInternal(r);
+
+    const l = getCurrentListRendererInternal();
+    if (r.itemsIdx === -1) {
+        // A list render might want to actually destroy everything underneath it instead.
+        const level = l.cacheBuilders ? REMOVE_LEVEL_DOM : REMOVE_LEVEL_DESTROY;
+        __removeAllDomElementsFromUiRoot(r, level);
     }
 
     assert(r.itemsIdx === -1 || r.itemsIdx === r.items.length - 1);
@@ -1446,7 +1481,7 @@ export function imIsOnScreen() {
 }
 
 
-function imEndRootInternal(r: UIRoot): boolean {
+function imEndRootInternal(r: UIRoot) {
     // close out this UI Root.
 
     const mouse = getImMouse();
@@ -1469,17 +1504,9 @@ function imEndRootInternal(r: UIRoot): boolean {
         }
     }
 
-    let result = false;
-
-    if (r.itemsIdx === -1) {
-        result = true;
-    }
-
     __popStack();
 
     r.completedOneRender = true;
-
-    return result;
 }
 
 
@@ -1519,15 +1546,16 @@ export function imEndList() {
     // close out this list renderer.
 
     // remove all the UI components that may have been added by other builders in the previous render.
+    const level = l.cacheBuilders ? REMOVE_LEVEL_DOM : REMOVE_LEVEL_DESTROY;
     for (let i = l.builderIdx; i < l.builders.length; i++) {
-        __removeAllDomElementsFromUiRoot(l.builders[i], true);
+        __removeAllDomElementsFromUiRoot(l.builders[i], level);
     }
     l.builders.length = l.builderIdx;
 
     if (l.keys) {
         for (const [k, v] of l.keys) {
             if (v.rendered === false) {
-                __removeAllDomElementsFromUiRoot(v.root, true);
+                __removeAllDomElementsFromUiRoot(v.root, level);
                 l.keys.delete(k);
             }
         }
@@ -1544,6 +1572,7 @@ function newListRenderer(root: UIRoot): ListRenderer {
         builders: [],
         builderIdx: 0,
         current: null,
+        cacheBuilders: false,
     };
 }
 
@@ -1588,7 +1617,7 @@ export function abortListAndRewindUiStack(l: ListRenderer) {
 
     const r = l.current;
     if (r) {
-        __removeAllDomElementsFromUiRoot(r, false);
+        __removeAllDomElementsFromUiRoot(r, REMOVE_LEVEL_DOM);
 
         // need to reset the dom root, since we've just removed elements underneath it
         resetDomAppender(r.domAppender);

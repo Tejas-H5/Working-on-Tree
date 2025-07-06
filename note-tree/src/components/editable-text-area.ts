@@ -7,12 +7,12 @@ import {
     isFirstRender,
     setAttr,
     setClass,
-    setText,
     setInputValue,
     setStyle,
-    type Ref
+    setText,
+    UIRoot
 } from "src/utils/im-dom-utils";
-import { FOCUS_RESULT_FOCUSED, imFocusCurrentElement, imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
+import { imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 import { imBegin, imInitClasses, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
@@ -67,7 +67,6 @@ cssb.s(`
 export type TextAreaArgs = {
     value: string;
     isOneLine?: boolean;
-    focus?: boolean;
     focusWithAllSelected?: boolean;
     placeholder?: string;
 };
@@ -75,7 +74,6 @@ export type TextAreaArgs = {
 export function imTextArea({
     value,
     isOneLine,
-    focus,
     focusWithAllSelected,
     placeholder = "",
 }: TextAreaArgs)  {
@@ -84,11 +82,10 @@ export function imTextArea({
     const [,textArea] = imBeginTextArea({
         value,
         isOneLine,
-        focus,
         focusWithAllSelected,
         placeholder,
     }); {
-        e = imGetTextInputEvent(textArea);
+        e = imGetTextInputEvent(textArea.root);
     } imEndTextArea();
 
     return [e, textArea] as const;
@@ -100,11 +97,10 @@ export function imTextArea({
 export function imBeginTextArea({
     value,
     isOneLine,
-    focus,
     focusWithAllSelected,
     placeholder = "",
 }: TextAreaArgs) {
-    let textArea: HTMLTextAreaElement;
+    let textArea: UIRoot<HTMLTextAreaElement>;
 
     const root = imBegin(); {
         imInitClasses(cnTextAreaRoot);
@@ -149,20 +145,14 @@ export function imBeginTextArea({
                     }
                 } imEnd();
 
-                textArea = imBeginRoot(newTextArea).root; {
+                textArea = imBeginRoot(newTextArea); {
                     if (imInit()) {
                         setAttr("class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
                         setAttr("style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
                     }
 
                     if (imMemo(value)) {
-                        setInputValue(textArea, value);
-                    }
-
-                    const result = imFocusCurrentElement(focus);
-                    if (focusWithAllSelected && result === FOCUS_RESULT_FOCUSED) {
-                        textArea.selectionStart = 0;
-                        textArea.selectionEnd = value.length;
+                        setInputValue(textArea.root, value);
                     }
 
                 } // imEnd();

@@ -1,7 +1,7 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { imBeginRoot, imEnd, imMemo, imOn, isFirstRender, setAttr, setClass } from "src/utils/im-dom-utils";
 import { cssVars } from "./core/stylesheets";
-import { FOCUS_RESULT_FOCUSED, imFocusCurrentElement, imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
+import { imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 
 function newInput() {
     return document.createElement("input");
@@ -27,17 +27,9 @@ input.${cnInput}:focus, input.${cnInput}:hover {
 
 
 export function imTextInput({
-    value,
-    focus,
-    focusWithAllSelected,
     placeholder = "",
 }: {
     value: string;
-    /** 
-     * Should this component recieve focus? 
-     * It's up to you to make sure only one thing in your app is focused at a time.
-     **/
-    focus?: boolean;
     focusWithAllSelected?: boolean;
     placeholder?: string;
 }): ImTextInputEvent | null {
@@ -51,12 +43,6 @@ export function imTextInput({
 
         if (imMemo(placeholder)) {
             setAttr("placeholder", placeholder);
-        }
-
-        const result = imFocusCurrentElement(focus);
-        if (focusWithAllSelected && result === FOCUS_RESULT_FOCUSED) {
-            input.root.selectionStart = 0;
-            input.root.selectionEnd = value.length;
         }
 
         e = imGetTextInputEvent(input.root);

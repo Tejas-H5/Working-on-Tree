@@ -252,7 +252,7 @@ export function imNoteTreeView(ctx: GlobalContext) {
             imNextRoot();
 
             imBeginListRow(false); {
-                imNoteTreeRow(s, row);
+                imNoteTreeRow(ctx, s, row);
             } imEndListRow();
         } imEndFor();
     } imEnd();
@@ -277,7 +277,7 @@ export function imNoteTreeView(ctx: GlobalContext) {
             const focused = s.list.idx === i;
 
             const root = imBeginListRow(focused, state._isEditingFocusedNote); {
-                imNoteTreeRow(s, row, i, focused);
+                imNoteTreeRow(ctx, s, row, i, focused);
             } imEndListRow();
 
             if (focused) {
@@ -377,6 +377,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 }
 
 function imNoteTreeRow(
+    ctx: GlobalContext,
     s: NoteTreeViewState,
     note: TreeNote, 
     idx = -1, 
@@ -528,10 +529,8 @@ function imNoteTreeRow(
 
                 const isEditing = focused && state._isEditingFocusedNote;
                 if (imIf() && isEditing) {
-                    const [event] = imTextArea({
-                        value: note.data.text,
-                        focus: true
-                    });
+                    const [event, textArea] = imTextArea({ value: note.data.text, });
+                    ctx.textAreaToFocus = textArea;
                     if (event) {
                         if (event.input || event.change) {
                             let status = s.note.data._status;
