@@ -204,6 +204,7 @@ export type ImCore = {
     mouse: ImMouseState;
 
     dtSeconds: number;
+    tSeconds: number;
     lastTime: number;
     time: number;
     isRendering: boolean;
@@ -225,6 +226,7 @@ export type ImCore = {
     itemsRenderedLastFrame: number;
     numResizeObservers: number;
     numIntersectionObservers: number;
+    numCacheMisses: number;
 };
 
 const ITEM_LIST_RENDERER = 2;
@@ -284,6 +286,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         mouse,
 
         dtSeconds: 0,
+        tSeconds: 0,
         lastTime: 0,
         time: 0,
         isRendering: false,
@@ -293,6 +296,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         itemsRenderedLastFrame: 0,
         numResizeObservers: 0,
         numIntersectionObservers: 0,
+        numCacheMisses: 0,
 
         // Event handlers
         globalEventHandlers: {
@@ -806,6 +810,7 @@ export function imBeginList(): ListRenderer {
 
         result = newListRenderer(r);
         items.push(result);
+        imCore.numCacheMisses++;
     }
 
     __beginListRenderer(result);
@@ -1010,6 +1015,7 @@ export function imNextRoot(key?: ValidKey) {
                 rendered: false
             };
             l.keys.set(key, block);
+            imCore.numCacheMisses++;
         } else {
             // NOTE: there is an idea that we should gracefully handle duplicate keys, and
             // just rerender this again in this new position. 
@@ -1036,6 +1042,7 @@ export function imNextRoot(key?: ValidKey) {
         } else if (idx === l.builders.length) {
             result = newUiRoot(null, l.uiRoot.domAppender);
             l.builders.push(result);
+            imCore.numCacheMisses++;
         } else {
             // DEV: whenever l.builderIdx === this.builders.length, we should append another builder to the list
             assert(false);
@@ -1053,14 +1060,11 @@ export function imNextRoot(key?: ValidKey) {
 ///////// 
 // Common immediate mode UI helpers
 
-function nextItem(r: UIRoot) {
-
-}
-
-
 function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): StateItem<T> {
+    const core = imCore;
+
     // Don't access immediate mode state when immediate mode is disabled
-    assert(imCore.imDisabled === false);
+    assert(core.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -1094,9 +1098,11 @@ However, imStateInline will not catch any out-of-order rendering errors, which m
 
         result = { t: ITEM_STATE, v, supplier };
         items.push(result);
+
+        core.numCacheMisses++;
     }
 
-    imCore.itemsRendered++;
+    core.itemsRendered++;
 
     return result;
 }
@@ -1307,7 +1313,7 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementS
     const r = getCurrentRoot();
 
     let result: UIRoot<E> | undefined;
-    let items = r.items;
+    const items = r.items;
     const idx = ++r.itemsIdx;
     if (idx < items.length) {
         result = items[idx] as UIRoot<E>;
@@ -1868,6 +1874,10 @@ export function deltaTimeSeconds(): number {
     return imCore.dtSeconds;
 }
 
+export function timeSeconds(): number {
+    return imCore.tSeconds;
+}
+
 
 /**
  * This framework rerenders your entire application every event. 
@@ -1984,9 +1994,11 @@ export function startAnimationLoop(
 export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) {
     setImCore(core);
 
-    core.time = t;
+    core.time      = t;
+    core.tSeconds  = t / 1000;
+
     core.dtSeconds = (t - core.lastTime) / 1000;
-    core.lastTime = t;
+    core.lastTime  = t;
 
     if (core.isRendering) {
         return;
@@ -2201,14 +2213,6 @@ export function imPreventScrollEventPropagation() {
     }
 
     return state;
-}
-
-export function getNumItemsRenderedLastFrame() {
-    return imCore.itemsRenderedLastFrame;
-}
-
-export function getNumItemsRenderedThisFrame() {
-    return imCore.itemsRendered;
 }
 
 export type SizeState = {

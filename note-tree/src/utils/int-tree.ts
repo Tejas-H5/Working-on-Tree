@@ -51,6 +51,10 @@ export function hasNode(tree: TreeStore<unknown>, idx: number): idx is number {
         return false;
     }
 
+    if (idx < 0 || idx >= tree.nodes.length) {
+        return false;
+    }
+
     return !!tree.nodes[idx];
 }
 

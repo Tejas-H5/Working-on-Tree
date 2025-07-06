@@ -1,25 +1,34 @@
-import { timerHasReached, updateTimer } from "./app-utils/timer";
+import { timerRepeat } from "./app-utils/timer";
+import { imBegin, imFlex, imScrollContainer } from "./components/core/layout";
 import { getAxisRaw, GlobalContext } from "./global-context";
 import {
-    deltaTimeSeconds
+    deltaTimeSeconds,
+    getScrollVH,
+    timeSeconds,
+    UIRoot
 } from "./utils/im-dom-utils";
 
+// NOTE: if all we need is idx, let's just inline it.
+export type NavigableList = {
+    idx: number;
+    scrollContainer: UIRoot<HTMLElement> | null;
+    isScrolling: boolean;
+    smoothScroll: boolean;
+};
 
 export function getNavigableListInput(ctx: GlobalContext): number {
     const keyboard = ctx.keyboard;
 
-    const heldDelta = getAxisRaw(keyboard.down.held, keyboard.up.held) +
-        getAxisRaw(keyboard.pageDown.held, keyboard.pageUp.held) * 10;
+    const heldDelta = getAxisRaw(keyboard.downKey.held, keyboard.upKey.held) +
+        getAxisRaw(keyboard.pageDownKey.held, keyboard.pageUpKey.held) * 10;
 
-    const pressedDelta = getAxisRaw(keyboard.down.pressed, keyboard.up.pressed) +
-        getAxisRaw(keyboard.pageDown.pressed, keyboard.pageUp.pressed) * 10;
+    const pressedDelta = getAxisRaw(keyboard.downKey.pressed, keyboard.upKey.pressed) +
+        getAxisRaw(keyboard.pageDownKey.pressed, keyboard.pageUpKey.pressed) * 10;
 
     const hasHold = heldDelta !== 0;
-    ctx.repeatTimer.enabled = hasHold;
-
-    updateTimer(ctx.repeatTimer, deltaTimeSeconds());
     const repeatIntervalSeconds = ctx.repeatTimer.ticks === 0 ? 0.2 : 0.02;
-    const shouldRepeat = timerHasReached(ctx.repeatTimer, repeatIntervalSeconds);
+    const shouldRepeat = timerRepeat(ctx.repeatTimer, timeSeconds(), repeatIntervalSeconds, hasHold);
+
     if (shouldRepeat || pressedDelta) {
         return heldDelta;
     }
@@ -27,13 +36,62 @@ export function getNavigableListInput(ctx: GlobalContext): number {
     return 0;
 }
 
-// NOTE: if all we need is idx, let's just inline it.
-export type NavigableList = {
-    idx: number;
-};
+export function startScrolling(l: NavigableList, smoothScroll: boolean) {
+    l.isScrolling = true;
+    l.smoothScroll = smoothScroll;
+}
 
-export function newListState(): NavigableList {
-    return { idx: 0 };
+export function imBeginNavigableListContainer(l: NavigableList): UIRoot<HTMLElement> {
+    const scrollParent = imBegin(); imFlex(); imScrollContainer(); 
+    l.scrollContainer = scrollParent;
+    return scrollParent;
+}
+
+// NOTE: it's up to you to only ever call this on one item at a time
+export function scrollNavigableList(l: NavigableList, root: UIRoot<HTMLElement>) {
+    const scrollParent = l.scrollContainer;
+    if (!scrollParent)  return;
+    if (!l.isScrolling) return;
+
+    const { scrollTop } = getScrollVH(
+        scrollParent.root, root.root,
+        0.5, null
+    );
+
+    if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
+        l.isScrolling = false;
+    } else {
+        if (l.smoothScroll) {
+            scrollParent.root.scrollTop = lerp(
+                scrollParent.root.scrollTop,
+                scrollTop,
+                20 * deltaTimeSeconds()
+            );
+        } else {
+            scrollParent.root.scrollTop = scrollTop;
+        }
+    }
+}
+
+function lerp(a: number, b: number, t: number): number {
+    if (t > 1) {
+        t = 1;
+    }
+    if (t < 0) {
+        t = 0;
+    }
+
+    return a + (b - a) * t;
+}
+
+export function newNavigableList(): NavigableList {
+    return {
+        idx: 0,
+
+        scrollContainer: null,
+        isScrolling:     false,
+        smoothScroll:    false,
+    };
 }
 
 export function clampedListIdx(idx: number, len: number): number {

@@ -1,6 +1,6 @@
 import { imHLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
-import { newTimer, timerHasReached, updateTimer } from "./app-utils/timer";
+import { newTimer, timerRepeat } from "./app-utils/timer";
 import {
     CH,
     EM,
@@ -10,9 +10,7 @@ import {
     imFlex,
     imInitClasses,
     imOpacity,
-    imPadding,
     imRelative,
-    imScrollContainer,
     imSize,
     NOT_SET,
     PX,
@@ -22,8 +20,20 @@ import {
 import { cn } from "./components/core/stylesheets";
 import { imTextArea } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
-import { lerp } from "./legacy-app-components/canvas-state";
-import { clampedListIdx, getNavigableListInput, NavigableList, newListState } from "./navigable-list";
+import {
+    imBeginListRow,
+    imEndListRow,
+    imListRowCellStyle
+} from "./list-row";
+import {
+    clampedListIdx,
+    getNavigableListInput,
+    imBeginNavigableListContainer,
+    NavigableList,
+    newNavigableList,
+    scrollNavigableList,
+    startScrolling
+} from "./navigable-list";
 import {
     createNewNote,
     deleteNoteIfEmpty,
@@ -48,8 +58,6 @@ import {
 import { boundsCheck } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import {
-    deltaTimeSeconds,
-    getScrollVH,
     imBeginSpan,
     imElse,
     imEnd,
@@ -64,7 +72,7 @@ import {
     setClass,
     setStyle,
     setText,
-    UIRoot
+    timeSeconds
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
 
@@ -76,9 +84,6 @@ export type NoteTreeViewState = {
     viewRootParentNotes: TreeNote[];
     childNotes:          TreeNote[];
 
-    scrollContainer: UIRoot<HTMLElement> | null;
-    isScrolling:  boolean;
-    smoothScroll: boolean;
     list:         NavigableList;
 
 
@@ -93,8 +98,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         }
 
         s.note = note;
-        s.isScrolling = true;
-        s.smoothScroll = true;
+        startScrolling(s.list, true);
         recomputeNoteParents(state, s.noteParentNotes, s.note);
         setCurrentNote(state, note.id);
 
@@ -105,7 +109,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
             recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
             recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note, false);
             assert(s.childNotes.length === 0 || s.list.idx !== -1);
-            s.smoothScroll = false;
+            startScrolling(s.list, false);
         }
 
         s.list.idx = s.childNotes.indexOf(note);
@@ -133,11 +137,8 @@ export function newNoteTreeViewState(): NoteTreeViewState {
         noteParentNotes:     [],
         viewRootParentNotes: [],
         childNotes:          [],
-        scrollContainer:     null,
 
-        list:           newListState(),
-        isScrolling:    false,
-        smoothScroll:   false,
+        list:           newNavigableList(),
 
         numVisible:     0,
     };
@@ -257,19 +258,15 @@ export function imNoteTreeView(ctx: GlobalContext) {
     } imEnd();
 
     imHLine(
-        !!s.scrollContainer && s.scrollContainer.root.scrollTop > 1,
+        !!s.list.scrollContainer && s.list.scrollContainer.root.scrollTop > 1,
         1
     );
 
-    const scrollParent = imBegin(); imFlex(); imScrollContainer(); 
-    s.scrollContainer = scrollParent; {
-        // TODO: fix. timer.start, timer.stop.
-        const timeout = imState(newTimer);
-        timeout.enabled = s.isScrolling;
-        updateTimer(timeout, deltaTimeSeconds());
+    imBeginNavigableListContainer(s.list); {
+        const scrollTimer = imState(newTimer);
         const SCROLL_TIMEOUT_SECONDS = 1;
-        if (timerHasReached(timeout, SCROLL_TIMEOUT_SECONDS)) {
-            s.isScrolling = false;
+        if (timerRepeat(scrollTimer, timeSeconds(), SCROLL_TIMEOUT_SECONDS, s.list.isScrolling)) {
+            s.list.isScrolling = false;
         }
 
         imFor(); for (let i = 0; i < s.childNotes.length; i++) {
@@ -283,26 +280,8 @@ export function imNoteTreeView(ctx: GlobalContext) {
                 imNoteTreeRow(s, row, i, focused);
             } imEndListRow();
 
-            // Scrolling. Only 1 thing can be focused at a time.
-            if (focused && s.isScrolling) {
-                const { scrollTop } = getScrollVH(
-                    scrollParent.root, root.root,
-                    0.5, null
-                );
-
-                if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
-                    s.isScrolling = false;
-                } else {
-                    if (s.smoothScroll) {
-                        scrollParent.root.scrollTop = lerp(
-                            scrollParent.root.scrollTop,
-                            scrollTop,
-                            20 * deltaTimeSeconds()
-                        );
-                    } else {
-                        scrollParent.root.scrollTop = scrollTop;
-                    }
-                }
+            if (focused) {
+                scrollNavigableList(s.list, root)
             }
         } imEndFor();
 
@@ -347,18 +326,18 @@ function moveToLocalidx(
     } else {
         const childId = parent.childIds[idx];
         const note = getNote(state, childId);
-        setNote(s, note, true);
+        setNote(s, note, false);
     }
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
-    if (!ctx.handled && keyboard.enter.pressed) {
+    if (!ctx.handled && keyboard.enterKey.pressed) {
         let newNote: TreeNote | undefined;
-        if (keyboard.shift.held) {
+        if (keyboard.shiftKey.held) {
             newNote = addNoteAtCurrent(s, AFTER);
-        } else if (keyboard.ctrl.held) {
+        } else if (keyboard.ctrlKey.held) {
             newNote = addNoteAtCurrent(s, UNDER);
         }
 
@@ -370,19 +349,19 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 
     if (!ctx.handled && !state._isEditingFocusedNote) {
-        if (keyboard.enter.pressed) {
+        if (keyboard.enterKey.pressed) {
             setIsEditingCurrentNote(state, true);
             ctx.handled = true;
         }  else {
             const delta = getNavigableListInput(ctx);
-            const moveNote = keyboard.alt.held;
+            const moveNote = keyboard.altKey.held;
             if (delta) {
                 moveToLocalidx(s, delta, moveNote);
                 ctx.handled = true;
-            } if (keyboard.left.pressed) {
+            } if (keyboard.leftKey.pressed) {
                 moveOutOfCurrent(s, moveNote);
                 ctx.handled = true;
-            } else if (keyboard.right.pressed) {
+            } else if (keyboard.rightKey.pressed) {
                 moveIntoCurrent(s, moveNote);
                 ctx.handled = true;
             }
@@ -390,7 +369,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     } 
 
     if (!ctx.handled && state._isEditingFocusedNote) {
-        if (keyboard.escape.pressed) {
+        if (keyboard.escapeKey.pressed) {
             setIsEditingCurrentNote(state, false);
             ctx.handled = true;
         }
@@ -524,7 +503,7 @@ function imNoteTreeRow(
             imEndFor();
         } imEnd();
 
-        imBegin(ROW); imFlex(); imPadding(8, PX, 3, PX, 3, PX, 3, PX); {
+        imBegin(ROW); imFlex(); imListRowCellStyle(); {
             if (imMemo(note.data._status)) {
                 setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
             }
@@ -583,29 +562,4 @@ function imNoteTreeRow(
     } imEnd();
 }
 
-
-function imBeginListRow(focused: boolean, editing = false) {
-    const focusChanged = imMemo(focused);
-    const editingChanged = imMemo(editing);
-
-    const root = imBegin(ROW); {
-        if (focusChanged) {
-            setStyle("backgroundColor", focused ? cssVarsApp.bgColorFocus : "");
-        }
-
-        imBegin(); imSize(10, PX, 0, NOT_SET); {
-            if (focusChanged || editingChanged) {
-                setStyle("backgroundColor", 
-                    focused ? ( editing ? cssVarsApp.bgEditing : cssVarsApp.fgColor) : ""
-                );
-            }
-        } imEnd();
-    } // imEnd();
-
-    return root;
-}
-
-function imEndListRow() {
-    imEnd();
-}
 

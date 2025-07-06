@@ -30,7 +30,7 @@ import { initCssbStyles } from "./utils/cssb";
 import {
     imEnd,
     imState,
-    initImDomUtils
+    initImDomUtils,
 } from "./utils/im-dom-utils";
 
 function imMain() {

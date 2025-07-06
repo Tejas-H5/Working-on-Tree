@@ -5,7 +5,6 @@ import {
     setText,
     setStyle,
     imMemo,
-    getNumItemsRenderedLastFrame,
     isExcessEventRender,
     isFirstRender,
     imBeginDiv,
@@ -130,6 +129,8 @@ export function stopFpsCounter(fps: FpsCounterState) {
 }
 
 export function imFpsCounterOutput(fps: FpsCounterState) {
+    const im = getImCore();
+
     imBeginDiv(); {
         if (isFirstRender()) {
             setStyle("position", "absolute");
@@ -166,9 +167,13 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         }
 
         imBeginDiv(); {
-            setText(getNumItemsRenderedLastFrame() + " IM entries");
+            setText(im.itemsRenderedLastFrame + " IM entries");
         } imEnd();
-        const im = getImCore();
+
+        imBeginDiv(); {
+            setText(im.numCacheMisses + " Cache misses");
+        } imEnd();
+
         imBeginDiv(); {
             imBeginSpan(); setText(im.numResizeObservers + " ROs"); imEnd();
             imBeginSpan(); setText(" | "); imEnd();

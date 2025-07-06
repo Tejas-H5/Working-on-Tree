@@ -4,7 +4,7 @@ import {
     PX
 } from "./components/core/layout";
 import { newH1 } from "./components/core/new-dom-nodes";
-import { imBeginTextBlock, imEndTextBlock } from "./components/core/text";
+import { imBeginText, imEndText } from "./components/core/text";
 import {
     imBeginRoot,
     imEnd,
@@ -21,7 +21,7 @@ export function imBeginAppHeading() {
             setStyle("whiteSpace", "nowrap");
         }
 
-        imBeginTextBlock();  {
+        imBeginText();  {
         }
     }
 }
@@ -30,6 +30,6 @@ export function imEndAppHeading() {
     {
         {
 
-        } imEndTextBlock();
+        } imEndText();
     } imEnd();
 }

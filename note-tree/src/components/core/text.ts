@@ -7,7 +7,6 @@ import {
     imEndList,
     imGetContext,
     imNextRoot,
-    imState,
     setText
 } from 'src/utils/im-dom-utils.ts';
 import { imBegin, INLINE } from './layout';
@@ -21,7 +20,7 @@ export function newTextContext(): TextBuilderState {
     return state;
 }
 
-export function imBeginTextBlock() {
+export function imBeginText() {
     const tb = imBeginContext(newTextContext);
     imBeginList();
     assert(!tb.init, "You forgot to call `imEndTextBuilder`");
@@ -43,7 +42,7 @@ export function imT(str: string) {
     // User can set their styles and stuff here. they can't mount children though.
 }
 
-export function imEndTextBlock() {
+export function imEndText() {
     const tb = imEndContext(newTextContext);
 
     if (tb.init) {

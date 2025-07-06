@@ -1,37 +1,35 @@
 export type TimerState = {
-    t: number;
+    t0: number;
     ticks: number;
     enabled: boolean;
-    enabledLast: boolean;
 };
 
 export function newTimer(): TimerState {
     return {
-        t: 0,
+        t0: 0,
         ticks: 0,
         enabled: true,
-        enabledLast: true,
     };
 }
 
-export function updateTimer(s: TimerState, dt: number) {
-    if (s.enabled) {
-        if (!s.enabledLast) {
-            s.t = 0;
+export function timerRepeat(s: TimerState, t: number, repeatTime: number, enabled: boolean): boolean {
+    if (s.enabled !== enabled) {
+        if (!s.enabled) {
+            s.t0 = t;
             s.ticks = 0;
         }
 
-        s.t += dt;
+        s.enabled = enabled;
     }
-    s.enabledLast = s.enabled;
-}
+    if (!enabled) return false;
 
-export function timerHasReached(s: TimerState, seconds: number) {
-    if (!s.enabled) return false;
-    if (s.t > seconds) {
-        s.t = 0;
+    const currentTime = t - s.t0;
+
+    if (currentTime > repeatTime) {
+        s.t0 = t;
         s.ticks++;
         return true;
     }
+
     return false;
 }
