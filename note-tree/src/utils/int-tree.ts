@@ -5,8 +5,6 @@ export type TreeId = number & { __treeId: void; };
 
 
 // to the node object.
-// NOTE: in hindsight, this is a bit of a blunder caused by mindlessness. There's no reason to use uuids here - we should have just used
-// an index into an array. I could change it but I would need to create migration scripts.
 export type TreeNode<T> = {
     // NOTE: id=0 will always be _the_ root node. There may still be other root nodes, however...
     id: TreeId;

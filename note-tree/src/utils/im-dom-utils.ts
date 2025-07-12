@@ -447,34 +447,6 @@ export function finalizeDomRoot(domAppender: DomAppender) {
     // domAppender.children.length = domAppender.idx + 1e
 }
 
-export type RenderPoint =  {
-    domAppenderIdx: number;
-    itemsIdx: number;
-}
-
-function newRenderPoint(): RenderPoint {
-    return {
-        domAppenderIdx: -1,
-        itemsIdx: -1
-    };
-}
-
-export function imRenderPoint() {
-    const s = imState(newRenderPoint);
-    return s;
-}
-
-export function getRenderPoint(p: RenderPoint) {
-    const root = getCurrentRoot();
-    p.itemsIdx = root.itemsIdx;
-    p.domAppenderIdx = root.domAppender.idx;
-}
-
-export function setRenderPoint(p: RenderPoint) {
-    const root = getCurrentRoot();
-    startRendering(root, p.domAppenderIdx, p.itemsIdx);
-}
-
 type RemovedLevel = typeof NOT_REMOVED | typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY;
 
 /**
@@ -1408,51 +1380,6 @@ function imEndListRoot(r: UIRoot) {
     return true;
 }
 
-/** 
- * Same as imEnd, but doesn't remove anything if we don't render anything.
- * I've not used it yet.
- */
-function imEndMemoized() {
-    const r = getCurrentRoot();
-
-    // ignore the result, do nothing whether we rendered 0 or n items.
-    imEndRootInternal(r)
-}
-
-/**
- * This behaves almost the same as {@link imIf}/{@link imEndIf} -
- * except that we won't detatch this region if zero things were rendered.
- *
- * ```
- * if (imBeginMemo() && <condition. Something changed? something is onscreen? up to you>) {
- *      
- * } imEndMemo();
- * ```
- *
- * WARNING: Be EXTREMELY careful using this API. I was encountering so many stale
- * UI bugs that I deleted this pair from im-dom-utils, and didn't re-add it till
- * I started worrying about performance. You're better off not using this unless you
- * really need to.
- *
- * An alternate API like `imBeginMemo(<condition>)` would not allow for type-narrowing.
- * But if it did, I would change it to that.
- */
-export function imBeginMemo() {
-    return imIf();
-}
-
-/**
- * @see imBeginMemo
- */
-export function imEndMemo() {
-    const core = imCore;
-    if (core.currentRoot) {
-        imEndMemoized();
-    }
-
-    imEndIf();
-}
-
 function newIsOnScreenState() {
     const r = getCurrentRoot();
     const self = {
@@ -1484,8 +1411,6 @@ export function imIsOnScreen() {
 function imEndRootInternal(r: UIRoot) {
     // close out this UI Root.
 
-    const mouse = getImMouse();
-
     if (isDerived(r) === false) {
         finalizeDomRoot(r.domAppender);
 
@@ -1493,6 +1418,7 @@ function imEndRootInternal(r: UIRoot) {
         const el = r.root;
         const parent = el.parentNode;
 
+        const mouse = getImMouse();
         if (mouse.clickedElement === el) {
             mouse.clickedElement = parent;
         }
@@ -1648,6 +1574,9 @@ export function setRef<T>(ref: Ref<T>, val: T): T {
     return val;
 }
 
+// These are mainly for quick prototyping or simple logic.
+// You're better off using real objects if that simplifies the code.
+
 function newArray() {
     return [];
 }
@@ -1656,14 +1585,16 @@ export function imArray<T>(): T[] {
     return imState(newArray);
 }
 
-function newStringBuilder(): {
-    text: string;
-} {
-    return { text: "" }
+export function newBoolean() {
+    return { val: false };
 }
 
-export function imStringRef() {
-    return imState(newStringBuilder);
+export function newNumber() {
+    return { val: 0 };
+}
+
+export function newString() {
+    return { val: "" };
 }
 
 function newMap<K, V>() {
@@ -1859,7 +1790,7 @@ export function imInit(): boolean {
  * - adding/removing event handlers. Bad things happen when we do this twice
  * - triggering API requests, initializing a thing. Not ideal to do it multiple times
  */
-export function isFirstRender(): boolean {
+export function isFirstishRender(): boolean {
   return !getCurrentRoot().completedOneRender;
 }
 

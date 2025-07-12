@@ -95,6 +95,7 @@ export function newNavigableList(): NavigableList {
     };
 }
 
+/** clamps the list idx. returns -1 if len is 0 */
 export function clampedListIdx(idx: number, len: number): number {
     if (idx < 0) idx = 0;
     if (idx >= len) idx = len - 1;

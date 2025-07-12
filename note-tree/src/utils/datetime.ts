@@ -17,13 +17,9 @@ export function formatDateTime(date: Date | null, seperator?: string, dayOfTheWe
     return `${dateFormatted} ${timeFormatted}`;
 }
 
-export function formatTime(date: Date | null, seperator?: string, useSeconds = false) {
+export function formatTime(date: Date | null, seperator = ":", useSeconds = false) {
     if (!date) {
         return `--${seperator}-- --`;
-    }
-
-    if (!seperator) {
-        seperator = ":";
     }
 
     const hours = date.getHours();
@@ -147,6 +143,10 @@ export function floorDateToWeekLocalTime(date: Date) {
 
 export function addDays(date: Date, days: number) {
     date.setDate(date.getDate() + days)
+}
+
+export function addHours(date: Date, hours: number) {
+    date.setHours(date.getHours() + hours);
 }
 
 // 1 work day is actually 7.5 hours.

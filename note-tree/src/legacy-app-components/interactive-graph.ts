@@ -4,6 +4,7 @@ import { cssVars } from "./legacy-styling";
 import { addChildren, cn, div, el, Insertable, isVisible, newComponent, newCssBuilder, newListRenderer, RenderGroup, setAttrs, setClass, setInputValue, setInputValueAndResize, setStyle, setText, setVisible } from "./utils/dom-utils";
 import { newDragManager } from "../utils/drag-handlers";
 import { newUuid } from "../utils/uuid";
+import { EDGE_THICNKESSES, GraphEdge, newGraphData, newGraphEdge, newGraphNode } from "./interactive-graph-state";
 
 
 // WARNING:
@@ -359,12 +360,7 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
 
     function addNewNode(x = 0, y = 0) {
         const id = newUuid(id => id in graphData.nodes);
-        graphData.nodes[id] = {
-            id,
-            text: "Node " + nodeComponentMap.size,
-            x, y,
-        };
-
+        graphData.nodes.set(id, newGraphNode(id, "Node " + nodeComponentMap.size, x, y)); 
         const s = rg.s;
         s.onInput();
 
@@ -428,14 +424,8 @@ export function InteractiveGraph(rg: RenderGroup<GraphArgs>) {
         if (!graphState.currentEdgeDragEdgeId) {
             graphState.currentEdgeDragStartIsSrc = true;
             const id = newUuid(id => id in graphData.edges);
-            const edge: GraphEdge = {
-                id,
-                text: "",
-                srcNodeId: undefined, srcX: 0, srcY: 0, srcXPivot: 0, srcYPivot: 0,
-                dstNodeId: undefined, dstX: 0, dstY: 0, dstXPivot: 0, dstYPivot: 0,
-                thickness: EDGE_THICNKESSES.NORMAL,
-            };
-            graphData.edges[id] = edge;
+            const edge = newGraphEdge(id, "", EDGE_THICNKESSES.NORMAL);
+            graphData.edges.set(edge.id, edge);
             graphState.currentEdgeDragEdgeId = id;
 
             // NOTE: When we introduce zooming, sliced coordinates need to be scaled to graph coordinates in a specific way.

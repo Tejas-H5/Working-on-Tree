@@ -4,7 +4,7 @@ import {
     imEnd,
     imInit,
     imMemo,
-    isFirstRender,
+    isFirstishRender,
     setAttr,
     setClass,
     setInputValue,
@@ -126,7 +126,7 @@ export function imBeginTextArea({
                     const placeholderChanged = imMemo(placeholder);
                     const valueChanged = imMemo(value);
                     if (placeholderChanged || valueChanged) {
-                        if (placeholder && !value) {
+                        if (!value) {
                             setText(placeholder);
                             setStyle("color", cssVars.fg2);
                         } else {
@@ -138,7 +138,7 @@ export function imBeginTextArea({
 
                 // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
                 imBegin(INLINE); {
-                    if (isFirstRender()) {
+                    if (isFirstishRender()) {
                         setAttr("style", "color: transparent");
                         setAttr("userSelect", "none");
                         setText(".");

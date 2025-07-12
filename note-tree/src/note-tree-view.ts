@@ -1,6 +1,7 @@
 import { imHLine } from "./app-components/common";
+import { imBeginAppHeading, imEndAppHeading } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
-import { newTimer, timerRepeat } from "./app-utils/timer";
+import { imTimerRepeat } from "./app-utils/timer";
 import {
     CH,
     EM,
@@ -18,6 +19,7 @@ import {
     ROW_REVERSE
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
+import { imT } from "./components/core/text";
 import { imTextArea } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
 import {
@@ -39,6 +41,7 @@ import {
     deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
+    getNoteOrUndefined,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
@@ -67,12 +70,10 @@ import {
     imIf,
     imMemo,
     imNextRoot,
-    imState,
-    isFirstRender,
+    isFirstishRender,
     setClass,
     setStyle,
     setText,
-    timeSeconds
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
 
@@ -236,6 +237,20 @@ function moveIntoCurrent(
     }
 }
 
+
+export function imAppViewTree(ctx: GlobalContext) {
+    imBeginAppHeading(); {
+        imT("Tree"); 
+        const headerNote = getNoteOrUndefined(state, state._currentFlatNotesRootId);
+        if (headerNote) {
+            imT(" :: ");
+            imT(headerNote.data.text);
+        }
+    } imEndAppHeading();
+
+    imNoteTreeView(ctx);
+}
+
 export function imNoteTreeView(ctx: GlobalContext) {
     const s = ctx.noteTreeViewState;
 
@@ -263,9 +278,8 @@ export function imNoteTreeView(ctx: GlobalContext) {
     );
 
     imBeginNavigableListContainer(s.list); {
-        const scrollTimer = imState(newTimer);
         const SCROLL_TIMEOUT_SECONDS = 1;
-        if (timerRepeat(scrollTimer, timeSeconds(), SCROLL_TIMEOUT_SECONDS, s.list.isScrolling)) {
+        if (imTimerRepeat(SCROLL_TIMEOUT_SECONDS, s.list.isScrolling)) {
             s.list.isScrolling = false;
         }
 
@@ -334,23 +348,28 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
     if (!ctx.handled && keyboard.enterKey.pressed) {
-        let newNote: TreeNote | undefined;
-        if (keyboard.shiftKey.held) {
-            newNote = addNoteAtCurrent(s, AFTER);
-        } else if (keyboard.ctrlKey.held) {
-            newNote = addNoteAtCurrent(s, UNDER);
-        }
+        if (!keyboard.enterKey.repeat) {
+            let newNote: TreeNote | undefined;
+            if (keyboard.shiftKey.held) {
+                newNote = addNoteAtCurrent(s, AFTER);
+            } else if (keyboard.ctrlKey.held) {
+                newNote = addNoteAtCurrent(s, UNDER);
+            }
 
-        if (newNote) {
-            setNote(s, newNote, true);
-            setIsEditingCurrentNote(state, true);
+            if (newNote) {
+                setNote(s, newNote, true);
+                setIsEditingCurrentNote(state, true);
+            }
+
             ctx.handled = true;
         }
     }
 
     if (!ctx.handled && !state._isEditingFocusedNote) {
         if (keyboard.enterKey.pressed) {
-            setIsEditingCurrentNote(state, true);
+            if (!keyboard.enterKey.repeat) {
+                setIsEditingCurrentNote(state, true);
+            }
             ctx.handled = true;
         }  else {
             const delta = getNavigableListInput(ctx);
@@ -458,7 +477,7 @@ function imNoteTreeRow(
                                 isThick ? largeThicnkess: smallThicnkess, PX,
                             );
                             imBg(cssVarsApp.fgColor); {
-                                if (isFirstRender()) {
+                                if (isFirstishRender()) {
                                     setStyle("transform", "translate(0, -100%)");
                                 }
                             } imEnd();

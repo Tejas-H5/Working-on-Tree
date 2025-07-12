@@ -1,7 +1,6 @@
 import { cssVarsApp } from "./app-styling";
 import {
     imBegin,
-    imFlex,
     imPadding,
     imSize,
     NOT_SET,
@@ -11,7 +10,7 @@ import {
 import {
     imEnd,
     imMemo,
-    isFirstRender,
+    isFirstishRender,
     setStyle
 } from "./utils/im-dom-utils";
 
@@ -43,7 +42,7 @@ export function imEndListRow() {
 }
 
 export function imListRowCellStyle() {
-    if (isFirstRender()) {
+    if (isFirstishRender()) {
         setStyle("minHeight", "1em");
     }
     imPadding(8, PX, 3, PX, 3, PX, 3, PX);

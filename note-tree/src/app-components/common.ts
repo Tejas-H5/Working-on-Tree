@@ -1,7 +1,7 @@
 import { cssVarsApp } from "src/app-styling";
 import { imBegin, imSize, NOT_SET, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { imEnd, imMemo, isFirstRender, setClass, setStyle } from "src/utils/im-dom-utils";
+import { imEnd, imMemo, isFirstishRender, setClass, setStyle } from "src/utils/im-dom-utils";
 
 
 const cssb = newCssBuilder();
@@ -12,7 +12,7 @@ const cnHLine = cssb.cn("hline", [
 
 export function imHLine(visible = true, heightPx: number = 2) {
     imBegin(); imSize(0, NOT_SET, visible ? heightPx : 0, PX); {
-        if (isFirstRender()) {
+        if (isFirstishRender()) {
             setStyle("backgroundColor", cssVarsApp.fgColor);
             setClass(cnHLine);
         }

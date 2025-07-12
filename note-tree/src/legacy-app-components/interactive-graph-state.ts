@@ -81,6 +81,22 @@ export type GraphEdge = {
     thickness: number;
 };
 
+
+export function newGraphEdge(id: string, text: string, thickness: number): GraphEdge {
+    return {
+        id,
+        text,
+        thickness,
+        srcNodeId: "",
+        dstNodeId: "",
+        srcX: 0, srcY: 0,
+        srcXPivot: 0, srcYPivot: 0,
+        dstX: 0, dstY: 0,
+        dstXPivot: 0, dstYPivot: 0,
+    };
+}
+
+
 export type GraphState = {
     viewX: number;
     viewY: number;
@@ -106,14 +122,25 @@ export type GraphState = {
 }
 
 export type GraphData = {
-    nodes: Record<string, GraphNode>;
-    edges: Record<string, GraphEdge>;
+    nodes: Map<string, GraphNode>;
+    edges: Map<string, GraphEdge>;
+}
+
+export function newGraphNode(
+    id: string,
+    text: string,
+    x: number, y: number
+): GraphNode {
+    return {
+        id, text,
+        x, y
+    };
 }
 
 export function newGraphData(): GraphData {
     return {
-        nodes: {},
-        edges: {}
+        nodes: new Map(),
+        edges: new Map(),
     };
 }
 

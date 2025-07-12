@@ -1,10 +1,8 @@
-import { imBeginAppHeading, imEndAppHeading } from "./app-heading";
 import {
     COL,
     imBegin,
     imFixed
 } from "./components/core/layout";
-import { imT } from "./components/core/text";
 import {
     imFpsCounterOutput,
     newFpsCounterState,
@@ -12,15 +10,13 @@ import {
     stopFpsCounter
 } from "./components/fps-counter";
 import {
-    GlobalContext,
     handleImKeysInput,
     newGlobalContext,
     preventImKeysDefault
 } from "./global-context";
-import { imNoteJournalView } from "./note-journal-view";
-import { imNoteTreeView } from "./note-tree-view";
+import { imAppViewJournal } from "./note-journal-view";
+import { imAppViewTree } from "./note-tree-view";
 import {
-    getNoteOrUndefined,
     loadState,
     recomputeState,
     setTheme,
@@ -29,8 +25,13 @@ import {
 import { initCssbStyles } from "./utils/cssb";
 import {
     imEnd,
+    imEndIf,
+    imIf,
     imState,
     initImDomUtils,
+    isFirstishRender,
+    setStyle,
+    setText,
 } from "./utils/im-dom-utils";
 
 function imMain() {
@@ -41,6 +42,18 @@ function imMain() {
 
     startFpsCounter(fpsCounter); {
         imBegin(COL); imFixed(0, 0, 0, 0); {
+            const error = state.criticalSavingError || state._criticalLoadingError;
+            if (imIf() && error) {
+                imBegin(); {
+                    if (isFirstishRender()) {
+                        setStyle("color", "white");
+                        setStyle("backgroundColor", "red");
+                    }
+
+                    setText(error); 
+                } imEnd();
+            } imEndIf();
+
             if (0) {
                 imAppViewTree(ctx); 
             } else {
@@ -74,33 +87,12 @@ function imMain() {
                 if (ctx.focusWithAllSelected) {
                     textArea.selectionStart = 0;
                     textArea.selectionEnd = textArea.value.length;
+                    ctx.focusWithAllSelected = false;
                 }
             }
         }
     }
 }
-
-function imAppViewTree(ctx: GlobalContext) {
-    imBeginAppHeading(); {
-        imT("Tree"); 
-        const headerNote = getNoteOrUndefined(state, state._currentFlatNotesRootId);
-        if (headerNote) {
-            imT(" :: ");
-            imT(headerNote.data.text);
-        }
-    } imEndAppHeading();
-
-    imNoteTreeView(ctx);
-}
-
-function imAppViewJournal(ctx: GlobalContext) {
-    imBeginAppHeading(); {
-        imT("Journal"); 
-    } imEndAppHeading();
-
-    imNoteJournalView(ctx);
-}
-
 
 loadState(() => {
     recomputeState(state);

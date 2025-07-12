@@ -1,5 +1,5 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { imBeginRoot, imEnd, imMemo, imOn, isFirstRender, setAttr, setClass } from "src/utils/im-dom-utils";
+import { imBeginRoot, imEnd, imMemo, isFirstishRender, setAttr, setClass } from "src/utils/im-dom-utils";
 import { cssVars } from "./core/stylesheets";
 import { imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 
@@ -36,7 +36,7 @@ export function imTextInput({
     let e: ImTextInputEvent | null = null;
 
     const input = imBeginRoot(newInput); {
-        if (isFirstRender()) {
+        if (isFirstishRender()) {
             setClass(cnInput);
             setAttr("type", "text");
         }

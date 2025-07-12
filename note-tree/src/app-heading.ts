@@ -8,7 +8,7 @@ import { imBeginText, imEndText } from "./components/core/text";
 import {
     imBeginRoot,
     imEnd,
-    isFirstRender,
+    isFirstishRender,
     setStyle
 } from "./utils/im-dom-utils";
 
@@ -16,7 +16,7 @@ import {
 export function imBeginAppHeading() {
     imBeginRoot(newH1);
     imPadding(10, PX, 0, NOT_SET, 0, NOT_SET, 0, NOT_SET); {
-        if (isFirstRender()) {
+        if (isFirstishRender()) {
             setStyle("textOverflow", "ellipsis");
             setStyle("whiteSpace", "nowrap");
         }

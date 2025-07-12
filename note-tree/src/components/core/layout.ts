@@ -1,4 +1,3 @@
-import { newCssBuilder } from 'src/utils/cssb.ts';
 import {
     imBeginDiv,
     imBeginRoot,
@@ -9,7 +8,7 @@ import {
     imRef,
     imState,
     isExcessEventRender,
-    isFirstRender,
+    isFirstishRender,
     newDiv,
     pushAttr,
     setAttr,
@@ -128,7 +127,7 @@ export function imPadding(
 }
 
 export function imRelative() {
-    if (isFirstRender()) {
+    if (isFirstishRender()) {
         setClass(cn.relative);
     }
 }
@@ -203,7 +202,7 @@ export function imFixed(
     bottom: number | null,
     right: number | null,
 ) {
-    if (isFirstRender()) {
+    if (isFirstishRender()) {
         setClass(cn.fixed);
     }
     
@@ -221,7 +220,7 @@ export function imAbsolute(
     top: number, topType: SizeUnits,
     bottom: number, bottomType: SizeUnits, 
 ) {
-    if (isFirstRender()) {
+    if (isFirstishRender()) {
         setClass(cn.absolute);
     }
 
@@ -270,7 +269,7 @@ export function imBeginScrollContainer(noScroll: boolean = false) {
 export function imBeginAspectRatio(w: number, h: number) {
     const lastAr = imRef();
     const root = imBegin(); {
-        if (isFirstRender()) {
+        if (isFirstishRender()) {
             setStyle("width", "auto");
             setStyle("height", "auto");
         }
@@ -287,7 +286,7 @@ export function imBeginAspectRatio(w: number, h: number) {
 
 export function imVerticalBar() {
     imBeginDiv(); {
-        if (isFirstRender()) {
+        if (isFirstishRender()) {
             setAttr("style", `width: 5px; background-color: ${cssVars.fg}; margin: 0px 5px;`);
         }
     } imEnd();
@@ -320,7 +319,7 @@ export function imInitStyles(val: string) {
  * Otherwise, you'll just be creating garbage every frame.
  */
 export function imInitClasses(..._val: string[]) {
-    if (isFirstRender()) {
+    if (isFirstishRender()) {
         for (let i = 0; i < arguments.length; i++) {
             setClass(arguments[i]);
         }

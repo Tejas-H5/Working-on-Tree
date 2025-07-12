@@ -1,3 +1,5 @@
+import { imState, timeSeconds } from "src/utils/im-dom-utils";
+
 export type TimerState = {
     t0: number;
     ticks: number;
@@ -32,4 +34,9 @@ export function timerRepeat(s: TimerState, t: number, repeatTime: number, enable
     }
 
     return false;
+}
+
+export function imTimerRepeat(repeatTime: number, enabled = true) {
+    const s = imState(newTimer);
+    return timerRepeat(s, timeSeconds(), repeatTime, enabled);
 }

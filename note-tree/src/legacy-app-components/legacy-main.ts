@@ -2182,7 +2182,7 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
 
                                             state.workdayConfig.holidays.push({
                                                 name: holidayName,
-                                                date: formatIsoDate(date),
+                                                date: date,
                                             });
 
                                             holidayDateStr = "";

@@ -6,7 +6,6 @@ import {
     floorDateToWeekLocalTime,
     formatDateTime,
     formatDuration,
-    getTimestamp,
     ONE_DAY,
     ONE_HOUR,
     ONE_MINUTE,
@@ -16,9 +15,7 @@ import {
 } from "src/utils/datetime";
 import * as tree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
-import { autoMigrate, recursiveCloneNonComputedFields } from "src/utils/serialization-utils";
-import * as oldTree from "src/utils/tree";
-
+import { serializeToJSON } from "src/utils/serialization-utils";
 import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
 import { fuzzyFind, Range } from "./utils/fuzzyfind";
@@ -26,6 +23,8 @@ import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 import { setCssVars } from "./utils/cssb";
 import { darkTheme, lightTheme } from "./app-styling";
 import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
+import { asNoteTreeGlobalState  } from "./schema";
+import * as oldTree from "src/utils/tree";
 
 export function setTheme(newTheme: AppTheme) {
     state.currentTheme = newTheme;
@@ -37,6 +36,11 @@ export function setTheme(newTheme: AppTheme) {
     }
 };
 
+
+// TODO: remove dead state after rewrite
+
+// NOTE: this is just the state for a single note tree.
+// We can only edit 1 tree at a time, basically
 
 export type NoteId = tree.TreeId;
 
@@ -102,8 +106,6 @@ export type NoteTreeGlobalState = {
     showDockedMenu: boolean;
     breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
-
-    currentScreen: AppView;
 
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
     // (at least with the way I'm using it as a drop-in replacement for localStorage.).
@@ -198,18 +200,18 @@ export type TaskStream = {
 };
 
 
-function newTaskStream(name: string): TaskStream {
+export function newTaskStream(name: string): TaskStream {
     return { name, noteIds: [], _idx: 0 };
 }
 
-type AppSettings = {
+export type AppSettings = {
     nonEditingNotesOnOneLine: boolean;
     parentNotesOnOneLine: boolean;
     spacesInsteadOfTabs: boolean;
     tabStopSize: number;
 };
 
-function newAppSettings() {
+export function newAppSettings() {
     return {
         nonEditingNotesOnOneLine: true,
         parentNotesOnOneLine: true,
@@ -225,7 +227,7 @@ export type Note = {
 
     // will be populated as soon as the note is created.
     // TODO: display this info somewhere
-    openedAt: string;
+    openedAt: Date;
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
 
@@ -262,19 +264,18 @@ export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeN
 // Yeah it isn't the best practice, but it works
 export type Activity = {
     // if it's not undefined, guaranteed to be valid
-    nId?: NoteId;
+    nId: NoteId | undefined;
     // Time this note was created
-    t: string;
+    t: Date;
+
     // Are we creating a brand new note? 1 if true
-    c?: number;
-
-    _t?: Date;
-
+    c: number | undefined;
     // only apply to breaks:
-    breakInfo?: string;
-    locked?: true;
-    deleted?: true;
-}
+    breakInfo: string | undefined;
+
+    locked: true | undefined;
+    deleted: true | undefined;
+};
 
 // bro uses git? no way dude.
 const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
@@ -466,11 +467,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         textOnArrivalNoteId: tree.NIL_ID,
 
         workdayConfig: {
-            weekdayConfigs: [{
-                dayStartHour: 9,
-                workingHours: 7.5,
-                weekdayFlags: [false, true, true, true, true, true, false],
-            }],
+            weekdayConfigs: [newWorkdayConfigWeekDay(9, 7.5)],
             holidays: [],
         },
 
@@ -521,14 +518,19 @@ export function loadStateFromJSON(savedStateJSON: string): LoadStateFromJSONResu
     }
 
     try {
-        let loadedState = JSON.parse(savedStateJSON) as NoteTreeGlobalState;
-        loadedState = migrateState(loadedState);
+        let jsonObj: unknown = JSON.parse(savedStateJSON);
+
+        const loadedState = asNoteTreeGlobalState(jsonObj);
+
         return { state: loadedState };
     } catch (err: any) {
         return { criticalError: err.message }
     }
 }
 
+// Legacy method. TODO: put this code where it belongs. 
+// Techinally not needed since my only 2 users (me at home, me at work) have already migrated to the latest version,
+// but would be nice to learn about what it takes to write 100% backwards-compatible software
 function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultState: NoteTreeGlobalState) {
     if (loadedState.schemaMajorVersion && loadedState.schemaMajorVersion >= 2) {
         return;
@@ -594,34 +596,6 @@ function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultS
 
     loadedState.schemaMajorVersion = 2;
 }
-
-export function migrateState(loadedState: NoteTreeGlobalState): NoteTreeGlobalState {
-    const defaultState = newNoteTreeGlobalState();
-
-    migrateToSchemaMajorVersion2(loadedState, defaultState);
-
-    // note.data.id not being set correctly in prod data (xD)
-    {
-        tree.forEachNode(loadedState.notes, (note) => {
-            note.data.id = note.id;
-        });
-    }
-
-    // prevents missing item cases that may occur when trying to load an older version of the state.
-    // it is our way of auto-migrating the schema. Only works for new root level keys and not nested ones tho
-    loadedState = autoMigrate(loadedState, newNoteTreeGlobalState);
-
-    // also automigrate notes
-    tree.forEachNode(loadedState.notes, (note) => {
-        note.data = autoMigrate(note.data, defaultNote);
-    });
-
-    // I should actually be doing mgrations and validations here but I'm far too lazy
-    
-
-    return loadedState;
-}
-
 export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: string) => void) {
     if (typeof savedStateJSON !== "string") {
         logTrace("Got a blob, converting to string before using...");
@@ -640,6 +614,7 @@ export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: s
     const loaded = loadStateFromJSON(savedStateJSON);
 
     if (loaded.criticalError) {
+        console.error(loaded.criticalError);
         logTrace("Loading a new state would be a mistake right about now");
         state._criticalLoadingError = loaded.criticalError;
         state._criticalLoadingErrorWasOurFault = true;
@@ -685,7 +660,7 @@ export function defaultNote(): Note {
         // the following is valuable user data
         id: tree.NIL_ID,
         text: "",
-        openedAt: getTimestamp(new Date()),
+        openedAt: new Date(),
         lastSelectedChildIdx: 0,
 
         // the following are just visual flags which are frequently recomputed
@@ -772,9 +747,11 @@ export function recomputeFlatNotes(
     }
 }
 
+/**
+ * @deprecated - we now serialize and deserialize data directly into the correct type, so this is useless
+ */
 export function setActivityTime(activity: Activity, t: Date) {
-    activity.t = getTimestamp(t);
-    activity._t = t;
+    activity.t = t;
 }
 
 export function getActivityTime(activity: Activity | undefined) {
@@ -782,11 +759,7 @@ export function getActivityTime(activity: Activity | undefined) {
         return new Date();
     }
 
-    if (!activity._t) {
-        activity._t = new Date(activity.t);
-    }
-
-    return activity._t!;
+    return activity.t;
 }
 
 export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
@@ -1564,22 +1537,29 @@ export function getCurrentNote(state: NoteTreeGlobalState) {
 }
 
 function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isNewNote: boolean) {
-    const date = new Date();
-    pushActivity(state, {
-        nId: noteId,
-        t: getTimestamp(date),
-        c: isNewNote ? 1 : undefined,
-    });
+    const activity = defaultActivity(new Date());
+    activity.nId = noteId;
+    activity.c = isNewNote ? 1 : undefined;
+    pushActivity(state, activity);
+}
+
+export function defaultActivity(t: Date): Activity {
+    return {
+        // at least one of these must be defined:
+        t,
+        nId: undefined,
+        breakInfo: undefined,
+        c: undefined,
+        locked: undefined,
+        deleted: undefined,
+    };
 }
 
 export function newBreakActivity(breakInfoText: string, time: Date, locked: boolean): Activity {
-    time = time || new Date();
-    return {
-        nId: undefined,
-        t: getTimestamp(time),
-        breakInfo: breakInfoText,
-        locked: locked || undefined,
-    };
+    const activity = defaultActivity(time);
+    activity.breakInfo = breakInfoText;
+    activity.locked = locked || undefined;
+    return activity;
 }
 
 export function pushBreakActivity(state: NoteTreeGlobalState, breakActivtiy: Activity) {
@@ -2196,7 +2176,7 @@ export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): stri
     const lastActivityIdx = getLastActivityWithNoteIdx(state);
     if (lastActivityIdx !== -1) {
         const activity = state.activities[lastActivityIdx];
-        assert(activity.nId);
+        assert(!idIsNilOrUndefined(activity.nId));
         setCurrentNote(state, activity.nId);
         return;
     }
@@ -2567,8 +2547,7 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
         return;
     }
 
-    const nonCyclicState = recursiveCloneNonComputedFields(state);
-    const serialized = JSON.stringify(nonCyclicState);
+    const serialized = serializeToJSON(state);
 
     // https://developer.chrome.com/blog/blob-support-for-Indexeddb-landed-on-chrome-dev
     // NOTE: I'm not even going to attempt to save as a string, because that simply won't work on chromium browsers
@@ -2997,34 +2976,43 @@ export type WorkdayConfigWeekDay = {
     dayStartHour: number;
     workingHours: number;
     // index 0 -> sunday
-    weekdayFlags: Boolean7;
+    weekdayFlags: Boolean7; // Could have been bitflags but no, we had to make it boolean[7]. xD
 };
+
+export function newWorkdayConfigWeekDay(dayStartHour: number = 0, workingHours: number = 0): WorkdayConfigWeekDay {
+    return {
+        dayStartHour,
+        workingHours,
+        weekdayFlags: [false, false, false, false, false, false, false],
+    };
+}
+
 
 export type Boolean7 = [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
 
 export type WorkdayConfigHoliday = {
-    date: string;
     name: string;
-    _date?: Date;
+    date: Date;
 }
 
 export function getWorkdayConfigHolidayDate(wh: WorkdayConfigHoliday): Date {
-    if (!wh._date) {
+    if (!wh.date) {
         const date = parseIsoDate(wh.date);
         if (!date) {
-            wh._date = new Date(NaN);
+            wh.date = new Date(NaN);
         } else {
-            wh._date = date;
+            wh.date = date;
         }
     }
 
-    return wh._date;
+    return wh.date;
 }
 
 export type WorkdayConfig = {
     weekdayConfigs: WorkdayConfigWeekDay[];
     holidays: WorkdayConfigHoliday[];
 };
+
 
 type WorkdayIterator = {
     wc: WorkdayConfig;
@@ -3205,9 +3193,6 @@ export function predictTaskCompletions(
 }
 
 
-
-
-
 // I used to have tabs, but I literally never used then, so I've just removed those components.
 // However, "Everything" is the name of my current note tree, so that is just what I've hardcoded here.
 // The main benefit of having just a single tree (apart from simplicity and less code) is that
@@ -3218,22 +3203,27 @@ const INDEXED_DB_KV_STORE_NAME = "NoteTreeKVStore";
 const KV_STORE_STATE_KEY = "State";
 
 export function getCurrentStateAsJSON() {
-    const nonCyclicState = recursiveCloneNonComputedFields(state);
-    const serialized = JSON.stringify(nonCyclicState);
-    return serialized;
+    return serializeToJSON(state);
 }
 
 export function loadStateFromBackup(text: string): NoteTreeGlobalState | null {
+    // I expect there to be 1 more format if I ever start storing multiple keys in the kv store. But
+    // I have already decided against this due to the much higher potential for bugs r.e partial saving
+    logTrace("Loading backup format v2");
+
+    const res = loadStateFromJSON(text);
+    if (res.state) {
+        return res.state;
+    }
+
+    // fallback to the legacy format.
+    // The legacy format just grabbed every local storage key, put it into an object, and JSON-serialized that.
     let obj = JSON.parse(text);
     if (LOCAL_STORAGE_KEY_LEGACY in obj) {
         logTrace("Loading legacy backup format");
         return loadStateFromJSON(obj[LOCAL_STORAGE_KEY_LEGACY]).state ?? null;
     }
 
-    // I expect there to be 1 more format if I ever start storing multiple keys in the kv store. But
-    // I have already decided against this due to the much higher potential for bugs r.e partial saving
-    logTrace("Loading backup format v2");
-    obj = migrateState(obj as NoteTreeGlobalState);
-    return obj;
+    return null;
 }
 
