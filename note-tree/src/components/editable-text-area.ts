@@ -12,7 +12,6 @@ import {
     setText,
     UIRoot
 } from "src/utils/im-dom-utils";
-import { imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 import { imBegin, imInitClasses, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
@@ -70,26 +69,6 @@ export type TextAreaArgs = {
     focusWithAllSelected?: boolean;
     placeholder?: string;
 };
-
-export function imTextArea({
-    value,
-    isOneLine,
-    focusWithAllSelected,
-    placeholder = "",
-}: TextAreaArgs)  {
-    let e: ImTextInputEvent | null = null;
-
-    const [,textArea] = imBeginTextArea({
-        value,
-        isOneLine,
-        focusWithAllSelected,
-        placeholder,
-    }); {
-        e = imGetTextInputEvent(textArea.root);
-    } imEndTextArea();
-
-    return [e, textArea] as const;
-}
 
 // My best attempt at making a text input with the layout semantics of a div.
 // NOTE: this text area has a tonne of minor things wrong with it. we should fix them at some point.
@@ -184,12 +163,13 @@ export type EditableTextAreaConfig = {
     tabStopSize?: number;
 };
 
+// Use this in a text area's "keydown" event handler
 export function doExtraTextAreaInputHandling(
     e: KeyboardEvent,
     textArea: HTMLTextAreaElement,
     config: EditableTextAreaConfig
 ): boolean {
-    const execCommand = document.execCommand;
+    const execCommand = document.execCommand.bind(document);
 
     // HTML text area doesn't like tabs, we need this additional code to be able to insert tabs (among other things).
     // Using the execCommand API is currently the only way to do this while perserving undo, 
@@ -235,8 +215,6 @@ export function doExtraTextAreaInputHandling(
     }
 
     if (e.key === "Backspace" && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
-        handled = true;
-
         if (start === end) {
             const col = getLineBeforePos(text, start);
 
@@ -245,12 +223,11 @@ export function doExtraTextAreaInputHandling(
                 e.preventDefault();
                 for (let i = 0; i < spacesToRemove; i++) {
                     execCommand("delete", false, undefined);
+                    handled = true;
                 }
             }
         }
     } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        handled = true;
-
         if (e.shiftKey) {
             e.preventDefault();
 
@@ -278,6 +255,7 @@ export function doExtraTextAreaInputHandling(
                     for (let i = 0; i < spacesToRemove; i++) {
                         // cursor implicitly moves back 1 for each deletion.
                         execCommand("delete", false, undefined);
+                        handled = true;
                         newEnd--;
                     }
                 }
@@ -293,6 +271,7 @@ export function doExtraTextAreaInputHandling(
                 const indentation = getIndentation(col);
                 e.preventDefault();
                 execCommand("insertText", false, indentation);
+                handled = true;
             } else {
                 e.preventDefault();
 
@@ -318,6 +297,7 @@ export function doExtraTextAreaInputHandling(
                     textArea.selectionEnd = pos;
 
                     execCommand("insertText", false, indentation);
+                    handled = true;
                     newEnd += indentation.length;
 
                     i -= col.length;

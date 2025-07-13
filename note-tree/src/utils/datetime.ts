@@ -1,3 +1,5 @@
+import { isDigit, newParser, parserAdvanceWhitespace, parserParseDelimter, parserParseInt, parserParseWord } from "./parser";
+
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
     "Mon",
@@ -19,7 +21,7 @@ export function formatDateTime(date: Date | null, seperator?: string, dayOfTheWe
 
 export function formatTime(date: Date | null, seperator = ":", useSeconds = false) {
     if (!date) {
-        return `--${seperator}-- --`;
+        return `--${seperator}--${useSeconds ? (seperator + "--") : ""} --`;
     }
 
     const hours = date.getHours();
@@ -28,7 +30,7 @@ export function formatTime(date: Date | null, seperator = ":", useSeconds = fals
 
     const hoursStr = pad2(((hours - 1) % 12) + 1);
     const minStr = pad2(minutes);
-    const secondsStr = useSeconds ? `:${pad2(seconds)}` : "";
+    const secondsStr = useSeconds ? `${seperator}${pad2(seconds)}` : "";
     const amPmStr = hours < 12 ? "am" : "pm";
 
     return `${hoursStr}${seperator}${minStr}${secondsStr} ${amPmStr}`;
@@ -38,8 +40,10 @@ export function formatTime(date: Date | null, seperator = ":", useSeconds = fals
 export function formatDate(date: Date | null, dayOfTheWeek = false) {
     if (!date) {
         const dayOfTheWeekStr = !dayOfTheWeek ? "" : ("---" + " ");
-        return `${dayOfTheWeekStr}--/--/----`;
+        return `${dayOfTheWeekStr}${getDatePlaceholder("--", "--", "----")}`;
     }
+
+    // TODO: use inferMmDdYyyyOrder here
 
     const dd = date.getDate();
     const mm = date.getMonth() + 1;
@@ -71,6 +75,8 @@ export function parseYMDTDateTime(value: string): [Date | null, ErrorString] {
 
     // Possibly over-lenient date time regex
     // "06/04/2024 05:41 pm".match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?/)
+
+    // TODO: use parser
 
     const regex = /(\w+ )?(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?/;
     const matches = value.match(regex);
@@ -129,6 +135,46 @@ export function parseYMDTDateTime(value: string): [Date | null, ErrorString] {
     }
 
     return [date, ""];
+}
+
+
+export type HoursMinutes = {
+    hours: number;
+    minutes: number;
+};
+
+// returns a string with a time scoped to today's date.
+export function parseTimeInput(str: string, now: Date): [HoursMinutes | null, string | null] {
+    const p = newParser(str);
+
+    parserAdvanceWhitespace(p);
+    let hours = parserParseInt(p);
+    if (hours === null) return [null, "Missing hours"];
+
+    parserAdvanceWhitespace(p);
+    if (!parserParseDelimter(p, ":")) return [null, "Missing : seperator between hours and minutes"];
+
+    parserAdvanceWhitespace(p);
+    const minutes = parserParseInt(p);
+    if (minutes === null) return [null, "Missing minutes"];
+
+    parserAdvanceWhitespace(p);
+    let isAm = parserParseWord(p, "am") || parserParseWord(p, "AM");
+    let isPm = !isAm && (parserParseWord(p, "pm") || parserParseWord(p, "PM"));
+    if (!isAm && !isPm) {
+        // Infer AM/PM from 'now'
+        isAm = now.getHours() < 12; isPm = !isAm;
+    }
+
+    if (hours < 12 && isPm) hours += 12;
+    
+    return [{ hours, minutes }, null];
+}
+
+export function dateSetLocalTime(date: Date, time: HoursMinutes) {
+    date.setHours(time.hours);
+    date.setMinutes(time.minutes);
+    date.setSeconds(0, 0);
 }
 
 export function floorDateLocalTime(date: Date) {
@@ -299,7 +345,12 @@ export function parseLocaleDateString(str: string): Date | null {
     return date;
 }
 
+let mmDdYyyyOrder: [number, number, number] | null = null;
 function inferMmDdYyyyOrder(): [number, number, number] {
+    if (mmDdYyyyOrder !== null ) return mmDdYyyyOrder;
+
+    // try formatting a date with known date, month, year, see which order they end up, and infer order from that
+
     const order: [number, number, number] = [0, 1, 2];
 
     const date = new Date();
@@ -327,10 +378,11 @@ function inferMmDdYyyyOrder(): [number, number, number] {
         order[i] = parts[i][1];
     }
 
+    mmDdYyyyOrder = order;
     return order;
 }
 
-export function getDatePlaceholder() {
+export function getDatePlaceholder(dayStr = "dd", monthStr = "mm", yearStr = "yyyy") {
     const order = inferMmDdYyyyOrder();
 
     const sb = [];
@@ -339,13 +391,13 @@ export function getDatePlaceholder() {
         const nextSegmentType = order[i];
         switch (nextSegmentType) {
             case 0: { // parse day
-                sb.push("dd");
+                sb.push(dayStr);
             } break;
             case 1: { // parse month
-                sb.push("mm");
+                sb.push(monthStr);
             } break;
             case 2: { // parse year
-                sb.push("yyyy");
+                sb.push(yearStr);
             } break;
         }
     }
@@ -353,11 +405,6 @@ export function getDatePlaceholder() {
     return sb.join("/");
 }
 
-export function isDigit(c: string) {
-    const code = c.charCodeAt(0);
-    // ASCII codes for '0' and '9'
-    return code >= 48 && code <= 57;
-}
 
 // attempt to infer a date, assuming the string might be like
 // Jan 1st 2045

@@ -74,14 +74,9 @@ export function scrollNavigableList(l: NavigableList, root: UIRoot<HTMLElement>)
     }
 }
 
-function lerp(a: number, b: number, t: number): number {
-    if (t > 1) {
-        t = 1;
-    }
-    if (t < 0) {
-        t = 0;
-    }
-
+export function lerp(a: number, b: number, t: number): number {
+    if (t > 1) t = 1;
+    if (t < 0) t = 0;
     return a + (b - a) * t;
 }
 

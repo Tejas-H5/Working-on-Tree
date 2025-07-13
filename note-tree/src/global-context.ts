@@ -1,6 +1,6 @@
 import {  newTimer, TimerState } from "./app-utils/timer";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
+import { getImKeys, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
     keyboard:          KeyboardState;
@@ -16,8 +16,10 @@ export function newGlobalContext(): GlobalContext {
     return {
         keyboard:          newKeyboardState(),
         handled:           false,
-        repeatTimer:       newTimer(),
         noteTreeViewState: newNoteTreeViewState(),
+
+        // NOTE: this can be set by the user via OS settings, so we should revert this.
+        repeatTimer: newTimer(),
 
         textAreaToFocus:      null,
         focusWithAllSelected: false,

@@ -20,7 +20,7 @@ import {
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { imT } from "./components/core/text";
-import { imTextArea } from "./components/editable-text-area";
+import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
 import {
     imBeginListRow,
@@ -70,6 +70,7 @@ import {
     imIf,
     imMemo,
     imNextRoot,
+    imOn,
     isFirstishRender,
     setClass,
     setStyle,
@@ -548,17 +549,20 @@ function imNoteTreeRow(
 
                 const isEditing = focused && state._isEditingFocusedNote;
                 if (imIf() && isEditing) {
-                    const [event, textArea] = imTextArea({ value: note.data.text, });
-                    ctx.textAreaToFocus = textArea;
-                    if (event) {
-                        if (event.input || event.change) {
+                    const [,textArea] = imBeginTextArea({
+                        value: note.data.text,
+                    }); {
+                        const input = imOn("input");
+                        const change = imOn("change");
+
+                        if (input || change) {
                             let status = s.note.data._status;
-                            setNoteText(state, s.note, event.text);
+                            setNoteText(state, s.note, textArea.root.value);
                             if (status !== s.note.data._status) {
                                 s.invalidateNote = true;
                             }
                         }
-                    }
+                    } imEndTextArea();
                 } else {
                     imElse();
 

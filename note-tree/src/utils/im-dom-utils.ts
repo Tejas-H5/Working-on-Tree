@@ -973,11 +973,8 @@ export function imEndTry() {
  * 
  * When you probably don't need a key:
  *  - You want to keep the code simple
- *  - Your components are so simple and purely a function of state such that setting a bunch of attributes/styles/innerText is faster than moving DOM nodes around, 
- *      and won't introduce bugs
+ *  - Your components are so simple and purely a function of state such that setting a bunch of attributes/styles/innerText is faster than moving DOM nodes around, and won't introduce bugs
  *  - Your components will never change order
- *
- * Hint: updating styling and attributes is slow. But moving DOM nodes around is also slow. 
  *
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  */

@@ -1,7 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { imBeginRoot, imEnd, imMemo, isFirstishRender, setAttr, setClass } from "src/utils/im-dom-utils";
 import { cssVars } from "./core/stylesheets";
-import { imGetTextInputEvent, type ImTextInputEvent } from "./core/input-utils";
 
 function newInput() {
     return document.createElement("input");
@@ -26,15 +25,14 @@ input.${cnInput}:focus, input.${cnInput}:hover {
 `);
 
 
-export function imTextInput({
+// NOTE: this component is untested, since I mainly use text areas instead due to their extra capability.
+export function imBeginTextInput({
+    value,
     placeholder = "",
 }: {
     value: string;
-    focusWithAllSelected?: boolean;
     placeholder?: string;
-}): ImTextInputEvent | null {
-    let e: ImTextInputEvent | null = null;
-
+}) {
     const input = imBeginRoot(newInput); {
         if (isFirstishRender()) {
             setClass(cnInput);
@@ -45,8 +43,17 @@ export function imTextInput({
             setAttr("placeholder", placeholder);
         }
 
-        e = imGetTextInputEvent(input.root);
-    } imEnd();
+        if (imMemo(value)) {
+            input.root.value = value;
+        }
 
-    return e;
+    } // imEnd();
+
+    return input;
 }
+
+export function imEndTextInput() {
+    imEnd();
+}
+
+

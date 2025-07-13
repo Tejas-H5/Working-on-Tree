@@ -14,7 +14,7 @@ export function newTimer(): TimerState {
     };
 }
 
-export function timerRepeat(s: TimerState, t: number, repeatTime: number, enabled: boolean): boolean {
+export function timerRepeat(s: TimerState, t: number, repeatTime: number | null, enabled: boolean): boolean {
     if (s.enabled !== enabled) {
         if (!s.enabled) {
             s.t0 = t;
@@ -27,15 +27,22 @@ export function timerRepeat(s: TimerState, t: number, repeatTime: number, enable
 
     const currentTime = t - s.t0;
 
-    if (currentTime > repeatTime) {
-        s.t0 = t;
-        s.ticks++;
-        return true;
+    if (repeatTime) {
+        if (currentTime > repeatTime) {
+            s.t0 = t;
+            s.ticks++;
+            return true;
+        }
     }
 
     return false;
 }
 
+export function getTimeElapsedSinceRepeat(s: TimerState, t: number) {
+    return t - s.t0;
+}
+
+// NOTE: There will reach a point where you'll want to put this timer into your state, which should be easy enough
 export function imTimerRepeat(repeatTime: number, enabled = true) {
     const s = imState(newTimer);
     return timerRepeat(s, timeSeconds(), repeatTime, enabled);
