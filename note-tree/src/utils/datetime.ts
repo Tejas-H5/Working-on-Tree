@@ -1,4 +1,4 @@
-import { isDigit, newParser, parserAdvanceWhitespace, parserParseDelimter, parserParseInt, parserParseWord } from "./parser";
+import { isDigit, newParser, parserAdvanceWhitespace, parserParseDelimter, parserParseInt, parserParseKeyword } from "./parser";
 
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
@@ -19,7 +19,22 @@ export function formatDateTime(date: Date | null, seperator?: string, dayOfTheWe
     return `${dateFormatted} ${timeFormatted}`;
 }
 
-export function formatTime(date: Date | null, seperator = ":", useSeconds = false) {
+export function formatTimeForInput(
+    date: Date | null,
+    seperator = ":",
+    useSeconds = false
+) {
+    if (!date) {
+        return "";
+    }
+    return formatTime(date, seperator, useSeconds);
+}
+
+export function formatTime(
+    date: Date | null,
+    seperator = ":",
+    useSeconds = false
+) {
     if (!date) {
         return `--${seperator}--${useSeconds ? (seperator + "--") : ""} --`;
     }
@@ -144,31 +159,43 @@ export type HoursMinutes = {
 };
 
 // returns a string with a time scoped to today's date.
-export function parseTimeInput(str: string, now: Date): [HoursMinutes | null, string | null] {
+export function parseTimeInput(str: string, previousTime: Date): [HoursMinutes | null, string | null] {
     const p = newParser(str);
 
     parserAdvanceWhitespace(p);
     let hours = parserParseInt(p);
     if (hours === null) return [null, "Missing hours"];
 
+    let minutes = 0;
     parserAdvanceWhitespace(p);
-    if (!parserParseDelimter(p, ":")) return [null, "Missing : seperator between hours and minutes"];
+    if (parserParseDelimter(p, ":")) {
+        parserAdvanceWhitespace(p);
+        const minutesMaybe = parserParseInt(p);
+        if (minutesMaybe !== null) minutes = minutesMaybe;
+    }
 
     parserAdvanceWhitespace(p);
-    const minutes = parserParseInt(p);
-    if (minutes === null) return [null, "Missing minutes"];
-
-    parserAdvanceWhitespace(p);
-    let isAm = parserParseWord(p, "am") || parserParseWord(p, "AM");
-    let isPm = !isAm && (parserParseWord(p, "pm") || parserParseWord(p, "PM"));
+    let isAm = parserParseKeyword(p, "am") || parserParseKeyword(p, "AM");
+    let isPm = !isAm && (parserParseKeyword(p, "pm") || parserParseKeyword(p, "PM"));
     if (!isAm && !isPm) {
         // Infer AM/PM from 'now'
-        isAm = now.getHours() < 12; isPm = !isAm;
+        isAm = previousTime.getHours() < 12; isPm = !isAm;
     }
 
     if (hours < 12 && isPm) hours += 12;
     
     return [{ hours, minutes }, null];
+}
+
+export function parseDurationInput(str: string, previousTime: Date): [number, string | null] {
+    const p = newParser(str);
+
+    parserAdvanceWhitespace(p);
+    let hoursOrMin = parserParseInt(p);
+    if (hoursOrMin === null) return [0, "Missing input"];
+
+    parserAdvanceWhitespace(p);
+    const w = parserParseKeyword
 }
 
 export function dateSetLocalTime(date: Date, time: HoursMinutes) {
@@ -193,6 +220,14 @@ export function addDays(date: Date, days: number) {
 
 export function addHours(date: Date, hours: number) {
     date.setHours(date.getHours() + hours);
+}
+
+export function addMinutes(date: Date, minutes: number) {
+    date.setMinutes(date.getMinutes() + minutes);
+}
+
+export function roundToNearestMinutes(date: Date, minuteSnap: number) {
+    date.setMinutes(Math.floor(date.getMinutes() / minuteSnap) * minuteSnap);
 }
 
 // 1 work day is actually 7.5 hours.
@@ -225,7 +260,7 @@ export function formatDuration(ms: number, unitLimit = -1) {
 
     const str = [];
     if (days) {
-        str.push(`${days} days`);
+        str.push(`${days} d`);
     }
 
     if (hours) {

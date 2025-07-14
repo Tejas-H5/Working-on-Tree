@@ -76,19 +76,23 @@ export function parserParseDelimter(p: Parser, delimiters: string): boolean {
     return false;
 }
 
-export function parserParseWord(p: Parser, word: string): boolean {
+export function parserParseKeyword(p: Parser, keyword: string): boolean {
     let last = p.i;
 
     let i = 0;
-    for (; i < word.length; i++) {
-        if (parserGet(p) !== word[i]) break;
+    for (; i < keyword.length; i++) {
+        if (parserGet(p) !== keyword[i]) break;
         parserAdvance(p);
     }
 
-    if (i !== word.length) {
+    if (i !== keyword.length) {
         revertParser(p, last);
         return false;
     }
 
     return true;
+}
+
+export function parserParseWord(p: Parser): string {
+
 }
