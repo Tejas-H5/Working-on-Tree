@@ -33,6 +33,7 @@ export type FpsCounterState = {
     nextFreq: number;
 
     framesMsRounded: number;
+    renderMs:        number;
     renderMsRounded: number;
 }
 
@@ -57,6 +58,7 @@ export function newFpsCounterState(): FpsCounterState {
         nextFreq: 0,
 
         framesMsRounded: 0,
+        renderMs: 0,
         renderMsRounded: 0,
     };
 }
@@ -71,7 +73,8 @@ export function startFpsCounter(fps: FpsCounterState) {
 
 
     fps.framesMsRounded = Math.round(1000 * fps.frameTime);
-    fps.renderMsRounded = Math.round(1000 * fps.timeSpentRenderingPerFrame);
+    fps.renderMs = 1000 * fps.timeSpentRenderingPerFrame;   // NOTE: Something's gone wrong here.
+    fps.renderMsRounded = Math.round(fps.renderMs);
 
     // Compute our baseline framerate based on the frames we see.
     // Lock it down once we've seen the same framerate for long enough.
@@ -144,27 +147,34 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         // r.text(screenHz + "hz screen, " + renderHz + "hz code");
 
         imBeginDiv(); {
-            setText(fps.baselineLocked ? (fps.baselineFrameMs + "ms baseline, ") : "computing baseline...");
+            setText("base | frame  | code | % use ");
         } imEnd();
 
         imBeginDiv(); {
-            setText(fps.framesMsRounded + "ms frame, ");
-        } imEnd();
-
-        imBeginDiv(); {
+            imBeginSpan(); {
+                setText(fps.baselineLocked ? (fps.baselineFrameMs + "ms") : "...");
+            } imEnd();
+            imBeginSpan(); setText(" | "); imEnd();
+            imBeginSpan(); {
+                setText(fps.framesMsRounded + "ms ");
+            } imEnd();
+            imBeginSpan(); setText(" | "); imEnd();
             imBeginSpan(); {
                 const fpsChanged = imMemo(fps.renderMsRounded);
                 if (fpsChanged) {
                     setStyle("color", fps.renderMsRounded / fps.baselineFrameMs > 0.5 ? "red" : "");
                 }
-                setText(fps.renderMsRounded + "ms render");
+                setText(fps.renderMsRounded + "ms");
+            } imEnd();
+            imBeginSpan(); setText(" | "); imEnd();
+            imBeginSpan(); {
+                if (fps.baselineLocked) {
+                    setText("~" + Math.round(100 * fps.renderMs / fps.baselineFrameMs) + "% used");
+                } else {
+                    setText("...");
+                }
             } imEnd();
         } imEnd();
-        // setStyle("transform", "rotate(" + angle + "deg)");
-
-        if (elementHasMousePress()) {
-            fps.baselineFrameMsFreq = 0;
-        }
 
         imBeginDiv(); {
             setText(im.itemsRenderedLastFrame + " IM entries");
@@ -180,5 +190,9 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
             imBeginSpan(); setText(im.numIntersectionObservers + " IOs"); imEnd();
         } imEnd();
 
+        if (elementHasMousePress()) {
+            fps.baselineFrameMsFreq = 0;
+        }
     } imEnd();
+
 }

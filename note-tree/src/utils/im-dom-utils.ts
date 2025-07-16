@@ -188,26 +188,30 @@ export function getElementExtentNormalized(
 function renderStub() {}
 
 export type ImCore = {
-    currentStack: (UIRoot | ListRenderer)[];
-    currentContexts: StateItem[];
-    // Only one of these is defined at a time.
-    currentRoot: UIRoot | undefined;
-    currentListRenderer: ListRenderer | undefined;
-    initialized: boolean;
+    initialized:   boolean;
     uninitialized: boolean;
+    appRoot:       UIRoot;
 
-    imDisabled: boolean;
-    appRoot: UIRoot;
+    currentStack:    (UIRoot | ListRenderer)[];
+    currentContexts: StateItem[];
+
+    // Only one of these is defined at a time.
+    currentRoot:         UIRoot | undefined;
+    currentListRenderer: ListRenderer | undefined;
+
+    imDisabled:       boolean;
+    imDisabledReason: string;
 
     renderFn: () => void;
 
     keyboard: ImKeyboardState;
-    mouse: ImMouseState;
+    mouse:    ImMouseState;
 
     dtSeconds: number;
-    tSeconds: number;
-    lastTime: number;
-    time: number;
+    tSeconds:  number;
+    lastTime:  number;
+    time:      number;
+
     isRendering: boolean;
     _isExcessEventRender: boolean;
 
@@ -277,19 +281,23 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
     };
 
     const core: ImCore = {
+        initialized: false,
+        uninitialized: false,
+        appRoot: newUiRoot(() => root),
+
         currentStack: [],
         currentContexts: [],
         currentRoot: undefined,
         currentListRenderer: undefined,
-        initialized: false,
-        uninitialized: false,
+
         imDisabled: false,
-        appRoot: newUiRoot(() => root),
+        imDisabledReason: "",
 
         renderFn: renderStub,
 
         keyboard,
         mouse,
+
 
         dtSeconds: 0,
         tSeconds: 0,
@@ -395,7 +403,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
 const defaultCore = newImCore();
 
 // Contains ALL the state. In an atypical usecase, there may be multiple cores that must switch between each other.
-// This used to be called imContext, but this name was better suited for a React.Context like context feature.
+// This used to be called imContext, but this name was better suited for a feature similar to React.Context
 let imCore = defaultCore;
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -778,8 +786,7 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  * @param cached - if true, doesn't remove things from the DOM. 
  */
 export function imBeginList(cached: boolean = false): ListRenderer {
-    // Don't access immediate mode state when immediate mode is disabled
-    assert(imCore.imDisabled === false);
+    assertImEnabled();
 
     const r = getCurrentRoot();
 
@@ -807,6 +814,11 @@ export function imBeginList(cached: boolean = false): ListRenderer {
     imCore.itemsRendered++;
 
     return result;
+}
+
+function assertImEnabled() {
+    // Don't access immediate mode state when immediate mode is disabled
+    assert(imCore.imDisabled === false, imCore.imDisabledReason);
 }
 
 function assertCanPushImmediateModeStateEntry(r: UIRoot) {
@@ -1002,18 +1014,44 @@ export function imNextRoot(key?: ValidKey) {
             };
             l.keys.set(key, block);
             imCore.numCacheMisses++;
-        } else {
-            // NOTE: there is an idea that we should gracefully handle duplicate keys, and
-            // just rerender this again in this new position. 
-            // This is nice for when the list we're rerendering re-orders underneath us.
-            // But this is bad in the orignial case when we actually do have duplicate keys in our list, because
-            // we would be constantly shuffling the duplicate DOM node between two different positions every frame.
-            // Do we just make it work fine the first time and start throwing from the second frame onwards?
-            // The design is no longer as simple as it could be.
+        } 
 
-            // Don't render same list element twice in single render pass, haiyaaaa.
-            assert(block.rendered === false);
-        }
+        /**
+         * The correct pattern imo:
+         *
+         * function Component() {
+         *      let deferredAction: DeferredAction;
+         *
+         *      imFor(); for(let i = 0; i < list.length; i++) {
+         *          const item = list[i];
+         *          imNextRoot(item);
+         *
+         *          imBeginDiv(); {
+         *              const click = imOn("click");
+         *              if (click && i !== list.length - 1) {
+         *                  // This causes this assertion to trigger, because the next iteration will rerender this item. 
+         *                  // swap(list, i, i + 1); <- 
+         *                  // Do this instead:
+         *                  deferredAction = () => swap(list, i, i + 1);
+         *              }
+         *
+         *              setText("Move down");
+         *          } imEnd();
+         *      } imEndFor();
+         *
+         *      if (deferredAction) deferredAction();
+         * }
+         *
+         * Why this pattern instead of other patterns?
+         *  - Should still be able to step into this with the debugger
+         *  - Error boundaries will still catch errors in this method
+         *  - Full control over when it happens. Profiler will report the parent components in the call tree instead of random timeout event
+         *  - Action can be literally anything
+         */
+        assert(
+            !block.rendered,
+            "You're rendering this list element twice. Be careful of mutating collections while iterating them."
+        );
 
         block.rendered = true;
 
@@ -1043,6 +1081,9 @@ export function imNextRoot(key?: ValidKey) {
 }
 
 
+export type DeferredAction = (() => void) | undefined;
+
+
 ///////// 
 // Common immediate mode UI helpers
 
@@ -1050,7 +1091,7 @@ function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): Stat
     const core = imCore;
 
     // Don't access immediate mode state when immediate mode is disabled
-    assert(core.imDisabled === false);
+    assertImEnabled();
 
     const r = getCurrentRoot();
 
@@ -1294,7 +1335,7 @@ Fix: don't use an inline lambda.
 
 export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
     // Don't access immediate mode state when immediate mode is disabled
-    assert(imCore.imDisabled === false);
+    assertImEnabled();
 
     const r = getCurrentRoot();
 
@@ -1641,13 +1682,27 @@ function newMemoState(): { last: unknown } {
  * in situations where it isn't needed, and end up with a bad architecture.
  *
  * In other words, consider centralizing all your state into a single object, and using a setter instead.
+ *
+ * TODO: think about when it _is_ needed. 
  */
-export function imMemo(val: unknown): boolean {
+export function imMemo(val: unknown): number {
     const ref = imState(newMemoState);
-    const changed = ref.last !== val;
-    ref.last = val;
-    return changed;
+    let result = MEMO_NOT_CHANGED;
+    if (ref.last !== val) {
+        result = ref.last === MEMO_INITIAL_VALUE ? MEMO_FIRST_RENDER : MEMO_CHANGED;
+        ref.last = val;
+    }
+    return result;
 }
+
+export const MEMO_NOT_CHANGED  = 0;
+/** returned by {@link imMemo} if the value changed */
+export const MEMO_CHANGED      = 1; 
+/** 
+ * returned by {@link imMemo} if this is simply the first render. 
+ * Sometimes, you may want a side-effect to happen on a change, but NOT the initial renderer.
+ */
+export const MEMO_FIRST_RENDER = 2;
 
 // TODO: performance benchmark vs imMemo before this becomes the default.
 export function imMemoMany(
@@ -1695,8 +1750,9 @@ export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
     return changed;
 }
 
-export function disableIm() {
+export function disableIm(reason = "") {
     imCore.imDisabled = true;
+    imCore.imDisabledReason = reason;
 }
 
 export function enableIm() {

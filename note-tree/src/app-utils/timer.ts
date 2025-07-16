@@ -39,6 +39,7 @@ export function timerRepeat(s: TimerState, t: number, repeatTime: number | null,
 }
 
 export function getTimeElapsedSinceRepeat(s: TimerState, t: number) {
+    if (!s.enabled) return 0;
     return t - s.t0;
 }
 

@@ -114,6 +114,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
             startScrolling(s.list, false);
         }
 
+        
         s.list.idx = s.childNotes.indexOf(note);
     }
 }

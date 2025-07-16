@@ -77,6 +77,7 @@ function newKeyboardState(): KeyboardState {
     const state: KeyboardState = {
         keys: [],
 
+        // CONSIDER: hjkl to move around, as well as arrows!
         upKey:       newKeyState(),
         downKey:     newKeyState(),
         leftKey:     newKeyState(),

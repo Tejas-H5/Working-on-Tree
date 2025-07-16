@@ -1,4 +1,5 @@
 import { imBeginAppHeading, imEndAppHeading } from "./app-heading";
+import { cnApp } from "./app-styling";
 import { getTimeElapsedSinceRepeat, imTimerRepeat, newTimer, timerRepeat, TimerState } from "./app-utils/timer";
 import { imBegin, imFlex, imInitStyles, INLINE, ROW } from "./components/core/layout";
 import { imT } from "./components/core/text";
@@ -14,8 +15,23 @@ import {
 } from "./navigable-list";
 import { boundsCheck, swap } from "./utils/array-utils";
 import { assert } from "./utils/assert";
-import { addMinutes, dateSetLocalTime, formatDateTime, formatDuration, formatTime, formatTimeForInput, parseTimeInput, roundToNearestMinutes } from "./utils/datetime";
 import {
+    addHours,
+    addMinutes,
+    dateSetLocalTime,
+    formatDate,
+    formatDateTime,
+    formatDuration,
+    formatTime,
+    formatTimeForInput,
+    isSameDate,
+    ONE_MINUTE,
+    parseDurationInput,
+    parseTimeInput,
+    roundToNearestMinutes
+} from "./utils/datetime";
+import {
+    DeferredAction,
     imElse,
     imEnd,
     imEndFor,
@@ -28,12 +44,15 @@ import {
     imState,
     isFirstishRender,
     newBoolean,
+    setClass,
     setStyle,
     setText,
     timeSeconds
 } from "./utils/im-dom-utils";
 
 export type PlanViewState = {
+    now: Date;
+
     list:    NavigableList;
     editing: number;
     plans:   PlanItem[];
@@ -45,45 +64,65 @@ export type PlanViewState = {
 
 const NOT_EDITING         = 0;
 const EDITING_START_TIME  = 1;
-const EDITING_END_TIME    = 2;
-const EDITING_TEXT        = 3;
+const EDITING_TEXT        = 2;
+
+
+function newPlanItem(text: string = "", start: Date): PlanItem {
+    return {
+        text,
+        start: new Date(start),
+        _startInputText: "",
+        _idx: -1,
+    };
+}
+
+function newPlanItemAtTime(time: Date, text = "") {
+    const planItem = newPlanItem(text, time);
+    planItem._startInputText = formatTimeForInput(planItem.start);
+    return planItem;
+}
 
 function newJournalViewState(): PlanViewState {
-    const planItem = newPlanItem("", new Date());
+    const state: PlanViewState = {
+        now: new Date(),
 
-    return {
         list:    newNavigableList(),
         editing: EDITING_START_TIME,
-        plans: [planItem],
+        plans: [newPlanItemAtTime(new Date())],
 
         error: "",
         errorPlan: null,
         errorTimer: newTimer(),
     };
+
+    // TODO: remove this testing code
+    state.plans = [
+        newPlanItemAtTime(new Date(), "From yesterday"),
+        newPlanItemAtTime(new Date(), "From yesterday"),
+        newPlanItemAtTime(new Date(), "From yesterday"),
+    ];
+
+    addHours(state.plans[0].start, -24);
+    addHours(state.plans[1].start, -23);
+    addHours(state.plans[2].start, -22);
+
+    reIndexPlans(state);
+
+    return state;
+}
+
+function reIndexPlans(s: PlanViewState) {
+    for (let i = 0; i < s.plans.length; i++) {
+        s.plans[i]._idx = i;
+    }
 }
 
 // NOTE: Values starting with _ aren't serialized
 type PlanItem = {
     start: Date;
-    end:   Date;
-    text:  string;
-
-    // NOTE: stuff like this is a hack, and doesn't scale well. we hsould delete it asap;
+    text: string;
+    _idx: number;
     _startInputText: string;
-    _endInputText: string;
-}
-
-function newPlanItem(text: string = "", start: Date): PlanItem {
-    const end = new Date(start);
-    getEndTimeFromStartTime(end);
-
-    return {
-        text,
-        _startInputText: "",
-        start,
-        _endInputText: "",
-        end,
-    };
 }
 
 function setError(s: PlanViewState, item: PlanItem, err: string) {
@@ -107,8 +146,13 @@ function addPlanItemUnderCurrent(s: PlanViewState): PlanItem | null {
     clearError(s);
 
     let newIdx = s.list.idx + 1;
-    const newItem = newPlanItem("", item.end);
+
+    const start = getDefaultNextPlanTime(s, item);
+    const newItem = newPlanItemAtTime(start);
+
     s.plans.splice(newIdx, 0, newItem);
+    reIndexPlans(s);
+
     moveListIdx(s, newIdx);
     s.editing = EDITING_START_TIME;
 
@@ -125,51 +169,37 @@ function getPreviousDate(s: PlanViewState, planItem: PlanItem, end: boolean): Da
 
     const idx = indexOf(s, planItem);
     if (idx === 0) return new Date();
-    return s.plans[idx - 1].end;
+    return s.plans[idx - 1].start;
 }
 
-function setPlanStartTime(s: PlanViewState, plan: PlanItem, time: Date | null) {
-    if (!time) {
-        time = getPreviousDate(s, plan, false)
-    } 
-
-    const now = new Date();
-    if (time.getTime() < now.getTime()) {
-        plan.start = now;
+function setPlanStartTime(s: PlanViewState, plan: PlanItem, time: Date, updateOrder: boolean) {
+    if (time.getTime() < s.now.getTime()) {
+        plan.start = s.now;
     } else {
         plan.start = time;
     }
 
-    // TODO: update end position to be the same duration away
-
-    movePlanIntoPosition(s, plan);
+    if (updateOrder) {
+        // only move this plan if the input was parseable, or final
+        movePlanIntoPosition(s, plan);
+    }
 }
 
-function getEndTimeFromStartTime(start: Date) {
-    const end = new Date(start);
-    addMinutes(end, 30);
-    return end;
-}
-
-function setPlanEndTime(s: PlanViewState, plan: PlanItem, time: Date | null) {
-    if (!time) {
-        time = getPreviousDate(s, plan, true)
-        time = getEndTimeFromStartTime(time);
-    } 
-
-    const previousTime = getPreviousDate(s, plan, true);
-    if (time.getTime() < previousTime.getTime()) {
-        plan.end = previousTime;
+function getDefaultNextPlanTime(s: PlanViewState, planItem: PlanItem) {
+    let result;
+    if (planIsReadonly(s, planItem)) {
+        result = new Date();
     } else {
-        plan.end = time;
+        result = new Date(planItem.start);
+        addMinutes(result, 30);
     }
 
-    movePlanIntoPosition(s, plan);
+    return result;
 }
 
 function movePlanIntoPosition(s: PlanViewState, plan: PlanItem) {
     let idx = indexOf(s, plan);
-    let imThatGuy = idx === s.list.idx;
+    let imHim = idx === s.list.idx;
 
     while (idx > 0) {
         if (s.plans[idx - 1].start.getTime() < plan.start.getTime()) break;
@@ -183,7 +213,10 @@ function movePlanIntoPosition(s: PlanViewState, plan: PlanItem) {
         idx++;
     }
 
-    if (imThatGuy) {
+    reIndexPlans(s);
+
+    if (imHim) {
+        // Probably fine to set this directly here
         s.list.idx = idx;
     }
 }
@@ -194,11 +227,13 @@ function isEmpty(item: PlanItem) {
 
 function moveListIdx(s: PlanViewState, idx: number) {
     assert(boundsCheck(s.plans, s.list.idx));
-    const item = getCurrentPlanItem(s);
+    let item = getCurrentPlanItem(s);
 
     // Delete empty plans only after we've moved away from them
     if (s.plans.length > 1 && isEmpty(item))  {
         s.plans.splice(s.list.idx, 1);
+        reIndexPlans(s);
+
         if (idx >= s.list.idx) {
             idx--;
         }
@@ -207,28 +242,28 @@ function moveListIdx(s: PlanViewState, idx: number) {
 
     if (boundsCheck(s.plans, idx)) {
         s.list.idx = idx;
+    } else if (s.plans.length === 0) {
+        s.list.idx = -1;
     }
 
-    if (!boundsCheck(s.plans, s.list.idx)) {
-        // failsafe
-        s.list.idx = s.plans.length - 1;
+    item = getCurrentPlanItem(s);
+    if (planIsReadonly(s, item)) {
+        s.editing = NOT_EDITING;
     }
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
     const keyboard = ctx.keyboard;
     const currentPlanItem = getCurrentPlanItem(s);
+    const isReadonly = planIsReadonly(s, currentPlanItem);
 
     if (!ctx.handled && s.editing) {
-        const isEditingStartTime = s.editing === EDITING_START_TIME;
-        const isEditingEndTime   = s.editing === EDITING_END_TIME;
-
         if (keyboard.escapeKey.pressed) {
             s.editing = NOT_EDITING;
             ctx.handled = true;
         }
 
-        if (isEditingStartTime || isEditingEndTime) {
+        if (s.editing === EDITING_START_TIME) {
             const up = keyboard.upKey.pressed;
             const down = keyboard.downKey.pressed;
             if (up || down) {
@@ -237,7 +272,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                     timeIncrement = 30;
                 }
 
-                let dateToEdit = new Date(isEditingStartTime ? currentPlanItem.start : currentPlanItem.end);
+                let dateToEdit = new Date(currentPlanItem.start);
                 if (up) {
                     roundToNearestMinutes(dateToEdit, timeIncrement);
                     addMinutes(dateToEdit, timeIncrement);
@@ -246,13 +281,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                     addMinutes(dateToEdit, -timeIncrement);
                 }
 
-                if (isEditingStartTime) {
-                    setPlanStartTime(s, currentPlanItem, dateToEdit);
-                    currentPlanItem._startInputText = formatTimeForInput(currentPlanItem.start);
-                } else {
-                    setPlanEndTime(s, currentPlanItem, dateToEdit);
-                    currentPlanItem._endInputText = formatTimeForInput(currentPlanItem.end);
-                }
+                setPlanStartTime(s, currentPlanItem, dateToEdit, true);
+                currentPlanItem._startInputText = formatTimeForInput(currentPlanItem.start);
 
                 ctx.handled = true;
             }
@@ -283,7 +313,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
             }
         } else if (keyboard.tabKey.pressed) {
             if (s.editing === NOT_EDITING) {
-                startEditingPlan(s);
+                if (isReadonly) {
+                } else {
+                    startEditingPlan(s);
+                }
             } else {
                 assert(s.editing > 0 && s.editing <= EDITING_TEXT);
 
@@ -291,14 +324,14 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                     if (s.editing !== EDITING_START_TIME) {
                         s.editing--;
                     } else if (s.list.idx > 0) {
-                        s.list.idx--;
+                        moveListIdx(s, s.list.idx - 1);
                         s.editing = EDITING_TEXT;
                     }
                 } else {
                     if (s.editing !== EDITING_TEXT) {
                         s.editing++;
                     } else if (s.list.idx < s.plans.length - 1) {
-                        s.list.idx++;
+                        moveListIdx(s, s.list.idx + 1);
                         s.editing = EDITING_START_TIME;
                     } else {
                         addPlanItemUnderCurrent(s);
@@ -313,6 +346,11 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
 
 function startEditingPlan(s: PlanViewState) {
     const plan = getCurrentPlanItem(s);
+    if (planIsReadonly(s, plan)) {
+        s.editing = NOT_EDITING;
+        return;
+    }
+
     if (plan.text === "") {
         s.editing = EDITING_START_TIME;
     } else {
@@ -355,43 +393,62 @@ function indexOf(s: PlanViewState, item: PlanItem): number {
 }
 
 function parseStartTime(s: PlanViewState, text: string, planItem: PlanItem): Date | null {
-    const previousTime = getPreviousDate(s, planItem, false);
-    const [time, err] = parseTimeInput(text, previousTime);
-    if (!time || err) {
-        return null;
+    const [time, err] = parseTimeInput(text, planItem.start);
+
+    if (!err) {
+        const result = new Date(planItem.start);
+        dateSetLocalTime(result, time);
+        return result;
     } 
 
-    const today = new Date();
-    dateSetLocalTime(today, time);
-    return today;
+    const [duration, err2] = parseDurationInput(text);
+    if (!err2) {
+        const result = getPreviousDate(s, planItem, false);
+        result.setTime(result.getTime() + duration);
+        return result;
+    }
+
+    return null;
 }
 
-function parseEndTime(text: string, plan: PlanItem, prevPlan: PlanItem |  null) {
-    let previousTime;
-    if (plan.start) {
-        previousTime = plan.start;
-    } else if (prevPlan && prevPlan.end) {
-        previousTime = prevPlan.end;
-    } else {
-        previousTime = new Date();
+function getPlanDuration(plan: PlanItem, nextPlan: PlanItem): number {
+    return nextPlan.start.getTime() - plan.start.getTime();
+}
+
+function getNextPlan(s: PlanViewState, plan: PlanItem): PlanItem | null {
+    const idx = plan._idx;
+    assert(s.plans[idx] === plan);
+    if (idx + 1 === s.plans.length) return null;
+
+    return s.plans[idx + 1];
+}
+
+function planIsReadonly(s: PlanViewState, plan: PlanItem) {
+    if (!isSameDate(plan.start, s.now)) {
+        // Our edit method automatically does max(now, newDate) on anything we edit. 
+        // This is fine for plans made today for the future, but it corrupts all historical data.
+        // So dates before today should also be locked.
+        return plan.start.getTime() < s.now.getTime();
     }
 
-    const [time, err] = parseTimeInput(text, previousTime);
-    if (!time || err) {
-        return null;
+    const nextPlan = getNextPlan(s, plan);
+    if (nextPlan) {
+        return nextPlan.start.getTime() < s.now.getTime();
     }
 
-    const today = new Date();
-    dateSetLocalTime(today, time);
-    return today;
+    return false;
 }
 
 export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
     handleKeyboardInput(ctx, s);
 
+    s.now = new Date();
+
     timerRepeat(s.errorTimer, timeSeconds(), null, !!s.error);
 
     imBeginNavigableListContainer(s.list); {
+
+        let planMutateAction: DeferredAction;
 
         imFor(); for (let i = 0; i < s.plans.length; i++) {
             const plan = s.plans[i];
@@ -399,18 +456,40 @@ export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
 
             const focused = s.list.idx === i;
             let prevPlan: PlanItem | null = null;
-            if (i !== 0) {
-                prevPlan = s.plans[i - 1];
+            if (i !== 0) prevPlan = s.plans[i - 1];
+
+            let nextPlan: PlanItem | null = null;
+            if (i < s.plans.length - 1) nextPlan = s.plans[i + 1];
+
+            // prevent editing plans that you've already made
+            const isReadonly = planIsReadonly(s, plan);
+            const notToday = !isSameDate(s.now, plan.start);
+
+            const nextIsANewDay = !!nextPlan && !isSameDate(plan.start, nextPlan.start);
+            const duration = nextPlan ? getPlanDuration(plan, nextPlan) : 0;
+            const durationChanged = imMemo(duration);
+
+            const isEditing = s.editing !== NOT_EDITING;
+            // HACK: ensure we aren't editing a readonly note
+            if (focused && isReadonly && isEditing) {
+                s.editing = NOT_EDITING;
             }
 
-            imBeginListRow(focused, s.editing !== NOT_EDITING); {
+            imBeginListRow(focused, isEditing); {
+                if (imMemo(isReadonly)) {
+                    setClass(cnApp.defocusedText, isReadonly);
+                }
+
                 imBegin(); imFlex(); imListRowCellStyle(); {
                     imBegin(ROW); imListRowCellStyle(); {
                         imInitStyles("gap: 10px");
 
-                        const isEditingStartTime = focused && s.editing === EDITING_START_TIME;
-                        const isEditingEndTime = focused && s.editing === EDITING_END_TIME;
-                        const isEditingText = focused && s.editing === EDITING_TEXT;
+                        const isEditingStartTime = !isReadonly && focused && s.editing === EDITING_START_TIME;
+                        const isEditingText      = !isReadonly && focused && s.editing === EDITING_TEXT;
+
+                        if (imIf() && notToday) {
+                            imBegin(); setText(formatDate(plan.start)); imEnd();
+                        } imEndIf();
 
                         imBegin(); {
                             const isEditingStartTimeChanged = imMemo(isEditingStartTime);
@@ -428,8 +507,10 @@ export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
                                     const change = imOn("change");
                                     if (input || change) {
                                         plan._startInputText = textArea.root.value;
-
-                                        setPlanStartTime(s, plan, parseStartTime(s, plan._startInputText, plan));
+                                        const newTime = parseStartTime(s, plan._startInputText, plan);
+                                        if (newTime) {
+                                            planMutateAction = () => setPlanStartTime(s, plan, newTime, false);
+                                        }
                                     }
 
                                     ctx.textAreaToFocus = textArea;
@@ -437,60 +518,19 @@ export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
                                 } imEndTextArea();
                             } else {
                                 imElse();
-
-                                if (isEditingStartTimeChanged) {
-                                    setPlanStartTime(s, plan, parseStartTime(s, plan._startInputText, plan));
-                                }
 
                                 imBegin(INLINE); setText(formatTime(plan.start)); imEnd();
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(); {
-                            const isEditingEndTimeChanged = imMemo(isEditingEndTime);
-
-                            if (imIf() && isEditingEndTime) {
-
-                                if (isEditingEndTimeChanged) {
-                                    plan._endInputText = formatTimeForInput(plan.end);
-                                }
-
-                                const [, textArea] = imBeginTextArea({
-                                    value: plan._endInputText,
-                                    placeholder: isEditingEndTime ? "End" : undefined,
-                                }); {
-                                    const input = imOn("input");
-                                    const change = imOn("change");
-                                    if (input || change) {
-                                        plan._endInputText = textArea.root.value;
-                                        setPlanEndTime(s, plan, parseEndTime(plan._endInputText, plan, prevPlan));
-                                    }
-
-                                    ctx.textAreaToFocus = textArea;
-                                    ctx.focusWithAllSelected = true;
-                                } imEndTextArea();
-                            } else {
-                                imElse();
-
-                                if (isEditingEndTimeChanged) {
-                                    setPlanEndTime(s, plan, parseEndTime(plan._endInputText, plan, prevPlan));
-                                }
-
-                                imBegin(INLINE); setText(formatTime(plan.end)); imEnd();
-                            } imEndIf();
-                        } imEnd();
-
-                        imBegin(); {
-                            const duration = (plan.start && plan.end) ? plan.end.getTime() - plan.start.getTime() : null;
-                            if (imMemo(duration)) {
-                                if (duration !== null) {
+                        if (imIf() && !nextIsANewDay) {
+                            imBegin(); {
+                                if (durationChanged) {
                                     setText("[ " + formatDuration(duration) + " ]");
-                                } else {
-                                    setText("[ ?h ]");
+                                    setStyle("opacity", duration === 0 ? "0" : "1");
                                 }
-                            }
-
-                        } imEnd();
+                            } imEnd();
+                        } imEndIf();
 
                         imBegin(); imFlex(); {
                             if (imIf() && isEditingText) {
@@ -540,17 +580,20 @@ export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
                             setText(s.error);
                         }; imEnd();
                     } imEndIf();
+
+                    // TODO: instead, check duration to the start of the next day for conditional render here
+                    if (imIf() && nextIsANewDay && duration > (1 * ONE_MINUTE)) {
+                        imBegin(); imListRowCellStyle(); {
+                            if (isFirstishRender()) {
+                                setStyle("paddingLeft", "50px");
+                            }
+                            setText(formatDuration(duration));
+                        } imEnd();
+                    } imEndIf();
                 }; imEnd();
             } imEndListRow();
         } imEndFor();
 
-        if (imIf() && s.plans.length === 0) {
-            imBeginListRow(true); {
-                imBegin(ROW); imListRowCellStyle(); imFlex(); {
-                    setText("+ New plan"); 
-                }; imEnd();
-            } imEndListRow();
-        } imEndIf();
-
+        if (planMutateAction) planMutateAction();
     } imEnd();
 }

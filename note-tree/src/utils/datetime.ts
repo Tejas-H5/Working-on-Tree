@@ -1,4 +1,5 @@
-import { isDigit, newParser, parserAdvanceWhitespace, parserParseDelimter, parserParseInt, parserParseKeyword } from "./parser";
+import { assert } from "./assert";
+import { isDigit, newParser, Parser, parserAdvanceWhitespace, parserGet, parserParseDelimter, parserParseInt, parserParseKeyword, parserParseWord } from "./parser";
 
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
@@ -66,6 +67,12 @@ export function formatDate(date: Date | null, dayOfTheWeek = false) {
 
     const dayOfTheWeekStr = !dayOfTheWeek ? "" : (DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()] + " ");
     return `${dayOfTheWeekStr}${pad2(dd)}/${pad2(mm)}/${yyyy}`;
+}
+
+export function isSameDate(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() &&
+           a.getMonth() === b.getMonth() &&
+           a.getDate() === b.getDate();
 }
 
 export function pad2(num: number) {
@@ -159,12 +166,14 @@ export type HoursMinutes = {
 };
 
 // returns a string with a time scoped to today's date.
-export function parseTimeInput(str: string, previousTime: Date): [HoursMinutes | null, string | null] {
+export function parseTimeInput(str: string, today: Date): [HoursMinutes, string | null] {
     const p = newParser(str);
+
+    const hm: HoursMinutes = { hours: 0, minutes: 0 };
 
     parserAdvanceWhitespace(p);
     let hours = parserParseInt(p);
-    if (hours === null) return [null, "Missing hours"];
+    if (hours === null) return [hm, "Missing hours"];
 
     let minutes = 0;
     parserAdvanceWhitespace(p);
@@ -172,6 +181,9 @@ export function parseTimeInput(str: string, previousTime: Date): [HoursMinutes |
         parserAdvanceWhitespace(p);
         const minutesMaybe = parserParseInt(p);
         if (minutesMaybe !== null) minutes = minutesMaybe;
+    } else if (!parserAtEnd(p)) {
+        // we also allow just '10' to mean 10 oclock (infer am or pm from previousTime)
+        return [hm, "Expected : seperator here"];
     }
 
     parserAdvanceWhitespace(p);
@@ -179,7 +191,7 @@ export function parseTimeInput(str: string, previousTime: Date): [HoursMinutes |
     let isPm = !isAm && (parserParseKeyword(p, "pm") || parserParseKeyword(p, "PM"));
     if (!isAm && !isPm) {
         // Infer AM/PM from 'now'
-        isAm = previousTime.getHours() < 12; isPm = !isAm;
+        isAm = today.getHours() < 12; isPm = !isAm;
     }
 
     if (hours < 12 && isPm) hours += 12;
@@ -187,15 +199,55 @@ export function parseTimeInput(str: string, previousTime: Date): [HoursMinutes |
     return [{ hours, minutes }, null];
 }
 
-export function parseDurationInput(str: string, previousTime: Date): [number, string | null] {
+export function parserAtEnd(p: Parser) {
+    return parserGet(p).length === 0;
+}
+
+export function parseDurationInput(str: string): [number, string | null] {
     const p = newParser(str);
 
-    parserAdvanceWhitespace(p);
-    let hoursOrMin = parserParseInt(p);
-    if (hoursOrMin === null) return [0, "Missing input"];
+    let duration = 0;
+    let entries = 0;
 
-    parserAdvanceWhitespace(p);
-    const w = parserParseKeyword
+    while (!parserAtEnd(p)) {
+        parserAdvanceWhitespace(p);
+        let time = parserParseInt(p);
+        if (time === null) return [0, "Expected whole number"]; // TODO: decimal number
+
+        parserAdvanceWhitespace(p);
+        const isH = parserParseKeyword(p, "h");
+        const isM = !isH && parserParseKeyword(p, "m");
+
+        if (!isH && !isM) {
+            if (entries === 0 && parserAtEnd(p)) {
+                // infer based on how big the number is. iff it's the only entry.
+                // arbitrary threhshold.
+                if (time > 12) {
+                    return [time * ONE_MINUTE, null];
+                }
+                return [time * ONE_HOUR, null];
+            }
+
+            return [0, "Expected 'h' or 'm'"];
+        }
+
+        if (isH) {
+            duration += time * ONE_HOUR;
+        } else if (isM) {
+            duration += time * ONE_MINUTE;
+        } else {
+            // Should have handled every unit.
+            assert(false);
+        }
+
+        entries++;
+    }
+
+    if (entries === 0) {
+        return [0, "Missing input"];
+    }
+
+    return [duration, null];
 }
 
 export function dateSetLocalTime(date: Date, time: HoursMinutes) {
