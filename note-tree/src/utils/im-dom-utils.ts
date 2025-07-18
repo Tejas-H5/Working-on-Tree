@@ -7,19 +7,16 @@
 // - All immediate mode methods should start with 'im', like imState.
 //      - Any method that calls another method prefixed with `im` should automatically be considered an 'immediate mode method' 
 //      - Some methods don't call any `im` methods, but if they are to be used alongside other im methods, you should call them imBlah anyway. E.g imListNext.
-// - All immediate mode methods that open up a scope that needs to be closed with a second method must start with `imBegin`, 
-//      like `imBeginList()`, `imBeginRoot()`. The finalizers must start with `imEnd`, like `imEndList`, `imEnd`, etc. 
+// - All immediate mode methods that open up a 'scope' must be prefixed with `imBegin`, and be closed by a corresponding `imEnd` method
 //      The only exceptions are: 
 //          - The control-flow helpers: `imIf`, `imElseIf`, `imElse`, `imSwitch`, `imTry`, `imCatch`, `imFor`, `imWhile`.
-//          - `imEnd`. It's the same as imEndRoot. Used very often, and since a large number of abstractions end up being just 1 root deep, it can be used
-//          to end a lot of different things. 
+//          - `imEnd`. It's the same as imEndRoot. Used very often, and since a large number of abstractions end up being just 1 root deep, it can be used to end a lot of different things.
 //          - If you can guarantee that your imBeginX method only needs a single imEnd method to finalize it well into the future, then 
 //              you don't need to provide your own imEndX method.
 //
-//      Be very conservative when adding your own exceptions to this rule.
+//      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
 
 import { assert } from "./assert";
-import { remove } from "./int-tree";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -200,7 +197,6 @@ export type ImCore = {
     currentListRenderer: ListRenderer | undefined;
 
     imDisabled:       boolean;
-    imDisabledReason: string;
 
     renderFn: () => void;
 
@@ -239,8 +235,10 @@ const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
 
 const NOT_REMOVED = 0;
-const REMOVE_LEVEL_DOM = 1;
-const REMOVE_LEVEL_DESTROY = 2;
+export const REMOVE_LEVEL_DOM = 1;
+export const REMOVE_LEVEL_DESTROY = 2;
+
+export type RemovedLevel = typeof NOT_REMOVED | typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY;
 
 
 /**
@@ -291,7 +289,6 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         currentListRenderer: undefined,
 
         imDisabled: false,
-        imDisabledReason: "",
 
         renderFn: renderStub,
 
@@ -455,7 +452,6 @@ export function finalizeDomRoot(domAppender: DomAppender) {
     // domAppender.children.length = domAppender.idx + 1e
 }
 
-type RemovedLevel = typeof NOT_REMOVED | typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY;
 
 /**
  * Whenever your app starts rendering, a {@link UIRoot} backed by the DOM root is pushed onto {@link currentStack}.
@@ -664,7 +660,7 @@ export function __onUIRootDestroy(r: UIRoot) {
             for (let i = 0; i < l.builders.length; i++) {
                 __onUIRootDestroy(l.builders[i]);
             }
-            if (l.keys) {
+            if (l.keys !== undefined) {
                 for (const v of l.keys.values()) {
                     __onUIRootDestroy(v.root);
                 }
@@ -689,7 +685,7 @@ export function __removeAllDomElementsFromUiRoot(
     removeLevel: typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY
 ) {
     if (r.removedLevel >= removeLevel) return;
-    r.removedLevel == removeLevel
+    r.removedLevel = removeLevel;
 
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
@@ -711,7 +707,7 @@ export function __removeAllDomElementsFromUiRoot(
             for (let i = 0; i < l.builders.length; i++) {
                 __removeAllDomElementsFromUiRoot(l.builders[i], removeLevel);
             }
-            if (l.keys) {
+            if (l.keys !== undefined) {
                 for (const v of l.keys.values()) {
                     __removeAllDomElementsFromUiRoot(v.root, removeLevel);
                 }
@@ -731,17 +727,20 @@ export type ListRenderer = {
     readonly uiRoot: UIRoot;
 
     readonly builders: UIRoot[];
-    keys: Map<ValidKey, { root: UIRoot, rendered: boolean }> | undefined;
+    keys: Map<ValidKey, {
+        root: UIRoot;
+        rendered: boolean;
+    }> | undefined;
 
     builderIdx: number;
     current: UIRoot | null;
 
-    cacheBuilders: boolean;
+    cacheRemoveLevel: typeof REMOVE_LEVEL_DOM   | typeof REMOVE_LEVEL_DESTROY;
 }
 
 function __beginListRenderer(l: ListRenderer) {
     l.builderIdx = 0;
-    if (l.keys) {
+    if (l.keys !== undefined) {
         for (const v of l.keys.values()) {
             v.rendered = false;
         }
@@ -785,8 +784,11 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  *
  * @param cached - if true, doesn't remove things from the DOM. 
  */
-export function imBeginList(cached: boolean = false): ListRenderer {
-    assertImEnabled();
+export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DOM): ListRenderer {
+    const core = imCore;
+
+    // Don't access immediate mode state when immediate mode is disabled
+    assert(core.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -805,27 +807,21 @@ export function imBeginList(cached: boolean = false): ListRenderer {
 
         result = newListRenderer(r);
         items.push(result);
-        imCore.numCacheMisses++;
+        core.numCacheMisses++;
     }
 
-    result.cacheBuilders = cached;
+    result.cacheRemoveLevel = cached;
     __beginListRenderer(result);
 
-    imCore.itemsRendered++;
+    core.itemsRendered++;
 
     return result;
 }
 
-function assertImEnabled() {
-    // Don't access immediate mode state when immediate mode is disabled
-    assert(imCore.imDisabled === false, imCore.imDisabledReason);
-}
-
 function assertCanPushImmediateModeStateEntry(r: UIRoot) {
+    // You rendered more things in this render than in the previous render.
     // The same immediate mode state must be queried in the same order every time.
-    // We shouldn't be growing the items array after the first render.
-    assert(r.lastItemIdx === -1, `You rendered more things in this render than in the previous render. 
-${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`);
+    assert(r.lastItemIdx === -1);
 }
 
 /**
@@ -866,7 +862,7 @@ ${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`);
  * ```
  */
 export function imIf() {
-    imBeginList(true);
+    imBeginList(REMOVE_LEVEL_DOM);
     imNextRoot();
     return true as const;
 }
@@ -881,7 +877,7 @@ export function imIf() {
  * ```
  */
 export function imSwitch(key: ValidKey) {
-    imBeginList(true);
+    imBeginList(REMOVE_LEVEL_DOM);
     imNextRoot(key);
 }
 
@@ -991,7 +987,7 @@ export function imEndTry() {
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  */
 export function imNextRoot(key?: ValidKey) {
-    if (imCore.currentRoot) {
+    if (imCore.currentRoot !== undefined) {
         imEndListRoot(imCore.currentRoot);
     }
 
@@ -1010,14 +1006,17 @@ export function imNextRoot(key?: ValidKey) {
         if (block === undefined || block.root.removedLevel === REMOVE_LEVEL_DESTROY) {
             block = {
                 root: newUiRoot(null, l.uiRoot.domAppender),
-                rendered: false
+                rendered: false,
             };
             l.keys.set(key, block);
             imCore.numCacheMisses++;
         } 
 
         /**
-         * The correct pattern imo:
+         * You're rendering this list element twice. You may have duplicate keys in your dataset.
+         *
+         * A more common cause is that you are mutating collections while iterating them.
+         * A good pattern for this imo:
          *
          * function Component() {
          *      let deferredAction: DeferredAction;
@@ -1029,7 +1028,7 @@ export function imNextRoot(key?: ValidKey) {
          *          imBeginDiv(); {
          *              const click = imOn("click");
          *              if (click && i !== list.length - 1) {
-         *                  // This causes this assertion to trigger, because the next iteration will rerender this item. 
+         *                  // This line will causes this assertion to trigger, because the next iteration will rerender this item. 
          *                  // swap(list, i, i + 1); <- 
          *                  // Do this instead:
          *                  deferredAction = () => swap(list, i, i + 1);
@@ -1047,11 +1046,9 @@ export function imNextRoot(key?: ValidKey) {
          *  - Error boundaries will still catch errors in this method
          *  - Full control over when it happens. Profiler will report the parent components in the call tree instead of random timeout event
          *  - Action can be literally anything
+         *
          */
-        assert(
-            !block.rendered,
-            "You're rendering this list element twice. Be careful of mutating collections while iterating them."
-        );
+        assert(!block.rendered);
 
         block.rendered = true;
 
@@ -1091,7 +1088,7 @@ function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): Stat
     const core = imCore;
 
     // Don't access immediate mode state when immediate mode is disabled
-    assertImEnabled();
+    assert(core.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -1102,15 +1099,11 @@ function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): Stat
         const box = items[idx];
         assert(box.t === ITEM_STATE);
 
-        // The same immedaite mode state must be queried in the same order every time.
-        // Checking that the suppliers are the same for both renders is our sanity check that we are 
-        // most-likely accesing the correct state, and not rendering things in a different order
+        // imState recieved a different supplier this render. If you're passing an inline lambda to this method, then use imStateInline to skip this check.
+        // NOTE: However, this assertion exists to catch out-of-order rendering errors, which will lead to state corruption from 
+        // hooks reading from and writing to the wrong object. The assertion won't be there in imStateInline.
         if (skipSupplierCheck === false) {
-            assert(
-                supplier === box.supplier, 
-                `imState recieved a different supplier this render. If you're passing an inline lambda to this method, then use imStateInline to skip this check.
-However, imStateInline will not catch any out-of-order rendering errors, which may lead to state corruption`
-            );
+            assert(supplier === box.supplier);
         }
 
         result = box as StateItem<T>;
@@ -1202,7 +1195,7 @@ export function imEndContext<T>(supplier: () => T) {
     assert(core.currentContexts.length > 0);
 
     const lastContext = core.currentContexts[core.currentContexts.length - 1];
-    assert(lastContext.supplier === supplier, "Contexts must be popped in the same order that they were pushed");
+    assert(lastContext.supplier === supplier);
     return (core.currentContexts.pop() as StateItem<T>).v;
 }
 
@@ -1274,7 +1267,7 @@ export function getCurrentListRendererInternal(): ListRenderer {
     const core = imCore;
 
     /** Can't call this method without opening a new list renderer (see {@link imBeginList}) */
-    assert(core.currentListRenderer !== undefined, `The last stack element was not a list renderer`)
+    assert(core.currentListRenderer !== undefined)
 
     return core.currentListRenderer;
 }
@@ -1302,40 +1295,11 @@ function startRendering(root: UIRoot, itemIdx: number, domIdx: number) {
     __beginUiRoot(root, itemIdx, domIdx);
 }
 
-const COND_LIST_RENDERING_HINT =`
-Most likely, you are doing conditional rendering or list rendering in a way that is undetectable to this framework.
-Try following the following patterns instead:
-
-// Conditional rendering
-\`\`\`
-if(imIf() && <condition1>) { 
-    <Component1> 
-} else if (imElseIf() && <condition2>) { 
-    <Component2> 
-} else { 
-    imElse(); 
-    <Component3> 
-} imEndIf()
-\`\`\`
-
-// List rendering
-\`\`\`
-imFor(); for (const item of items) {
-    nextListRoot();
-
-    <Component>
-} imEndFor();
-\`\`\`
-`
-
-const INLINE_LAMBDA_BAD_HINT = `
-This error will also throw if the DOM-element supplier being passed in is an inline lambda. 
-Fix: don't use an inline lambda.
-`;
-
 export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
+    const core = imCore;
+
     // Don't access immediate mode state when immediate mode is disabled
-    assertImEnabled();
+    assert(core.imDisabled === false);
 
     const r = getCurrentRoot();
 
@@ -1348,13 +1312,11 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementS
         // The same immediate mode state must be queried in the same order every time.
         assert(result.t === ITEM_UI_ROOT);
     
+        // imBeginRoot was invoked with a different supplier from the previous render.
+        // see INLINE_LAMBDA_BAD_HINT, COND_LIST_RENDERING_HINT.
         // string comparisons end up being quite expensive, so we're storing
         // a reference to the function that created the dom element and comparing those instead.
-        assert(
-            result.elementSupplier === elementSupplier, 
-            `imBeginRoot was invoked with a different supplier from the previous render. 
-${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`
-        );
+        assert(result.elementSupplier === elementSupplier);
     } else {
         assertCanPushImmediateModeStateEntry(r);
 
@@ -1362,7 +1324,7 @@ ${COND_LIST_RENDERING_HINT} ${INLINE_LAMBDA_BAD_HINT}`
         items.push(result);
     }
 
-    imCore.itemsRendered++;
+    core.itemsRendered++;
 
     return result as UIRoot<E>;
 } 
@@ -1409,8 +1371,7 @@ function imEndListRoot(r: UIRoot) {
     const l = getCurrentListRendererInternal();
     if (r.itemsIdx === -1) {
         // A list render might want to actually destroy everything underneath it instead.
-        const level = l.cacheBuilders ? REMOVE_LEVEL_DOM : REMOVE_LEVEL_DESTROY;
-        __removeAllDomElementsFromUiRoot(r, level);
+        __removeAllDomElementsFromUiRoot(r, l.cacheRemoveLevel);
     }
 
     assert(r.itemsIdx === -1 || r.itemsIdx === r.items.length - 1);
@@ -1497,7 +1458,7 @@ function __popStack() {
 export function imEndList() {
     const core = imCore;
 
-    if (core.currentRoot) {
+    if (core.currentRoot !== undefined) {
         imEnd();
     }
 
@@ -1510,17 +1471,20 @@ export function imEndList() {
     // close out this list renderer.
 
     // remove all the UI components that may have been added by other builders in the previous render.
-    const level = l.cacheBuilders ? REMOVE_LEVEL_DOM : REMOVE_LEVEL_DESTROY;
     for (let i = l.builderIdx; i < l.builders.length; i++) {
-        __removeAllDomElementsFromUiRoot(l.builders[i], level);
+        __removeAllDomElementsFromUiRoot(l.builders[i], l.cacheRemoveLevel);
     }
-    l.builders.length = l.builderIdx;
+    if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROY) {
+        l.builders.length = l.builderIdx;
+    }
 
-    if (l.keys) {
+    if (l.keys !== undefined) {
         for (const [k, v] of l.keys) {
             if (v.rendered === false) {
-                __removeAllDomElementsFromUiRoot(v.root, level);
-                l.keys.delete(k);
+                __removeAllDomElementsFromUiRoot(v.root, l.cacheRemoveLevel);
+                if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROY) {
+                    l.keys.delete(k);
+                }
             }
         }
     }
@@ -1536,7 +1500,7 @@ function newListRenderer(root: UIRoot): ListRenderer {
         builders: [],
         builderIdx: 0,
         current: null,
-        cacheBuilders: false,
+        cacheRemoveLevel: REMOVE_LEVEL_DOM,
     };
 }
 
@@ -1580,7 +1544,7 @@ export function abortListAndRewindUiStack(l: ListRenderer) {
     core.currentListRenderer = l;
 
     const r = l.current;
-    if (r) {
+    if (r !== null) {
         __removeAllDomElementsFromUiRoot(r, REMOVE_LEVEL_DOM);
 
         // need to reset the dom root, since we've just removed elements underneath it
@@ -1750,9 +1714,8 @@ export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
     return changed;
 }
 
-export function disableIm(reason = "") {
+export function disableIm() {
     imCore.imDisabled = true;
-    imCore.imDisabledReason = reason;
 }
 
 export function enableIm() {
@@ -1785,7 +1748,7 @@ export function imOn<K extends keyof HTMLElementEventMap>(
     const eventRef = imRef<HTMLElementEventMap[K]>();
     const core = imCore;
 
-    if (imInit()) {
+    if (imInit() === true) {
         const r = getCurrentRoot();
 
         const handler = (e: HTMLElementEventMap[K]) => {
@@ -1807,7 +1770,7 @@ export function imOn<K extends keyof HTMLElementEventMap>(
         });
     }
 
-    if (!eventRef.val) return null;
+    if (eventRef.val === null) return null;
 
     const ev = eventRef.val;
     eventRef.val = null;
@@ -1988,7 +1951,7 @@ export function startAnimationLoop(
     core.renderFn = renderFn;
 
     const animation = (t: number) => {
-        if (core.uninitialized) {
+        if (core.uninitialized === true) {
             return;
         }
 
@@ -2013,7 +1976,7 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
     core.dtSeconds = (t - core.lastTime) / 1000;
     core.lastTime  = t;
 
-    if (core.isRendering) {
+    if (core.isRendering === true) {
         return;
     }
 
@@ -2043,7 +2006,7 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
     core.itemsRenderedLastFrame = core.itemsRendered;
     core.itemsRendered = 0;
     core.isRendering = false;
-    if (isInsideEvent) {
+    if (isInsideEvent === true) {
         core._isExcessEventRender = isInsideEvent;
     }
 
@@ -2125,7 +2088,7 @@ function resetMouseState(core: ImCore, clearPersistedStateAsWell: boolean) {
     mouse.clickedElement = null;
     mouse.scrollWheel = 0;
 
-    if (clearPersistedStateAsWell) {
+    if (clearPersistedStateAsWell === true) {
         mouse.leftMouseButton = false;
         mouse.middleMouseButton = false;
         mouse.rightMouseButton = false;
@@ -2156,7 +2119,7 @@ export function getImKeys(): ImKeyboardState {
 export function elementHasMousePress() {
     const mouse = getImMouse();
     const r = getCurrentRoot();
-    if (mouse.leftMouseButton) {
+    if (mouse.leftMouseButton === true) {
         return r.root === mouse.clickedElement;
     }
     return  false;
@@ -2170,7 +2133,7 @@ export function elementHasMouseDown(
 ) {
     const r = getCurrentRoot();
 
-    if (hadClick) {
+    if (hadClick === true) {
         return r.root === imCore.mouse.lastClickedElement;
     }
 
@@ -2204,10 +2167,10 @@ function newPreventScrollEventPropagationState() {
 export function imPreventScrollEventPropagation() {
     const state = imState(newPreventScrollEventPropagationState);
 
-    if (imInit()) {
+    if (imInit() === true) {
         const r = getCurrentRoot();
         const handler = (e: Event) => {
-            if (state.isBlocking) {
+            if (state.isBlocking === true) {
                 e.preventDefault();
             }
         }
