@@ -234,11 +234,18 @@ const ITEM_LIST_RENDERER = 2;
 const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
 
-const NOT_REMOVED = 0;
+// TODO: we added this, but I suspect it doesn't actually work yet - 
+// the dom-appender code hasn't been updated to 'ignore' or 'step over'
+// things that we have REMOVE_LEVEL_NONE removed, so that stuff ends up being pushed to the bottom of the DOM - not ideal.
+// I recon we should see if there is an easy way to make it work.
+export const REMOVE_LEVEL_NONE = 0;
 export const REMOVE_LEVEL_DOM = 1;
 export const REMOVE_LEVEL_DESTROY = 2;
 
-export type RemovedLevel = typeof NOT_REMOVED | typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY;
+export type RemovedLevel 
+    = typeof REMOVE_LEVEL_NONE
+    | typeof REMOVE_LEVEL_DOM   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
+    | typeof REMOVE_LEVEL_DESTROY;
 
 
 /**
@@ -294,7 +301,6 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
 
         keyboard,
         mouse,
-
 
         dtSeconds: 0,
         tSeconds: 0,
@@ -571,7 +577,7 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        removedLevel: NOT_REMOVED,
+        removedLevel: REMOVE_LEVEL_NONE,
         completedOneRender: false,
         lastText: "",
     }
@@ -682,7 +688,7 @@ export function __onUIRootDestroy(r: UIRoot) {
 // we will have removed HTML elements out from underneath it. You'll need to ensure that this isn't happening in your use case.
 export function __removeAllDomElementsFromUiRoot(
     r: UIRoot,
-    removeLevel: typeof REMOVE_LEVEL_DOM | typeof REMOVE_LEVEL_DESTROY
+    removeLevel: RemovedLevel,
 ) {
     if (r.removedLevel >= removeLevel) return;
     r.removedLevel = removeLevel;
@@ -735,6 +741,8 @@ export type ListRenderer = {
     builderIdx: number;
     current: UIRoot | null;
 
+    // TODO: add LRU cache for REMOVE_LEVEL_DOM. Otherwise we'll just infinitely grow in memory usage.
+    // While not a problem for us yet, it will be eventually.
     cacheRemoveLevel: typeof REMOVE_LEVEL_DOM   | typeof REMOVE_LEVEL_DESTROY;
 }
 
@@ -1016,7 +1024,7 @@ export function imNextRoot(key?: ValidKey) {
          * You're rendering this list element twice. You may have duplicate keys in your dataset.
          *
          * A more common cause is that you are mutating collections while iterating them.
-         * A good pattern for this imo:
+         * Here's a potential way to avoid doing this:
          *
          * function Component() {
          *      let deferredAction: DeferredAction;
@@ -1026,6 +1034,8 @@ export function imNextRoot(key?: ValidKey) {
          *          imNextRoot(item);
          *
          *          imBeginDiv(); {
+         *              setText("Move down");
+         *
          *              const click = imOn("click");
          *              if (click && i !== list.length - 1) {
          *                  // This line will causes this assertion to trigger, because the next iteration will rerender this item. 
@@ -1033,20 +1043,17 @@ export function imNextRoot(key?: ValidKey) {
          *                  // Do this instead:
          *                  deferredAction = () => swap(list, i, i + 1);
          *              }
-         *
-         *              setText("Move down");
          *          } imEnd();
          *      } imEndFor();
          *
          *      if (deferredAction) deferredAction();
          * }
          *
-         * Why this pattern instead of other patterns?
-         *  - Should still be able to step into this with the debugger
+         * This approach should:
+         *  - allow debugging with accurate call stacks
          *  - Error boundaries will still catch errors in this method
          *  - Full control over when it happens. Profiler will report the parent components in the call tree instead of random timeout event
          *  - Action can be literally anything
-         *
          */
         assert(!block.rendered);
 
@@ -1333,7 +1340,7 @@ export function imBeginExistingRoot<E extends ValidElement = ValidElement>(root:
     const r = getCurrentRoot();
 
     r.hasRealChildren = true;
-    r.removedLevel = NOT_REMOVED;
+    r.removedLevel = REMOVE_LEVEL_NONE;
     appendToDomRoot(r.domAppender, root.domAppender.root);
 
     __beginUiRoot(root, -1, -1);
@@ -1649,13 +1656,16 @@ function newMemoState(): { last: unknown } {
  *
  * TODO: think about when it _is_ needed. 
  */
-export function imMemo(val: unknown): number {
+export function imMemo(val: unknown): ImMemoResult {
     const ref = imState(newMemoState);
-    let result = MEMO_NOT_CHANGED;
+
+    let result: ImMemoResult = MEMO_NOT_CHANGED;
+
     if (ref.last !== val) {
         result = ref.last === MEMO_INITIAL_VALUE ? MEMO_FIRST_RENDER : MEMO_CHANGED;
         ref.last = val;
-    }
+    } 
+
     return result;
 }
 
@@ -1664,9 +1674,17 @@ export const MEMO_NOT_CHANGED  = 0;
 export const MEMO_CHANGED      = 1; 
 /** 
  * returned by {@link imMemo} if this is simply the first render. 
- * Sometimes, you may want a side-effect to happen on a change, but NOT the initial renderer.
+ * Most of the time the distinction is not important, but sometimes,
+ * you want to happen on a change but NOT the initial renderer.
  */
 export const MEMO_FIRST_RENDER = 2;
+
+export type ImMemoResult
+    = typeof MEMO_NOT_CHANGED
+    | typeof MEMO_CHANGED 
+    | typeof MEMO_FIRST_RENDER;
+
+
 
 // TODO: performance benchmark vs imMemo before this becomes the default.
 export function imMemoMany(

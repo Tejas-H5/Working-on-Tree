@@ -1,55 +1,7 @@
-import { assert } from 'src/utils/assert';
-import {
-    imBeginContext,
-    imBeginList,
-    imEnd,
-    imEndContext,
-    imEndList,
-    imGetContext,
-    imNextRoot,
-    setText
-} from 'src/utils/im-dom-utils.ts';
-import { imBegin, INLINE } from './layout';
+import { imBeginSpan, setText } from "src/utils/im-dom-utils";
 
-export type TextBuilderState = {
-    init: boolean;
-};
-
-export function newTextContext(): TextBuilderState {
-    const state = { init: false };
-    return state;
-}
-
-export function imBeginText() {
-    const tb = imBeginContext(newTextContext);
-    imBeginList();
-    assert(!tb.init, "You forgot to call `imEndTextBuilder`");
-    return tb;
-}
-
+// Shorthand
 export function imT(str: string) {
-    const tb = imGetContext(newTextContext);
-    if (!tb.init) {
-        tb.init = true;
-    } else {
-        imEnd();
-    }
-
-    imNextRoot();
-    imBegin(INLINE);
+    imBeginSpan();
     setText(str);
-
-    // User can set their styles and stuff here. they can't mount children though.
 }
-
-export function imEndText() {
-    const tb = imEndContext(newTextContext);
-
-    if (tb.init) {
-        imEnd();
-        tb.init = false;
-    }
-
-    imEndList();
-}
-

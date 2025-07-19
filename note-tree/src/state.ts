@@ -86,12 +86,13 @@ function newFuzzyFindState(): FuzzyFindState {
 
 type AppViewInstance = number & { __appView: void; };
 
-export const APP_VIEW_TREE = 0 as AppViewInstance;
-export const APP_VIEW_JOURNAL = 1 as AppViewInstance;
+export const APP_VIEW_TREE       = 0 as AppViewInstance;
+export const APP_VIEW_PLAN       = 1 as AppViewInstance;
+export const APP_VIEW_ACTIVITIES = 2 as AppViewInstance;
 
 export type AppView =
     typeof APP_VIEW_TREE |
-    typeof APP_VIEW_JOURNAL;
+    typeof APP_VIEW_PLAN;
 
 
 // TODO: remove dead state after rewrite
@@ -190,6 +191,8 @@ export type NoteTreeGlobalState = {
     _showStatusText: boolean;
     _statusText: string;
     _statusTextColor: string;
+
+    _currentScreen: AppView;
 };
 
 export type TaskStream = {
@@ -499,6 +502,8 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _showStatusText: false,
         _statusText: "",
         _statusTextColor: "",
+
+        _currentScreen: APP_VIEW_TREE,
     };
 
     setActivityRangeToToday(state);
@@ -852,7 +857,7 @@ export function recomputeNoteStatusRecursively(
 // TODO: super inefficient, need to set up a compute graph or something more complicated
 // TODO: deprecate this method once we've reached a point where we don't need to ever call it again.
 export function recomputeState(state: NoteTreeGlobalState) {
-    assert(!!state, "WTF");
+    if (!state) throw new Error("WTF!");
 
     // delete the empty notes
     {
@@ -1451,7 +1456,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote) {
 
 export function insertNoteAfterCurrent(state: NoteTreeGlobalState) {
     const currentNote = getCurrentNote(state);
-    assert(!idIsNil(currentNote.parentId), "Cant insert after the root note");
+    if (idIsNil(currentNote.parentId)) throw new Error("Cant insert after the root note");
     if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
@@ -1466,7 +1471,7 @@ export function insertNoteAfterCurrent(state: NoteTreeGlobalState) {
 
 export function insertChildNote(state: NoteTreeGlobalState): TreeNote | null {
     const currentNote = getCurrentNote(state);
-    assert(!idIsNil(currentNote.parentId), "Cant insert under the root note");
+    if (idIsNil(currentNote.parentId)) throw new Error("Cant insert under the root note");
     if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return null;
@@ -2505,7 +2510,8 @@ export function loadState(then: (error: string) => void) {
 
         logTrace("Opened DB");
 
-        assert(!!db, "DB should be defined here");
+        
+        if (!db) throw new Error("DB should be defined here");
         const kvStore = db.transaction([INDEXED_DB_KV_STORE_NAME], "readonly")
             .objectStore(INDEXED_DB_KV_STORE_NAME);
 
@@ -2782,9 +2788,9 @@ export function recomputeViewAllTaskStreamsState(
                     if (streamViewState) {
                         streamViewState.isViewingInProgress = false;
                         const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
-                        assert(streamNoteIdx !== -1, "streamNoteIdx !== -1 because taskStream was taken from noteWithStreams");
-
-                        assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length, "taskStream.noteIds.length === streamViewState.inProgressNotes.length");
+                        // streamNoteIdx !== -1 because taskStream was taken from noteWithStreams
+                        assert(streamNoteIdx !== -1);
+                        assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length);
                         const inProgressState = streamViewState.inProgressNotes[streamNoteIdx];
                         const inProgressIdx = inProgressState.inProgressIds.indexOf(currentNote.id);
                         if (inProgressIdx !== -1) {

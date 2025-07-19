@@ -1,8 +1,6 @@
-import { imBeginAppHeading, imEndAppHeading } from "./app-heading";
 import { cnApp } from "./app-styling";
-import { getTimeElapsedSinceRepeat, imTimerRepeat, newTimer, timerRepeat, TimerState } from "./app-utils/timer";
+import { getTimeElapsedSinceRepeat, newTimer, timerRepeat, TimerState } from "./app-utils/timer";
 import { imBegin, imFlex, imInitStyles, INLINE, ROW } from "./components/core/layout";
-import { imT } from "./components/core/text";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea, } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
@@ -20,7 +18,6 @@ import {
     addMinutes,
     dateSetLocalTime,
     formatDate,
-    formatDateTime,
     formatDuration,
     formatTime,
     formatTimeForInput,
@@ -43,7 +40,6 @@ import {
     imOn,
     imState,
     isFirstishRender,
-    newBoolean,
     setClass,
     setStyle,
     setText,
@@ -358,22 +354,6 @@ function startEditingPlan(s: PlanViewState) {
     }
 }
 
-export function imAppViewJournal(ctx: GlobalContext) {
-    const s = imState(newJournalViewState);
-
-    const displayColon = imState(newBoolean);
-    if (imTimerRepeat(1.0)) {
-        displayColon.val = !displayColon.val;
-    }
-
-    imBeginAppHeading(); {
-        imT(formatDateTime(new Date(), displayColon.val ? ":" : " "));
-        imT(" - Plan");
-    } imEndAppHeading();
-
-    imNotePlanView(ctx, s);
-}
-
 const ERROR_DISPLAY_TIME_SECONDS = 2;
 
 
@@ -439,7 +419,9 @@ function planIsReadonly(s: PlanViewState, plan: PlanItem) {
     return false;
 }
 
-export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
+export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
+    const s = imState(newJournalViewState);
+
     handleKeyboardInput(ctx, s);
 
     s.now = new Date();
@@ -475,7 +457,7 @@ export function imNotePlanView(ctx: GlobalContext, s: PlanViewState) {
                 s.editing = NOT_EDITING;
             }
 
-            imBeginListRow(focused, isEditing); {
+            imBeginListRow(viewFocused, focused, isEditing); {
                 if (imMemo(isReadonly)) {
                     setClass(cnApp.defocusedText, isReadonly);
                 }

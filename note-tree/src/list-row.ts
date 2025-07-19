@@ -15,7 +15,12 @@ import {
 } from "./utils/im-dom-utils";
 
 
-export function imBeginListRow(focused: boolean, editing = false) {
+export function imBeginListRow(
+    viewFocused: boolean,
+    focused: boolean,
+    editing: boolean,
+) {
+    const viewFocusedChanged = imMemo(viewFocused);
     const focusChanged = imMemo(focused);
     const editingChanged = imMemo(editing);
 
@@ -25,9 +30,12 @@ export function imBeginListRow(focused: boolean, editing = false) {
         }
 
         imBegin(); imSize(10, PX, 0, NOT_SET); {
-            if (focusChanged || editingChanged) {
+            if (focusChanged || editingChanged || viewFocusedChanged) {
                 setStyle("backgroundColor", 
-                    focused ? ( editing ? cssVarsApp.bgEditing : cssVarsApp.fgColor) : ""
+                    (!viewFocused || !focused) ? "" 
+                    : editing ? cssVarsApp.bgEditing
+                    : focused ? cssVarsApp.fgColor
+                    : ""
                 );
             }
         } imEnd();

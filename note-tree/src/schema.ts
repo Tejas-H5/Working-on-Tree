@@ -67,15 +67,17 @@ export function asNoteTreeGlobalState(val: unknown) {
 
     const activitiesArr = mustGet(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
     state.activities = activitiesArr.map(val => {
-        const obj = mustGet(asObject(val));
+        const activityObj = mustGet(asObject(val));
 
         const activity = defaultActivity(new Date());
 
-        activity.nId       = asNumber(extractKey<Activity>(obj, "nId")) as NoteId | undefined;
-        activity.breakInfo = asString(extractKey<Activity>(obj, "breakInfo"));
-        activity.locked    = asTrue(extractKey<Activity>(obj, "locked"));
-        activity.deleted   = asTrue(extractKey<Activity>(obj, "deleted"));
-        activity.c         = asNumber(extractKey<Activity>(obj, "c"));
+        activity.nId       = asNumber(extractKey<Activity>(activityObj, "nId")) as NoteId | undefined;
+        activity.breakInfo = asString(extractKey<Activity>(activityObj, "breakInfo"));
+        activity.locked    = asTrue(extractKey<Activity>(activityObj, "locked"));
+        activity.deleted   = asTrue(extractKey<Activity>(activityObj, "deleted"));
+        activity.c         = asNumber(extractKey<Activity>(activityObj, "c"));
+
+        deserializeObject(activity, activityObj);
 
         return activity;
     });

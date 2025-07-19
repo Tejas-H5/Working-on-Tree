@@ -138,7 +138,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
         if (isFirstishRender()) {
             setStyle("position", "absolute");
             setStyle("bottom", "5px");
-            setStyle("right", "5px");
+            setStyle("left", "5px");
             setStyle("padding", "5px");
             setStyle("backgroundColor", cssVars.bg);
             setStyle("opacity", "0.5");
@@ -192,6 +192,7 @@ export function imFpsCounterOutput(fps: FpsCounterState) {
 
         if (elementHasMousePress()) {
             fps.baselineFrameMsFreq = 0;
+            im.numCacheMisses = 0;
         }
     } imEnd();
 

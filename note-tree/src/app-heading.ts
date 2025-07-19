@@ -4,10 +4,8 @@ import {
     PX
 } from "./components/core/layout";
 import { newH1 } from "./components/core/new-dom-nodes";
-import { imBeginText, imEndText } from "./components/core/text";
 import {
     imBeginRoot,
-    imEnd,
     isFirstishRender,
     setStyle
 } from "./utils/im-dom-utils";
@@ -20,16 +18,5 @@ export function imBeginAppHeading() {
             setStyle("textOverflow", "ellipsis");
             setStyle("whiteSpace", "nowrap");
         }
-
-        imBeginText();  {
-        }
-    }
-}
-
-export function imEndAppHeading() {
-    {
-        {
-
-        } imEndText();
-    } imEnd();
+    } // imEnd();
 }

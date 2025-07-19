@@ -1,10 +1,8 @@
-import { timerRepeat } from "./app-utils/timer";
 import { imBegin, imFlex, imScrollContainer } from "./components/core/layout";
 import { getAxisRaw, GlobalContext } from "./global-context";
 import {
     deltaTimeSeconds,
     getScrollVH,
-    timeSeconds,
     UIRoot
 } from "./utils/im-dom-utils";
 
@@ -20,21 +18,10 @@ export type NavigableList = {
 export function getNavigableListInput(ctx: GlobalContext): number {
     const keyboard = ctx.keyboard;
 
-    const heldDelta = getAxisRaw(keyboard.downKey.held, keyboard.upKey.held) +
-        getAxisRaw(keyboard.pageDownKey.held, keyboard.pageUpKey.held) * 10;
-
     const pressedDelta = getAxisRaw(keyboard.downKey.pressed, keyboard.upKey.pressed) +
         getAxisRaw(keyboard.pageDownKey.pressed, keyboard.pageUpKey.pressed) * 10;
 
-    const hasHold = heldDelta !== 0;
-    const repeatIntervalSeconds = ctx.repeatTimer.ticks === 0 ? 0.2 : 0.02;
-    const shouldRepeat = timerRepeat(ctx.repeatTimer, timeSeconds(), repeatIntervalSeconds, hasHold);
-
-    if (shouldRepeat || pressedDelta) {
-        return heldDelta;
-    }
-
-    return 0;
+    return pressedDelta;
 }
 
 export function startScrolling(l: NavigableList, smoothScroll: boolean) {

@@ -17,6 +17,9 @@ import {
 } from 'src/utils/im-dom-utils.ts';
 import { cn, cssVars } from "./stylesheets.ts";
 
+// It occurs to me that I can actually just make my own fully custom layout system that significantly minimizes
+// number of DOM nodes required to get things done.
+
 export type SizeUnitInstance = number & { __sizeUnit: void; };
 
 export const PX = 10001 as SizeUnitInstance;
@@ -180,9 +183,57 @@ export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
     return root;
 }
 
+export function imW100() {
+    if (isFirstishRender()) {
+        setClass(cn.w100);
+    }
+}
+
+export function imH100() {
+    if (isFirstishRender()) {
+        setClass(cn.h100);
+    }
+}
+
 export function imFlex(val = 1) {
     if (imMemo(val)) {
         setStyle("flex", "" + val);
+        // required to make flex work the way you would think.
+        setStyle("minWidth", "0");
+        setStyle("minHeight", "0");
+    }
+}
+
+export function imGap(val = 0, units: SizeUnits) {
+    if (imMemoMany(val, units)) {
+        setStyle("gap", getSize(val, units));
+    }
+}
+
+export const NONE = 0;
+export const CENTER = 1;
+export const LEFT = 2;
+export const RIGHT = 3;
+
+export function imAlign(alignment = CENTER) {
+    if (imMemo(alignment)) {
+        setStyle("alignItems", 
+            alignment === CENTER ? "center"  
+            : alignment === LEFT ? "left"
+            : alignment === RIGHT ? "right" : 
+            ""
+        );
+    }
+}
+
+export function imJustify(alignment = CENTER) {
+    if (imMemo(alignment)) {
+        setStyle("justifyContent", 
+            alignment === CENTER ? "center"  
+            : alignment === LEFT ? "left"
+            : alignment === RIGHT ? "right" : 
+            ""
+        );
     }
 }
 
