@@ -1,4 +1,4 @@
-import { imState, timeSeconds } from "src/utils/im-dom-utils";
+import { imState, getTimeSeconds } from "src/utils/im-dom-utils";
 
 export type TimerState = {
     t0: number;
@@ -46,5 +46,5 @@ export function getTimeElapsedSinceRepeat(s: TimerState, t: number) {
 // NOTE: There will reach a point where you'll want to put this timer into your state, which should be easy enough
 export function imTimerRepeat(repeatTime: number, enabled = true) {
     const s = imState(newTimer);
-    return timerRepeat(s, timeSeconds(), repeatTime, enabled);
+    return timerRepeat(s, getTimeSeconds(), repeatTime, enabled);
 }

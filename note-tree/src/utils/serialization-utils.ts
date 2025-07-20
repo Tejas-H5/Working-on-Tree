@@ -34,7 +34,17 @@ export function asFalse(val: unknown): false | undefined {
 }
 
 export function asObject(val: unknown): Record<string, unknown> | undefined {
-    return (val != null && val.constructor === Object) ? val as Record<string, unknown> : undefined;
+    if (val != null && val.constructor === Object) {
+        return val as Record<string, unknown>;
+    }
+
+    // re-interpret an array of entries we saved as an object
+    const entries = asStringOrNumberEntriesList(val, true, u => u);
+    if (entries) {
+        return Object.fromEntries(entries);
+    }
+
+    return undefined;
 }
 
 export function asArray<T>(val: unknown, castFn?: (u: unknown) => u is T): T[] | undefined {
@@ -58,16 +68,16 @@ export function asDate(val: unknown): Date | undefined {
 }
 
 export function asStringMap<T>(val: unknown, mapFn: (u: unknown) => T | undefined): Map<string, T> | undefined {
-    return asStringOrNumberMap(val, true, mapFn);
+    return new Map(asStringOrNumberEntriesList(val, true, mapFn));
 }
 
 export function asNumberMap<T>(val: unknown, mapFn: (u: unknown) => T | undefined): Map<number, T> | undefined {
-    return asStringOrNumberMap(val, false, mapFn);
+    return new Map(asStringOrNumberEntriesList(val, false, mapFn));
 }
 
-function asStringOrNumberMap<T>(val: unknown, stringKeys: false, mapFn: (u: unknown) => T | undefined): Map<number, T> | undefined;
-function asStringOrNumberMap<T>(val: unknown, stringKeys: true, mapFn: (u: unknown) => T | undefined): Map<string, T> | undefined; 
-function asStringOrNumberMap<T>(val: unknown, stringKeys: boolean, mapFn: (u: unknown) => T | undefined): Map<string, T> | Map<number, T> | undefined {
+function asStringOrNumberEntriesList<T>(val: unknown, stringKeys: false, mapFn: (u: unknown) => T | undefined): [number, T][] | undefined;
+function asStringOrNumberEntriesList<T>(val: unknown, stringKeys: true, mapFn: (u: unknown) => T | undefined): [string, T][] | undefined; 
+function asStringOrNumberEntriesList<T>(val: unknown, stringKeys: boolean, mapFn: (u: unknown) => T | undefined): [number, T][] | [string, T][] | undefined {
     let arr = asArray(val);
     if (!arr) {
         // Objects may also be re-interpreted as maps
@@ -97,7 +107,7 @@ function asStringOrNumberMap<T>(val: unknown, stringKeys: boolean, mapFn: (u: un
             entries.push([k, val]);
         }
 
-        return new Map(entries);
+        return entries;
     } else {
         const entries: [number, T][] = [];
 
@@ -116,7 +126,7 @@ function asStringOrNumberMap<T>(val: unknown, stringKeys: boolean, mapFn: (u: un
             entries.push([k, val]);
         }
 
-        return new Map(entries);
+        return entries;
     }
 }
 
@@ -189,12 +199,13 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
             throw new Error(`Error deserializing field ${rootName + "." + key}: Didn't expect null here`)
         }
     } else if (defaultValue.constructor === Object) {
-        if (recordValue.constructor !== Object) {
+        const reinterpreted = asObject(recordValue);
+        if (reinterpreted === undefined) {
             throw new Error(`Error deserializing field ${rootName + "." + key}: Expected a plain object here`)
         }
 
         // actual plain object, and not some other class/object thing. we can just recurse into it, actually
-        deserializeObject(defaultValue as JSONRecord, recordValue as JSONRecord, rootName + "." + key);
+        deserializeObject(defaultValue as JSONRecord, reinterpreted, rootName + "." + key);
         result = defaultValue;
     } else {
         const isArray = Array.isArray(defaultValue) || Array.isArray(recordValue);
@@ -202,7 +213,9 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
         const isSet = defaultValue instanceof Set;
 
         if (isArray || isMap || isSet) {
-            // arrays can be re-interpreted as arrays, maps or sets.
+            // We want to force the user to manually de-serialize container classes. We can't infer the contents of these
+            // containers from the default value. Even if we could, we want them to use their actual constructor to create
+            // these objects, such that the hidden class can be identical to the other objects.
             throw new Error(`Error deserializing field ${rootName + "." + key}: Got ${isArray ? "an array" : isMap ? "a map" : "a set"} here. We can't infer how to serialize it. Extra deserialization code required.`)
         } else if (defaultValue instanceof Date) {
             result = asDate(recordValue);
@@ -309,7 +322,7 @@ function getJSONSerializable(val: unknown): unknown {
             }
         }
 
-        return entries;
+        return Object.fromEntries(entries);
     }
 
     return val;

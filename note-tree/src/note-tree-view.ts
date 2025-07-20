@@ -379,7 +379,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (newNote) {
             setNote(s, newNote, true);
             setIsEditingCurrentNote(state, true);
+
             ctx.handled = true;
+            ctx.requestSaveState = true;
         }
 
         if (!ctx.handled) {
@@ -396,12 +398,15 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (delta) {
             moveToLocalidx(s, delta, moveNote);
             ctx.handled = true;
-        } if (keyboard.leftKey.pressed) {
+            ctx.requestSaveState = true;
+        } else if (keyboard.leftKey.pressed) {
             moveOutOfCurrent(s, moveNote);
             ctx.handled = true;
+            ctx.requestSaveState = true;
         } else if (keyboard.rightKey.pressed) {
             moveIntoCurrent(s, moveNote);
             ctx.handled = true;
+            ctx.requestSaveState = true;
         }
     }
 
@@ -576,6 +581,7 @@ function imNoteTreeRow(
                         if (input || change) {
                             let status = s.note.data._status;
                             setNoteText(state, s.note, textArea.root.value);
+                            ctx.requestSaveState = true;
                             if (status !== s.note.data._status) {
                                 s.invalidateNote = true;
                             }

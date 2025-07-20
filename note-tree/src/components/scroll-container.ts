@@ -1,6 +1,6 @@
-import { imBegin, imFlex, imScrollOverflow } from "./core/layout";
+import { COL, imBegin, imFlex, imScrollOverflow } from "./core/layout";
 import {
-    deltaTimeSeconds,
+    getDeltaTimeSeconds,
     getScrollVH,
     UIRoot
 } from "src/utils/im-dom-utils";
@@ -19,7 +19,7 @@ export function startScrolling(l: ScrollContainer, smoothScroll: boolean) {
 }
 
 export function imBeginScrollContainer(l: ScrollContainer): UIRoot<HTMLElement> {
-    const scrollParent = imBegin(); imFlex(); imScrollOverflow(); 
+    const scrollParent = imBegin(COL); imFlex(); imScrollOverflow();
     l.root = scrollParent;
     return scrollParent;
 }
@@ -43,7 +43,7 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
             scrollParent.root.scrollTop = lerp(
                 scrollParent.root.scrollTop,
                 scrollTop,
-                20 * deltaTimeSeconds()
+                20 * getDeltaTimeSeconds()
             );
         } else {
             scrollParent.root.scrollTop = scrollTop;

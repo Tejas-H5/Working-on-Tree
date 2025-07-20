@@ -1879,11 +1879,11 @@ export type KeyPressEvent = {
     meta: boolean;
 };
 
-export function deltaTimeSeconds(): number {
+export function getDeltaTimeSeconds(): number {
     return imCore.dtSeconds;
 }
 
-export function timeSeconds(): number {
+export function getTimeSeconds(): number {
     return imCore.tSeconds;
 }
 

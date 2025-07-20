@@ -26,6 +26,15 @@ import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
 import { asNoteTreeGlobalState  } from "./schema";
 import * as oldTree from "src/utils/tree";
 
+const SAVE_DEBOUNCE = 1500;
+const ERROR_TIMEOUT_TIME = 5000;
+
+const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
+const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
+
+// Used by webworker and normal code
+export const CHECK_INTERVAL_MS = 1000 * 10;
+
 export function setTheme(newTheme: AppTheme) {
     state.currentTheme = newTheme;
 
@@ -2574,6 +2583,7 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
     }
 
     const serialized = serializeToJSON(state);
+    console.log(serialized);
 
     // https://developer.chrome.com/blog/blob-support-for-Indexeddb-landed-on-chrome-dev
     // NOTE: I'm not even going to attempt to save as a string, because that simply won't work on chromium browsers

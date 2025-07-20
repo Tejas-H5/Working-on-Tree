@@ -12,7 +12,7 @@ import { imSpan } from "./components/core/text";
 import { getAxisRaw, GlobalContext } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle, ROW_EXISTS, ROW_FOCUSED, ROW_HIGHLIGHTED, ROW_SELECTED } from "./list-row";
 import { clampedListIdx, clampedListIdxRange, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
-import { Activity, activityNoteIdMatchesLastActivity, APP_VIEW_TREE, getActivityDurationMs, getActivityText, getCurrentNote, getHigherLevelTask, getNote, state } from "./state";
+import { Activity, APP_VIEW_TREE, getActivityDurationMs, getActivityText, getCurrentNote, getHigherLevelTask, getNote, state } from "./state";
 import { boundsCheck } from "./utils/array-utils";
 import { floorDateLocalTime, formatDate, formatDuration, formatTime, isDayBefore, isSameDate } from "./utils/datetime";
 import {
@@ -23,6 +23,7 @@ import {
     imFor,
     imIf,
     imMemo,
+    imMemoMany,
     imNextRoot,
     imState,
     isFirstishRender,
@@ -111,7 +112,7 @@ function getActivitiesNextDateStartIdx(
     activities: Activity[],
     startIdx: number,
 ): number {
-    if (!boundsCheck(activities, startIdx)) return -1;
+    if (!boundsCheck(activities, startIdx)) return startIdx;
 
     let i =  startIdx;
 
@@ -169,8 +170,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
     const currentActivity = s.activities[s.activityListPositon.idx];
     const viewingActivities = hasActivitiesToView(s);
-    const activityListFocused = s.currentFocus === FOCUS_ACTIVITIES_LIST;
-    const dateSelectorFocused  = s.currentFocus === FOCUS_DATE_SELECTOR;
+    const currentFocus = getCurrentFocus(s);
+    const activityListFocused = currentFocus === FOCUS_ACTIVITIES_LIST;
+    const dateSelectorFocused = currentFocus === FOCUS_DATE_SELECTOR;
 
     const [lo, hi] = getActivityRange(s);
 
@@ -211,10 +213,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 }
                 ctx.handled = true;
             }
-        }
-
-        if (ctx.handled) {
-            startScrolling(s.scrollContainer, true);
         }
     }
 
@@ -319,15 +317,32 @@ function hasActivitiesToView(s: ActivitiesViewState): boolean {
     return s._startActivityIdx < s._endActivityIdxEx;
 }
 
+function getCurrentFocus(s: ActivitiesViewState) {
+    const hasActivities = hasActivitiesToView(s);
+    if (!hasActivities) {
+        return FOCUS_DATE_SELECTOR;
+    }
+
+    return s.currentFocus;
+}
+
 export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
     const s = imState(newActivitiesViewState);
     s.activities = state.activities;;
 
     s.now = ctx.now;
 
-    if (imMemo(state._isEditingFocusedNote)) {
-        const lastActivity = s.activities[s.activities.length - 1];
-        setCurrentViewingDate(s, lastActivity.t);
+    if (imMemoMany(state.currentNoteId, state._isEditingFocusedNote)) {
+        if (state._isEditingFocusedNote) {
+            const lastActivity = s.activities[s.activities.length - 1];
+            setCurrentViewingDate(s, lastActivity.t);
+            s.currentFocus = FOCUS_ACTIVITIES_LIST;
+            moveActivityIdx(s, s.activities.length - 1);
+        }
+    }
+
+    if (imMemo(s.activityListPositon.idx)) {
+        startScrolling(s.scrollContainer, true);
     }
 
     if (imMemo(s.currentViewingDate)) {
@@ -337,17 +352,8 @@ export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
     // We can append or delete activities. So the end index isn't cached
     s._endActivityIdxEx = getActivitiesNextDateStartIdx(s.activities, s._startActivityIdx);
 
-    // precompute
     const hasActivities = hasActivitiesToView(s);
-    if (imMemo(hasActivities)) {
-        if (hasActivities) {
-            s.currentFocus = FOCUS_ACTIVITIES_LIST;
-            // NOTE: ma need to reconsider
-            moveActivityIdx(s, s._endActivityIdxEx - 1);
-        } else {
-            s.currentFocus = FOCUS_DATE_SELECTOR;
-        }
-    }
+    const currentFocus = getCurrentFocus(s);
 
     s._canMoveToPrevDay = s._startActivityIdx !== 0;
     s._canMoveToNextDay = s._endActivityIdxEx !== s.activities.length;
@@ -358,9 +364,9 @@ export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
 
     imBegin(COL); imFlex(); {
 
-        const dateSelectorFocused  = s.currentFocus === FOCUS_DATE_SELECTOR;
+        const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
-        imBeginListRow(dateSelectorFocused ? ROW_FOCUSED : ROW_EXISTS); {
+        imBeginListRow(dateSelectorFocused ? (viewFocused ? ROW_FOCUSED : ROW_SELECTED) : ROW_EXISTS); {
             if (isFirstishRender()) {
                 setStyle("fontWeight", "bold");
             }
@@ -415,7 +421,7 @@ export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
                 const activity = s.activities[idx];
                 imNextRoot();
 
-                const itemSelected = s.currentFocus === FOCUS_ACTIVITIES_LIST &&
+                const itemSelected = currentFocus === FOCUS_ACTIVITIES_LIST &&
                     s.activityListPositon.idx === idx;
 
                 let status = ROW_EXISTS;
@@ -468,6 +474,19 @@ export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
                     ); imEnd();
                 } imEnd();
             } imEndIf();
+        } imEnd();
+
+        imLine(
+            HORIZONTAL, 1,
+            !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
+        );
+
+        imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
+            if (isFirstishRender()) {
+                setStyle("fontWeight", "bold");
+            }
+
+            setText("[Shift+B] to take a break");
         } imEnd();
     } imEnd();
 }

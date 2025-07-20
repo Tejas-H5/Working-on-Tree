@@ -41,7 +41,7 @@ import {
     setClass,
     setStyle,
     setText,
-    timeSeconds
+    getTimeSeconds
 } from "./utils/im-dom-utils";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 
@@ -431,7 +431,7 @@ export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
 
     s.now = ctx.now;
 
-    timerRepeat(s.errorTimer, timeSeconds(), null, !!s.error);
+    timerRepeat(s.errorTimer, getTimeSeconds(), null, !!s.error);
 
     imBeginScrollContainer(s.scrollContainer); {
 
@@ -549,7 +549,7 @@ export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
                         }; imEnd();
                     }; imEnd();
 
-                    const time = ERROR_DISPLAY_TIME_SECONDS - getTimeElapsedSinceRepeat(s.errorTimer, timeSeconds());
+                    const time = ERROR_DISPLAY_TIME_SECONDS - getTimeElapsedSinceRepeat(s.errorTimer, getTimeSeconds());
                     const opacity = inverseLerpClamped(0, 0.5, time);
                     if (opacity < 0.001) {
                         clearError(s);

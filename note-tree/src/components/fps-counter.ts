@@ -1,5 +1,5 @@
 import {
-    deltaTimeSeconds,
+    getDeltaTimeSeconds,
     elementHasMousePress,
     imEnd,
     setText,
@@ -67,7 +67,7 @@ export function startFpsCounter(fps: FpsCounterState) {
     if (isExcessEventRender()) return;
 
     fps.t0 = performance.now();
-    const dt = deltaTimeSeconds();
+    const dt = getDeltaTimeSeconds();
     fps.t += dt;
     fps.frames++;
 

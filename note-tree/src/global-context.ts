@@ -10,6 +10,8 @@ export type GlobalContext = {
 
     textAreaToFocus:     UIRoot<HTMLTextAreaElement> | null;
     focusWithAllSelected: boolean;
+
+    requestSaveState: boolean; // set this to true to ask the app to save the current state.
 };
 
 export function newGlobalContext(): GlobalContext {
@@ -22,6 +24,8 @@ export function newGlobalContext(): GlobalContext {
 
         textAreaToFocus:      null,
         focusWithAllSelected: false,
+
+        requestSaveState: false,
     };
 }
 
@@ -51,6 +55,7 @@ type KeyboardState = {
     aKey: KeyState;
     sKey: KeyState;
     dKey: KeyState;
+    bKey: KeyState;
 
     enterKey:  KeyState;
     escapeKey: KeyState;
@@ -102,6 +107,7 @@ function newKeyboardState(): KeyboardState {
         aKey: newKeyState(),
         sKey: newKeyState(),
         dKey: newKeyState(),
+        bKey: newKeyState(),
 
         enterKey:  newKeyState(),
         escapeKey: newKeyState(),
@@ -134,6 +140,7 @@ function newKeyboardState(): KeyboardState {
     state.keys.push(state.aKey);
     state.keys.push(state.sKey);
     state.keys.push(state.dKey);
+    state.keys.push(state.bKey);
     state.keys.push(state.enterKey);
     state.keys.push(state.escapeKey);
     state.keys.push(state.ctrlKey);
@@ -214,6 +221,7 @@ function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
         case "A": case "a": pressKey(s.aKey, e.repeat);        break;
         case "S": case "s": pressKey(s.sKey, e.repeat);        break;
         case "D": case "d": pressKey(s.dKey, e.repeat);        break;
+        case "B": case "b": pressKey(s.bKey, e.repeat);        break;
         case "Enter":       pressKey(s.enterKey, e.repeat);    break;
         case "Escape":      pressKey(s.escapeKey, e.repeat);   break;
         case "Control":     pressKey(s.ctrlKey, e.repeat);     break;
@@ -249,6 +257,7 @@ function handleKeyUp(s: KeyboardState, e: KeyboardEvent) {
         case "A": case "a": releaseKey(s.aKey);         break;
         case "S": case "s": releaseKey(s.sKey);         break;
         case "D": case "d": releaseKey(s.dKey);         break;
+        case "B": case "b": releaseKey(s.bKey);         break;
         case "Enter":       releaseKey(s.enterKey);     break;
         case "Escape":      releaseKey(s.escapeKey);    break;
         case "Control":     releaseKey(s.ctrlKey);      break;
