@@ -1,3 +1,4 @@
+/**
 import {
     AsciiCanvas,
     newCanvasState,
@@ -5712,3 +5713,6 @@ initState(() => {
     autoInsertBreakIfRequired();
     rerenderApp();
 });
+
+
+*/

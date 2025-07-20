@@ -234,13 +234,15 @@ export type Note = {
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
 
+    // The note's higher level task.
+    _higherLevelTask: TreeNote | undefined;
+
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _shelved: boolean; // Is this note or any of it's parents shelved?
     _everyChildNoteDone: boolean;
     _isAboveCurrentNote: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
     _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
-    _higherLevelTaskId: NoteId; // the note's higher level task, as per the To-Do list calculation. This is only valid if it's in the To-Do list.
     _depth: number; // used to visually indent the notes
     _durationUnranged: number;
     _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
@@ -503,7 +505,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _statusText: "",
         _statusTextColor: "",
 
-        _currentScreen: APP_VIEW_TREE,
+        _currentScreen: APP_VIEW_ACTIVITIES,
     };
 
     setActivityRangeToToday(state);
@@ -670,10 +672,10 @@ export function defaultNote(): Note {
 
         // the following are just visual flags which are frequently recomputed
 
+        _higherLevelTask: undefined,
         _status: STATUS_NOT_COMPUTED,
         _shelved: false,
         _everyChildNoteDone: false,
-        _higherLevelTaskId: tree.NIL_ID,
         _isAboveCurrentNote: false,
         _isUnderCurrent: false,
         _depth: 0,
@@ -734,8 +736,22 @@ export function recomputeFlatNotes(
     const dfs = (note: TreeNote) => {
         flatNotes.push(note);
 
-        const isVisualLeaf = note.childIds.length === 0 || 
-            isNoteOpaque(state, currentNote, note);
+        let isVisualLeaf = note.childIds.length === 0;
+
+        if (!isVisualLeaf) {
+            const collapsed = isNoteCollapsed(note);
+            if (collapsed) {
+                isVisualLeaf = true;
+
+                if (collapsed === COLLAPSED_STATUS) {
+                    const currentNoteIsInsideThisOne = parentNoteContains(state, note.id, currentNote);
+                    if (currentNoteIsInsideThisOne) {
+                        isVisualLeaf = false;
+                    }
+                }
+            }
+        }
+
         if (isVisualLeaf) {
             return;
         }
@@ -1266,19 +1282,23 @@ export function parentNoteContains(state: NoteTreeGlobalState, parentId: NoteId,
     return false;
 }
 
+export const NOT_COLLAPSED    = 0;
+export const COLLAPSED_HLT    = 1;
+export const COLLAPSED_ROOT   = 2;
+export const COLLAPSED_STATUS = 3;
+
+export type CollapsedStatus
+    = typeof NOT_COLLAPSED
+    | typeof COLLAPSED_HLT
+    | typeof COLLAPSED_ROOT
+    | typeof COLLAPSED_STATUS;
+
 // When we have a particular note selected, and our view is rooted somewhere, can we see this note?
-export function isNoteOpaque(
-    state: NoteTreeGlobalState,
-    currentNote: TreeNote,
-    queryNote: TreeNote,
-): boolean {
-    if (isHigherLevelTask(queryNote)) return true;
-    if (idIsNilOrRoot(queryNote.id)) return true;
-    if (queryNote.data._status !== STATUS_IN_PROGRESS) {
-        return queryNote.id === currentNote.id ||
-            !parentNoteContains(state, queryNote.id, currentNote);
-    }
-    return false;
+export function isNoteCollapsed(note: TreeNote): CollapsedStatus {
+    if (isHigherLevelTask(note))                  return COLLAPSED_HLT;
+    if (idIsNilOrRoot(note.id))                   return COLLAPSED_ROOT;
+    if (note.data._status !== STATUS_IN_PROGRESS) return COLLAPSED_STATUS;
+    return NOT_COLLAPSED;
 }
 
 
@@ -2598,15 +2618,18 @@ function loadStateFromLocalStorage(): boolean {
 }
 
 export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): TreeNote | undefined {
+    let result: TreeNote | undefined = undefined;
+
     while (!idIsNil(note.parentId)) {
         if (isHigherLevelTask(note)) {
-            return note;
+            result = note;
+            break;
         }
 
         note = getNote(state, note.parentId);
     }
 
-    return undefined;
+    return result;
 }
 
 export function getNumSiblings(state: NoteTreeGlobalState, note: TreeNote): number {

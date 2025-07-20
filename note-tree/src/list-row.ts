@@ -15,27 +15,40 @@ import {
 } from "./utils/im-dom-utils";
 
 
-export function imBeginListRow(
-    viewFocused: boolean,
-    focused: boolean,
-    editing: boolean,
-) {
-    const viewFocusedChanged = imMemo(viewFocused);
-    const focusChanged = imMemo(focused);
-    const editingChanged = imMemo(editing);
+type RowStatusInstance = number & { __rowStatus: void; };
 
+export const ROW_EXISTS      = 0 as RowStatusInstance;
+export const ROW_HIGHLIGHTED = 1 as RowStatusInstance;
+export const ROW_SELECTED    = 2 as RowStatusInstance;
+export const ROW_FOCUSED     = 3 as RowStatusInstance;
+export const ROW_EDITING     = 4 as RowStatusInstance;
+
+export type RowStatus
+    = typeof ROW_EXISTS
+    | typeof ROW_HIGHLIGHTED
+    | typeof ROW_SELECTED
+    | typeof ROW_FOCUSED
+    | typeof ROW_EDITING;
+
+function getBg(status: RowStatus): string {
+    if (status === ROW_HIGHLIGHTED) return cssVarsApp.bgColorFocus2;
+    if (status >= ROW_SELECTED)     return cssVarsApp.bgColorFocus;;
+    return "";
+}
+
+export function imBeginListRow(status: RowStatus) {
+    const statusChanged = imMemo(status);
     const root = imBegin(ROW); {
-        if (focusChanged) {
-            setStyle("backgroundColor", focused ? cssVarsApp.bgColorFocus : "");
+        if (statusChanged) {
+            setStyle("backgroundColor", getBg(status));
         }
 
         imBegin(); imSize(10, PX, 0, NOT_SET); {
-            if (focusChanged || editingChanged || viewFocusedChanged) {
-                setStyle("backgroundColor", 
-                    (!viewFocused || !focused) ? "" 
-                    : editing ? cssVarsApp.bgEditing
-                    : focused ? cssVarsApp.fgColor
-                    : ""
+            if (statusChanged) {
+                setStyle("backgroundColor",
+                    status === ROW_FOCUSED ? cssVarsApp.fgColor 
+                        : status === ROW_EDITING ? cssVarsApp.bgEditing
+                        : ""
                 );
             }
         } imEnd();

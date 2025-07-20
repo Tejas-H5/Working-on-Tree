@@ -30,7 +30,7 @@ export const lightTheme = {
     bgEditing: newColorFromHex("#F00"),
     bgColor: newColorFromHex("#FFF"),
     bgColorFocus: newColorFromHex("#CCC"),
-    bgColorFocus2: newColor(0, 0, 0, 0.4),
+    bgColorFocus2: newColorFromHex("#E6E6E6"),
     fgColor: newColorFromHex("#000"),
     unfocusTextColor: newColorFromHex("#A0A0A0"),
     focusedTreePathWidth: "4px",

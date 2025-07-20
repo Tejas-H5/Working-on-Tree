@@ -140,6 +140,9 @@ export const cn = Object.freeze({
     noWrap: cssb.cn("noWrap", [` { white-space: nowrap; }`]),
     handleLongWords: cssb.cn("handleLongWords", [` { overflow-wrap: anywhere; word-break: normal; }`]),
     strikethrough: cssb.cn("strikethrough", [` { text-decoration: line-through; text-decoration-color: currentColor; }`]),
+    // This looks horribe though
+    // truncated: cssb.cn("truncated", [` { text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }`]),
+    truncated: cssb.cn("truncated", [` { white-space: nowrap; overflow: hidden; }`]),
 
     mediumFont: cssb.cn("mediumFont", [` { font-size: ${cssVars.mediumText}; }`]),
     normalFont: cssb.cn("normalFont", [` { font-size: ${cssVars.normalText}; }`]),

@@ -1,4 +1,4 @@
-import { imHLine } from "./app-components/common";
+import { imLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import {
@@ -9,7 +9,6 @@ import {
     imBegin,
     imBg,
     imFlex,
-    imH100,
     imInitClasses,
     imOpacity,
     imRelative,
@@ -25,18 +24,21 @@ import { GlobalContext } from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
-    imListRowCellStyle
+    imListRowCellStyle,
+    ROW_EDITING,
+    ROW_EXISTS,
+    ROW_FOCUSED,
+    ROW_SELECTED
 } from "./list-row";
 import {
-    clampedListIdx,
-    getNavigableListInput,
-    imBeginNavigableListContainer,
-    NavigableList,
-    newNavigableList,
-    scrollNavigableList,
+    imBeginScrollContainer,
+    ScrollContainer,
+    newScrollContainer,
+    scrollToItem,
     startScrolling
-} from "./navigable-list";
+} from "src/components/scroll-container";
 import {
+    COLLAPSED_STATUS,
     createNewNote,
     deleteNoteIfEmpty,
     getCurrentNote,
@@ -45,7 +47,7 @@ import {
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
-    isNoteOpaque,
+    isNoteCollapsed,
     noteStatusToString,
     recomputeFlatNotes,
     recomputeNoteParents,
@@ -60,6 +62,7 @@ import {
 import { boundsCheck } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import {
+    HORIZONTAL,
     imBeginSpan,
     imElse,
     imEnd,
@@ -76,6 +79,7 @@ import {
     setText
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
+import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -85,8 +89,9 @@ export type NoteTreeViewState = {
     viewRootParentNotes: TreeNote[];
     childNotes:          TreeNote[];
 
-    list:         NavigableList;
+    scrollContainer: ScrollContainer;
 
+    listPos: ListPosition;
 
     // Debugging
     numVisible: number;
@@ -99,22 +104,21 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         }
 
         s.note = note;
-        startScrolling(s.list, true);
+        startScrolling(s.scrollContainer, true);
         recomputeNoteParents(state, s.noteParentNotes, s.note);
         setCurrentNote(state, note.id);
 
         const viewRoot = getNoteViewRoot(note);
-        if (invalidate || s.viewRoot !== viewRoot) {
+        if (s.viewRoot !== viewRoot) {
             s.viewRoot = viewRoot;
-            state._currentFlatNotesRootId = viewRoot.id;
+            startScrolling(s.scrollContainer, false);
             recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
-            recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note, false);
-            assert(s.childNotes.length === 0 || s.list.idx !== -1);
-            startScrolling(s.list, false);
         }
 
-        
-        s.list.idx = s.childNotes.indexOf(note);
+        // flat notes need recompuation when the child changes.
+        recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note, false);
+        s.listPos.idx = s.childNotes.indexOf(note);
+        assert(s.childNotes.length === 0 || s.listPos.idx !== -1);
     }
 }
 
@@ -122,7 +126,11 @@ function getNoteViewRoot(currentNote: TreeNote) {
     let it = currentNote;
     while (!idIsNil(it.parentId)) {
         it = getNote(state, it.parentId);
-        if (isNoteOpaque(state, currentNote, it)) {
+        const collapsed = isNoteCollapsed(it);
+        if (
+            collapsed && 
+            collapsed !== COLLAPSED_STATUS  // we want to peek into 'done' notes if that is the current note.
+        ) {
             break;
         }
     }
@@ -140,7 +148,8 @@ export function newNoteTreeViewState(): NoteTreeViewState {
         viewRootParentNotes: [],
         childNotes:          [],
 
-        list:           newNavigableList(),
+        scrollContainer: newScrollContainer(),
+        listPos: newListPosition(),
 
         numVisible:     0,
     };
@@ -151,10 +160,10 @@ export function newNoteTreeViewState(): NoteTreeViewState {
 }
 
 function setIdx(s: NoteTreeViewState, idx: number) {
-    s.list.idx = clampedListIdx(idx, s.childNotes.length);
-    if (s.list.idx === -1) return;
+    s.listPos.idx = clampedListIdx(idx, s.childNotes.length);
+    if (s.listPos.idx === -1) return;
 
-    const note = s.childNotes[s.list.idx];
+    const note = s.childNotes[s.listPos.idx];
     state.currentNoteId = note.id;
     setNote(s, note);
 }
@@ -171,7 +180,7 @@ function setIdxLocal(s: NoteTreeViewState, localIdx: number) {
 }
 
 function moveIdx(s: NoteTreeViewState, amount: number) {
-    setIdx(s, s.list.idx + amount);
+    setIdx(s, s.listPos.idx + amount);
 }
 
 function moveIdxLocal(s: NoteTreeViewState, amount: number) {
@@ -205,7 +214,7 @@ function moveIntoCurrent(
     s: NoteTreeViewState,
     moveNote: boolean,
 ) {
-    if (!boundsCheck(s.childNotes, s.list.idx)) return;
+    if (!boundsCheck(s.childNotes, s.listPos.idx)) return;
     if (idIsNil(s.note.parentId)) return;
 
     if (moveNote) {
@@ -224,7 +233,7 @@ function moveIntoCurrent(
             recomputeNoteStatusRecursively(state, prevNote);
         }
     } else {
-        const nextRoot = s.childNotes[s.list.idx];
+        const nextRoot = s.childNotes[s.listPos.idx];
 
         if (nextRoot.childIds.length > 0) {
             if (!boundsCheck(nextRoot.childIds, nextRoot.data.lastSelectedChildIdx)) {
@@ -239,37 +248,47 @@ function moveIntoCurrent(
 }
 
 
-export function imNoteTreeView(ctx: GlobalContext, viewFocused: boolean) {
+export function imNoteTreeView(
+    ctx: GlobalContext,
+    viewFocused: boolean
+) {
     const s = ctx.noteTreeViewState;
+
+    if (imMemo(state.currentNoteId)) {
+        const note = getCurrentNote(state);
+        setNote(s, note);
+    } 
 
     if (s.invalidateNote) {
         s.invalidateNote = false;
         setNote(s, s.note, true);
     }
 
-    handleKeyboardInput(ctx, s);
+    if (viewFocused) {
+        handleKeyboardInput(ctx, s);
+    }
 
-    imBegin(COL); imFlex(); imH100(); {
+    imBegin(COL); imFlex(); {
         imBegin(); {
             s.numVisible = 0;
             imFor(); for (const row of s.viewRootParentNotes) {
                 imNextRoot(row);
 
-                imBeginListRow(viewFocused, false, false); {
-                    imNoteTreeRow(ctx, s, row);
+                imBeginListRow(ROW_EXISTS); {
+                    imNoteTreeRow(ctx, s, row, viewFocused);
                 } imEndListRow();
             } imEndFor();
         } imEnd();
 
-        imHLine(
-            1,
-            !!s.list.scrollContainer && s.list.scrollContainer.root.scrollTop > 1,
+        imLine(
+            HORIZONTAL, 1,
+            !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
         );
 
-        imBeginNavigableListContainer(s.list); {
+        imBeginScrollContainer(s.scrollContainer); {
             const SCROLL_TIMEOUT_SECONDS = 1;
-            if (imTimerRepeat(SCROLL_TIMEOUT_SECONDS, s.list.isScrolling)) {
-                s.list.isScrolling = false;
+            if (imTimerRepeat(SCROLL_TIMEOUT_SECONDS, s.scrollContainer.isScrolling)) {
+                s.scrollContainer.isScrolling = false;
             }
 
             imFor(); for (let i = 0; i < s.childNotes.length; i++) {
@@ -277,14 +296,25 @@ export function imNoteTreeView(ctx: GlobalContext, viewFocused: boolean) {
 
                 imNextRoot(row.id);
 
-                const focused = s.list.idx === i;
+                const itemSelected = s.listPos.idx === i;
 
-                const root = imBeginListRow(viewFocused, focused, state._isEditingFocusedNote); {
-                    imNoteTreeRow(ctx, s, row, i, focused);
+                let rowStatus = ROW_EXISTS;
+                if (itemSelected) {
+                    rowStatus = ROW_SELECTED;
+                    if (viewFocused) {
+                        rowStatus = ROW_FOCUSED;
+                        if (state._isEditingFocusedNote) {
+                            rowStatus = ROW_EDITING;
+                        }
+                    }
+                }
+
+                const root = imBeginListRow(rowStatus); {
+                    imNoteTreeRow(ctx, s, row, viewFocused, i, itemSelected);
                 } imEndListRow();
 
-                if (focused) {
-                    scrollNavigableList(s.list, root)
+                if (itemSelected) {
+                    scrollToItem(s.scrollContainer, root)
                 }
             } imEndFor();
 
@@ -387,8 +417,9 @@ function imNoteTreeRow(
     ctx: GlobalContext,
     s: NoteTreeViewState,
     note: TreeNote, 
+    viewFocused: boolean,
     idx = -1, 
-    focused = false
+    itemSelected = false
 ) {
     s.numVisible++;
 
@@ -404,7 +435,7 @@ function imNoteTreeRow(
     }
 
     imBegin(ROW); imFlex(); {
-        setClass(cn.preWrap, focused);
+        setClass(cn.preWrap, itemSelected);
 
         // The tree visuals
         imBegin(ROW_REVERSE); {
@@ -437,7 +468,7 @@ function imNoteTreeRow(
 
                 const isLineInPath: boolean = 
                     !foundLineInPath && 
-                    idx <= s.list.idx && 
+                    idx <= s.listPos.idx && 
                     itIsParent;
 
                 foundLineInPath ||= isLineInPath;
@@ -517,11 +548,11 @@ function imNoteTreeRow(
             }
 
             imBegin(ROW); imFlex(); {
-                if (imMemo(focused)) {
-                    setClass(cn.preWrap, focused);
-                    setClass(cn.pre, !focused);
-                    setClass(cn.noWrap, !focused);
-                    setClass(cn.overflowHidden, !focused);
+                if (imMemo(itemSelected)) {
+                    setClass(cn.preWrap, itemSelected);
+                    setClass(cn.pre, !itemSelected);
+                    setClass(cn.noWrap, !itemSelected);
+                    setClass(cn.overflowHidden, !itemSelected);
                 }
 
                 imBegin(ROW); {
@@ -534,7 +565,7 @@ function imNoteTreeRow(
                     imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
                 } imEnd();
 
-                const isEditing = focused && state._isEditingFocusedNote;
+                const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
                 if (imIf() && isEditing) {
                     const [,textArea] = imBeginTextArea({
                         value: note.data.text,

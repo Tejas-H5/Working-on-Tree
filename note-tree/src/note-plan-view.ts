@@ -5,12 +5,10 @@ import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea, } from ".
 import { GlobalContext } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
 import {
-    clampedListIdx,
-    getNavigableListInput,
-    imBeginNavigableListContainer,
-    NavigableList,
-    newNavigableList
-} from "./navigable-list";
+    imBeginScrollContainer,
+    ScrollContainer,
+    newScrollContainer
+} from "src/components/scroll-container";
 import { boundsCheck, swap } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import {
@@ -45,11 +43,14 @@ import {
     setText,
     timeSeconds
 } from "./utils/im-dom-utils";
+import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 
 export type PlanViewState = {
     now: Date;
 
-    list:    NavigableList;
+    scrollContainer: ScrollContainer;
+
+    list:    ListPosition;
     editing: number;
     plans:   PlanItem[];
 
@@ -82,7 +83,9 @@ function newJournalViewState(): PlanViewState {
     const state: PlanViewState = {
         now: new Date(),
 
-        list:    newNavigableList(),
+        scrollContainer: newScrollContainer(),
+
+        list: newListPosition(),
         editing: EDITING_START_TIME,
         plans: [newPlanItemAtTime(new Date())],
 
@@ -422,13 +425,15 @@ function planIsReadonly(s: PlanViewState, plan: PlanItem) {
 export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
     const s = imState(newJournalViewState);
 
-    handleKeyboardInput(ctx, s);
+    if (viewFocused) {
+        handleKeyboardInput(ctx, s);
+    }
 
-    s.now = new Date();
+    s.now = ctx.now;
 
     timerRepeat(s.errorTimer, timeSeconds(), null, !!s.error);
 
-    imBeginNavigableListContainer(s.list); {
+    imBeginScrollContainer(s.scrollContainer); {
 
         let planMutateAction: DeferredAction;
 
@@ -436,7 +441,7 @@ export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
             const plan = s.plans[i];
             imNextRoot(plan);
 
-            const focused = s.list.idx === i;
+            const focused = viewFocused && s.list.idx === i;
             let prevPlan: PlanItem | null = null;
             if (i !== 0) prevPlan = s.plans[i - 1];
 

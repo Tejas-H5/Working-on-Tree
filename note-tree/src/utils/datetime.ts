@@ -69,10 +69,15 @@ export function formatDate(date: Date | null, dayOfTheWeek = false) {
     return `${dayOfTheWeekStr}${pad2(dd)}/${pad2(mm)}/${yyyy}`;
 }
 
+// Compares dates, ignoring the time component
 export function isSameDate(a: Date, b: Date): boolean {
     return a.getFullYear() === b.getFullYear() &&
            a.getMonth() === b.getMonth() &&
            a.getDate() === b.getDate();
+}
+
+export function isDayBefore(a: Date, b: Date) {
+    return a.getTime() < b.getTime() && !isSameDate(a, b);
 }
 
 export function pad2(num: number) {

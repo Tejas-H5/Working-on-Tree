@@ -1,4 +1,5 @@
 import {
+    END,
     imBeginDiv,
     imBeginRoot,
     imEnd,
@@ -183,18 +184,6 @@ export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
     return root;
 }
 
-export function imW100() {
-    if (isFirstishRender()) {
-        setClass(cn.w100);
-    }
-}
-
-export function imH100() {
-    if (isFirstishRender()) {
-        setClass(cn.h100);
-    }
-}
-
 export function imFlex(val = 1) {
     if (imMemo(val)) {
         setStyle("flex", "" + val);
@@ -210,34 +199,37 @@ export function imGap(val = 0, units: SizeUnits) {
     }
 }
 
+// Add more as needed
 export const NONE = 0;
 export const CENTER = 1;
 export const LEFT = 2;
 export const RIGHT = 3;
+export const STRETCH = 4;
+
+function getAlignment(alignment: number) {
+    switch(alignment) {
+        case NONE:    return "";
+        case CENTER:  return "center";
+        case LEFT:    return "left";
+        case RIGHT:   return "right";
+        case STRETCH: return "stretch";
+    }
+    return "";
+}
 
 export function imAlign(alignment = CENTER) {
     if (imMemo(alignment)) {
-        setStyle("alignItems", 
-            alignment === CENTER ? "center"  
-            : alignment === LEFT ? "left"
-            : alignment === RIGHT ? "right" : 
-            ""
-        );
+        setStyle("alignItems", getAlignment(alignment));
     }
 }
 
 export function imJustify(alignment = CENTER) {
     if (imMemo(alignment)) {
-        setStyle("justifyContent", 
-            alignment === CENTER ? "center"  
-            : alignment === LEFT ? "left"
-            : alignment === RIGHT ? "right" : 
-            ""
-        );
+        setStyle("justifyContent", getAlignment(alignment));
     }
 }
 
-export function imScrollContainer(vScroll = true, hScroll = false) {
+export function imScrollOverflow(vScroll = true, hScroll = false) {
     if (imMemo(vScroll)) {
         setClass(cn.overflowYAuto, vScroll);
     }
@@ -334,15 +326,6 @@ export function imBeginAspectRatio(w: number, h: number) {
 
     return root;
 }
-
-export function imVerticalBar() {
-    imBeginDiv(); {
-        if (isFirstishRender()) {
-            setAttr("style", `width: 5px; background-color: ${cssVars.fg}; margin: 0px 5px;`);
-        }
-    } imEnd();
-}
-
 
 export function setInset(amount: string) {
     if (amount) {

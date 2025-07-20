@@ -1,17 +1,26 @@
 import { cssVarsApp } from "src/app-styling";
 import { imBegin, imSize, NOT_SET, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { imEnd, imMemo, isFirstishRender, setClass, setStyle } from "src/utils/im-dom-utils";
-
+import { HORIZONTAL, imEnd, imMemo, isFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
 
 const cssb = newCssBuilder();
 const cnHLine = cssb.cn("hline", [
     ` { transition: opacity 0.1s linear, height 0.1s linear; }`
 ]);
 
+export function imLine(
+    type: typeof HORIZONTAL | typeof VERTICAL,
+    widthPx: number = 2,
+    visible = true
+) {
+    let height = visible ? widthPx : 0;
+    let heightUnit = PX;
+    const isH = type === HORIZONTAL;
 
-export function imHLine(heightPx: number = 2, visible = true) {
-    imBegin(); imSize(0, NOT_SET, visible ? heightPx : 0, PX); {
+    imBegin(); imSize(
+        !isH ? height : 0, !isH ? heightUnit : NOT_SET,
+         isH ? height : 0,  isH ? heightUnit : NOT_SET,
+    ); {
         if (isFirstishRender()) {
             setStyle("backgroundColor", cssVarsApp.fgColor);
             setClass(cnHLine);

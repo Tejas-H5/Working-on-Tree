@@ -1,8 +1,9 @@
-import {  newTimer, TimerState } from "./app-utils/timer";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { getImKeys, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
+    now: Date;
+
     keyboard:          KeyboardState;
     handled:           boolean;
     noteTreeViewState: NoteTreeViewState;
@@ -13,6 +14,8 @@ export type GlobalContext = {
 
 export function newGlobalContext(): GlobalContext {
     return {
+        now: new Date(),
+
         keyboard:          newKeyboardState(),
         handled:           false,
         noteTreeViewState: newNoteTreeViewState(),
@@ -42,6 +45,8 @@ type KeyboardState = {
     rightKey:    KeyState;
     pageDownKey: KeyState;
     pageUpKey:   KeyState;
+    homeKey:     KeyState;
+    endKey:      KeyState;
 
     aKey: KeyState;
     sKey: KeyState;
@@ -91,6 +96,8 @@ function newKeyboardState(): KeyboardState {
         rightKey:    newKeyState(),
         pageDownKey: newKeyState(),
         pageUpKey:   newKeyState(),
+        homeKey:     newKeyState(),
+        endKey:      newKeyState(),
 
         aKey: newKeyState(),
         sKey: newKeyState(),
@@ -122,6 +129,8 @@ function newKeyboardState(): KeyboardState {
     state.keys.push(state.rightKey);
     state.keys.push(state.pageDownKey);
     state.keys.push(state.pageUpKey);
+    state.keys.push(state.homeKey);
+    state.keys.push(state.endKey);
     state.keys.push(state.aKey);
     state.keys.push(state.sKey);
     state.keys.push(state.dKey);
@@ -142,15 +151,14 @@ function newKeyboardState(): KeyboardState {
     state.keys.push(state.num8Key);
     state.keys.push(state.num9Key);
 
-
-
     return state;
 }
 
-export function getAxisRaw(positive: boolean, negative: boolean): number {
+// <- negative | positive ->
+export function getAxisRaw(negative: boolean, positive: boolean): number {
     let result = 0;
-    if (positive) result += 1;
     if (negative) result -= 1;
+    if (positive) result += 1;
     return result;
 }
 
@@ -201,6 +209,8 @@ function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
         case "ArrowRight":  pressKey(s.rightKey, e.repeat);    break;
         case "PageUp":      pressKey(s.pageUpKey, e.repeat);   break;
         case "PageDown":    pressKey(s.pageDownKey, e.repeat); break; 
+        case "Home":        pressKey(s.homeKey, e.repeat);     break;
+        case "End":         pressKey(s.endKey, e.repeat);      break; 
         case "A": case "a": pressKey(s.aKey, e.repeat);        break;
         case "S": case "s": pressKey(s.sKey, e.repeat);        break;
         case "D": case "d": pressKey(s.dKey, e.repeat);        break;
@@ -234,6 +244,8 @@ function handleKeyUp(s: KeyboardState, e: KeyboardEvent) {
         case "ArrowRight":  releaseKey(s.rightKey);     break;
         case "PageUp":      releaseKey(s.pageUpKey);    break;
         case "PageDown":    releaseKey(s.pageDownKey);  break; 
+        case "Home":        releaseKey(s.homeKey);      break;
+        case "End":         releaseKey(s.endKey);       break; 
         case "A": case "a": releaseKey(s.aKey);         break;
         case "S": case "s": releaseKey(s.sKey);         break;
         case "D": case "d": releaseKey(s.dKey);         break;

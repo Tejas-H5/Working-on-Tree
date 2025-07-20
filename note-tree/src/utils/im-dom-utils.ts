@@ -60,9 +60,9 @@ export function isEditingTextSomewhereInDocument(): boolean {
 
 // Flags are kinda based. vastly reduces the need for boolean flags, and API is also nicer looking.
 export const HORIZONTAL = 1 << 1;
-export const VERTICAL = 1 << 2;
-export const START = 1 << 3;
-export const END = 1 << 4;
+export const VERTICAL   = 1 << 2;
+export const START      = 1 << 3;
+export const END        = 1 << 4;
 
 /**
  * Get the amount you will need to scroll along the horizontal and vertical axes to get the element
@@ -883,6 +883,19 @@ export function imIf() {
  *     case 2: imComponent2(); break;
  * } imEndSwitch();
  * ```
+ *
+ * Do note that you can introduce some subtle double-component bugs if you use fallthrough:
+ *
+ * ```
+ * // Super subtle bug here - you've created 2 instances of imComponent1And2Layout, with different internal states.
+ * // You should prefer an if-statement here, or normalize the key to avoid fallthrough cases.
+ * imSwitch(key); switch(key) {
+ *      case 1: case 2: {   
+ *          imComponent1And2Layout();
+ *      } break;
+ *      case 3: imComponent3(); break;
+ * } imEndSwitch();
+ * ```
  */
 export function imSwitch(key: ValidKey) {
     imBeginList(REMOVE_LEVEL_DOM);
@@ -1573,6 +1586,8 @@ function newRef<T>(): Ref<T> {
  *      text("The div: " + ref.val);
  * } end();
  * ```
+ *
+ * NOTE: Prefer {@link imState}, since you will catch out-of-order rendering bugs that way
  */
 export function imRef<T>(): Ref<T> {
     return imState(newRef<T>);
