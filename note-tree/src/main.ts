@@ -13,12 +13,14 @@ import {
     imInitStyles,
     imJustify,
     imSize,
+    INLINE_BLOCK,
     NOT_SET,
     PX,
     RIGHT,
     ROW
 } from "./components/core/layout";
 import { imSpan } from "./components/core/text";
+import { imEndTextArea } from "./components/editable-text-area";
 import {
     imFpsCounterOutput,
     newFpsCounterState,
@@ -43,21 +45,27 @@ import {
     newBreakActivity,
     pushBreakActivity,
     recomputeState,
+    saveState,
     setTheme,
     state,
-    saveState,
 } from "./state";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
     getDeltaTimeSeconds,
     HORIZONTAL,
+    imBeginSpan,
     imCatch,
+    imElse,
     imElseIf,
     imEnd,
+    imEndFor,
     imEndIf,
+    imEndSwitch,
     imEndTry,
+    imFor,
     imIf,
+    imNextRoot,
     imRef,
     imState,
     imTry,
@@ -67,11 +75,7 @@ import {
     newNumber,
     setClass,
     setStyle,
-    setText,
-    getTimeSeconds,
-    imElse,
-    imInit,
-    imStateInline
+    setText
 } from "./utils/im-dom-utils";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
@@ -147,7 +151,7 @@ function imMain() {
                         const root = imBegin(ROW); imFlex(); imAlign(); imJustify(); {
                             if (isFirstishRender()) {
                                 // TODO: standardize
-                                setStyle("fontSize", "23px");
+                                setStyle("fontSize", "20px");
                                 setStyle("fontWeight", "bold");
                             }
 
@@ -158,67 +162,60 @@ function imMain() {
                                 tRef.val += getDeltaTimeSeconds();
 
                                 // bruh
-                                const sin01 = 0.5 * (1 + Math.sin(5 * tRef.val));
+                                if (imIf() && statusTextType === IN_PROGRESS) {
+                                    const sin01 = 0.5 * (1 + Math.sin(5 * tRef.val));
 
-                                setStyle("opacity", sin01 * 0.7 + 0.3 + "", root);
+                                    setStyle("opacity", sin01 * 0.7 + 0.3 + "", root);
 
-                                imBegin(); {
-                                    if (isFirstishRender()) {
-                                        setStyle("width", "20px");
-                                        setStyle("height", "20px");
-                                    }
+                                    imBegin(); {
+                                        if (isFirstishRender()) {
+                                            setStyle("width", "20px");
+                                            setStyle("height", "20px");
+                                        }
 
-                                    setStyle("transform", "rotate(" + 5 * tRef.val + "rad)");
-                                    setStyle("backgroundColor", cssVarsApp.fgColor);
-                                } imEnd();
+                                        setStyle("transform", "rotate(" + 5 * tRef.val + "rad)");
+                                        setStyle("backgroundColor", cssVarsApp.fgColor);
+                                    } imEnd();
+                                } imEndIf();
 
                                 imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
 
-                                imBegin(); setStyle("color", statusTextColor); setText(statusText); imEnd();
-                                imBegin(); {
-                                    setText(".".repeat(Math.ceil(2 * tRef.val % 3)));
-                                    setStyle("color", statusTextColor);
-                                } imEnd();
+                                imBegin(); setText(statusText); imEnd();
+
+                                if (imIf() && statusTextType === IN_PROGRESS) {
+                                    imBegin(); {
+                                        setText(".".repeat(Math.ceil(2 * tRef.val % 3)));
+                                    } imEnd();
+                                } imEndIf();
                             } else {
                                 tRef.val = 0;
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(ROW); imFlex(3); imJustify(RIGHT); imGap(1, CH); {
+                        imBegin(ROW); imFlex(2); imAlign(); imJustify(RIGHT); imGap(1, CH); {
                             // NOTE: these could be buttons.
                             if (isFirstishRender()) {
                                 // TODO: standardize
-                                setStyle("fontSize", "23px");
+                                setStyle("fontSize", "20px");
                                 setStyle("fontWeight", "bold");
                             }
 
-                            imSpan("[1]Notes"); {
-                                setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_TREE);
-                            } imEnd();
+                            imFor(); for (let i = 0; i < ctx.discoverableCommandIdx; i++) {
+                                const command = ctx.discoverableCommands[i];
+                                if (!command.key) continue;
 
-                            imSpan("[2]Activities"); {
-                                setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_ACTIVITIES);
-                            } imEnd();
+                                imNextRoot();
 
-                            imSpan("[3]Plan"); {
-                                setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_PLAN);
-                            } imEnd();
+                                imBegin();
+                                    imBeginSpan(); setText("["); imEnd();
+                                    imBeginSpan(); setText(command.key.stringRepresentation); imEnd();
+                                    imBeginSpan(); setText("] " + command.actionDescription); imEnd();
+                                imEnd();
+                            } imEndFor();
+                            // reset it after rendering them
+                            ctx.discoverableCommandIdx = 0;
 
-                            imSpan("[?]Statistics"); {
-                                // TODO: canvas view
-                                // setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_PLAN);
-                            } imEnd();
-
-                            imSpan("[?]Ascii canvas"); {
-                                // TODO: canvas view
-                                // setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_PLAN);
-                            } imEnd();
-
-                            imSpan("[?]Graph"); {
-                                // TODO: canvas view
-                                // setClass(cnApp.defocusedText, state._currentScreen !== APP_VIEW_PLAN);
-                            } imEnd();
-
+                            imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
                         } imEnd();
                     } imEnd();
 
@@ -230,7 +227,7 @@ function imMain() {
                         state._currentScreen === APP_VIEW_ACTIVITIES
                     ) {
                         imBegin(ROW); imFlex(); {
-                            imNoteTreeView(ctx, state._currentScreen === APP_VIEW_TREE);
+                            imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_TREE);
 
                             imBegin(); {
                                 imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
@@ -240,11 +237,11 @@ function imMain() {
                                 if (isFirstishRender()) {
                                     setStyle("width", "33%");
                                 }
-                                imActivitiesList(ctx, state._currentScreen === APP_VIEW_ACTIVITIES);
+                                imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
                             } imEnd();
                         } imEnd();
                     } else if (imElseIf() && state._currentScreen === APP_VIEW_PLAN) {
-                        imNotePlanView(ctx, state._currentScreen === APP_VIEW_PLAN);
+                        imNotePlanView(ctx, ctx.plansView, state._currentScreen === APP_VIEW_PLAN);
                     } imEndIf();
 
                     imFpsCounterOutput(fpsCounter);
@@ -260,20 +257,6 @@ function imMain() {
                         if (!ctx.textAreaToFocus) {
                             // no, I don't want to select all text being in the DOM, actually
                             ctx.handled = true;
-                        }
-                    }
-
-                    // Use numbers to navigate. Other view inputs must be handled before this one, always.
-                    if (!ctx.handled) {
-                        ctx.handled = true;
-                        if (ctx.keyboard.num1Key.pressed) {
-                            state._currentScreen = APP_VIEW_TREE;
-                        } else if (ctx.keyboard.num2Key.pressed) {
-                            state._currentScreen = APP_VIEW_ACTIVITIES;
-                        } else if (ctx.keyboard.num3Key.pressed) {
-                            state._currentScreen = APP_VIEW_PLAN;
-                        } else {
-                            ctx.handled = false;
                         }
                     }
                 }
@@ -371,9 +354,13 @@ function imMain() {
     }
 }
 
+const IN_PROGRESS = 0;
+const DONE = 1;
+const FAILED = 2;
+
 let statusTextTimeLeft = 0;
 let statusText = "";
-let statusTextColor = "";
+let statusTextType = IN_PROGRESS;
 
 let saveTimeout = 0;
 function saveCurrentState({ debounced } = { debounced: false }) {
@@ -402,7 +389,7 @@ function saveCurrentState({ debounced } = { debounced: false }) {
             const mb = bytesToMegabytes(bytes);
 
             // in case the storage.estimate().then never happens, lets just show something.
-            showStatusText(`Saved (` + mb.toFixed(2) + `mb)`);
+            showStatusText(`Saved (` + mb.toFixed(2) + `mb)`, DONE);
 
             // A shame we need to do this :(
             navigator.storage.estimate().then((data) => {
@@ -416,7 +403,7 @@ function saveCurrentState({ debounced } = { debounced: false }) {
                     return;
                 }
 
-                showStatusText(`Saved (` + mb.toFixed(2) + `mb / ` + estimatedMbUsage.toFixed(2) + `mb)`);
+                showStatusText(`Saved (` + mb.toFixed(2) + `mb / ` + estimatedMbUsage.toFixed(2) + `mb)`, DONE);
 
                 const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " +
                     estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
@@ -446,7 +433,7 @@ function saveCurrentState({ debounced } = { debounced: false }) {
         return;
     }
 
-    showStatusText(`Saving`, SAVE_DEBOUNCE);
+    showStatusText(`Saving`, IN_PROGRESS, SAVE_DEBOUNCE);
     clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
         save();
@@ -456,12 +443,11 @@ function saveCurrentState({ debounced } = { debounced: false }) {
 const STATUS_TEXT_PERSIST_TIME = 1;
 function showStatusText(
     text: string,
+    type: typeof IN_PROGRESS | typeof DONE | typeof FAILED,
     timeout: number = STATUS_TEXT_PERSIST_TIME,
-    // TODO: change this to _status_
-    color: string = cssVarsApp.fgColor,
 ) {
     statusText = text;
-    statusTextColor = color;
+    statusTextType = type;
     statusTextTimeLeft = timeout;
 }
 

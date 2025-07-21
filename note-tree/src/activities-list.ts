@@ -53,7 +53,7 @@ export type ActivitiesViewState = {
     _canMoveToPrevDay: boolean;
 }
 
-function newActivitiesViewState(): ActivitiesViewState {
+export function newActivitiesViewState(): ActivitiesViewState {
     return {
         activities: [],
 
@@ -136,7 +136,7 @@ function getActivityRange(s: ActivitiesViewState): [number, number] {
     return [lo, hi];
 }
 
-function moveActivityIdx(s: ActivitiesViewState, idx: number, notInRange = false) {
+export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInRange = false) {
     if (s.activities.length === 0) return;
 
     let newIdx = idx;
@@ -189,7 +189,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 if (hi < s.activities.length - 1) {
                     setCurrentViewingDate(s, s.activities[hi + 1].t);
                     const [lo2] = getActivityRange(s);
-                    moveActivityIdx(s, lo - 1);
+                    activitiesViewSetIdx(s, lo - 1);
                     s.currentFocus = FOCUS_DATE_SELECTOR;
                 } else if (!isSameDate(s.now, s.currentViewingDate)) {
                     setCurrentViewingDate(s, s.now);
@@ -197,18 +197,18 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 }
                 ctx.handled = true;
             } else {
-                moveActivityIdx(s, s.activityListPositon.idx + delta);
+                activitiesViewSetIdx(s, s.activityListPositon.idx + delta);
                 ctx.handled = true;
             }
         } else {
             if (delta > 0 && viewingActivities) {
                 s.currentFocus = FOCUS_ACTIVITIES_LIST;
-                moveActivityIdx(s, lo);
+                activitiesViewSetIdx(s, lo);
                 ctx.handled = true;
             } else if (delta < 0) {
                 if (lo > 0) {
                     // move to prev day
-                    moveActivityIdx(s, lo - 1, true);
+                    activitiesViewSetIdx(s, lo - 1, true);
                     s.currentFocus = FOCUS_ACTIVITIES_LIST;
                 }
                 ctx.handled = true;
@@ -218,10 +218,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
     if (!ctx.handled && activityListFocused) {
         if (keyboard.homeKey.pressed) {
-            moveActivityIdx(s, lo);
+            activitiesViewSetIdx(s, lo);
             ctx.handled = true;
         } else if (keyboard.endKey.pressed) {
-            moveActivityIdx(s, hi - 1);
+            activitiesViewSetIdx(s, hi - 1);
             ctx.handled = true;
         } else if (keyboard.enterKey.pressed && !keyboard.enterKey.repeat) {
             if (currentActivity.nId) {
@@ -326,8 +326,11 @@ function getCurrentFocus(s: ActivitiesViewState) {
     return s.currentFocus;
 }
 
-export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
-    const s = imState(newActivitiesViewState);
+export function imActivitiesList(
+    ctx: GlobalContext,
+    s: ActivitiesViewState,
+    viewFocused: boolean
+) {
     s.activities = state.activities;;
 
     s.now = ctx.now;
@@ -337,7 +340,7 @@ export function imActivitiesList(ctx: GlobalContext, viewFocused: boolean) {
             const lastActivity = s.activities[s.activities.length - 1];
             setCurrentViewingDate(s, lastActivity.t);
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
-            moveActivityIdx(s, s.activities.length - 1);
+            activitiesViewSetIdx(s, s.activities.length - 1);
         }
     }
 

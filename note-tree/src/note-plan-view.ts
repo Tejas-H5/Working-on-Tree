@@ -79,7 +79,7 @@ function newPlanItemAtTime(time: Date, text = "") {
     return planItem;
 }
 
-function newJournalViewState(): PlanViewState {
+export function newPlanViewState(): PlanViewState {
     const state: PlanViewState = {
         now: new Date(),
 
@@ -422,9 +422,11 @@ function planIsReadonly(s: PlanViewState, plan: PlanItem) {
     return false;
 }
 
-export function imNotePlanView(ctx: GlobalContext, viewFocused: boolean) {
-    const s = imState(newJournalViewState);
-
+export function imNotePlanView(
+    ctx: GlobalContext,
+    s: PlanViewState,
+    viewFocused: boolean
+) {
     if (viewFocused) {
         handleKeyboardInput(ctx, s);
     }

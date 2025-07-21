@@ -753,7 +753,9 @@ export function recomputeFlatNotes(
                 isVisualLeaf = true;
 
                 if (collapsed === COLLAPSED_STATUS) {
-                    const currentNoteIsInsideThisOne = parentNoteContains(state, note.id, currentNote);
+                    const currentNoteIsInsideThisOne = 
+                        currentNote !== note && // don't want to see through the current note
+                        parentNoteContains(state, note.id, currentNote);
                     if (currentNoteIsInsideThisOne) {
                         isVisualLeaf = false;
                     }
@@ -1423,12 +1425,16 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
 }
 
 
+export function isNoteEmpty(note: TreeNote): boolean {
+    return note.data.text.length === 0;
+}
+
 export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote) {
-    if (note.data.text.length > 0) {
+    if (!isNoteEmpty(note)) {
         return false;
     }
 
-    if (!note.data.text && note.childIds.length > 0) {
+    if (note.childIds.length > 0) {
         if (state.textOnArrivalNoteId === note.id && state.textOnArrival) {
             // We can actually restore the text something more sane than the legacy behaviour
             note.data.text = state.textOnArrival;

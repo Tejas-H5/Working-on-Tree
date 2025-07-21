@@ -1,6 +1,7 @@
 import * as tree from "src/utils/int-tree";
 import {
     asArray,
+    asNull,
     asNumber,
     asObject,
     asString,
@@ -46,7 +47,8 @@ export function asNoteTreeGlobalState(val: unknown) {
             // TODO: handle schema version 1.
 
             state.notes.nodes = nodesArr.map(nodeArrVal => {
-                const nodeObj = mustGet(asObject(nodeArrVal));
+                const nodeObj = mustGet(asObject(nodeArrVal) || asNull(nodeArrVal));
+                if (nodeObj === null) return null;
 
                 const noteObjDataObj = mustGet(asObject(extractKey<TreeNote>(nodeObj, "data")));
                 const noteData = defaultNote();

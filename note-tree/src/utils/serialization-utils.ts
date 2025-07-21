@@ -33,15 +33,16 @@ export function asFalse(val: unknown): false | undefined {
     return val === false ? false : undefined;
 }
 
-export function asObject(val: unknown): Record<string, unknown> | undefined {
+export function asObject(val: unknown, reinterpretEntriesAsObject = true): Record<string, unknown> | undefined {
     if (val != null && val.constructor === Object) {
         return val as Record<string, unknown>;
     }
 
-    // re-interpret an array of entries we saved as an object
-    const entries = asStringOrNumberEntriesList(val, true, u => u);
-    if (entries) {
-        return Object.fromEntries(entries);
+    if (reinterpretEntriesAsObject) {
+        const entries = asStringOrNumberEntriesList(val, true, u => u);
+        if (entries) {
+            return Object.fromEntries(entries);
+        }
     }
 
     return undefined;
@@ -81,7 +82,7 @@ function asStringOrNumberEntriesList<T>(val: unknown, stringKeys: boolean, mapFn
     let arr = asArray(val);
     if (!arr) {
         // Objects may also be re-interpreted as maps
-        const obj = asObject(val);
+        const obj = asObject(val, false);
         if (obj) {
             arr = Object.entries(obj);
         }
@@ -238,6 +239,7 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
 
 export function deserializeObject<T extends JSONRecord>(dst: T, src: JSONRecord, rootName = "") {
     for (const k in dst) {
+        if(src.id === 5144) console.log(k);
         deserializeObjectKey(dst, src, k, 0, rootName);
     }
 }

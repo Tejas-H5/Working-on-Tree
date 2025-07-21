@@ -1,3 +1,5 @@
+import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
+import { newPlanViewState, PlanViewState } from "./note-plan-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { getImKeys, UIRoot } from "./utils/im-dom-utils";
 
@@ -11,25 +13,120 @@ export type GlobalContext = {
     textAreaToFocus:     UIRoot<HTMLTextAreaElement> | null;
     focusWithAllSelected: boolean;
 
+    discoverableCommands: DiscoverableCommand[];
+    discoverableCommandIdx: number;
+    discoverableCtrlShiftTempArray: [boolean, boolean];
+
+    noteTreeView: NoteTreeViewState;
+    activityView: ActivitiesViewState;
+    plansView:    PlanViewState;
+
     requestSaveState: boolean; // set this to true to ask the app to save the current state.
 };
 
+export type DiscoverableCommand = {
+    key:    KeyState | null;
+    actionDescription: string;
+}
+
 export function newGlobalContext(): GlobalContext {
+    const keyboard = newKeyboardState();
+
     return {
         now: new Date(),
 
-        keyboard:          newKeyboardState(),
+        keyboard,
         handled:           false,
         noteTreeViewState: newNoteTreeViewState(),
 
         textAreaToFocus:      null,
         focusWithAllSelected: false,
 
+        noteTreeView: newNoteTreeViewState(),
+        plansView:    newPlanViewState(),
+        activityView: newActivitiesViewState(),
+
         requestSaveState: false,
+
+        // only 8 discoverable commands at any given time MAX.
+        discoverableCommands: Array(8).fill(null).map((): DiscoverableCommand => {
+            return {
+                key: null,
+                actionDescription: "",
+            };
+        }),
+        discoverableCommandIdx: 0,
+        discoverableCtrlShiftTempArray: [false, false],
     };
 }
 
+export function hasDiscoverableCtrlOrShiftActions(ctx: GlobalContext): readonly [ctrl: boolean, shift: boolean] {
+    ctx.discoverableCtrlShiftTempArray[0] = false;
+    ctx.discoverableCtrlShiftTempArray[1] = false;
+
+    if (ctx.keyboard.ctrlKey.held) {
+        ctx.discoverableCtrlShiftTempArray[0] = true;
+    } else if (ctx.keyboard.shiftKey.held) {
+        ctx.discoverableCtrlShiftTempArray[1] = true;
+    } else {
+        hasDiscoverableHold(ctx, ctx.keyboard.ctrlKey);
+        hasDiscoverableHold(ctx, ctx.keyboard.shiftKey);
+    }
+
+    return ctx.discoverableCtrlShiftTempArray;
+}
+
+function hasDiscoverableHold(
+    ctx: GlobalContext,
+    key:    KeyState,
+) {
+    if (key.held) return true;
+
+    pushDiscoverableCommand(ctx, key, "actions");
+    return false;
+}
+
+export function hasDiscoverableCommand(
+    ctx: GlobalContext,
+    key:    KeyState,
+    actionDescription: string,
+    repeat = false,
+) {
+    if (!pushDiscoverableCommand(ctx, key, actionDescription)) return false;
+
+    if (!ctx.handled && key.pressed) {
+        if (repeat === true) {
+            return true;
+        }
+
+        return !key.repeat;
+    }
+
+    return false;
+}
+
+function pushDiscoverableCommand(
+    ctx: GlobalContext,
+    key: KeyState,
+    actionDescription: string,
+): boolean {
+    const idx = ctx.discoverableCommandIdx;
+    // Shouldn't accidentally trigger invisible commands imo.
+    if (idx >= ctx.discoverableCommands.length) return false;
+
+    ctx.discoverableCommands[idx].key               = key;
+    ctx.discoverableCommands[idx].actionDescription = actionDescription;
+
+    ctx.discoverableCommandIdx = idx + 1;
+
+    return true;
+}
+
 type KeyState = {
+    stringRepresentation: string;
+    key:  string;
+    key2: string | undefined;
+
     pressed:  boolean;
     repeat:   boolean;
     held:     boolean;
@@ -77,8 +174,16 @@ type KeyboardState = {
     num9Key: KeyState;
 };
 
-function newKeyState(): KeyState {
+function newKeyState(
+    stringRepresentation: string,
+    key: string,
+    key2?: string
+): KeyState {
     return {
+        stringRepresentation,
+        key, 
+        key2,
+
         pressed:  false,
         held:     false,
         released: false,
@@ -95,68 +200,44 @@ function newKeyboardState(): KeyboardState {
         keys: [],
 
         // CONSIDER: hjkl to move around, as well as arrows!
-        upKey:       newKeyState(),
-        downKey:     newKeyState(),
-        leftKey:     newKeyState(),
-        rightKey:    newKeyState(),
-        pageDownKey: newKeyState(),
-        pageUpKey:   newKeyState(),
-        homeKey:     newKeyState(),
-        endKey:      newKeyState(),
+        upKey:       newKeyState("↑", "ArrowUp"),
+        downKey:     newKeyState("↓", "ArrowDown"),
+        leftKey:     newKeyState("←", "ArrowLeft"),
+        rightKey:    newKeyState("→", "ArrowRight"),
+        pageDownKey: newKeyState("PgDn", "PageDown"),
+        pageUpKey:   newKeyState("PgUp", "PageUp"),
+        homeKey:     newKeyState("Home", "Home"),
+        endKey:      newKeyState("End", "End"),
 
-        aKey: newKeyState(),
-        sKey: newKeyState(),
-        dKey: newKeyState(),
-        bKey: newKeyState(),
+        aKey: newKeyState("A", "A", "a"),
+        sKey: newKeyState("S", "S", "s"),
+        dKey: newKeyState("D", "D", "d"),
+        bKey: newKeyState("B", "B", "b"),
 
-        enterKey:  newKeyState(),
-        escapeKey: newKeyState(),
+        enterKey:  newKeyState("Enter", "Enter"),
+        escapeKey: newKeyState("Esc", "Escape"),
 
-        ctrlKey:  newKeyState(),
-        shiftKey: newKeyState(),
-        altKey:   newKeyState(),
-        tabKey:   newKeyState(),
+        ctrlKey:  newKeyState("Ctrl", "Control", "Meta"),
+        shiftKey: newKeyState("Shift", "Shift"),
+        altKey:   newKeyState("Alt", "Alt"),
+        tabKey:   newKeyState("Tab", "Tab"),
 
-        num0Key: newKeyState(),
-        num1Key: newKeyState(),
-        num2Key: newKeyState(),
-        num3Key: newKeyState(),
-        num4Key: newKeyState(),
-        num5Key: newKeyState(),
-        num6Key: newKeyState(),
-        num7Key: newKeyState(),
-        num8Key: newKeyState(),
-        num9Key: newKeyState(),
+        num0Key: newKeyState("0", "0"),
+        num1Key: newKeyState("1", "1"),
+        num2Key: newKeyState("2", "2"),
+        num3Key: newKeyState("3", "3"),
+        num4Key: newKeyState("4", "4"),
+        num5Key: newKeyState("5", "5"),
+        num6Key: newKeyState("6", "6"),
+        num7Key: newKeyState("7", "7"),
+        num8Key: newKeyState("8", "8"),
+        num9Key: newKeyState("9", "9"),
     };
 
-    state.keys.push(state.upKey);
-    state.keys.push(state.downKey);
-    state.keys.push(state.leftKey);
-    state.keys.push(state.rightKey);
-    state.keys.push(state.pageDownKey);
-    state.keys.push(state.pageUpKey);
-    state.keys.push(state.homeKey);
-    state.keys.push(state.endKey);
-    state.keys.push(state.aKey);
-    state.keys.push(state.sKey);
-    state.keys.push(state.dKey);
-    state.keys.push(state.bKey);
-    state.keys.push(state.enterKey);
-    state.keys.push(state.escapeKey);
-    state.keys.push(state.ctrlKey);
-    state.keys.push(state.shiftKey);
-    state.keys.push(state.altKey);
-    state.keys.push(state.tabKey);
-    state.keys.push(state.num0Key);
-    state.keys.push(state.num1Key);
-    state.keys.push(state.num2Key);
-    state.keys.push(state.num3Key);
-    state.keys.push(state.num4Key);
-    state.keys.push(state.num5Key);
-    state.keys.push(state.num6Key);
-    state.keys.push(state.num7Key);
-    state.keys.push(state.num8Key);
-    state.keys.push(state.num9Key);
+    for (const k in state) {
+        const key = k as keyof typeof state;
+        if (key !== "keys") state.keys.push(state[key]); 
+    }
 
     return state;
 }
@@ -208,75 +289,20 @@ function resetKey(state: KeyState) {
 }
 
 function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
-    // vim-query-replace-driven naming
-    switch (e.key) {
-        case "ArrowUp":     pressKey(s.upKey, e.repeat);       break;
-        case "ArrowDown":   pressKey(s.downKey, e.repeat);     break;
-        case "ArrowLeft":   pressKey(s.leftKey, e.repeat);     break;
-        case "ArrowRight":  pressKey(s.rightKey, e.repeat);    break;
-        case "PageUp":      pressKey(s.pageUpKey, e.repeat);   break;
-        case "PageDown":    pressKey(s.pageDownKey, e.repeat); break; 
-        case "Home":        pressKey(s.homeKey, e.repeat);     break;
-        case "End":         pressKey(s.endKey, e.repeat);      break; 
-        case "A": case "a": pressKey(s.aKey, e.repeat);        break;
-        case "S": case "s": pressKey(s.sKey, e.repeat);        break;
-        case "D": case "d": pressKey(s.dKey, e.repeat);        break;
-        case "B": case "b": pressKey(s.bKey, e.repeat);        break;
-        case "Enter":       pressKey(s.enterKey, e.repeat);    break;
-        case "Escape":      pressKey(s.escapeKey, e.repeat);   break;
-        case "Control":     pressKey(s.ctrlKey, e.repeat);     break;
-        case "Meta":        pressKey(s.ctrlKey, e.repeat);     break;
-        case "Shift":       pressKey(s.shiftKey, e.repeat);    break;
-        case "Alt":         pressKey(s.altKey, e.repeat);      break;
-        case "Tab":         pressKey(s.tabKey, e.repeat);      break;
-        case "0":           pressKey(s.num0Key, e.repeat);     break;
-        case "1":           pressKey(s.num1Key, e.repeat);     break;
-        case "2":           pressKey(s.num2Key, e.repeat);     break;
-        case "3":           pressKey(s.num3Key, e.repeat);     break;
-        case "4":           pressKey(s.num4Key, e.repeat);     break;
-        case "5":           pressKey(s.num5Key, e.repeat);     break;
-        case "6":           pressKey(s.num6Key, e.repeat);     break;
-        case "7":           pressKey(s.num7Key, e.repeat);     break;
-        case "8":           pressKey(s.num8Key, e.repeat);     break;
-        case "9":           pressKey(s.num9Key, e.repeat);     break;
-        default: 
-            return;
+    for (let i = 0; i < s.keys.length; i++) {
+        const key = s.keys[i];
+        if (e.key === key.key || e.key === key.key2) {
+            pressKey(key, e.repeat);
+        }
     }
 }
 
 function handleKeyUp(s: KeyboardState, e: KeyboardEvent) {
-    switch (e.key) {
-        case "ArrowUp":     releaseKey(s.upKey);        break;
-        case "ArrowDown":   releaseKey(s.downKey);      break;
-        case "ArrowLeft":   releaseKey(s.leftKey);      break;
-        case "ArrowRight":  releaseKey(s.rightKey);     break;
-        case "PageUp":      releaseKey(s.pageUpKey);    break;
-        case "PageDown":    releaseKey(s.pageDownKey);  break; 
-        case "Home":        releaseKey(s.homeKey);      break;
-        case "End":         releaseKey(s.endKey);       break; 
-        case "A": case "a": releaseKey(s.aKey);         break;
-        case "S": case "s": releaseKey(s.sKey);         break;
-        case "D": case "d": releaseKey(s.dKey);         break;
-        case "B": case "b": releaseKey(s.bKey);         break;
-        case "Enter":       releaseKey(s.enterKey);     break;
-        case "Escape":      releaseKey(s.escapeKey);    break;
-        case "Control":     releaseKey(s.ctrlKey);      break;
-        case "Meta":        releaseKey(s.ctrlKey);      break;
-        case "Shift":       releaseKey(s.shiftKey);     break;
-        case "Alt":         releaseKey(s.altKey);       break;
-        case "Tab":         releaseKey(s.tabKey);       break;
-        case "0":           releaseKey(s.num0Key);      break;
-        case "1":           releaseKey(s.num1Key);      break;
-        case "2":           releaseKey(s.num2Key);      break;
-        case "3":           releaseKey(s.num3Key);      break;
-        case "4":           releaseKey(s.num4Key);      break;
-        case "5":           releaseKey(s.num5Key);      break;
-        case "6":           releaseKey(s.num6Key);      break;
-        case "7":           releaseKey(s.num7Key);      break;
-        case "8":           releaseKey(s.num8Key);      break;
-        case "9":           releaseKey(s.num9Key);      break;
-        default: 
-            return;
+    for (let i = 0; i < s.keys.length; i++) {
+        const key = s.keys[i];
+        if (e.key === key.key || e.key === key.key2) {
+            releaseKey(key);
+        }
     }
 }
 

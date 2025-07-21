@@ -20,7 +20,7 @@ import {
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
-import { GlobalContext } from "./global-context";
+import { GlobalContext, hasDiscoverableCommand, hasDiscoverableCtrlOrShiftActions, hasDiscoverableHold } from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
@@ -38,6 +38,7 @@ import {
     startScrolling
 } from "src/components/scroll-container";
 import {
+    APP_VIEW_ACTIVITIES,
     COLLAPSED_STATUS,
     createNewNote,
     deleteNoteIfEmpty,
@@ -48,6 +49,7 @@ import {
     idIsNilOrRoot,
     idIsRoot,
     isNoteCollapsed,
+    isNoteEmpty,
     noteStatusToString,
     recomputeFlatNotes,
     recomputeNoteParents,
@@ -59,7 +61,7 @@ import {
     STATUS_IN_PROGRESS,
     TreeNote
 } from "./state";
-import { boundsCheck } from "./utils/array-utils";
+import { boundsCheck, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import {
     HORIZONTAL,
@@ -80,6 +82,8 @@ import {
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
+import { getCellOrUndefined } from "./legacy-app-components/canvas-state";
+import { activitiesViewSetIdx } from "./activities-list";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -189,6 +193,7 @@ function moveIdxLocal(s: NoteTreeViewState, amount: number) {
 }
 
 function moveOutOfCurrent(
+    ctx: GlobalContext,
     s: NoteTreeViewState,
     moveNote: boolean,
 ) {
@@ -204,6 +209,7 @@ function moveOutOfCurrent(
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
             recomputeNoteStatusRecursively(state, parent);
             setNote(s, s.note, true);
+            ctx.requestSaveState = true;
         }
     } else {
         setNote(s, parent, true);
@@ -211,6 +217,7 @@ function moveOutOfCurrent(
 }
 
 function moveIntoCurrent(
+    ctx: GlobalContext,
     s: NoteTreeViewState,
     moveNote: boolean,
 ) {
@@ -231,6 +238,7 @@ function moveIntoCurrent(
             prevNote.data.lastSelectedChildIdx = idxUnderPrev;
             setNote(s, s.note, true);
             recomputeNoteStatusRecursively(state, prevNote);
+            ctx.requestSaveState = true;
         }
     } else {
         const nextRoot = s.childNotes[s.listPos.idx];
@@ -250,10 +258,9 @@ function moveIntoCurrent(
 
 export function imNoteTreeView(
     ctx: GlobalContext,
+    s: NoteTreeViewState,
     viewFocused: boolean
 ) {
-    const s = ctx.noteTreeViewState;
-
     if (imMemo(state.currentNoteId)) {
         const note = getCurrentNote(state);
         setNote(s, note);
@@ -328,8 +335,11 @@ export function imNoteTreeView(
 
 const UNDER = 1;
 const AFTER = 2;
-function addNoteAtCurrent(s: NoteTreeViewState, insertType: typeof UNDER | typeof AFTER): TreeNote {
+function addNoteAtCurrent(ctx: GlobalContext, s: NoteTreeViewState, insertType: typeof UNDER | typeof AFTER): TreeNote {
     assert(!idIsNil(s.note.parentId)); // Cant insert after the root note
+
+    const currentNote = getCurrentNote(state);
+    assert(!isNoteEmpty(currentNote)); // was checked before we called this, hopefully
 
     const newNote = createNewNote(state, "");
     if (insertType === UNDER) {
@@ -339,11 +349,16 @@ function addNoteAtCurrent(s: NoteTreeViewState, insertType: typeof UNDER | typeo
     } else {
         assert(false); // Invalid insertion type
     }
+
     recomputeNoteStatusRecursively(state, newNote);
+
+    ctx.requestSaveState = true;
+
     return newNote;
 }
 
 function moveToLocalidx(
+    ctx: GlobalContext,
     s: NoteTreeViewState,
     delta: number,
     moveNote: boolean
@@ -358,6 +373,7 @@ function moveToLocalidx(
     if (moveNote) {
         tree.insertAt(state.notes, parent, s.note, idx);
         setNote(s, s.note, true);
+        ctx.requestSaveState = true;
     } else {
         const childId = parent.childIds[idx];
         const note = getNote(state, childId);
@@ -368,51 +384,71 @@ function moveToLocalidx(
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
-    if (!ctx.handled && keyboard.enterKey.pressed && !keyboard.enterKey.repeat) {
-        let newNote: TreeNote | undefined;
-        if (keyboard.shiftKey.held) {
-            newNote = addNoteAtCurrent(s, AFTER);
-        } else if (keyboard.ctrlKey.held) {
-            newNote = addNoteAtCurrent(s, UNDER);
-        }
-
-        if (newNote) {
-            setNote(s, newNote, true);
-            setIsEditingCurrentNote(state, true);
-
-            ctx.handled = true;
-            ctx.requestSaveState = true;
-        }
-
-        if (!ctx.handled) {
-            if (!keyboard.enterKey.repeat) {
-                setIsEditingCurrentNote(state, true);
-            }
-            ctx.handled = true;
-        }
-    }
+    const currentNote = getCurrentNote(state);
 
     if (!ctx.handled) {
         const delta = getNavigableListInput(ctx);
         const moveNote = keyboard.altKey.held;
         if (delta) {
-            moveToLocalidx(s, delta, moveNote);
+            moveToLocalidx(ctx, s, delta, moveNote);
             ctx.handled = true;
-            ctx.requestSaveState = true;
         } else if (keyboard.leftKey.pressed) {
-            moveOutOfCurrent(s, moveNote);
+            moveOutOfCurrent(ctx, s, moveNote);
             ctx.handled = true;
-            ctx.requestSaveState = true;
         } else if (keyboard.rightKey.pressed) {
-            moveIntoCurrent(s, moveNote);
+            moveIntoCurrent(ctx, s, moveNote);
             ctx.handled = true;
-            ctx.requestSaveState = true;
         }
     }
 
     if (!ctx.handled && state._isEditingFocusedNote) {
-        if (keyboard.escapeKey.pressed) {
+        if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing")) {
             setIsEditingCurrentNote(state, false);
+            ctx.handled = true;
+        }
+    }
+
+    if (!ctx.handled && !state._isEditingFocusedNote) {
+        if (hasDiscoverableCommand(ctx, keyboard.aKey, "Go to activity")) {
+            // TODO: just recompute this when we set the note
+            const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
+            if (idx !== -1) {
+                activitiesViewSetIdx(ctx.activityView, idx, true);
+                state._currentScreen = APP_VIEW_ACTIVITIES;
+            }
+        }
+    }
+
+    if (!ctx.handled) {
+        let noteToSet: TreeNote | undefined;
+
+        let hasCtrlOrShiftHeld = false;
+
+        if (!isNoteEmpty(currentNote)) {
+            const [ctrl, shift] = hasDiscoverableCtrlOrShiftActions(ctx);
+            if (shift) {
+                hasCtrlOrShiftHeld = true;
+                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note")) {
+                    noteToSet = addNoteAtCurrent(ctx, s, AFTER);
+                }
+            } else if (ctrl) {
+                hasCtrlOrShiftHeld = true;
+                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note under")) {
+                    noteToSet = addNoteAtCurrent(ctx, s, UNDER);
+                }
+            }
+        }
+
+         if (!noteToSet && !state._isEditingFocusedNote && !hasCtrlOrShiftHeld) {
+            if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit note")) {
+                noteToSet = currentNote;
+            }
+        }
+
+        if (noteToSet) {
+            setNote(s, noteToSet, true);
+            setIsEditingCurrentNote(state, true);
+
             ctx.handled = true;
         }
     }
