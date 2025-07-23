@@ -131,7 +131,13 @@ export function stopFpsCounter(fps: FpsCounterState) {
     } 
 }
 
-export function imFpsCounterOutput(fps: FpsCounterState) {
+
+export function imFpsCounterOutputCompact(fps: FpsCounterState) {
+    imBeginDiv(); setText("~" + fps.renderHz + "fps/" + fps.screenHz + "fps"); imEnd();
+}
+
+
+export function imFpsCounterOutputVerbose(fps: FpsCounterState) {
     const im = getImCore();
 
     imBeginDiv(); {

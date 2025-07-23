@@ -1,3 +1,11 @@
+import {
+    imBeginScrollContainer,
+    newScrollContainer,
+    ScrollContainer,
+    scrollToItem,
+    startScrolling
+} from "src/components/scroll-container";
+import { activitiesViewSetIdx } from "./activities-list";
 import { imLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
@@ -19,8 +27,8 @@ import {
     ROW_REVERSE
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
-import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
-import { GlobalContext, hasDiscoverableCommand, hasDiscoverableCtrlOrShiftActions, hasDiscoverableHold } from "./global-context";
+import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
+import { addToNavigationList, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, hasDiscoverableHold, REPEAT } from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
@@ -30,15 +38,10 @@ import {
     ROW_FOCUSED,
     ROW_SELECTED
 } from "./list-row";
-import {
-    imBeginScrollContainer,
-    ScrollContainer,
-    newScrollContainer,
-    scrollToItem,
-    startScrolling
-} from "src/components/scroll-container";
+import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 import {
     APP_VIEW_ACTIVITIES,
+    APP_VIEW_NOTES,
     COLLAPSED_STATUS,
     createNewNote,
     deleteNoteIfEmpty,
@@ -81,9 +84,6 @@ import {
     setText
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
-import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
-import { getCellOrUndefined } from "./legacy-app-components/canvas-state";
-import { activitiesViewSetIdx } from "./activities-list";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -143,7 +143,7 @@ function getNoteViewRoot(currentNote: TreeNote) {
 
 export function newNoteTreeViewState(): NoteTreeViewState {
     const note = getCurrentNote(state);
-    const viewRoot = getNoteViewRoot(note);
+    const viewRoot = note; // needs to be wrong, so that it can be recomputed
     const s: NoteTreeViewState = {
         invalidateNote: false,
         note,
@@ -163,34 +163,6 @@ export function newNoteTreeViewState(): NoteTreeViewState {
     return s;
 }
 
-function setIdx(s: NoteTreeViewState, idx: number) {
-    s.listPos.idx = clampedListIdx(idx, s.childNotes.length);
-    if (s.listPos.idx === -1) return;
-
-    const note = s.childNotes[s.listPos.idx];
-    state.currentNoteId = note.id;
-    setNote(s, note);
-}
-
-function setIdxLocal(s: NoteTreeViewState, localIdx: number) {
-    const parent = getNote(state, s.note.parentId);
-
-    localIdx = clampedListIdx(localIdx, parent.childIds.length);
-    if (!boundsCheck(parent.childIds, localIdx)) return;
-    const childId = parent.childIds[localIdx];
-
-    const note = getNote(state, childId);
-    setNote(s, note);
-}
-
-function moveIdx(s: NoteTreeViewState, amount: number) {
-    setIdx(s, s.listPos.idx + amount);
-}
-
-function moveIdxLocal(s: NoteTreeViewState, amount: number) {
-    const localIdx = s.note.idxInParentList;
-    setIdxLocal(s, localIdx + amount);
-}
 
 function moveOutOfCurrent(
     ctx: GlobalContext,
@@ -261,6 +233,8 @@ export function imNoteTreeView(
     s: NoteTreeViewState,
     viewFocused: boolean
 ) {
+    addToNavigationList(ctx, APP_VIEW_NOTES);
+
     if (imMemo(state.currentNoteId)) {
         const note = getCurrentNote(state);
         setNote(s, note);
@@ -385,8 +359,17 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
     const currentNote = getCurrentNote(state);
+    const ctrl = hasDiscoverableHold(ctx, keyboard.ctrlKey);
+    const shift = hasDiscoverableHold(ctx, keyboard.shiftKey);
 
-    if (!ctx.handled) {
+    if (!ctx.handled && state._isEditingFocusedNote) {
+        if (!ctrl && !shift && hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
+            setIsEditingCurrentNote(state, false);
+            ctx.handled = true;
+        }
+    }
+
+    if (!ctx.handled && !state._isEditingFocusedNote) {
         const delta = getNavigableListInput(ctx);
         const moveNote = keyboard.altKey.held;
         if (delta) {
@@ -399,47 +382,39 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             moveIntoCurrent(ctx, s, moveNote);
             ctx.handled = true;
         }
-    }
-
-    if (!ctx.handled && state._isEditingFocusedNote) {
-        if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing")) {
-            setIsEditingCurrentNote(state, false);
-            ctx.handled = true;
-        }
-    }
-
-    if (!ctx.handled && !state._isEditingFocusedNote) {
-        if (hasDiscoverableCommand(ctx, keyboard.aKey, "Go to activity")) {
+        
+        if (!ctrl && !shift && hasDiscoverableCommand(ctx, keyboard.tabKey, "Go to activity", REPEAT)) {
             // TODO: just recompute this when we set the note
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
                 activitiesViewSetIdx(ctx.activityView, idx, true);
                 state._currentScreen = APP_VIEW_ACTIVITIES;
             }
+            ctx.handled = true;
         }
     }
 
+    // Adding a note can be done in both editing and not editing contexts
     if (!ctx.handled) {
         let noteToSet: TreeNote | undefined;
 
         let hasCtrlOrShiftHeld = false;
 
         if (!isNoteEmpty(currentNote)) {
-            const [ctrl, shift] = hasDiscoverableCtrlOrShiftActions(ctx);
             if (shift) {
                 hasCtrlOrShiftHeld = true;
-                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note")) {
+                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note after", BYPASS_TEXT_AREA)) {
                     noteToSet = addNoteAtCurrent(ctx, s, AFTER);
                 }
             } else if (ctrl) {
                 hasCtrlOrShiftHeld = true;
-                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note under")) {
+                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note under", BYPASS_TEXT_AREA)) {
                     noteToSet = addNoteAtCurrent(ctx, s, UNDER);
                 }
             }
         }
 
-         if (!noteToSet && !state._isEditingFocusedNote && !hasCtrlOrShiftHeld) {
+        if (!noteToSet && !state._isEditingFocusedNote && !hasCtrlOrShiftHeld) {
             if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit note")) {
                 noteToSet = currentNote;
             }
@@ -607,6 +582,8 @@ function imNoteTreeRow(
                 } imEnd();
 
                 const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
+                const isEditingChanged = imMemo(isEditing);
+
                 if (imIf() && isEditing) {
                     const [,textArea] = imBeginTextArea({
                         value: note.data.text,
@@ -618,9 +595,20 @@ function imNoteTreeRow(
                             let status = s.note.data._status;
                             setNoteText(state, s.note, textArea.root.value);
                             ctx.requestSaveState = true;
+                            ctx.handled = true;
                             if (status !== s.note.data._status) {
                                 s.invalidateNote = true;
                             }
+                        }
+
+                        const keyDown = imOn("keydown");
+                        if (keyDown) {
+                            ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea.root, {})
+                        }
+
+                        if (isEditingChanged) {
+                            textArea.root.selectionStart = textArea.root.value.length;
+                            textArea.root.selectionEnd = textArea.root.value.length;
                         }
 
                         ctx.textAreaToFocus = textArea;

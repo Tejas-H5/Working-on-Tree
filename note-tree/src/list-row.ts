@@ -31,8 +31,12 @@ export type RowStatus
     | typeof ROW_EDITING;
 
 function getBg(status: RowStatus): string {
-    if (status === ROW_HIGHLIGHTED) return cssVarsApp.bgColorFocus2;
-    if (status >= ROW_SELECTED)     return cssVarsApp.bgColorFocus;;
+    switch(status) {
+        case ROW_HIGHLIGHTED: return cssVarsApp.bgColorFocus2;
+        case ROW_SELECTED:    return cssVarsApp.bgColorFocus2;
+        case ROW_FOCUSED:     return cssVarsApp.bgColorFocus;
+        case ROW_EDITING:     return cssVarsApp.bgColorFocus;
+    }
     return "";
 }
 

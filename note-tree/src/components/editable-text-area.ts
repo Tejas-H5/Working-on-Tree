@@ -66,7 +66,6 @@ cssb.s(`
 export type TextAreaArgs = {
     value: string;
     isOneLine?: boolean;
-    focusWithAllSelected?: boolean;
     placeholder?: string;
 };
 
@@ -76,7 +75,6 @@ export type TextAreaArgs = {
 export function imBeginTextArea({
     value,
     isOneLine,
-    focusWithAllSelected,
     placeholder = "",
 }: TextAreaArgs) {
     let textArea: UIRoot<HTMLTextAreaElement>;

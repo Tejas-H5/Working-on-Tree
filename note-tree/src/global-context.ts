@@ -1,7 +1,8 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
 import { newPlanViewState, PlanViewState } from "./note-plan-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { getImKeys, UIRoot } from "./utils/im-dom-utils";
+import { AppView } from "./state";
+import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
     now: Date;
@@ -14,12 +15,17 @@ export type GlobalContext = {
     focusWithAllSelected: boolean;
 
     discoverableCommands: DiscoverableCommand[];
-    discoverableCommandIdx: number;
-    discoverableCtrlShiftTempArray: [boolean, boolean];
+    discoverableCommandsLastFrame: DiscoverableCommand[];
+    discoverableCommandsIdx: number;
+    discoverableShiftHeld: boolean;
+    discoverableCtrlHeld: boolean;
+    discoverableAltHeld: boolean;
 
     noteTreeView: NoteTreeViewState;
     activityView: ActivitiesViewState;
     plansView:    PlanViewState;
+
+    navigationList: AppView[];
 
     requestSaveState: boolean; // set this to true to ask the app to save the current state.
 };
@@ -48,6 +54,8 @@ export function newGlobalContext(): GlobalContext {
 
         requestSaveState: false,
 
+        navigationList: [],
+
         // only 8 discoverable commands at any given time MAX.
         discoverableCommands: Array(8).fill(null).map((): DiscoverableCommand => {
             return {
@@ -55,47 +63,41 @@ export function newGlobalContext(): GlobalContext {
                 actionDescription: "",
             };
         }),
-        discoverableCommandIdx: 0,
-        discoverableCtrlShiftTempArray: [false, false],
+        discoverableCommandsLastFrame: [],
+        discoverableCommandsIdx: 0,
+        discoverableShiftHeld: false,
+        discoverableCtrlHeld: false,
+        discoverableAltHeld: false,
     };
 }
 
-export function hasDiscoverableCtrlOrShiftActions(ctx: GlobalContext): readonly [ctrl: boolean, shift: boolean] {
-    ctx.discoverableCtrlShiftTempArray[0] = false;
-    ctx.discoverableCtrlShiftTempArray[1] = false;
-
-    if (ctx.keyboard.ctrlKey.held) {
-        ctx.discoverableCtrlShiftTempArray[0] = true;
-    } else if (ctx.keyboard.shiftKey.held) {
-        ctx.discoverableCtrlShiftTempArray[1] = true;
-    } else {
-        hasDiscoverableHold(ctx, ctx.keyboard.ctrlKey);
-        hasDiscoverableHold(ctx, ctx.keyboard.shiftKey);
-    }
-
-    return ctx.discoverableCtrlShiftTempArray;
-}
-
-function hasDiscoverableHold(
-    ctx: GlobalContext,
-    key:    KeyState,
-) {
-    if (key.held) return true;
-
-    pushDiscoverableCommand(ctx, key, "actions");
-    return false;
-}
+export const REPEAT           = 1 << 0;
+export const BYPASS_TEXT_AREA = 1 << 1;
 
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
-    key:    KeyState,
+    key: KeyState,
     actionDescription: string,
-    repeat = false,
+    flags = 0,
 ) {
-    if (!pushDiscoverableCommand(ctx, key, actionDescription)) return false;
+    if (!pushDiscoverableCommand(ctx, key, actionDescription, !!(flags & BYPASS_TEXT_AREA))) return false;
+
+    return hasCommand(ctx, key, actionDescription, flags);
+}
+
+// Mainly to switch quickly back and forth between this and `hasDiscoverableCommand`.
+export function hasCommand(
+    ctx: GlobalContext,
+    key: KeyState,
+    _actionDescription: string, 
+    flags = 0,
+) {
+    if (!(flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) {
+        return false;
+    }
 
     if (!ctx.handled && key.pressed) {
-        if (repeat === true) {
+        if (flags & REPEAT) {
             return true;
         }
 
@@ -105,19 +107,55 @@ export function hasDiscoverableCommand(
     return false;
 }
 
+export function addToNavigationList(ctx: GlobalContext, view: AppView) {
+    if (ctx.navigationList.length > 10) return; // should ideally never happen, but it could happen in case of rendering error.
+    ctx.navigationList.push(view);
+}
+
+export function hasDiscoverableHold(ctx: GlobalContext, key: KeyState): boolean {
+    if (key === ctx.keyboard.ctrlKey) {
+        ctx.discoverableCtrlHeld = true;
+    } else if (key === ctx.keyboard.shiftKey) {
+        ctx.discoverableShiftHeld = true;
+    } else if (key === ctx.keyboard.altKey) {
+        ctx.discoverableAltHeld = true;
+    } else {
+        throw new Error("Key not accounted for: " + key.stringRepresentation);
+    }
+
+    return key.held;
+}
+
 function pushDiscoverableCommand(
     ctx: GlobalContext,
     key: KeyState,
     actionDescription: string,
+    bypassTextArea: boolean,
 ): boolean {
-    const idx = ctx.discoverableCommandIdx;
+    if (!bypassTextArea && isEditingTextSomewhereInDocument()) {
+        return false;
+    }
+
+    const idx = ctx.discoverableCommandsIdx;
     // Shouldn't accidentally trigger invisible commands imo.
     if (idx >= ctx.discoverableCommands.length) return false;
+
+    let found = false;
+    for (let i = 0; i < ctx.discoverableCommandsIdx; i++) {
+        const command = ctx.discoverableCommands[i];
+        if (command.key === key) {
+            found = true;
+            break;
+        }
+    }
+
+    // Can't handle the same command twice.
+    if (found) return false;
 
     ctx.discoverableCommands[idx].key               = key;
     ctx.discoverableCommands[idx].actionDescription = actionDescription;
 
-    ctx.discoverableCommandIdx = idx + 1;
+    ctx.discoverableCommandsIdx = idx + 1;
 
     return true;
 }

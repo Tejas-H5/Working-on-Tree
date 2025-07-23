@@ -160,3 +160,13 @@ export function moveArrayItem(arr: unknown[], a: number, b: number) {
         a--;
     }
 }
+
+export function getWrapped<T>(arr: T[], i: number): T  {
+    if (arr.length === 0) throw new Error("Array was empty");
+    if (i >= arr.length) return arr[i % arr.length];
+    if (i < 0) {
+        const unflipped = -i % arr.length
+        return arr[arr.length - unflipped];
+    }
+    return arr[i];
+}

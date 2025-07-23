@@ -2,8 +2,8 @@ import { cnApp } from "./app-styling";
 import { getTimeElapsedSinceRepeat, newTimer, timerRepeat, TimerState } from "./app-utils/timer";
 import { imBegin, imFlex, imInitStyles, INLINE, ROW } from "./components/core/layout";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea, } from "./components/editable-text-area";
-import { GlobalContext } from "./global-context";
-import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
+import { addToNavigationList, GlobalContext } from "./global-context";
+import { imBeginListRow, imEndListRow, imListRowCellStyle, ROW_EDITING, ROW_EXISTS, ROW_FOCUSED, ROW_SELECTED } from "./list-row";
 import {
     imBeginScrollContainer,
     ScrollContainer,
@@ -41,9 +41,12 @@ import {
     setClass,
     setStyle,
     setText,
-    getTimeSeconds
+    getTimeSeconds,
+    UIRoot,
+    newString
 } from "./utils/im-dom-utils";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
+import { APP_VIEW_PLAN } from "./state";
 
 export type PlanViewState = {
     now: Date;
@@ -60,7 +63,7 @@ export type PlanViewState = {
 }
 
 const NOT_EDITING         = 0;
-const EDITING_START_TIME  = 1;
+const EDITING_TIME  = 1;
 const EDITING_TEXT        = 2;
 
 
@@ -86,7 +89,7 @@ export function newPlanViewState(): PlanViewState {
         scrollContainer: newScrollContainer(),
 
         list: newListPosition(),
-        editing: EDITING_START_TIME,
+        editing: EDITING_TIME,
         plans: [newPlanItemAtTime(new Date())],
 
         error: "",
@@ -153,7 +156,7 @@ function addPlanItemUnderCurrent(s: PlanViewState): PlanItem | null {
     reIndexPlans(s);
 
     moveListIdx(s, newIdx);
-    s.editing = EDITING_START_TIME;
+    s.editing = EDITING_TIME;
 
     return newItem;
 }
@@ -262,7 +265,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
             ctx.handled = true;
         }
 
-        if (s.editing === EDITING_START_TIME) {
+        if (s.editing === EDITING_TIME) {
             const up = keyboard.upKey.pressed;
             const down = keyboard.downKey.pressed;
             if (up || down) {
@@ -320,7 +323,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                 assert(s.editing > 0 && s.editing <= EDITING_TEXT);
 
                 if (keyboard.shiftKey.held) {
-                    if (s.editing !== EDITING_START_TIME) {
+                    if (s.editing !== EDITING_TIME) {
                         s.editing--;
                     } else if (s.list.idx > 0) {
                         moveListIdx(s, s.list.idx - 1);
@@ -331,7 +334,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                         s.editing++;
                     } else if (s.list.idx < s.plans.length - 1) {
                         moveListIdx(s, s.list.idx + 1);
-                        s.editing = EDITING_START_TIME;
+                        s.editing = EDITING_TIME;
                     } else {
                         addPlanItemUnderCurrent(s);
                     }
@@ -351,7 +354,7 @@ function startEditingPlan(s: PlanViewState) {
     }
 
     if (plan.text === "") {
-        s.editing = EDITING_START_TIME;
+        s.editing = EDITING_TIME;
     } else {
         s.editing = EDITING_TEXT;
     }
@@ -375,18 +378,18 @@ function indexOf(s: PlanViewState, item: PlanItem): number {
     return idx;
 }
 
-function parseStartTime(s: PlanViewState, text: string, planItem: PlanItem): Date | null {
-    const [time, err] = parseTimeInput(text, planItem.start);
+function parseTime(text: string, previousDate: Date): Date | null {
+    const [time, err] = parseTimeInput(text, previousDate);
 
     if (!err) {
-        const result = new Date(planItem.start);
+        const result = new Date(previousDate);
         dateSetLocalTime(result, time);
         return result;
     } 
 
     const [duration, err2] = parseDurationInput(text);
     if (!err2) {
-        const result = getPreviousDate(s, planItem, false);
+        const result = new Date(previousDate);
         result.setTime(result.getTime() + duration);
         return result;
     }
@@ -427,6 +430,8 @@ export function imNotePlanView(
     s: PlanViewState,
     viewFocused: boolean
 ) {
+    addToNavigationList(ctx, APP_VIEW_PLAN);
+
     if (viewFocused) {
         handleKeyboardInput(ctx, s);
     }
@@ -464,7 +469,18 @@ export function imNotePlanView(
                 s.editing = NOT_EDITING;
             }
 
-            imBeginListRow(viewFocused, focused, isEditing); {
+            let status = ROW_EXISTS;
+            if (focused) {
+                status = ROW_SELECTED;
+                if (viewFocused) {
+                    status = ROW_FOCUSED;
+                    if (isEditing) {
+                        status = ROW_EDITING;
+                    }
+                }
+            }
+
+            imBeginListRow(status); {
                 if (imMemo(isReadonly)) {
                     setClass(cnApp.defocusedText, isReadonly);
                 }
@@ -473,24 +489,24 @@ export function imNotePlanView(
                     imBegin(ROW); imListRowCellStyle(); {
                         imInitStyles("gap: 10px");
 
-                        const isEditingStartTime = !isReadonly && focused && s.editing === EDITING_START_TIME;
-                        const isEditingText      = !isReadonly && focused && s.editing === EDITING_TEXT;
+                        const isEditingTime = !isReadonly && focused && s.editing === EDITING_TIME;
+                        const isEditingText = !isReadonly && focused && s.editing === EDITING_TEXT;
 
                         if (imIf() && notToday) {
                             imBegin(); setText(formatDate(plan.start)); imEnd();
                         } imEndIf();
 
                         imBegin(); {
-                            const isEditingStartTimeChanged = imMemo(isEditingStartTime);
+                            const isEditingStartTimeChanged = imMemo(isEditingTime);
 
-                            if (imIf() && isEditingStartTime) {
+                            if (imIf() && isEditingTime) {
                                 if (isEditingStartTimeChanged) {
                                     plan._startInputText = formatTimeForInput(plan.start);
                                 }
 
                                 const [, textArea] = imBeginTextArea({
                                     value: plan._startInputText,
-                                    placeholder: isEditingStartTime ? "Start" : undefined,
+                                    placeholder: isEditingTime ? "Time" : undefined,
                                 }); {
                                     const input = imOn("input");
                                     const change = imOn("change");
@@ -584,5 +600,48 @@ export function imNotePlanView(
         } imEndFor();
 
         if (planMutateAction) planMutateAction();
+    } imEnd();
+}
+
+
+function imEditableTime(
+    isEditingTime: boolean,
+    time: Date,
+) {
+    let textArea: UIRoot<HTMLTextAreaElement> | undefined;
+    let textEdit: string | undefined;
+
+    const text = imState(newString);
+
+    imBegin(); {
+        const isEditingStartTimeChanged = imMemo(isEditingTime);
+
+        if (imIf() && isEditingTime) {
+            if (isEditingStartTimeChanged) {
+                text.val = formatTimeForInput(time);
+            }
+
+            [, textArea] = imBeginTextArea({
+                value: text.val,
+                placeholder: isEditingTime ? "Time" : undefined,
+            }); {
+                const input = imOn("input");
+                const change = imOn("change");
+                if (input || change) {
+                    text.val = textArea.root.value;
+                    const newTime = parseTime(plan._startInputText, plan);
+                    if (newTime) {
+                        planMutateAction = () => setPlanStartTime(s, plan, newTime, false);
+                    }
+                }
+
+                ctx.textAreaToFocus = textArea;
+                ctx.focusWithAllSelected = true;
+            } imEndTextArea();
+        } else {
+            imElse();
+
+            imBegin(INLINE); setText(formatTime(time)); imEnd();
+        } imEndIf();
     } imEnd();
 }

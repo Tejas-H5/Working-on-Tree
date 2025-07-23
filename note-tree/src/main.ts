@@ -1,6 +1,6 @@
-import { imActivitiesList } from "./activities-list";
+import { activitiesViewTakeBreak, imActivitiesList } from "./activities-list";
 import { imLine } from "./app-components/common";
-import { cnApp, cssVarsApp } from "./app-styling";
+import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import {
     CH,
@@ -13,34 +13,38 @@ import {
     imInitStyles,
     imJustify,
     imSize,
-    INLINE_BLOCK,
     NOT_SET,
     PX,
     RIGHT,
     ROW
 } from "./components/core/layout";
+import { cn } from "./components/core/stylesheets";
 import { imSpan } from "./components/core/text";
-import { imEndTextArea } from "./components/editable-text-area";
 import {
-    imFpsCounterOutput,
+    imFpsCounterOutputCompact,
     newFpsCounterState,
     startFpsCounter,
     stopFpsCounter
 } from "./components/fps-counter";
 import {
     handleImKeysInput,
+    hasDiscoverableCommand,
+    hasDiscoverableHold,
     newGlobalContext,
-    preventImKeysDefault
+    preventImKeysDefault,
+    REPEAT,
 } from "./global-context";
 import { imNotePlanView } from "./note-plan-view";
 import { imNoteTreeView } from "./note-tree-view";
 import {
     APP_VIEW_ACTIVITIES,
+    APP_VIEW_NOTES,
     APP_VIEW_PLAN,
-    APP_VIEW_TREE,
     applyPendingScratchpadWrites,
+    appViewToString,
     getActivityTime,
     getLastActivity,
+    isCurrentlyTakingABreak,
     loadState,
     newBreakActivity,
     pushBreakActivity,
@@ -49,6 +53,7 @@ import {
     setTheme,
     state,
 } from "./state";
+import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
@@ -61,7 +66,6 @@ import {
     imEnd,
     imEndFor,
     imEndIf,
-    imEndSwitch,
     imEndTry,
     imFor,
     imIf,
@@ -70,6 +74,7 @@ import {
     imState,
     imTry,
     initImDomUtils,
+    isEditingTextSomewhereInDocument,
     isFirstishRender,
     newBoolean,
     newNumber,
@@ -188,7 +193,12 @@ function imMain() {
                                     } imEnd();
                                 } imEndIf();
                             } else {
-                                tRef.val = 0;
+                                imElse();
+
+                                tRef.val = 0; // also, zero animation for status
+
+                                imFpsCounterOutputCompact(fpsCounter);
+
                             } imEndIf();
                         } imEnd();
 
@@ -200,20 +210,39 @@ function imMain() {
                                 setStyle("fontWeight", "bold");
                             }
 
-                            imFor(); for (let i = 0; i < ctx.discoverableCommandIdx; i++) {
-                                const command = ctx.discoverableCommands[i];
-                                if (!command.key) continue;
+                            imFor(); {
+                                for (const command of ctx.discoverableCommandsLastFrame) {
+                                    if (!command.key) continue;
 
-                                imNextRoot();
+                                    imNextRoot();
 
-                                imBegin();
-                                    imBeginSpan(); setText("["); imEnd();
-                                    imBeginSpan(); setText(command.key.stringRepresentation); imEnd();
-                                    imBeginSpan(); setText("] " + command.actionDescription); imEnd();
-                                imEnd();
+                                    imCommandDescription(command.key.stringRepresentation, command.actionDescription);
+                                }
+
+                                const anyFulfilled = (ctx.keyboard.shiftKey.held && ctx.discoverableShiftHeld) ||
+                                                     (ctx.keyboard.ctrlKey.held && ctx.discoverableCtrlHeld) ||
+                                                     (ctx.keyboard.altKey.held && ctx.discoverableAltHeld);
+
+                                if (!anyFulfilled) {
+                                    imNextRoot();
+                                    if (ctx.discoverableShiftHeld) {
+                                        imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
+                                        ctx.discoverableShiftHeld = false;
+                                    }
+
+                                    imNextRoot();
+                                    if (ctx.discoverableCtrlHeld) {
+                                        imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
+                                        ctx.discoverableCtrlHeld = false;
+                                    }
+
+                                    imNextRoot();
+                                    if (ctx.discoverableAltHeld) {
+                                        imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
+                                        ctx.discoverableAltHeld = false;
+                                    }
+                                }
                             } imEndFor();
-                            // reset it after rendering them
-                            ctx.discoverableCommandIdx = 0;
 
                             imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
                         } imEnd();
@@ -223,11 +252,11 @@ function imMain() {
 
                     if (
                         imIf() &&
-                        state._currentScreen === APP_VIEW_TREE ||
+                        state._currentScreen === APP_VIEW_NOTES ||
                         state._currentScreen === APP_VIEW_ACTIVITIES
                     ) {
                         imBegin(ROW); imFlex(); {
-                            imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_TREE);
+                            imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_NOTES);
 
                             imBegin(); {
                                 imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
@@ -244,13 +273,52 @@ function imMain() {
                         imNotePlanView(ctx, ctx.plansView, state._currentScreen === APP_VIEW_PLAN);
                     } imEndIf();
 
-                    imFpsCounterOutput(fpsCounter);
                 } imEnd();
             } stopFpsCounter(fpsCounter);
 
 
             // post-process events, etc
             {
+                // navigate between every view
+                if (!isEditingTextSomewhereInDocument()) {
+                    const idx = ctx.navigationList.indexOf(state._currentScreen);
+                    if (!ctx.handled && ctx.navigationList.length > 0) {
+                        let next, prev;
+                        if (idx === -1) {
+                            next = getWrapped(ctx.navigationList, 0);
+                            prev = getWrapped(ctx.navigationList, -1);
+                        } else {
+                            next = getWrapped(ctx.navigationList, idx + 1);
+                            prev = getWrapped(ctx.navigationList, idx - 1);
+                        }
+
+                        if (
+                            hasDiscoverableHold(ctx, ctx.keyboard.shiftKey) &&
+                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, "Go to " + appViewToString(prev), REPEAT)
+                        ) {
+                            state._currentScreen = prev;
+                            ctx.handled = true;
+                        } else if (
+                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, "Go to " + appViewToString(next), REPEAT)
+                        ) {
+                            state._currentScreen = next;
+                            ctx.handled = true;
+                        }
+
+                        // clear it out, so that other things can push to it later
+                        ctx.navigationList.length = 0;
+                    }
+                }
+
+                // take a break from any view
+                if (!ctx.handled && hasDiscoverableHold(ctx, ctx.keyboard.shiftKey)) {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break")) {
+                        state._currentScreen = APP_VIEW_ACTIVITIES;
+                        activitiesViewTakeBreak(ctx, ctx.activityView);
+                        ctx.handled = true;
+                    }
+                }
+
                 if (!ctx.handled) {
                     const keyboard = ctx.keyboard;
                     if (keyboard.aKey.pressed && keyboard.ctrlKey.held) {
@@ -278,6 +346,13 @@ function imMain() {
                         }
                     }
                 }
+
+                // discoverable commands (at the very end).
+                ctx.discoverableCommandsLastFrame.length = ctx.discoverableCommandsIdx;
+                for (let i = 0; i < ctx.discoverableCommandsIdx; i++) {
+                    ctx.discoverableCommandsLastFrame[i] = ctx.discoverableCommands[i];
+                }
+                ctx.discoverableCommandsIdx = 0;
             }
 
             framesSinceError.val++;
@@ -300,6 +375,18 @@ function imMain() {
         }
     } 
     imEndTry();
+}
+
+function imCommandDescription(key: string, action: string) {
+    imBegin(); {
+        if (isFirstishRender()) {
+            setClass(cn.noWrap);
+        }
+
+        imBeginSpan(); setText("["); imEnd();
+        imBeginSpan(); setText(key); imEnd();
+        imBeginSpan(); setText("] " + action); imEnd();
+    } imEnd();
 }
 
 // some side-effects
@@ -346,7 +433,9 @@ function imMain() {
             const time = !lastActivity ? lastCheckTime.getTime() :
                 Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
 
-            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
+            if (!isCurrentlyTakingABreak(state)) {
+                pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
+            }
             debouncedSave();
         }
 

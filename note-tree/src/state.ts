@@ -95,12 +95,21 @@ function newFuzzyFindState(): FuzzyFindState {
 
 type AppViewInstance = number & { __appView: void; };
 
-export const APP_VIEW_TREE       = 0 as AppViewInstance;
+export const APP_VIEW_NOTES      = 0 as AppViewInstance;
 export const APP_VIEW_PLAN       = 1 as AppViewInstance;
 export const APP_VIEW_ACTIVITIES = 2 as AppViewInstance;
 
+export function appViewToString(view: AppView): string {
+    switch(view) {
+        case APP_VIEW_NOTES:      return "Notes";
+        case APP_VIEW_PLAN:       return "Plan";
+        case APP_VIEW_ACTIVITIES: return "Activities";
+    }
+    throw new Error("Cant reach here");
+}
+
 export type AppView =
-    typeof APP_VIEW_TREE |
+    typeof APP_VIEW_NOTES |
     typeof APP_VIEW_PLAN;
 
 
@@ -296,7 +305,7 @@ const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
 
 function getDoneNoteSuffix(note: Note): string | undefined {
     for (const suffix of doneSuffixes) {
-        if (note.text.trimEnd().endsWith(suffix)) {
+        if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
             return suffix;
         }
     }
@@ -514,7 +523,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _statusText: "",
         _statusTextColor: "",
 
-        _currentScreen: APP_VIEW_ACTIVITIES,
+        _currentScreen: APP_VIEW_NOTES,
     };
 
     setActivityRangeToToday(state);
@@ -853,7 +862,11 @@ export function recomputeNoteStatusRecursively(
                 } else if (i === note.childIds.length - 1) {
                     child.data._status = STATUS_IN_PROGRESS;
                 } else {
-                    child.data._status = STATUS_ASSUMED_DONE;
+                    if (getTodoNotePriority(child.data) === 0) {
+                        child.data._status = STATUS_ASSUMED_DONE;
+                    } else {
+                        child.data._status = STATUS_IN_PROGRESS;
+                    }
                 }
             }
 
@@ -2042,7 +2055,7 @@ export function resetAnalyticsSeries(series: AnalyticsSeries) {
 }
 
 export function isBreak(activity: Activity): boolean {
-    return !!activity.breakInfo;
+    return activity.breakInfo !== undefined;
 }
 
 export function isMultiDay(activity: Activity, nextActivity: Activity | undefined): boolean {

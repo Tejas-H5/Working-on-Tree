@@ -11,16 +11,18 @@ export type ScrollContainer = {
     root: UIRoot<HTMLElement> | null;
     isScrolling:     boolean;
     smoothScroll:    boolean;
+    scrollTime:      number;
 };
 
-export function startScrolling(l: ScrollContainer, smoothScroll: boolean) {
-    l.isScrolling = true;
-    l.smoothScroll = smoothScroll;
+export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
+    sc.isScrolling = true;
+    sc.smoothScroll = smoothScroll;
+    sc.scrollTime = 0.4;
 }
 
-export function imBeginScrollContainer(l: ScrollContainer): UIRoot<HTMLElement> {
+export function imBeginScrollContainer(sc: ScrollContainer): UIRoot<HTMLElement> {
     const scrollParent = imBegin(COL); imFlex(); imScrollOverflow();
-    l.root = scrollParent;
+    sc.root = scrollParent;
     return scrollParent;
 }
 
@@ -30,6 +32,11 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
     const scrollParent = l.root;
     if (!scrollParent)  return;
     if (!l.isScrolling) return;
+    if (l.scrollTime < 0) {
+        l.isScrolling = false;
+        return;
+    }
+    l.scrollTime -= getDeltaTimeSeconds();
 
     const { scrollTop } = getScrollVH(
         scrollParent.root, root.root,
@@ -59,9 +66,10 @@ function lerp(a: number, b: number, t: number): number {
 
 export function newScrollContainer(): ScrollContainer {
     return {
-        root: null,
-        isScrolling:     false,
-        smoothScroll:    false,
+        root:         null,
+        isScrolling:  false,
+        smoothScroll: false,
+        scrollTime:   -1,
     };
 }
 

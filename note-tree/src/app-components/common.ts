@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { imBegin, imSize, NOT_SET, PX } from "src/components/core/layout";
+import { imBegin, imSize, NOT_SET, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
 import { HORIZONTAL, imEnd, imMemo, isFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
 
@@ -18,8 +18,8 @@ export function imLine(
     const isH = type === HORIZONTAL;
 
     imBegin(); imSize(
-        !isH ? height : 0, !isH ? heightUnit : NOT_SET,
-         isH ? height : 0,  isH ? heightUnit : NOT_SET,
+        !isH ? height : 100, !isH ? heightUnit : PERCENT,
+         isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
         if (isFirstishRender()) {
             setStyle("backgroundColor", cssVarsApp.fgColor);
