@@ -43,10 +43,12 @@ import {
     setText,
     getTimeSeconds,
     UIRoot,
-    newString
+    newString,
+    imText
 } from "./utils/im-dom-utils";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 import { APP_VIEW_PLAN } from "./state";
+import { TextInput } from "./legacy-components/text-input";
 
 export type PlanViewState = {
     now: Date;
@@ -314,12 +316,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                 ctx.handled = true;
             }
         } else if (keyboard.tabKey.pressed) {
-            if (s.editing === NOT_EDITING) {
-                if (isReadonly) {
-                } else {
-                    startEditingPlan(s);
-                }
-            } else {
+            if (s.editing !== NOT_EDITING) {
                 assert(s.editing > 0 && s.editing <= EDITING_TEXT);
 
                 if (keyboard.shiftKey.held) {
@@ -339,9 +336,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: PlanViewState) {
                         addPlanItemUnderCurrent(s);
                     }
                 }
-            }
 
-            ctx.handled = true;
+                ctx.handled = true;
+            }
         }
     }
 }
@@ -378,24 +375,6 @@ function indexOf(s: PlanViewState, item: PlanItem): number {
     return idx;
 }
 
-function parseTime(text: string, previousDate: Date): Date | null {
-    const [time, err] = parseTimeInput(text, previousDate);
-
-    if (!err) {
-        const result = new Date(previousDate);
-        dateSetLocalTime(result, time);
-        return result;
-    } 
-
-    const [duration, err2] = parseDurationInput(text);
-    if (!err2) {
-        const result = new Date(previousDate);
-        result.setTime(result.getTime() + duration);
-        return result;
-    }
-
-    return null;
-}
 
 function getPlanDuration(plan: PlanItem, nextPlan: PlanItem): number {
     return nextPlan.start.getTime() - plan.start.getTime();
@@ -603,45 +582,3 @@ export function imNotePlanView(
     } imEnd();
 }
 
-
-function imEditableTime(
-    isEditingTime: boolean,
-    time: Date,
-) {
-    let textArea: UIRoot<HTMLTextAreaElement> | undefined;
-    let textEdit: string | undefined;
-
-    const text = imState(newString);
-
-    imBegin(); {
-        const isEditingStartTimeChanged = imMemo(isEditingTime);
-
-        if (imIf() && isEditingTime) {
-            if (isEditingStartTimeChanged) {
-                text.val = formatTimeForInput(time);
-            }
-
-            [, textArea] = imBeginTextArea({
-                value: text.val,
-                placeholder: isEditingTime ? "Time" : undefined,
-            }); {
-                const input = imOn("input");
-                const change = imOn("change");
-                if (input || change) {
-                    text.val = textArea.root.value;
-                    const newTime = parseTime(plan._startInputText, plan);
-                    if (newTime) {
-                        planMutateAction = () => setPlanStartTime(s, plan, newTime, false);
-                    }
-                }
-
-                ctx.textAreaToFocus = textArea;
-                ctx.focusWithAllSelected = true;
-            } imEndTextArea();
-        } else {
-            imElse();
-
-            imBegin(INLINE); setText(formatTime(time)); imEnd();
-        } imEndIf();
-    } imEnd();
-}

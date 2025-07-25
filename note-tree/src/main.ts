@@ -13,15 +13,14 @@ import {
     imInitStyles,
     imJustify,
     imSize,
+    INLINE_BLOCK,
     NOT_SET,
     PX,
-    RIGHT,
     ROW
 } from "./components/core/layout";
-import { cn } from "./components/core/stylesheets";
-import { imSpan } from "./components/core/text";
 import {
     imFpsCounterOutputCompact,
+    imFpsCounterOutputVerbose,
     newFpsCounterState,
     startFpsCounter,
     stopFpsCounter
@@ -62,7 +61,6 @@ import {
     imBeginSpan,
     imCatch,
     imElse,
-    imElseIf,
     imEnd,
     imEndFor,
     imEndIf,
@@ -78,7 +76,6 @@ import {
     isFirstishRender,
     newBoolean,
     newNumber,
-    setClass,
     setStyle,
     setText
 } from "./utils/im-dom-utils";
@@ -149,8 +146,9 @@ function imMain() {
 
                         imBegin(ROW); imFlex(); {
                             imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
-
-                            imSpan(formatDateTime(new Date(), displayColon.val ? ":" : " ", true)); imEnd();
+                            imBegin(INLINE_BLOCK); {
+                                setText(formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
+                            } imEnd();
                         } imEnd();
 
                         const root = imBegin(ROW); imFlex(); imAlign(); imJustify(); {
@@ -202,12 +200,13 @@ function imMain() {
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(ROW); imFlex(2); imAlign(); imJustify(RIGHT); imGap(1, CH); {
+                        imBegin(); imFlex(2); imGap(1, CH); {
                             // NOTE: these could be buttons.
                             if (isFirstishRender()) {
                                 // TODO: standardize
                                 setStyle("fontSize", "20px");
                                 setStyle("fontWeight", "bold");
+                                setStyle("textAlign", "right");
                             }
 
                             imFor(); {
@@ -250,30 +249,24 @@ function imMain() {
 
                     imLine(HORIZONTAL, 4);
 
-                    if (
-                        imIf() &&
-                        state._currentScreen === APP_VIEW_NOTES ||
-                        state._currentScreen === APP_VIEW_ACTIVITIES
-                    ) {
-                        imBegin(ROW); imFlex(); {
-                            imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_NOTES);
+                    imBegin(ROW); imFlex(); {
+                        imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_NOTES);
 
-                            imBegin(); {
-                                imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
-                            } imEnd();
-
-                            imBegin(COL); {
-                                if (isFirstishRender()) {
-                                    setStyle("width", "33%");
-                                }
-                                imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
-                            } imEnd();
+                        imBegin(); {
+                            imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                         } imEnd();
-                    } else if (imElseIf() && state._currentScreen === APP_VIEW_PLAN) {
-                        imNotePlanView(ctx, ctx.plansView, state._currentScreen === APP_VIEW_PLAN);
-                    } imEndIf();
+
+                        imBegin(COL); {
+                            if (isFirstishRender()) {
+                                setStyle("width", "33%");
+                            }
+                            imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
+                        } imEnd();
+                    } imEnd();
 
                 } imEnd();
+
+                imFpsCounterOutputVerbose(fpsCounter);
             } stopFpsCounter(fpsCounter);
 
 
@@ -378,9 +371,9 @@ function imMain() {
 }
 
 function imCommandDescription(key: string, action: string) {
-    imBegin(); {
+    imBegin(INLINE_BLOCK); {
         if (isFirstishRender()) {
-            setClass(cn.noWrap);
+            setStyle("paddingRight", "1ch");
         }
 
         imBeginSpan(); setText("["); imEnd();
@@ -414,6 +407,9 @@ function imCommandDescription(key: string, action: string) {
     }
 
     function autoInsertBreakIfRequired() {
+        // TODO: fix this mechanism
+        return;
+
         // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
         // webpage opens for the first time.
         // It may or may not need to be called more or less often, depending on what we add.

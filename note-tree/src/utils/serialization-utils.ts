@@ -155,10 +155,6 @@ export function asNumberSet(val: unknown): Set<number> | undefined {
     return new Set(arr as number[]);
 }
 
-export function mustGet<T>(val: T | undefined, field = "this value"): T {
-    if (val === undefined) throw new Error(`Expected ${field} to not be undefined`);
-    return val;
-}
 
 type JSONRecord = Record<string, unknown>;
 
@@ -239,7 +235,6 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
 
 export function deserializeObject<T extends JSONRecord>(dst: T, src: JSONRecord, rootName = "") {
     for (const k in dst) {
-        if(src.id === 5144) console.log(k);
         deserializeObjectKey(dst, src, k, 0, rootName);
     }
 }

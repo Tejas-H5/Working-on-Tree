@@ -1,5 +1,14 @@
 import { assert } from "./assert";
-import { isDigit, newParser, Parser, parserAdvanceWhitespace, parserGet, parserParseDelimter, parserParseInt, parserParseKeyword, parserParseWord } from "./parser";
+import {
+    isDigit,
+    newParser,
+    Parser,
+    parserAdvanceWhitespace,
+    parserGet,
+    parserParseDelimter,
+    parserParseInt,
+    parserParseKeyword
+} from "./parser";
 
 export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Sun",
@@ -9,7 +18,7 @@ export const DAYS_OF_THE_WEEK_ABBREVIATED = [
     "Thu",
     "Fri",
     "Sat",
-]
+];
 
 
 // NOTE: seperator used to be used to remove slashes so that this would be a valid file name.
@@ -78,6 +87,23 @@ export function isSameDate(a: Date, b: Date): boolean {
 
 export function isDayBefore(a: Date, b: Date) {
     return a.getTime() < b.getTime() && !isSameDate(a, b);
+}
+
+export function clampDate(date: Date, lowerBound: Date | null, upperBound: Date | null): Date {
+    date = new Date(date);
+
+    if (upperBound && date.getTime() > upperBound.getTime()) {
+        date.setTime(upperBound.getTime() - 1);
+    }
+    if (lowerBound && date.getTime() < lowerBound.getTime()) {
+        date.setTime(lowerBound.getTime() + 1);
+    }
+    return date;
+}
+
+export function cloneDate(date: Date | null): Date | null {
+    if (date === null) return null;
+    return new Date(date);
 }
 
 export function pad2(num: number) {

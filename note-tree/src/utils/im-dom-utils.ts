@@ -40,7 +40,7 @@ export function isEditingInput(el: HTMLElement): boolean {
  */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (el.value === text) {
-        // performance speedup, and allows users to select the text
+        // performance speedup
         return;
     }
 
@@ -226,6 +226,7 @@ export type ImCore = {
     itemsRendered: number;
     itemsRenderedLastFrame: number;
     numResizeObservers: number;
+    numEventHandlers: number;
     numIntersectionObservers: number;
     numCacheMisses: number;
 };
@@ -312,6 +313,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         itemsRendered: 0,
         itemsRenderedLastFrame: 0,
         numResizeObservers: 0,
+        numEventHandlers: 0,
         numIntersectionObservers: 0,
         numCacheMisses: 0,
 
@@ -614,6 +616,10 @@ export function setClass(val: string, enabled: boolean | number = true) {
     return !!enabled;
 }
 
+/**
+ * NOTE: this method is not ideal - it can only manage a single text node under a DOM element at a time.
+ * This is usually not enough.
+ */
 export function setText(text: string, r = getCurrentRoot()) {
     // don't overwrite the real children!
     assert(r.hasRealChildren === false);
@@ -1794,7 +1800,11 @@ export function imOn<K extends keyof HTMLElementEventMap>(
             handler
         );
 
+        core.numEventHandlers++;
+
         addDestructor(r, () => {
+            core.numEventHandlers--;
+
             r.root.removeEventListener(
                 type,
                 // @ts-expect-error this thing is fine, actually.

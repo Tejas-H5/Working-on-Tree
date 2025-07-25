@@ -4,6 +4,7 @@ import {
     imEnd,
     imInit,
     imMemo,
+    imMemoMany,
     isFirstishRender,
     setAttr,
     setClass,
@@ -129,6 +130,7 @@ export function imBeginTextArea({
                     }
 
                     if (imMemo(value)) {
+                        // don't update the value out from under the user implicitly
                         setInputValue(textArea.root, value);
                     }
 

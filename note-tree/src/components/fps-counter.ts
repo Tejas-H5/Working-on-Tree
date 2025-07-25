@@ -194,6 +194,8 @@ export function imFpsCounterOutputVerbose(fps: FpsCounterState) {
             imBeginSpan(); setText(im.numResizeObservers + " ROs"); imEnd();
             imBeginSpan(); setText(" | "); imEnd();
             imBeginSpan(); setText(im.numIntersectionObservers + " IOs"); imEnd();
+            imBeginSpan(); setText(" | "); imEnd();
+            imBeginSpan(); setText(im.numEventHandlers + " EHs"); imEnd();
         } imEnd();
 
         if (elementHasMousePress()) {

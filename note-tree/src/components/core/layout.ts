@@ -14,7 +14,8 @@ import {
     pushAttr,
     setAttr,
     setClass,
-    setStyle
+    setStyle,
+    setText
 } from 'src/utils/im-dom-utils.ts';
 import { cn, cssVars } from "./stylesheets.ts";
 
@@ -362,4 +363,8 @@ export function imInitClasses(..._val: string[]) {
 
 export function imDebug() {
     imInitClasses(cn.debug1pxSolidRed);
+}
+
+export function imText(text: string) {
+    imBegin(INLINE); setText(text); imEnd();
 }

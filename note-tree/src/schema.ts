@@ -1,6 +1,7 @@
 import * as tree from "src/utils/int-tree";
 import {
     asArray,
+    asDate,
     asNull,
     asNumber,
     asObject,
@@ -9,7 +10,6 @@ import {
     asTrue,
     deserializeObject,
     extractKey,
-    mustGet
 } from "src/utils/serialization-utils";
 import { GraphData, newGraphEdge, newGraphNode } from "./legacy-app-components/interactive-graph-state";
 import {
@@ -29,6 +29,7 @@ import {
     WorkdayConfigWeekDay
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
+import { mustGet } from "./utils/assert";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -68,10 +69,11 @@ export function asNoteTreeGlobalState(val: unknown) {
     }
 
     const activitiesArr = mustGet(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
-    state.activities = activitiesArr.map(val => {
+    state.activities = activitiesArr.map((val, i) => {
         const activityObj = mustGet(asObject(val));
 
-        const activity = defaultActivity(new Date());
+        const t = mustGet(asDate(extractKey<Activity>(activityObj, "t")));
+        const activity = defaultActivity(t);
 
         activity.nId       = asNumber(extractKey<Activity>(activityObj, "nId")) as NoteId | undefined;
         activity.breakInfo = asString(extractKey<Activity>(activityObj, "breakInfo"));
@@ -84,6 +86,21 @@ export function asNoteTreeGlobalState(val: unknown) {
         return activity;
     });
     filterInPlace(state.activities, a => a.breakInfo != null || a.nId != null);
+
+    // TODO: remove later - we introduced this bug in this rewrite, so don't need this in the final code
+    filterInPlace(state.activities, (a, i) => {
+        const isSorted = (i === state.activities.length - 1) ||
+            state.activities[i].t.getTime() < state.activities[i + 1].t.getTime();
+
+        return isSorted;
+    });
+    state.activities.forEach((a, i) => {
+        const isSorted = i === 0 ||
+            state.activities[i - 1].t.getTime() < state.activities[i].t.getTime();
+        if (!isSorted) {
+            throw new Error("BRUH " + i);
+        }
+    });
 
     const taskStreamsArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "taskStreams"));
     if (taskStreamsArr) {

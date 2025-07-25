@@ -2602,7 +2602,6 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
     }
 
     const serialized = serializeToJSON(state);
-    console.log(serialized);
 
     // https://developer.chrome.com/blog/blob-support-for-Indexeddb-landed-on-chrome-dev
     // NOTE: I'm not even going to attempt to save as a string, because that simply won't work on chromium browsers

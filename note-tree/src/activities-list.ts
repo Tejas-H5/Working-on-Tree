@@ -1,21 +1,82 @@
 import {
-    imBeginScrollContainer,
-    newScrollContainer,
+    imBeginScrollContainer, newScrollContainer,
     ScrollContainer,
     scrollToItem,
     startScrolling
 } from "src/components/scroll-container";
 import { imLine } from "./app-components/common";
-import { CENTER, CH, COL, imAlign, imBegin, imFlex, imGap, imInitClasses, imJustify, INLINE_BLOCK, NONE, PX, ROW } from "./components/core/layout";
+import {
+    CENTER,
+    CH,
+    COL,
+    imAlign,
+    imBegin,
+    imFlex,
+    imGap,
+    imInitClasses,
+    imJustify,
+    imText,
+    INLINE_BLOCK,
+    NONE,
+    PX,
+    ROW
+} from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { imSpan } from "./components/core/text";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
-import { addToNavigationList, BYPASS_TEXT_AREA, getAxisRaw, GlobalContext, hasCommand, hasDiscoverableCommand, hasDiscoverableHold } from "./global-context";
-import { imBeginListRow, imEndListRow, imListRowCellStyle, ROW_EDITING, ROW_EXISTS, ROW_FOCUSED, ROW_HIGHLIGHTED, ROW_SELECTED } from "./list-row";
-import { clampedListIdx, clampedListIdxRange, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
-import { Activity, APP_VIEW_ACTIVITIES, APP_VIEW_NOTES, getActivityDurationMs, getActivityText, getActivityTime, getCurrentNote, getHigherLevelTask, getLastActivity, getNote, isBreak, isCurrentlyTakingABreak, newBreakActivity, pushBreakActivity, state } from "./state";
+import { imEditableTime } from "./time-input";
+import {
+    addToNavigationList,
+    BYPASS_TEXT_AREA,
+    getAxisRaw,
+    GlobalContext,
+    hasDiscoverableCommand,
+    hasDiscoverableHold,
+    REPEAT
+} from "./global-context";
+import {
+    imBeginListRow,
+    imEndListRow,
+    imListRowCellStyle,
+    ROW_EDITING,
+    ROW_EXISTS,
+    ROW_FOCUSED,
+    ROW_HIGHLIGHTED,
+    ROW_SELECTED
+} from "./list-row";
+import {
+    clampedListIdx,
+    clampedListIdxRange,
+    getNavigableListInput,
+    ListPosition,
+    newListPosition
+} from "./navigable-list";
+import {
+    Activity,
+    APP_VIEW_ACTIVITIES,
+    getActivityDurationMs,
+    getActivityText,
+    getActivityTime,
+    getCurrentNote,
+    getHigherLevelTask,
+    getLastActivity,
+    getNote,
+    isBreak,
+    isCurrentlyTakingABreak,
+    newBreakActivity,
+    pushBreakActivity,
+    state
+} from "./state";
 import { boundsCheck } from "./utils/array-utils";
-import { floorDateLocalTime, formatDate, formatDuration, formatTime, isDayBefore, isSameDate } from "./utils/datetime";
+import {
+    floorDateLocalTime,
+    formatDate,
+    formatDuration,
+    formatTime,
+    formatTimeForInput,
+    isDayBefore,
+    isSameDate
+} from "./utils/datetime";
 import {
     HORIZONTAL,
     imElse,
@@ -33,23 +94,33 @@ import {
     setText,
     VERTICAL
 } from "./utils/im-dom-utils";
+import { assert, mustGet } from "./utils/assert";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
+
+export const EDITING_NOTHING = 0;
+export const EDITING_TIME = 1;
+export const EDITING_ACTIVITY = 2;
+
+type EditingStatus
+    = typeof EDITING_NOTHING
+    | typeof EDITING_TIME
+    | typeof EDITING_ACTIVITY
 
 export type ActivitiesViewState = {
     activities: Activity[];
 
     currentFocus: typeof FOCUS_ACTIVITIES_LIST | typeof FOCUS_DATE_SELECTOR;
     activityListPositon: ListPosition;
-    isEditingActivity: boolean;
+    isEditing: EditingStatus;
 
     scrollContainer: ScrollContainer;
 
     now: Date;
 
     currentViewingDate: Date;
-    _startActivityIdx: number; 
+    _startActivityIdx: number;
     _endActivityIdxEx: number; // exclusive index
     _canMoveToNextDay: boolean;
     _canMoveToPrevDay: boolean;
@@ -61,7 +132,7 @@ export function newActivitiesViewState(): ActivitiesViewState {
 
         currentFocus: FOCUS_ACTIVITIES_LIST,
         activityListPositon: newListPosition(),
-        isEditingActivity: false,
+        isEditing: EDITING_NOTHING,
 
         scrollContainer: newScrollContainer(),
 
@@ -89,7 +160,7 @@ function getActivitiesForDateStartIdx(
     while (i >= 0) {
 
         if (
-            activities[i].t < date && 
+            activities[i].t < date &&
             !isSameDate(activities[i].t, date)
         ) break;
 
@@ -121,7 +192,7 @@ export function activitiesViewTakeBreak(
         // allow the next code select the last break for editing
     }
     activitiesViewSetIdx(ctx.activityView, ctx.activityView.activities.length - 1, true);
-    s.isEditingActivity = true;
+    s.isEditing = EDITING_ACTIVITY;
     ctx.requestSaveState = true;
 }
 
@@ -131,7 +202,7 @@ function getActivitiesNextDateStartIdx(
 ): number {
     if (!boundsCheck(activities, startIdx)) return startIdx;
 
-    let i =  startIdx;
+    let i = startIdx;
 
     const date = activities[i].t;
 
@@ -201,7 +272,7 @@ function insertBreakBetweenCurrentAndNext(
     s.activities.splice(idx + 1, 0, newBreak);
 
     ctx.requestSaveState = true;
-    s.isEditingActivity = true;
+    s.isEditing = EDITING_ACTIVITY;;
     activitiesViewSetIdx(s, idx + 1, true);
 };
 
@@ -221,16 +292,16 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     const dateSelectorFocused = currentFocus === FOCUS_DATE_SELECTOR;
 
     if (dateSelectorFocused) {
-        s.isEditingActivity = false;
+        s.isEditing = EDITING_NOTHING;
     }
-
-    const [lo, hi] = getActivityRange(s);
 
     // Moving up/down
     const delta = getNavigableListInput(ctx);
     if (!ctx.handled && delta) {
+        const [lo, hi] = getActivityRange(s);
+
         if (activityListFocused) {
-            if (!s.isEditingActivity) {
+            if (s.isEditing === EDITING_NOTHING) {
                 if (s.activityListPositon.idx === lo && delta < 0) {
                     s.currentFocus = FOCUS_DATE_SELECTOR;
                     ctx.handled = true;
@@ -269,19 +340,27 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     }
 
     if (!ctx.handled && activityListFocused) {
-        if (!s.isEditingActivity) {
+        if (s.isEditing === EDITING_NOTHING) {
             if (keyboard.homeKey.pressed) {
+                const [lo, hi] = getActivityRange(s);
                 nextActivityIdx = lo;
                 ctx.handled = true;
             } else if (keyboard.endKey.pressed) {
+                const [lo, hi] = getActivityRange(s);
                 nextActivityIdx = hi - 1;
                 ctx.handled = true;
             } else if (
                 isBreak(currentActivity) &&
                 // !currentActivity.locked && // TODO: review this flag. Not sure what the point of it is.
                 !shift && hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
-            )  {
-                s.isEditingActivity = true;
+            ) {
+                s.isEditing = EDITING_ACTIVITY;;
+                ctx.handled = true;
+            } else if (
+                !isBreak(currentActivity) &&
+                !shift &&  hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit activity time")
+            ) {
+                s.isEditing = EDITING_TIME;
                 ctx.handled = true;
             } else if (shift) {
                 if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under")) {
@@ -301,8 +380,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
                     const dir = hDelta > 0 ? 1 : -1;
                     for (
-                        let i = s.activityListPositon.idx + dir; 
-                        i < s.activities.length && i >= 0; 
+                        let i = s.activityListPositon.idx + dir;
+                        i < s.activities.length && i >= 0;
                         i += dir
                     ) {
                         const activity = s.activities[i];
@@ -322,18 +401,40 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 }
                 ctx.handled = true;
             }
+        } else {
+            if (isBreak(currentActivity)) {
+                let command;
+                let editNext: EditingStatus;
+                if (s.isEditing === EDITING_TIME) {
+                    command = "Edit break info";
+                    editNext = EDITING_ACTIVITY;
+                } else  {
+                    command = "Edit activity";
+                    editNext = EDITING_TIME;
+                }
+
+                if (hasDiscoverableCommand(ctx, keyboard.tabKey, command, BYPASS_TEXT_AREA | REPEAT)) {
+                    ctx.handled = true;
+                    s.isEditing = editNext;
+                }
+            } else {
+                if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) {
+                    // xddd
+                    ctx.handled = true;
+                }
+            }
         }
     }
 
 
     // escape key
     if (!ctx.handled) {
-        if (s.isEditingActivity) {
+        if (s.isEditing !== EDITING_NOTHING) {
             if (
                 hasDiscoverableCommand(ctx, keyboard.enterKey, "Finish editing", BYPASS_TEXT_AREA) ||
                 hasDiscoverableCommand(ctx, keyboard.escapeKey, "Finish editing", BYPASS_TEXT_AREA) // TODO: this has to revert the edit.
             ) {
-                s.isEditingActivity = false;
+                s.isEditing = EDITING_NOTHING;
                 ctx.handled = true;
             }
         }
@@ -353,21 +454,24 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         if (!newDate) {
             const hDelta = getAxisRaw(keyboard.leftKey.pressed, keyboard.rightKey.pressed);
 
-            if (hDelta > 0) {
-                if (hi < s.activities.length - 1) {
-                    // next day
-                    newDate = s.activities[hi + 1].t;
-                } else {
-                    // today
-                    newDate = s.now;
+            if (hDelta) {
+                const [lo, hi] = getActivityRange(s);
+                if (hDelta > 0) {
+                    if (hi < s.activities.length - 1) {
+                        // next day
+                        newDate = s.activities[hi + 1].t;
+                    } else {
+                        // today
+                        newDate = s.now;
+                    }
+                    ctx.handled = true;
+                } else if (hDelta < 0) {
+                    if (lo > 0) {
+                        // previous day
+                        newDate = s.activities[lo - 1].t;
+                    }
+                    ctx.handled = true;
                 }
-                ctx.handled = true;
-            } else if (hDelta < 0) {
-                if (lo > 0) {
-                    // previous day
-                    newDate = s.activities[lo - 1].t;
-                }
-                ctx.handled = true;
             }
         }
 
@@ -461,6 +565,23 @@ export function imActivitiesList(
 
     imBegin(COL); imFlex(); {
 
+        imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
+            if (isFirstishRender()) {
+                setStyle("fontWeight", "bold");
+            }
+
+            let text = "[Shift+B] to take a break";
+            const last = getLastActivity(state);
+            if (last && isBreak(last)) {
+                text = "Taking a break...";
+                if (last.breakInfo) {
+                    text = "Taking a break: " + last.breakInfo;
+                }
+            } 
+            imText(text);
+
+        } imEnd();
+
         const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
         imBeginListRow(dateSelectorFocused ? (viewFocused ? ROW_FOCUSED : ROW_SELECTED) : ROW_EXISTS); {
@@ -525,15 +646,15 @@ export function imActivitiesList(
                 const itemSelected = currentFocus === FOCUS_ACTIVITIES_LIST &&
                     s.activityListPositon.idx === idx;
 
-                const isEditing = viewFocused && itemSelected && s.isEditingActivity;
-                const isEditingChanged = imMemo(isEditing);
+                const isEditingActivity = viewFocused && itemSelected && s.isEditing === EDITING_ACTIVITY;
+                const isEditingTime     = viewFocused && itemSelected && s.isEditing === EDITING_TIME;
 
                 let status = ROW_EXISTS;
                 if (itemSelected) {
                     status = ROW_SELECTED;
                     if (viewFocused) {
                         status = ROW_FOCUSED;
-                        if (isEditing) {
+                        if (s.isEditing) {
                             status = ROW_EDITING;
                         }
                     }
@@ -554,7 +675,31 @@ export function imActivitiesList(
                 const root = imBeginListRow(status); {
                     imBegin(ROW); imListRowCellStyle(); imGap(10, PX); imFlex(); imAlign(); {
                         imBegin(INLINE_BLOCK); {
-                            imBegin(); setText(formatTime(activity.t)); imInitClasses(cn.noWrap); imEnd();
+                            if (imIf() && isEditingTime) {
+                                const lowerBound = s.activities[idx - 1]?.t ?? null;
+                                const upperBound = s.activities[idx + 1]?.t ?? null;
+                                const timeInput = imEditableTime(activity.t, lowerBound, upperBound);
+
+                                if (timeInput.edit) {
+                                    const newValue = timeInput.edit.newValue;
+                                    if (newValue) {
+                                        let newVal = newValue;
+                                        assert(lowerBound.getTime() < newVal.getTime() && newVal.getTime() < upperBound.getTime());
+                                        activity.t = new Date(newVal);
+                                        ctx.requestSaveState = true;
+                                    }
+
+                                    ctx.handled = true;
+                                }
+
+                                const textArea = mustGet(timeInput.textArea);
+                                ctx.textAreaToFocus = textArea;
+                                ctx.focusWithAllSelected = true;
+                            } else {
+                                imElse();
+
+                                imBegin(); setText(formatTime(activity.t)); imInitClasses(cn.noWrap); imEnd();
+                            } imEndIf();
 
                             const duration = getActivityDurationMs(activity, s.activities[idx + 1]);
                             imBegin(); setText(formatDuration(duration, 2)); imInitClasses(cn.noWrap); imEnd();
@@ -568,7 +713,8 @@ export function imActivitiesList(
                                 setStyle("padding", isBreakActivity ? "40px" : "0");
                             }
 
-                            if (imIf() && !isEditing) {
+                            const isEditingActivityChanged  = imMemo(isEditingActivity);
+                            if (imIf() && !isEditingActivity) {
                                 imBegin(); setText(text); imEnd();
                             } else {
                                 imElse();
@@ -583,9 +729,10 @@ export function imActivitiesList(
                                     if (input || change) {
                                         activity.breakInfo = textArea.root.value;
                                         ctx.requestSaveState = true;
+                                        ctx.handled = true;
                                     }
 
-                                    if (isEditingChanged) {
+                                    if (isEditingActivityChanged) {
                                         textArea.root.selectionStart = textArea.root.value.length;
                                         textArea.root.selectionEnd = textArea.root.value.length;
                                     }
@@ -613,27 +760,6 @@ export function imActivitiesList(
                     ); imEnd();
                 } imEnd();
             } imEndIf();
-        } imEnd();
-
-        imLine(
-            HORIZONTAL, 1,
-            !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
-        );
-
-        imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
-            if (isFirstishRender()) {
-                setStyle("fontWeight", "bold");
-            }
-
-            let text = "[Shift+B] to take a break";
-            const last = getLastActivity(state);
-            if (last && isBreak(last)) {
-                text = "Taking a break...";
-                if (last.breakInfo) {
-                    text = "Taking a break: " + last.breakInfo;
-                }
-            } 
-            setText(text);
         } imEnd();
     } imEnd();
 }

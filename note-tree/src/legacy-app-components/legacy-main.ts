@@ -32,7 +32,6 @@ import {
     formatDateTime,
     formatDuration,
     formatDurationAsHours,
-    formatIsoDate,
     formatTime,
     getDatePlaceholder,
     getTimestamp,
@@ -1882,7 +1881,6 @@ function ViewCurrentSchedule(rg: RenderGroup<ViewCurrentScheduleState>) {
 
         if (!holidayDate || !isValidDate(holidayDate)) {
             if (holidayDateStr) {
-                console.log(holidayDateStr);
                 // dont tell me 'invalid date' unless I've actually typed in a date.
                 holidayError = "expected date format: " + datePlaceholder;
             }
@@ -5574,7 +5572,7 @@ function StatusIndicator(rg: RenderGroup) {
                 const now = new Date();
                 const useColon = now.getTime() % 1000 < 500;    // top notch animation
 
-                return formatDateTime(new Date(), useColon ? ":" : " ") + " - [Press F1 for help]";
+                return formatDateTime(new Date(), useColon ? ":" : "\xa0") + " - [Press F1 for help]";
             })
         ),
         rg.style("color", () => statusTextColor),
