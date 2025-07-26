@@ -11,13 +11,27 @@ export type ScrollContainer = {
     root: UIRoot<HTMLElement> | null;
     isScrolling:     boolean;
     smoothScroll:    boolean;
-    scrollTime:      number;
+
+    lastScrollTop:   number;
+    lastScrollTopStableFrames: number;
 };
+
+export function newScrollContainer(): ScrollContainer {
+    return {
+        root:         null,
+        isScrolling:  false,
+        smoothScroll: false,
+
+        lastScrollTop: -1,
+        lastScrollTopStableFrames: 0,
+    };
+}
 
 export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
     sc.isScrolling = true;
     sc.smoothScroll = smoothScroll;
-    sc.scrollTime = 0.4;
+    sc.lastScrollTopStableFrames = 0;
+    sc.lastScrollTop = -1;
 }
 
 export function imBeginScrollContainer(sc: ScrollContainer): UIRoot<HTMLElement> {
@@ -32,11 +46,10 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
     const scrollParent = l.root;
     if (!scrollParent)  return;
     if (!l.isScrolling) return;
-    if (l.scrollTime < 0) {
+    if (l.lastScrollTopStableFrames > 10) {
         l.isScrolling = false;
         return;
     }
-    l.scrollTime -= getDeltaTimeSeconds();
 
     const { scrollTop } = getScrollVH(
         scrollParent.root, root.root,
@@ -47,11 +60,14 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
         l.isScrolling = false;
     } else {
         if (l.smoothScroll) {
-            scrollParent.root.scrollTop = lerp(
-                scrollParent.root.scrollTop,
-                scrollTop,
-                20 * getDeltaTimeSeconds()
-            );
+            const currentScrollTop = scrollParent.root.scrollTop;
+            if (l.lastScrollTop !== currentScrollTop) {
+                l.lastScrollTop = currentScrollTop;
+                l.lastScrollTopStableFrames = 0;
+            }
+            l.lastScrollTopStableFrames += 1;
+
+            scrollParent.root.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds());
         } else {
             scrollParent.root.scrollTop = scrollTop;
         }
@@ -62,14 +78,5 @@ function lerp(a: number, b: number, t: number): number {
     if (t > 1) t = 1;
     if (t < 0) t = 0;
     return a + (b - a) * t;
-}
-
-export function newScrollContainer(): ScrollContainer {
-    return {
-        root:         null,
-        isScrolling:  false,
-        smoothScroll: false,
-        scrollTime:   -1,
-    };
 }
 

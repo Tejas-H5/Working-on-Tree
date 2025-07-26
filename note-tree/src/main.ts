@@ -32,13 +32,12 @@ import {
     newGlobalContext,
     preventImKeysDefault,
     REPEAT,
+    updateDiscoverableCommands,
 } from "./global-context";
-import { imNotePlanView } from "./note-plan-view";
 import { imNoteTreeView } from "./note-tree-view";
 import {
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
-    APP_VIEW_PLAN,
     applyPendingScratchpadWrites,
     appViewToString,
     getActivityTime,
@@ -209,8 +208,9 @@ function imMain() {
                                 setStyle("textAlign", "right");
                             }
 
+                            const commands = ctx.discoverableCommands;
                             imFor(); {
-                                for (const command of ctx.discoverableCommandsLastFrame) {
+                                for (const command of commands.stablized) {
                                     if (!command.key) continue;
 
                                     imNextRoot();
@@ -218,27 +218,27 @@ function imMain() {
                                     imCommandDescription(command.key.stringRepresentation, command.actionDescription);
                                 }
 
-                                const anyFulfilled = (ctx.keyboard.shiftKey.held && ctx.discoverableShiftHeld) ||
-                                                     (ctx.keyboard.ctrlKey.held && ctx.discoverableCtrlHeld) ||
-                                                     (ctx.keyboard.altKey.held && ctx.discoverableAltHeld);
+                                const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftHeld) ||
+                                                     (ctx.keyboard.ctrlKey.held  && commands.ctrlHeld)  ||
+                                                     (ctx.keyboard.altKey.held   && commands.altHeld)
 
                                 if (!anyFulfilled) {
                                     imNextRoot();
-                                    if (ctx.discoverableShiftHeld) {
+                                    if (commands.shiftHeld) {
                                         imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
-                                        ctx.discoverableShiftHeld = false;
+                                        commands.shiftHeld = false;
                                     }
 
                                     imNextRoot();
-                                    if (ctx.discoverableCtrlHeld) {
+                                    if (commands.ctrlHeld) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
-                                        ctx.discoverableCtrlHeld = false;
+                                        commands.ctrlHeld = false;
                                     }
 
                                     imNextRoot();
-                                    if (ctx.discoverableAltHeld) {
+                                    if (commands.altHeld) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
-                                        ctx.discoverableAltHeld = false;
+                                        commands.altHeld = false;
                                     }
                                 }
                             } imEndFor();
@@ -287,12 +287,12 @@ function imMain() {
 
                         if (
                             hasDiscoverableHold(ctx, ctx.keyboard.shiftKey) &&
-                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, "Go to " + appViewToString(prev), REPEAT)
+                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(prev), REPEAT)
                         ) {
                             state._currentScreen = prev;
                             ctx.handled = true;
                         } else if (
-                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, "Go to " + appViewToString(next), REPEAT)
+                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(next), REPEAT)
                         ) {
                             state._currentScreen = next;
                             ctx.handled = true;
@@ -341,11 +341,7 @@ function imMain() {
                 }
 
                 // discoverable commands (at the very end).
-                ctx.discoverableCommandsLastFrame.length = ctx.discoverableCommandsIdx;
-                for (let i = 0; i < ctx.discoverableCommandsIdx; i++) {
-                    ctx.discoverableCommandsLastFrame[i] = ctx.discoverableCommands[i];
-                }
-                ctx.discoverableCommandsIdx = 0;
+                updateDiscoverableCommands(ctx.discoverableCommands);
             }
 
             framesSinceError.val++;

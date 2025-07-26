@@ -1,5 +1,6 @@
 import {
-    imBeginScrollContainer, newScrollContainer,
+    imBeginScrollContainer, 
+    newScrollContainer,
     ScrollContainer,
     scrollToItem,
     startScrolling
@@ -542,7 +543,10 @@ export function imActivitiesList(
         }
     }
 
-    if (imMemo(s.activityListPositon.idx)) {
+    if (imMemoMany(
+        s.activityListPositon.idx,
+        s.currentFocus
+    )) {
         startScrolling(s.scrollContainer, true);
     }
 

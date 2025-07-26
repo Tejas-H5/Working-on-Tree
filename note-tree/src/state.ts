@@ -96,21 +96,19 @@ function newFuzzyFindState(): FuzzyFindState {
 type AppViewInstance = number & { __appView: void; };
 
 export const APP_VIEW_NOTES      = 0 as AppViewInstance;
-export const APP_VIEW_PLAN       = 1 as AppViewInstance;
-export const APP_VIEW_ACTIVITIES = 2 as AppViewInstance;
+export const APP_VIEW_ACTIVITIES = 1 as AppViewInstance;
 
 export function appViewToString(view: AppView): string {
     switch(view) {
         case APP_VIEW_NOTES:      return "Notes";
-        case APP_VIEW_PLAN:       return "Plan";
         case APP_VIEW_ACTIVITIES: return "Activities";
     }
     throw new Error("Cant reach here");
 }
 
-export type AppView =
-    typeof APP_VIEW_NOTES |
-    typeof APP_VIEW_PLAN;
+export type AppView
+    = typeof APP_VIEW_NOTES
+    | typeof APP_VIEW_ACTIVITIES;
 
 
 // TODO: remove dead state after rewrite
@@ -838,20 +836,32 @@ export function setNoteText(
 export function recomputeNoteStatusRecursively(
     state: NoteTreeGlobalState,
     note: TreeNote,
+    recomputeParents = true
 ) {
-    let recomputeParents = false;
     if (note.childIds.length === 0) {
         recomputeParents = true;
     } else if (note.childIds.length > 0) {
-        let status = STATUS_DONE;
+        let status = STATUS_IN_PROGRESS;
+        // if the last note in the list is DONE, then we can default to DONE instead
+        {
+            const lastId = note.childIds[note.childIds.length - 1];
+            const lastNote = getNote(state, lastId);
+            if (getDoneNoteSuffix(lastNote.data)) {
+                status = STATUS_DONE;
+            }
+        }
+
         let foundDoneNoteUnderThisParent = false;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
             const child = getNote(state, id);
 
             if (child.childIds.length > 0) {
-                if (child.data._status === STATUS_NOT_COMPUTED) {
-                    recomputeNoteStatusRecursively(state, child);
+                if (
+                    recomputeParents === false || 
+                    child.data._status === STATUS_NOT_COMPUTED
+                ) {
+                    recomputeNoteStatusRecursively(state, child, false);
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
             } else {
@@ -887,7 +897,7 @@ export function recomputeNoteStatusRecursively(
     if (recomputeParents) {
         if (!idIsNil(note.parentId)) {
             const parent = getNote(state, note.parentId);
-            recomputeNoteStatusRecursively(state, parent);
+            recomputeNoteStatusRecursively(state, parent, true);
         }
     }
 }

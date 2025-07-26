@@ -383,7 +383,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             ctx.handled = true;
         }
         
-        if (!ctrl && !shift && hasDiscoverableCommand(ctx, keyboard.tabKey, "Go to activity", REPEAT)) {
+        if (!ctrl && !shift && hasDiscoverableCommand(ctx, keyboard.aKey, "Note activity", REPEAT)) {
             // TODO: just recompute this when we set the note
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {

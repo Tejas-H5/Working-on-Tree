@@ -1,5 +1,4 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
-import { newPlanViewState, PlanViewState } from "./note-plan-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { AppView } from "./state";
 import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
@@ -14,21 +13,49 @@ export type GlobalContext = {
     textAreaToFocus:     UIRoot<HTMLTextAreaElement> | null;
     focusWithAllSelected: boolean;
 
-    discoverableCommands: DiscoverableCommand[];
-    discoverableCommandsLastFrame: DiscoverableCommand[];
-    discoverableCommandsIdx: number;
-    discoverableShiftHeld: boolean;
-    discoverableCtrlHeld: boolean;
-    discoverableAltHeld: boolean;
+    discoverableCommands: DiscoverableCommands;
 
     noteTreeView: NoteTreeViewState;
     activityView: ActivitiesViewState;
-    plansView:    PlanViewState;
 
     navigationList: AppView[];
 
     requestSaveState: boolean; // set this to true to ask the app to save the current state.
 };
+
+export type DiscoverableCommands = {
+    thisFrame: DiscoverableCommand[];
+    lastFrame: DiscoverableCommand[];
+    stablized: DiscoverableCommand[];
+
+    changed: boolean;
+    idx: number;
+
+    shiftHeld: boolean;
+    ctrlHeld: boolean;
+    altHeld: boolean;
+}
+
+export function newDiscoverableCommands(): DiscoverableCommands {
+    const thisFrame = Array(8).fill(null).map((): DiscoverableCommand => {
+        return {
+            key: null,
+            actionDescription: "",
+        };
+    });
+    return {
+        // only 8 discoverable commands at any given time MAX.
+        thisFrame: thisFrame,
+        lastFrame: [],
+        stablized: [],
+        idx: 0,
+        changed: false,
+        shiftHeld: false,
+        ctrlHeld: false,
+        altHeld: false,
+    };
+}
+
 
 export type DiscoverableCommand = {
     key:    KeyState | null;
@@ -49,25 +76,13 @@ export function newGlobalContext(): GlobalContext {
         focusWithAllSelected: false,
 
         noteTreeView: newNoteTreeViewState(),
-        plansView:    newPlanViewState(),
         activityView: newActivitiesViewState(),
 
         requestSaveState: false,
 
         navigationList: [],
 
-        // only 8 discoverable commands at any given time MAX.
-        discoverableCommands: Array(8).fill(null).map((): DiscoverableCommand => {
-            return {
-                key: null,
-                actionDescription: "",
-            };
-        }),
-        discoverableCommandsLastFrame: [],
-        discoverableCommandsIdx: 0,
-        discoverableShiftHeld: false,
-        discoverableCtrlHeld: false,
-        discoverableAltHeld: false,
+        discoverableCommands: newDiscoverableCommands(),
     };
 }
 
@@ -113,12 +128,14 @@ export function addToNavigationList(ctx: GlobalContext, view: AppView) {
 }
 
 export function hasDiscoverableHold(ctx: GlobalContext, key: KeyState): boolean {
+    const commands = ctx.discoverableCommands;
+
     if (key === ctx.keyboard.ctrlKey) {
-        ctx.discoverableCtrlHeld = true;
+        commands.ctrlHeld = true;
     } else if (key === ctx.keyboard.shiftKey) {
-        ctx.discoverableShiftHeld = true;
+        commands.shiftHeld = true;
     } else if (key === ctx.keyboard.altKey) {
-        ctx.discoverableAltHeld = true;
+        commands.altHeld = true;
     } else {
         throw new Error("Key not accounted for: " + key.stringRepresentation);
     }
@@ -136,13 +153,15 @@ function pushDiscoverableCommand(
         return false;
     }
 
-    const idx = ctx.discoverableCommandsIdx;
+    const commands = ctx.discoverableCommands;
+
+    const idx = commands.idx;
     // Shouldn't accidentally trigger invisible commands imo.
-    if (idx >= ctx.discoverableCommands.length) return false;
+    if (idx >= commands.thisFrame.length) return false;
 
     let found = false;
-    for (let i = 0; i < ctx.discoverableCommandsIdx; i++) {
-        const command = ctx.discoverableCommands[i];
+    for (let i = 0; i < commands.idx; i++) {
+        const command = commands.thisFrame[i];
         if (command.key === key) {
             found = true;
             break;
@@ -152,10 +171,9 @@ function pushDiscoverableCommand(
     // Can't handle the same command twice.
     if (found) return false;
 
-    ctx.discoverableCommands[idx].key               = key;
-    ctx.discoverableCommands[idx].actionDescription = actionDescription;
-
-    ctx.discoverableCommandsIdx = idx + 1;
+    commands.thisFrame[idx].key               = key;
+    commands.thisFrame[idx].actionDescription = actionDescription;
+    commands.idx++;
 
     return true;
 }
@@ -383,3 +401,30 @@ export function preventImKeysDefault() {
     if (keyUp)   keyUp.preventDefault();
 }
 
+
+export function updateDiscoverableCommands(s: DiscoverableCommands) {
+    const didChange = s.changed;
+
+    s.changed = s.idx !== s.lastFrame.length;
+    for (let i = 0; i < s.idx; i++) {
+        let equal = false;
+
+        if (i < s.lastFrame.length) {
+            equal =
+                s.lastFrame[i].key === s.thisFrame[i].key &&
+                s.lastFrame[i].actionDescription === s.thisFrame[i].actionDescription;
+        }
+
+        if (!equal) s.changed = true;
+
+        s.lastFrame[i] = s.thisFrame[i];
+    }
+    s.idx = 0;
+
+    if (!s.changed && didChange) {
+        s.stablized.length = 0;
+        for (let i = 0; i < s.lastFrame.length; i++) {
+            s.stablized.push(s.lastFrame[i]);
+        }
+    }
+}
