@@ -40,6 +40,7 @@ import { imNoteTreeView } from "./note-tree-view";
 import {
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
+    APP_VIEW_PLAN,
     applyPendingScratchpadWrites,
     appViewToString,
     getActivityTime,
@@ -71,6 +72,7 @@ import {
     imNextRoot,
     imRef,
     imState,
+    imStateInline,
     imTry,
     initImDomUtils,
     isEditingTextSomewhereInDocument,
@@ -258,12 +260,28 @@ function imMain() {
                             imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                         } imEnd();
 
+                        const leftTab = imStateInline(() => {
+                            return { val: APP_VIEW_ACTIVITIES };
+                        });
+
                         if (imIf() && ctx.activityViewVisible) {
                             imBegin(COL); {
                                 if (isFirstishRender()) {
                                     setStyle("width", "33%");
                                 }
-                                imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
+
+                                if (
+                                    state._currentScreen === APP_VIEW_ACTIVITIES ||
+                                    state._currentScreen === APP_VIEW_PLAN
+                                ) {
+                                    leftTab.val = state._currentScreen;
+                                }
+
+                                if (imIf() && leftTab.val === APP_VIEW_ACTIVITIES) {
+                                    imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
+                                } else {
+                                    imElse();
+                                } imEndIf();
                             } imEnd();
                         } imEndIf();
                     } imEnd();

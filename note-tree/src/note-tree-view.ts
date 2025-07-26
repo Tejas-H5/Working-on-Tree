@@ -48,6 +48,7 @@ import {
     getCurrentNote,
     getNote,
     getNumSiblings,
+    getTodoNotePriority,
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
@@ -101,10 +102,13 @@ export type NoteTreeViewState = {
     numVisible: number;
 };
 
+// NOTE: recompute status _after_ doing this
 function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
+    let mutated = false;
     if (invalidate || s.note !== note) {
         if (s.note !== note) {
-            invalidate ||= deleteNoteIfEmpty(state, s.note);
+            mutated ||= deleteNoteIfEmpty(state, s.note);
+            invalidate ||=mutated;
         }
 
         s.note = note;
@@ -123,6 +127,10 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note, false);
         s.listPos.idx = s.childNotes.indexOf(note);
         assert(s.childNotes.length === 0 || s.listPos.idx !== -1);
+    }
+
+    if (invalidate) {
+        recomputeNoteStatusRecursively(state, note);
     }
 }
 
@@ -179,8 +187,8 @@ function moveOutOfCurrent(
             const parentParent = getNote(state, parent.parentId);
             const parentIdx = parent.idxInParentList;
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
-            recomputeNoteStatusRecursively(state, parent);
             setNote(s, s.note, true);
+            recomputeNoteStatusRecursively(state, s.note);
             ctx.requestSaveState = true;
         }
     } else {
@@ -330,6 +338,7 @@ function moveToLocalidx(
     if (moveNote) {
         tree.insertAt(state.notes, parent, s.note, idx);
         setNote(s, s.note, true);
+        recomputeNoteStatusRecursively(state, s.note);
         ctx.requestSaveState = true;
     } else {
         const childId = parent.childIds[idx];
@@ -588,10 +597,16 @@ function imNoteTreeRow(
 
                             if (input || change) {
                                 let status = s.note.data._status;
+                                let collapseStatus = isNoteCollapsed(s.note);
+
                                 setNoteText(state, s.note, textArea.root.value);
+
                                 ctx.requestSaveState = true;
                                 ctx.handled = true;
-                                if (status !== s.note.data._status) {
+                                if (
+                                    status !== s.note.data._status ||
+                                    collapseStatus !== isNoteCollapsed(s.note)
+                                ) {
                                     s.invalidateNote = true;
                                 }
                             }

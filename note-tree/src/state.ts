@@ -243,7 +243,7 @@ export function newAppSettings() {
 
 export type Note = {
     id: NoteId;
-    // set this via {@link setNoteText}
+    /** set this via {@link setNoteText} */
     text: string;
 
     // will be populated as soon as the note is created.
@@ -838,7 +838,8 @@ export function setNoteText(
 export function recomputeNoteStatusRecursively(
     state: NoteTreeGlobalState,
     note: TreeNote,
-    recomputeParents = true
+    recomputeParents = true,
+    recomputeChildren = true
 ) {
     if (note.childIds.length === 0) {
         recomputeParents = true;
@@ -860,10 +861,10 @@ export function recomputeNoteStatusRecursively(
 
             if (child.childIds.length > 0) {
                 if (
-                    recomputeParents === false || 
+                    recomputeChildren || 
                     child.data._status === STATUS_NOT_COMPUTED
                 ) {
-                    recomputeNoteStatusRecursively(state, child, false);
+                    recomputeNoteStatusRecursively(state, child, false, true);
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
             } else {
@@ -899,7 +900,7 @@ export function recomputeNoteStatusRecursively(
     if (recomputeParents) {
         if (!idIsNil(note.parentId)) {
             const parent = getNote(state, note.parentId);
-            recomputeNoteStatusRecursively(state, parent, true);
+            recomputeNoteStatusRecursively(state, parent, true, false);
         }
     }
 }
@@ -1454,7 +1455,7 @@ export function isNoteEmpty(note: TreeNote): boolean {
     return note.data.text.length === 0;
 }
 
-export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote) {
+export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): boolean {
     if (!isNoteEmpty(note)) {
         return false;
     }

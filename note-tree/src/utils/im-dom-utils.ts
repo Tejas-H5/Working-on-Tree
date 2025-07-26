@@ -550,8 +550,10 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     lastItemIdx: number;
 
     hasRealChildren:    boolean; // can we add text to this element ?
-    removedLevel:       RemovedLevel; // how much has this been removed?
     completedOneRender: boolean; // have we completed at least one render without erroring?
+    childRemoveLevel:   RemovedLevel; // how much have the children been removed?
+    itemRemoveLevel:    RemovedLevel; // how much has this item been removed?
+    visibilityChanged:  boolean;
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
@@ -579,7 +581,9 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        removedLevel: REMOVE_LEVEL_NONE,
+        childRemoveLevel: REMOVE_LEVEL_NONE,
+        itemRemoveLevel: REMOVE_LEVEL_DOM,
+        visibilityChanged: false,
         completedOneRender: false,
         lastText: "",
     }
@@ -588,6 +592,10 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
 function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number) {
     resetDomAppender(r.domAppender, startDomIdx);
     r.itemsIdx = startItemIdx;
+
+    r.visibilityChanged = r.itemRemoveLevel !== REMOVE_LEVEL_NONE;
+    r.itemRemoveLevel = REMOVE_LEVEL_NONE;
+
     pushRoot(r);
 
     // NOTE: avoid any more asertions here - the component may error out, and
@@ -604,9 +612,7 @@ function assertNotDerived(r: UIRoot) {
     assert(isDerived(r) === false);
 }
 
-export function setClass(val: string, enabled: boolean | number = true) {
-    const r = getCurrentRoot();
-
+export function setClass(val: string, enabled: boolean | number = true, r = getCurrentRoot()) {
     if (enabled) {
         r.root.classList.add(val);
     } else {
@@ -659,11 +665,9 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
     return r.root.getAttribute(k) || "";
 }
 
-export function __onUIRootDestroy(r: UIRoot) {
-    // ensure only called once
-    if (r.removedLevel === REMOVE_LEVEL_DESTROY) return;
-    r.removedLevel = REMOVE_LEVEL_DESTROY;
-
+// Recursively destroys all UI roots under this one.
+// Should only be called in one place, and never called twice on the same root.
+function __onUIRootDestroy(r: UIRoot) {
     for (let i = 0; i < r.items.length; i++) { const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
             __onUIRootDestroy(item);
@@ -687,6 +691,35 @@ export function __onUIRootDestroy(r: UIRoot) {
             console.error("A destructor threw an error: ", e);
         }
     }
+    r.destructors.length = 0;
+}
+
+// Recursively soft-destroys (aka removes) all UI roots under this one.
+// Can potentially be called again later after being un-removed.
+function __onUIRootDomRemove(r: UIRoot) {
+    // These items should no longer be accessible via the UI tree
+    assert(r.itemRemoveLevel !== REMOVE_LEVEL_DESTROY); 
+    if (r.itemRemoveLevel >= REMOVE_LEVEL_DOM) {
+        // already detached, so we don't need to go back over this.
+        return;
+    }
+    r.itemRemoveLevel = REMOVE_LEVEL_DOM;
+
+    for (let i = 0; i < r.items.length; i++) { const item = r.items[i];
+        if (item.t === ITEM_UI_ROOT) {
+            __onUIRootDomRemove(item);
+        } else if (item.t === ITEM_LIST_RENDERER) {
+            const l = item;
+            for (let i = 0; i < l.builders.length; i++) {
+                __onUIRootDomRemove(l.builders[i]);
+            }
+            if (l.keys !== undefined) {
+                for (const v of l.keys.values()) {
+                    __onUIRootDomRemove(v.root);
+                }
+            }
+        }
+    }
 }
 
 // NOTE: If this is being called before we've rendered any components here, it should be ok.
@@ -696,14 +729,17 @@ export function __removeAllDomElementsFromUiRoot(
     r: UIRoot,
     removeLevel: RemovedLevel,
 ) {
-    if (r.removedLevel >= removeLevel) return;
-    r.removedLevel = removeLevel;
+    // Don't call this method twice at the same remove level
+    if (r.childRemoveLevel >= removeLevel) return;
+    r.childRemoveLevel = removeLevel;
 
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
             item.domAppender.root.remove();
-            if (removeLevel === REMOVE_LEVEL_DESTROY) {
+            if (removeLevel === REMOVE_LEVEL_DOM) {
+                __onUIRootDomRemove(item);
+            } else if (removeLevel === REMOVE_LEVEL_DESTROY) {
                 __onUIRootDestroy(item);
             }
         } else if (item.t === ITEM_LIST_RENDERER) {
@@ -804,7 +840,7 @@ export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LE
     // Don't access immediate mode state when immediate mode is disabled
     assert(core.imDisabled === false);
 
-    const r = getCurrentRoot();
+    const r = getCurrentRootForRendering();
 
     let result: ListRenderer | undefined; 
     const items = r.items;
@@ -836,6 +872,14 @@ function assertCanPushImmediateModeStateEntry(r: UIRoot) {
     // You rendered more things in this render than in the previous render.
     // The same immediate mode state must be queried in the same order every time.
     assert(r.lastItemIdx === -1);
+}
+
+function getCurrentRootForRendering() {
+    const r = getCurrentRoot();
+    // Should only be set when we actually start putting things under this root. Otherwise, it will just get reverted when 0 thigns are rendered.
+    r.childRemoveLevel = REMOVE_LEVEL_NONE;
+
+    return r;
 }
 
 /**
@@ -1030,7 +1074,7 @@ export function imNextRoot(key?: ValidKey) {
         }
 
         let block = l.keys.get(key);
-        if (block === undefined || block.root.removedLevel === REMOVE_LEVEL_DESTROY) {
+        if (block === undefined || block.root.childRemoveLevel === REMOVE_LEVEL_DESTROY) {
             block = {
                 root: newUiRoot(null, l.uiRoot.domAppender),
                 rendered: false,
@@ -1116,7 +1160,7 @@ function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): Stat
     // Don't access immediate mode state when immediate mode is disabled
     assert(core.imDisabled === false);
 
-    const r = getCurrentRoot();
+    const r = getCurrentRootForRendering();
 
     let result: StateItem<T>;
     const items = r.items;
@@ -1327,7 +1371,7 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementS
     // Don't access immediate mode state when immediate mode is disabled
     assert(core.imDisabled === false);
 
-    const r = getCurrentRoot();
+    const r = getCurrentRootForRendering();
 
     let result: UIRoot<E> | undefined;
     const items = r.items;
@@ -1359,7 +1403,6 @@ export function imBeginExistingRoot<E extends ValidElement = ValidElement>(root:
     const r = getCurrentRoot();
 
     r.hasRealChildren = true;
-    r.removedLevel = REMOVE_LEVEL_NONE;
     appendToDomRoot(r.domAppender, root.domAppender.root);
 
     __beginUiRoot(root, -1, -1);
@@ -2274,6 +2317,41 @@ function newImGetSizeState(): {
 
 export function imTrackSize() {
     return imState(newImGetSizeState);
+}
+
+/**
+ * Use this to check if a component that was not being conditionally rendered
+ * has just become visible. Useful, because your component has no other way of knowing
+ * that it was detatched and re-attached by conditional rendering - when it is detatched, it is simply 
+ * not doing anything, so has no way to rememeber. It's like being in a coma I suppose.
+ *
+ * ```ts
+ * function imApp(s: AppState) { 
+ *      const viewIsModal1 = s.topBar.view === MODAL_1;
+ *
+ *
+ *      if (imMemo(viewIsModal1) && viewIsModal1) { 
+ *          // works. but it can be inconvenient to query it here.
+ *      }
+ *
+ *      if (imIf() && viewIsModal1) {
+ *          if (imMemo(viewIsModal1) && viewIsModal1) { 
+ *              // doesn't work - imMemo wont run when !viewIsModal1, so it can't know
+ *          }
+ *
+ *          if (becameVisible()) { // works
+ *              // initialize the state
+ *          }
+ *
+ *          ...
+ *      } else { 
+ *              ...
+ *      } imEndIf();
+ * }
+ * ```
+ */
+export function becameVisible(r = getCurrentRoot()) {
+    return r.visibilityChanged;
 }
 
 // Doing string comparisons every frame kills performance, if done for every singe DOM node.
