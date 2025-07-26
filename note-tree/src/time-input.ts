@@ -18,7 +18,8 @@ import {
 } from "./utils/im-dom-utils";
 
 type TimeInputStateEditEvent = {
-    newValue: Date | null;
+    timeInput?: Date | null;
+    durationInput?: number;
 };
 
 type TimeInputState = {
@@ -81,7 +82,7 @@ export function imEditableTime(
                 setType = SET_INTERNAL_ONLY;
             }
 
-            setValue(s, currentValue, lowerBound, upperBound, setType);
+            setInnerValue(s, currentValue, lowerBound, upperBound, setType);
             if (setType === SET_INTERNAL_AND_TEXT) {
                 setInputValue(textArea.root, s.text);
                 textArea.root.select();
@@ -92,9 +93,7 @@ export function imEditableTime(
             if (input || change) {
                 // don't edit the text till we're done
                 s.text = textArea.root.value.trim();
-                const parsed = parseActivityTime(s.text, currentValue, upperBound);
-                setValue(s, parsed, lowerBound, upperBound, SET_INTERNAL_ONLY);
-                s.edit = { newValue: cloneDate(s.value) };
+                s.edit = parseTimeEditEvent(s.text, currentValue, upperBound);
             } else if (keyDown) {
                 const up = keyDown.key === "ArrowUp";
                 const down = keyDown.key === "ArrowDown";
@@ -117,8 +116,8 @@ export function imEditableTime(
 
                     editedDate = clampDate(editedDate, lowerBound, upperBound);
 
-                    setValue(s, editedDate, lowerBound, upperBound, SET_INTERNAL_AND_TEXT);
-                    s.edit = { newValue: cloneDate(s.value) }
+                    setInnerValue(s, editedDate, lowerBound, upperBound, SET_INTERNAL_AND_TEXT);
+                    s.edit = { timeInput: cloneDate(s.value) }
                 }
             }
         }
@@ -130,7 +129,7 @@ export function imEditableTime(
 const SET_INTERNAL_AND_TEXT = false;
 const SET_INTERNAL_ONLY = true;
 
-function setValue(
+function setInnerValue(
     s: TimeInputState,
     editedDate: Date | null,
     lowerBound: Date | null,
@@ -143,11 +142,11 @@ function setValue(
     }
 }
 
-export function parseActivityTime(
+export function parseTimeEditEvent(
     text: string,
     currentDate: Date | null,
     nextDate: Date | null,
-): Date | null {
+): TimeInputStateEditEvent | null {
     if (!currentDate) currentDate = new Date();
     if (!nextDate) nextDate = new Date();
 
@@ -155,15 +154,13 @@ export function parseActivityTime(
     if (!err) {
         const result = new Date(currentDate);
         dateSetLocalTime(result, time);
-        return result;
+        return { timeInput: result };
     } 
 
     // Typeing 1h for an activity would mean we wanted that activity to have taken 1 hr.
     const [duration, err2] = parseDurationInput(text);
     if (!err2) {
-        const result = new Date(nextDate);
-        result.setTime(result.getTime() - duration);
-        return result;
+        return { durationInput: duration };
     }
 
     return null;

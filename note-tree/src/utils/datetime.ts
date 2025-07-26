@@ -90,6 +90,10 @@ export function isDayBefore(a: Date, b: Date) {
 }
 
 export function clampDate(date: Date, lowerBound: Date | null, upperBound: Date | null): Date {
+    if (lowerBound && upperBound) {
+        assert(lowerBound.getTime() <= upperBound.getTime());
+    }
+
     date = new Date(date);
 
     if (upperBound && date.getTime() > upperBound.getTime()) {

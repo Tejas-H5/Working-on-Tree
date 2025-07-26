@@ -16,7 +16,8 @@ import {
     INLINE_BLOCK,
     NOT_SET,
     PX,
-    ROW
+    ROW,
+    STRETCH
 } from "./components/core/layout";
 import {
     imFpsCounterOutputCompact,
@@ -26,6 +27,7 @@ import {
     stopFpsCounter
 } from "./components/fps-counter";
 import {
+    BYPASS_TEXT_AREA,
     handleImKeysInput,
     hasDiscoverableCommand,
     hasDiscoverableHold,
@@ -136,7 +138,7 @@ function imMain() {
                         displayColon.val = !displayColon.val;
                     }
 
-                    imBegin(ROW); {
+                    imBegin(ROW); imAlign(); {
                         if (isFirstishRender()) {
                             // TODO: standardize
                             setStyle("fontSize", "28px");
@@ -199,11 +201,11 @@ function imMain() {
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(); imFlex(2); imGap(1, CH); {
+                        imBegin(ROW); imFlex(2); imGap(1, CH); imAlign(); {
                             // NOTE: these could be buttons.
                             if (isFirstishRender()) {
                                 // TODO: standardize
-                                setStyle("fontSize", "20px");
+                                setStyle("fontSize", "18px");
                                 setStyle("fontWeight", "bold");
                                 setStyle("textAlign", "right");
                             }
@@ -256,12 +258,14 @@ function imMain() {
                             imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                         } imEnd();
 
-                        imBegin(COL); {
-                            if (isFirstishRender()) {
-                                setStyle("width", "33%");
-                            }
-                            imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
-                        } imEnd();
+                        if (imIf() && ctx.activityViewVisible) {
+                            imBegin(COL); {
+                                if (isFirstishRender()) {
+                                    setStyle("width", "33%");
+                                }
+                                imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
+                            } imEnd();
+                        } imEndIf();
                     } imEnd();
 
                 } imEnd();
@@ -272,6 +276,27 @@ function imMain() {
 
             // post-process events, etc
             {
+                // toggle activity view open
+                {
+                    // ensure visible when it needs to be
+                    if (state._currentScreen === APP_VIEW_ACTIVITIES) {
+                        ctx.activityViewVisible = true;
+                    }
+
+                    if (hasDiscoverableHold(ctx, ctx.keyboard.ctrlKey)) {
+                        if (hasDiscoverableCommand(
+                            ctx,
+                            ctx.keyboard.spaceKey,
+                            !ctx.activityViewVisible ? "Open activity view" : "Close activity view",
+                            BYPASS_TEXT_AREA,
+                        )) {
+                            ctx.activityViewVisible = !ctx.activityViewVisible;
+                            state._currentScreen = APP_VIEW_NOTES;
+                            ctx.handled = true;
+                        }
+                    }
+                }
+
                 // navigate between every view
                 if (!isEditingTextSomewhereInDocument()) {
                     const idx = ctx.navigationList.indexOf(state._currentScreen);
@@ -305,7 +330,7 @@ function imMain() {
 
                 // take a break from any view
                 if (!ctx.handled && hasDiscoverableHold(ctx, ctx.keyboard.shiftKey)) {
-                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break")) {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", BYPASS_TEXT_AREA)) {
                         state._currentScreen = APP_VIEW_ACTIVITIES;
                         activitiesViewTakeBreak(ctx, ctx.activityView);
                         ctx.handled = true;
@@ -368,10 +393,6 @@ function imMain() {
 
 function imCommandDescription(key: string, action: string) {
     imBegin(INLINE_BLOCK); {
-        if (isFirstishRender()) {
-            setStyle("paddingRight", "1ch");
-        }
-
         imBeginSpan(); setText("["); imEnd();
         imBeginSpan(); setText(key); imEnd();
         imBeginSpan(); setText("] " + action); imEnd();

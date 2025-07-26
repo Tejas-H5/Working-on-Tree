@@ -33,7 +33,8 @@ import {
     GlobalContext,
     hasDiscoverableCommand,
     hasDiscoverableHold,
-    REPEAT
+    REPEAT,
+    updateDiscoverableCommands
 } from "./global-context";
 import {
     imBeginListRow,
@@ -68,8 +69,10 @@ import {
     pushBreakActivity,
     state
 } from "./state";
-import { boundsCheck } from "./utils/array-utils";
+import { boundsCheck, get } from "./utils/array-utils";
 import {
+    clampDate,
+    cloneDate,
     floorDateLocalTime,
     formatDate,
     formatDuration,
@@ -79,6 +82,7 @@ import {
     isSameDate
 } from "./utils/datetime";
 import {
+    getImCore,
     HORIZONTAL,
     imElse,
     imEnd,
@@ -112,6 +116,8 @@ type EditingStatus
 export type ActivitiesViewState = {
     activities: Activity[];
 
+    viewHasFocus: boolean;
+
     currentFocus: typeof FOCUS_ACTIVITIES_LIST | typeof FOCUS_DATE_SELECTOR;
     activityListPositon: ListPosition;
     isEditing: EditingStatus;
@@ -127,9 +133,14 @@ export type ActivitiesViewState = {
     _canMoveToPrevDay: boolean;
 }
 
+
+
+
 export function newActivitiesViewState(): ActivitiesViewState {
     return {
         activities: [],
+
+        viewHasFocus: false,
 
         currentFocus: FOCUS_ACTIVITIES_LIST,
         activityListPositon: newListPosition(),
@@ -188,11 +199,11 @@ export function activitiesViewTakeBreak(
     s: ActivitiesViewState
 ) {
     if (!isCurrentlyTakingABreak(state)) {
-        pushBreakActivity(state, newBreakActivity("Taking a break...", new Date(), true));
+        pushBreakActivity(state, newBreakActivity("Taking a break...", new Date(), NOT_IN_RANGE));
     } else {
         // allow the next code select the last break for editing
     }
-    activitiesViewSetIdx(ctx.activityView, ctx.activityView.activities.length - 1, true);
+    activitiesViewSetIdx(ctx.activityView, ctx.activityView.activities.length - 1, NOT_IN_RANGE);
     s.isEditing = EDITING_ACTIVITY;
     ctx.requestSaveState = true;
 }
@@ -225,7 +236,10 @@ function getActivityRange(s: ActivitiesViewState): [number, number] {
     return [lo, hi];
 }
 
-export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInRange = false) {
+export const IN_RANGE = false;
+export const NOT_IN_RANGE = true;
+
+export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInRange: boolean) {
     if (s.activities.length === 0) return;
 
     let newIdx = idx;
@@ -274,7 +288,7 @@ function insertBreakBetweenCurrentAndNext(
 
     ctx.requestSaveState = true;
     s.isEditing = EDITING_ACTIVITY;;
-    activitiesViewSetIdx(s, idx + 1, true);
+    activitiesViewSetIdx(s, idx + 1, IN_RANGE);
 };
 
 function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
@@ -286,7 +300,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     const shift = hasDiscoverableHold(ctx, keyboard.shiftKey);
 
     const lastIdx = s.activityListPositon.idx;
-    const currentActivity = s.activities[s.activityListPositon.idx];
+    const currentActivity = get(s.activities, s.activityListPositon.idx);
     const viewingActivities = hasActivitiesToView(s);
     const currentFocus = getCurrentFocus(s);
     const activityListFocused = currentFocus === FOCUS_ACTIVITIES_LIST;
@@ -351,6 +365,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 nextActivityIdx = hi - 1;
                 ctx.handled = true;
             } else if (
+                currentActivity &&
                 isBreak(currentActivity) &&
                 // !currentActivity.locked && // TODO: review this flag. Not sure what the point of it is.
                 !shift && hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
@@ -358,6 +373,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 s.isEditing = EDITING_ACTIVITY;;
                 ctx.handled = true;
             } else if (
+                currentActivity &&
                 !isBreak(currentActivity) &&
                 !shift &&  hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit activity time")
             ) {
@@ -373,7 +389,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             // TODO: make axis discoverable
             const hDelta = getAxisRaw(keyboard.leftKey.pressed, keyboard.rightKey.pressed);
             if (!ctx.handled && hDelta) {
-                if (currentActivity.nId) {
+                if (currentActivity?.nId) {
                     const note = getNote(state, currentActivity.nId);
                     const hlt = getHigherLevelTask(state, note);
 
@@ -403,7 +419,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 ctx.handled = true;
             }
         } else {
-            if (isBreak(currentActivity)) {
+            if (currentActivity && isBreak(currentActivity)) {
                 let command;
                 let editNext: EditingStatus;
                 if (s.isEditing === EDITING_TIME) {
@@ -526,7 +542,7 @@ function getCurrentFocus(s: ActivitiesViewState) {
 export function imActivitiesList(
     ctx: GlobalContext,
     s: ActivitiesViewState,
-    viewFocused: boolean
+    viewHasFocus: boolean
 ) {
     addToNavigationList(ctx, APP_VIEW_ACTIVITIES);
 
@@ -534,12 +550,11 @@ export function imActivitiesList(
 
     s.now = ctx.now;
 
-    if (imMemoMany(state.currentNoteId, state._isEditingFocusedNote)) {
-        if (state._isEditingFocusedNote) {
-            const lastActivity = s.activities[s.activities.length - 1];
-            setCurrentViewingDate(s, lastActivity.t);
+    const viewHasFocusChanged = imMemo(viewHasFocus);
+    if (viewHasFocusChanged) {
+        if (!viewHasFocus) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
-            activitiesViewSetIdx(s, s.activities.length - 1);
+            activitiesViewSetIdx(s, s.activities.length - 1, NOT_IN_RANGE);
         }
     }
 
@@ -563,7 +578,7 @@ export function imActivitiesList(
     s._canMoveToPrevDay = s._startActivityIdx !== 0;
     s._canMoveToNextDay = s._endActivityIdxEx !== s.activities.length;
 
-    if (viewFocused) {
+    if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
     }
 
@@ -588,7 +603,7 @@ export function imActivitiesList(
 
         const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
-        imBeginListRow(dateSelectorFocused ? (viewFocused ? ROW_FOCUSED : ROW_SELECTED) : ROW_EXISTS); {
+        imBeginListRow(dateSelectorFocused ? (viewHasFocus ? ROW_FOCUSED : ROW_SELECTED) : ROW_EXISTS); {
             if (isFirstishRender()) {
                 setStyle("fontWeight", "bold");
             }
@@ -650,13 +665,13 @@ export function imActivitiesList(
                 const itemSelected = currentFocus === FOCUS_ACTIVITIES_LIST &&
                     s.activityListPositon.idx === idx;
 
-                const isEditingActivity = viewFocused && itemSelected && s.isEditing === EDITING_ACTIVITY;
-                const isEditingTime     = viewFocused && itemSelected && s.isEditing === EDITING_TIME;
+                const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
+                const isEditingTime     = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
                 let status = ROW_EXISTS;
                 if (itemSelected) {
                     status = ROW_SELECTED;
-                    if (viewFocused) {
+                    if (viewHasFocus) {
                         status = ROW_FOCUSED;
                         if (s.isEditing) {
                             status = ROW_EDITING;
@@ -680,23 +695,28 @@ export function imActivitiesList(
                     imBegin(ROW); imListRowCellStyle(); imGap(10, PX); imFlex(); imAlign(); {
                         imBegin(INLINE_BLOCK); {
                             if (imIf() && isEditingTime) {
-                                const lowerBound = s.activities[idx - 1]?.t ?? null;
-                                const upperBound = s.activities[idx + 1]?.t ?? null;
-                                const timeInput = imEditableTime(activity.t, lowerBound, upperBound);
+                                const lowerBound = get(s.activities, idx - 1)?.t;
+                                const upperBound = get(s.activities, idx + 1)?.t;
 
-                                if (timeInput.edit) {
-                                    const newValue = timeInput.edit.newValue;
-                                    if (newValue) {
-                                        let newVal = newValue;
-                                        assert(lowerBound.getTime() < newVal.getTime() && newVal.getTime() < upperBound.getTime());
-                                        activity.t = new Date(newVal);
-                                        ctx.requestSaveState = true;
+                                const { edit, textArea } = imEditableTime(activity.t, lowerBound ?? null, upperBound);
+
+                                if (edit) {
+                                    let newVal: Date | undefined;
+                                    if (edit.timeInput) {
+                                        newVal = edit.timeInput;
+                                    } else if (edit.durationInput) {
+                                        newVal = cloneDate(upperBound ?? null) || new Date();
+                                        newVal.setTime(newVal.getTime() - edit.durationInput);
                                     }
-
-                                    ctx.handled = true;
+                                    
+                                    if (newVal) {
+                                        newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
+                                        activity.t = newVal;
+                                        ctx.requestSaveState = true;
+                                        ctx.handled = true;
+                                    }
                                 }
 
-                                const textArea = mustGet(timeInput.textArea);
                                 ctx.textAreaToFocus = textArea;
                                 ctx.focusWithAllSelected = true;
                             } else {

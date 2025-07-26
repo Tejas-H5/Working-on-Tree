@@ -17,6 +17,7 @@ export type GlobalContext = {
 
     noteTreeView: NoteTreeViewState;
     activityView: ActivitiesViewState;
+    activityViewVisible: boolean;
 
     navigationList: AppView[];
 
@@ -77,6 +78,7 @@ export function newGlobalContext(): GlobalContext {
 
         noteTreeView: newNoteTreeViewState(),
         activityView: newActivitiesViewState(),
+        activityViewVisible: true,
 
         requestSaveState: false,
 
@@ -204,6 +206,7 @@ type KeyboardState = {
     pageUpKey:   KeyState;
     homeKey:     KeyState;
     endKey:      KeyState;
+    spaceKey:    KeyState;
 
     aKey: KeyState;
     sKey: KeyState;
@@ -264,6 +267,7 @@ function newKeyboardState(): KeyboardState {
         pageUpKey:   newKeyState("PgUp", "PageUp"),
         homeKey:     newKeyState("Home", "Home"),
         endKey:      newKeyState("End", "End"),
+        spaceKey:    newKeyState("Space", " "),
 
         aKey: newKeyState("A", "A", "a"),
         sKey: newKeyState("S", "S", "s"),
@@ -419,11 +423,12 @@ export function updateDiscoverableCommands(s: DiscoverableCommands) {
 
         s.lastFrame[i] = s.thisFrame[i];
     }
+    let lastIdx = s.idx;
     s.idx = 0;
 
     if (!s.changed && didChange) {
         s.stablized.length = 0;
-        for (let i = 0; i < s.lastFrame.length; i++) {
+        for (let i = 0; i < lastIdx; i++) {
             s.stablized.push(s.lastFrame[i]);
         }
     }

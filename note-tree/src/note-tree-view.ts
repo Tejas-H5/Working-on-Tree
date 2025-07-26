@@ -5,7 +5,7 @@ import {
     scrollToItem,
     startScrolling
 } from "src/components/scroll-container";
-import { activitiesViewSetIdx } from "./activities-list";
+import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 import { imLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
@@ -387,7 +387,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             // TODO: just recompute this when we set the note
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
-                activitiesViewSetIdx(ctx.activityView, idx, true);
+                activitiesViewSetIdx(ctx.activityView, idx, NOT_IN_RANGE);
                 state._currentScreen = APP_VIEW_ACTIVITIES;
             }
             ctx.handled = true;

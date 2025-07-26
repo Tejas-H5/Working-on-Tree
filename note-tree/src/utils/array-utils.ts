@@ -161,6 +161,12 @@ export function moveArrayItem(arr: unknown[], a: number, b: number) {
     }
 }
 
+export function get<T>(arr: T[], i: number): T | undefined {
+    let result = undefined;
+    if (i < arr.length) result = arr[i];
+    return result;
+}
+
 export function getWrapped<T>(arr: T[], i: number): T  {
     if (arr.length === 0) throw new Error("Array was empty");
     if (i >= arr.length) return arr[i % arr.length];
