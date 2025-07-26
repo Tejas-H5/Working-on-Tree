@@ -426,7 +426,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                     command = "Edit break info";
                     editNext = EDITING_ACTIVITY;
                 } else  {
-                    command = "Edit activity";
+                    command = "Edit time";
                     editNext = EDITING_TIME;
                 }
 

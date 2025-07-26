@@ -1,6 +1,6 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { AppView } from "./state";
+import { APP_VIEW_ACTIVITIES, AppView } from "./state";
 import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
@@ -31,6 +31,7 @@ export type DiscoverableCommands = {
 
     changed: boolean;
     idx: number;
+    lastIdx: number;
 
     shiftHeld: boolean;
     ctrlHeld: boolean;
@@ -38,18 +39,20 @@ export type DiscoverableCommands = {
 }
 
 export function newDiscoverableCommands(): DiscoverableCommands {
-    const thisFrame = Array(8).fill(null).map((): DiscoverableCommand => {
+    const newCommandArray = () => Array(8).fill(null).map((): DiscoverableCommand => {
         return {
             key: null,
             actionDescription: "",
         };
     });
+
     return {
         // only 8 discoverable commands at any given time MAX.
-        thisFrame: thisFrame,
-        lastFrame: [],
+        thisFrame: newCommandArray(),
+        lastFrame: newCommandArray(),
         stablized: [],
         idx: 0,
+        lastIdx: 0,
         changed: false,
         shiftHeld: false,
         ctrlHeld: false,
@@ -409,27 +412,25 @@ export function preventImKeysDefault() {
 export function updateDiscoverableCommands(s: DiscoverableCommands) {
     const didChange = s.changed;
 
-    s.changed = s.idx !== s.lastFrame.length;
+    s.changed = s.idx !== s.lastIdx;
+    s.lastIdx = s.idx;
     for (let i = 0; i < s.idx; i++) {
         let equal = false;
 
-        if (i < s.lastFrame.length) {
-            equal =
-                s.lastFrame[i].key === s.thisFrame[i].key &&
-                s.lastFrame[i].actionDescription === s.thisFrame[i].actionDescription;
-        }
+        equal =
+            s.lastFrame[i]?.key === s.thisFrame[i].key &&
+            s.lastFrame[i]?.actionDescription === s.thisFrame[i].actionDescription;
 
         if (!equal) s.changed = true;
 
         s.lastFrame[i] = s.thisFrame[i];
     }
-    let lastIdx = s.idx;
     s.idx = 0;
 
     if (!s.changed && didChange) {
-        s.stablized.length = 0;
-        for (let i = 0; i < lastIdx; i++) {
-            s.stablized.push(s.lastFrame[i]);
+        s.stablized.length = s.lastIdx;
+        for (let i = 0; i < s.stablized.length; i++) {
+            s.stablized[i] = s.lastFrame[i];
         }
     }
 }

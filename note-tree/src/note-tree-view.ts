@@ -253,11 +253,8 @@ export function imNoteTreeView(
         imBegin(); {
             s.numVisible = 0;
             imFor(); for (const row of s.viewRootParentNotes) {
-                imNextRoot(row);
-
-                imBeginListRow(ROW_EXISTS); {
-                    imNoteTreeRow(ctx, s, row, viewFocused);
-                } imEndListRow();
+                imNextRoot(row); 
+                imNoteTreeRow(ctx, s, row, viewFocused);
             } imEndFor();
         } imEnd();
 
@@ -278,21 +275,7 @@ export function imNoteTreeView(
                 imNextRoot(row.id);
 
                 const itemSelected = s.listPos.idx === i;
-
-                let rowStatus = ROW_EXISTS;
-                if (itemSelected) {
-                    rowStatus = ROW_SELECTED;
-                    if (viewFocused) {
-                        rowStatus = ROW_FOCUSED;
-                        if (state._isEditingFocusedNote) {
-                            rowStatus = ROW_EDITING;
-                        }
-                    }
-                }
-
-                const root = imBeginListRow(rowStatus); {
-                    imNoteTreeRow(ctx, s, row, viewFocused, i, itemSelected);
-                } imEndListRow();
+                const root = imNoteTreeRow(ctx, s, row, viewFocused, i, itemSelected);
 
                 if (itemSelected) {
                     scrollToItem(s.scrollContainer, root)
@@ -450,188 +433,203 @@ function imNoteTreeRow(
         }
     }
 
-    imBegin(ROW); imFlex(); {
-        setClass(cn.preWrap, itemSelected);
-
-        // The tree visuals
-        imBegin(ROW_REVERSE); {
-            imFor();
-
-            const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
-
-            let it = note;
-            let foundLineInPath = false;
-            let depth = -1;
-
-            while (!idIsNil(it.parentId)) {
-                imNextRoot();
-
-                const itPrev = it;
-                const itPrevNumSiblings = getNumSiblings(state, itPrev);
-                it = getNote(state, it.parentId);
-                depth++;
-
-                // |---->| indent
-                // [  x  ]Vertical line should line up with the note status above it:
-                //    |
-                //    |<-| bullet start
-                //    |
-                //    +-- [ x ] >> blah blah blah
-
-                // const isLineInPath = inPath && prev === note;
-
-                const itIsParent = s.noteParentNotes.includes(it) || idIsRoot(it.id);
-
-                const isLineInPath: boolean = 
-                    !foundLineInPath && 
-                    idx <= s.listPos.idx && 
-                    itIsParent;
-
-                foundLineInPath ||= isLineInPath;
-
-                const hasHLine = itPrev.id === note.id;
-                const indent = 30;
-                const bulletStart = 5;
-
-                const smallThicnkess = 1;
-                const largeThicnkess = 4;
-                const isLast = itPrev.idxInParentList === itPrevNumSiblings - 1;
-
-                let pathGoesRight = (noteIsParent || it.id === note.id);
-
-                // if (0) 
-                {
-                    imBegin(); imRelative(); imSize(indent, PX, 0, NOT_SET); {
-                        // horizontal line xD
-                        if (imIf() && hasHLine) {
-                            imBegin();
-                            imAbsolute(0, NOT_SET, 0, PX, 1, EM, 0, NOT_SET);
-                            const isThick = isLineInPath && pathGoesRight;
-                            imSize(
-                                bulletStart, PX,
-                                isThick ? largeThicnkess: smallThicnkess, PX,
-                            );
-                            imBg(cssVarsApp.fgColor); {
-                                if (isFirstishRender()) {
-                                    setStyle("transform", "translate(0, -100%)");
-                                }
-                            } imEnd();
-                        } imEndIf();
-
-                        const canDrawVerticalLine = !isLast || note === itPrev;
-
-                        if (imIf() && canDrawVerticalLine) {
-                            let midpointLen = 1;
-                            let midpointUnits = EM;
-
-                            // Vertical line part 1. xd. We need a better API
-                            imBegin();
-                            imAbsolute(
-                                0, NOT_SET, bulletStart, PX,
-                                0, PX, 0, isLast ? NOT_SET : PX,
-                            );
-                            imSize(
-                                isLineInPath ? largeThicnkess: smallThicnkess, PX, 
-                                midpointLen, midpointUnits
-                            );
-                            imBg(cssVarsApp.fgColor); {
-                            } imEnd();
-
-                            // Vertical line part 2.
-                            imBegin();
-                            imAbsolute(
-                                0, NOT_SET, bulletStart, PX,
-                                midpointLen, midpointUnits, 0, isLast ? NOT_SET : PX,
-                            );
-                            const isThick = isLineInPath && !pathGoesRight;
-                            imSize(
-                                isThick ? largeThicnkess: smallThicnkess, PX, 
-                                0, NOT_SET
-                            );
-                            imOpacity(isLast ? 0 : 1);
-                            imBg(cssVarsApp.fgColor); {
-                            } imEnd();
-                        } imEndIf();
-                    } imEnd();
-                }
+    let rowStatus = ROW_EXISTS;
+    if (itemSelected) {
+        rowStatus = ROW_SELECTED;
+        if (viewFocused) {
+            rowStatus = ROW_FOCUSED;
+            if (state._isEditingFocusedNote) {
+                rowStatus = ROW_EDITING;
             }
-            imEndFor();
-        } imEnd();
+        }
+    }
 
-        imBegin(ROW); imFlex(); imListRowCellStyle(); {
-            if (imMemo(note.data._status)) {
-                setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
-            }
+    const root = imBeginListRow(rowStatus); {
+        imBegin(ROW); imFlex(); {
+            setClass(cn.preWrap, itemSelected);
 
-            imBegin(ROW); imFlex(); {
-                if (imMemo(itemSelected)) {
-                    setClass(cn.preWrap, itemSelected);
-                    setClass(cn.pre, !itemSelected);
-                    setClass(cn.noWrap, !itemSelected);
-                    setClass(cn.overflowHidden, !itemSelected);
-                }
+            // The tree visuals
+            imBegin(ROW_REVERSE); {
+                imFor();
 
-                imBegin(ROW); {
-                    imInitClasses(cn.noWrap);
-                    imBegin(); setText(noteStatusToString(note.data._status)); imEnd();
-                    if (imIf() && (numInProgress + numDone) > 0) {
-                        imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
-                        imBeginSpan(); setText(`(${numDone}/${numInProgress + numDone})`); imEnd();
-                    } imEndIf();
-                    imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
-                } imEnd();
+                const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
 
-                const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
-                const isEditingChanged = imMemo(isEditing);
+                let it = note;
+                let foundLineInPath = false;
+                let depth = -1;
 
-                if (imIf() && isEditing) {
-                    const [,textArea] = imBeginTextArea({
-                        value: note.data.text,
-                    }); {
-                        const input = imOn("input");
-                        const change = imOn("change");
+                while (!idIsNil(it.parentId)) {
+                    imNextRoot();
 
-                        if (input || change) {
-                            let status = s.note.data._status;
-                            setNoteText(state, s.note, textArea.root.value);
-                            ctx.requestSaveState = true;
-                            ctx.handled = true;
-                            if (status !== s.note.data._status) {
-                                s.invalidateNote = true;
-                            }
-                        }
+                    const itPrev = it;
+                    const itPrevNumSiblings = getNumSiblings(state, itPrev);
+                    it = getNote(state, it.parentId);
+                    depth++;
 
-                        const keyDown = imOn("keydown");
-                        if (keyDown) {
-                            ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea.root, {})
-                        }
+                    // |---->| indent
+                    // [  x  ]Vertical line should line up with the note status above it:
+                    //    |
+                    //    |<-| bullet start
+                    //    |
+                    //    +-- [ x ] >> blah blah blah
 
-                        if (isEditingChanged) {
-                            textArea.root.selectionStart = textArea.root.value.length;
-                            textArea.root.selectionEnd = textArea.root.value.length;
-                        }
+                    // const isLineInPath = inPath && prev === note;
 
-                        ctx.textAreaToFocus = textArea;
-                    } imEndTextArea();
-                } else {
-                    imElse();
+                    const itIsParent = s.noteParentNotes.includes(it) || idIsRoot(it.id);
 
-                    imBeginSpan(); {
-                        imBeginSpan(); {
-                            if (imMemo(note.data.text)) {
-                                let text = note.data.text;
-                                if (text.length > 150) {
-                                    text = `[${text.length}ch] - ${text}`;
-                                }
+                    const isLineInPath: boolean =
+                        !foundLineInPath &&
+                        idx <= s.listPos.idx &&
+                        itIsParent;
 
-                                setText(text);
-                            }
+                    foundLineInPath ||= isLineInPath;
+
+                    const hasHLine = itPrev.id === note.id;
+                    const indent = 30;
+                    const bulletStart = 5;
+
+                    const smallThicnkess = 1;
+                    const largeThicnkess = 4;
+                    const isLast = itPrev.idxInParentList === itPrevNumSiblings - 1;
+
+                    let pathGoesRight = (noteIsParent || it.id === note.id);
+
+                    // the tree visuals. It was a lot easier to do these here than in my last framework
+                    {
+                        imBegin(); imRelative(); imSize(indent, PX, 0, NOT_SET); {
+                            // horizontal line xD
+                            if (imIf() && hasHLine) {
+                                imBegin();
+                                imAbsolute(0, NOT_SET, 0, PX, 1, EM, 0, NOT_SET);
+                                const isThick = isLineInPath && pathGoesRight;
+                                imSize(
+                                    bulletStart, PX,
+                                    isThick ? largeThicnkess : smallThicnkess, PX,
+                                );
+                                imBg(cssVarsApp.fgColor); {
+                                    if (isFirstishRender()) {
+                                        setStyle("transform", "translate(0, -100%)");
+                                    }
+                                } imEnd();
+                            } imEndIf();
+
+                            const canDrawVerticalLine = !isLast || note === itPrev;
+
+                            if (imIf() && canDrawVerticalLine) {
+                                let midpointLen = 1;
+                                let midpointUnits = EM;
+
+                                // Vertical line part 1. xd. We need a better API
+                                imBegin();
+                                imAbsolute(
+                                    0, NOT_SET, bulletStart, PX,
+                                    0, PX, 0, isLast ? NOT_SET : PX,
+                                );
+                                imSize(
+                                    isLineInPath ? largeThicnkess : smallThicnkess, PX,
+                                    midpointLen, midpointUnits
+                                );
+                                imBg(cssVarsApp.fgColor); {
+                                } imEnd();
+
+                                // Vertical line part 2.
+                                imBegin();
+                                imAbsolute(
+                                    0, NOT_SET, bulletStart, PX,
+                                    midpointLen, midpointUnits, 0, isLast ? NOT_SET : PX,
+                                );
+                                const isThick = isLineInPath && !pathGoesRight;
+                                imSize(
+                                    isThick ? largeThicnkess : smallThicnkess, PX,
+                                    0, NOT_SET
+                                );
+                                imOpacity(isLast ? 0 : 1);
+                                imBg(cssVarsApp.fgColor); {
+                                } imEnd();
+                            } imEndIf();
                         } imEnd();
+                    }
+                }
+                imEndFor();
+            } imEnd();
+
+            imBegin(ROW); imFlex(); imListRowCellStyle(); {
+                if (imMemo(note.data._status)) {
+                    setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
+                }
+
+                imBegin(ROW); imFlex(); {
+                    if (imMemo(itemSelected)) {
+                        setClass(cn.preWrap, itemSelected);
+                        setClass(cn.pre, !itemSelected);
+                        setClass(cn.noWrap, !itemSelected);
+                        setClass(cn.overflowHidden, !itemSelected);
+                    }
+
+                    imBegin(ROW); {
+                        imInitClasses(cn.noWrap);
+                        imBegin(); setText(noteStatusToString(note.data._status)); imEnd();
+                        if (imIf() && (numInProgress + numDone) > 0) {
+                            imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
+                            imBeginSpan(); setText(`(${numDone}/${numInProgress + numDone})`); imEnd();
+                        } imEndIf();
+                        imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
                     } imEnd();
-                } imEndIf();
+
+                    const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
+                    const isEditingChanged = imMemo(isEditing);
+
+                    if (imIf() && isEditing) {
+                        const [, textArea] = imBeginTextArea({
+                            value: note.data.text,
+                        }); {
+                            const input = imOn("input");
+                            const change = imOn("change");
+
+                            if (input || change) {
+                                let status = s.note.data._status;
+                                setNoteText(state, s.note, textArea.root.value);
+                                ctx.requestSaveState = true;
+                                ctx.handled = true;
+                                if (status !== s.note.data._status) {
+                                    s.invalidateNote = true;
+                                }
+                            }
+
+                            const keyDown = imOn("keydown");
+                            if (keyDown) {
+                                ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea.root, {})
+                            }
+
+                            if (isEditingChanged) {
+                                textArea.root.selectionStart = textArea.root.value.length;
+                                textArea.root.selectionEnd = textArea.root.value.length;
+                            }
+
+                            ctx.textAreaToFocus = textArea;
+                        } imEndTextArea();
+                    } else {
+                        imElse();
+
+                        imBeginSpan(); {
+                            imBeginSpan(); {
+                                if (imMemo(note.data.text)) {
+                                    let text = note.data.text;
+                                    if (text.length > 150) {
+                                        text = `[${text.length}ch] - ${text}`;
+                                    }
+
+                                    setText(text);
+                                }
+                            } imEnd();
+                        } imEnd();
+                    } imEndIf();
+                } imEnd();
             } imEnd();
         } imEnd();
-    } imEnd();
+    } imEndListRow();
+
+    return root;
 }
 
 

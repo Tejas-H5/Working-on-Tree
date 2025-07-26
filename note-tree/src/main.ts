@@ -16,8 +16,8 @@ import {
     INLINE_BLOCK,
     NOT_SET,
     PX,
-    ROW,
-    STRETCH
+    RIGHT,
+    ROW
 } from "./components/core/layout";
 import {
     imFpsCounterOutputCompact,
@@ -51,7 +51,7 @@ import {
     recomputeState,
     saveState,
     setTheme,
-    state,
+    state
 } from "./state";
 import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
@@ -201,13 +201,12 @@ function imMain() {
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(ROW); imFlex(2); imGap(1, CH); imAlign(); {
+                        imBegin(ROW); imFlex(2); imGap(1, CH); imAlign(); imJustify(RIGHT); {
                             // NOTE: these could be buttons.
                             if (isFirstishRender()) {
                                 // TODO: standardize
                                 setStyle("fontSize", "18px");
                                 setStyle("fontWeight", "bold");
-                                setStyle("textAlign", "right");
                             }
 
                             const commands = ctx.discoverableCommands;
@@ -228,21 +227,22 @@ function imMain() {
                                     imNextRoot();
                                     if (commands.shiftHeld) {
                                         imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
-                                        commands.shiftHeld = false;
                                     }
 
                                     imNextRoot();
                                     if (commands.ctrlHeld) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
-                                        commands.ctrlHeld = false;
                                     }
 
                                     imNextRoot();
                                     if (commands.altHeld) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
-                                        commands.altHeld = false;
                                     }
                                 }
+
+                                commands.shiftHeld = false;
+                                commands.ctrlHeld = false;
+                                commands.altHeld = false;
                             } imEndFor();
 
                             imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
@@ -330,7 +330,8 @@ function imMain() {
 
                 // take a break from any view
                 if (!ctx.handled && hasDiscoverableHold(ctx, ctx.keyboard.shiftKey)) {
-                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", BYPASS_TEXT_AREA)) {
+                    // Shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break")) {
                         state._currentScreen = APP_VIEW_ACTIVITIES;
                         activitiesViewTakeBreak(ctx, ctx.activityView);
                         ctx.handled = true;

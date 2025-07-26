@@ -97,6 +97,7 @@ type AppViewInstance = number & { __appView: void; };
 
 export const APP_VIEW_NOTES      = 0 as AppViewInstance;
 export const APP_VIEW_ACTIVITIES = 1 as AppViewInstance;
+export const APP_VIEW_PLAN       = 2 as AppViewInstance;
 
 export function appViewToString(view: AppView): string {
     switch(view) {
@@ -108,7 +109,8 @@ export function appViewToString(view: AppView): string {
 
 export type AppView
     = typeof APP_VIEW_NOTES
-    | typeof APP_VIEW_ACTIVITIES;
+    | typeof APP_VIEW_ACTIVITIES
+    | typeof APP_VIEW_PLAN;
 
 
 // TODO: remove dead state after rewrite
