@@ -1,6 +1,6 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
+import { getDeltaTimeSeconds, getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
     now: Date;
@@ -20,50 +20,63 @@ export type GlobalContext = {
     currentScreen: AppView;
 
     navigationList: AppView[];
-
-    requestSaveState: boolean; // set this to true to ask the app to save the current state.
 };
 
 export type DiscoverableCommands = {
     thisFrame: DiscoverableCommand[];
-    lastFrame: DiscoverableCommand[];
-    stablized: DiscoverableCommand[];
+    stabilized: DiscoverableCommand[];
+    stabilizedIdx: number;
 
     changed: boolean;
+    stableFrames: number;
     idx: number;
-    lastIdx: number;
 
-    shiftHeld: boolean;
-    ctrlHeld: boolean;
-    altHeld: boolean;
+    shiftAvailable: boolean;
+    ctrlAvailable: boolean;
+    altAvailable: boolean;
 }
 
 export function newDiscoverableCommands(): DiscoverableCommands {
     const newCommandArray = () => Array(8).fill(null).map((): DiscoverableCommand => {
         return {
             key: null,
-            actionDescription: "",
+            desc: "",
+            shift: false,
+            ctrl: false,
+            alt: false,
+            bypassTextArea: false,
+            repeat: false,
         };
     });
 
     return {
         // only 8 discoverable commands at any given time MAX.
         thisFrame: newCommandArray(),
-        lastFrame: newCommandArray(),
-        stablized: [],
+        stabilized: [],
         idx: 0,
-        lastIdx: 0,
+        stabilizedIdx: 0,
         changed: false,
-        shiftHeld: false,
-        ctrlHeld: false,
-        altHeld: false,
+        stableFrames: 0,
+
+        shiftAvailable: false,
+        ctrlAvailable: false,
+        altAvailable: false,
     };
 }
 
 
 export type DiscoverableCommand = {
-    key:    KeyState | null;
-    actionDescription: string;
+    key: KeyState | null;
+    desc: string;
+
+    ctrl: boolean;
+    shift: boolean;
+    alt: boolean;
+    repeat: boolean;
+    bypassTextArea: boolean;
+
+    // TODO: consider back and forth interaction here
+    // active: boolean;
 }
 
 export function newGlobalContext(): GlobalContext {
@@ -83,8 +96,6 @@ export function newGlobalContext(): GlobalContext {
         activityView: newActivitiesViewState(),
         activityViewVisible: true,
         currentScreen: APP_VIEW_NOTES,
-
-        requestSaveState: false,
 
         navigationList: [],
 
@@ -115,42 +126,39 @@ export function appViewToString(view: AppView): string {
     return "??";
 }
 
+export const REPEAT = 1 << 0;
+export const CTRL   = 1 << 1;
+export const SHIFT  = 1 << 2;
+export const ALT    = 1 << 3;
+export const BYPASS_TEXT_AREA = 1 << 4;
 
-
-export const REPEAT           = 1 << 0;
-export const BYPASS_TEXT_AREA = 1 << 1;
-
+// NOTE: we can kinda assume that a discoverable command was handeld. so maybe we just set it here instead?
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
     key: KeyState,
     actionDescription: string,
     flags = 0,
 ) {
-    if (!pushDiscoverableCommand(ctx, key, actionDescription, !!(flags & BYPASS_TEXT_AREA))) return false;
+    const command = pushDiscoverableCommand(ctx, key, actionDescription, flags);
+    if (!command) return false;
 
-    return hasCommand(ctx, key, actionDescription, flags);
+    return hasCommand(ctx, command);
 }
 
-// Mainly to switch quickly back and forth between this and `hasDiscoverableCommand`.
-export function hasCommand(
-    ctx: GlobalContext,
-    key: KeyState,
-    _actionDescription: string, 
-    flags = 0,
-) {
-    if (!(flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) {
-        return false;
-    }
+// Mainly for when you don't want a command to be discoverable for some reason.
+function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
+    if (ctx.handled) return false;
 
-    if (!ctx.handled && key.pressed) {
-        if (flags & REPEAT) {
-            return true;
-        }
+    if (!command.bypassTextArea && isEditingTextSomewhereInDocument()) return false;
 
-        return !key.repeat;
-    }
+    if (!command.key || !command.key.pressed)  return false;
+    if (!command.repeat && command.key.repeat) return false;
 
-    return false;
+    if (command.alt   && !ctx.keyboard.altKey.held)   return false;
+    if (command.ctrl  && !ctx.keyboard.ctrlKey.held)  return false;
+    if (command.shift && !ctx.keyboard.shiftKey.held) return false;
+
+    return true;
 }
 
 export function addToNavigationList(ctx: GlobalContext, view: AppView) {
@@ -158,37 +166,20 @@ export function addToNavigationList(ctx: GlobalContext, view: AppView) {
     ctx.navigationList.push(view);
 }
 
-export function hasDiscoverableHold(ctx: GlobalContext, key: KeyState): boolean {
-    const commands = ctx.discoverableCommands;
-
-    if (key === ctx.keyboard.ctrlKey) {
-        commands.ctrlHeld = true;
-    } else if (key === ctx.keyboard.shiftKey) {
-        commands.shiftHeld = true;
-    } else if (key === ctx.keyboard.altKey) {
-        commands.altHeld = true;
-    } else {
-        throw new Error("Key not accounted for: " + key.stringRepresentation);
-    }
-
-    return key.held;
-}
-
 function pushDiscoverableCommand(
     ctx: GlobalContext,
     key: KeyState,
     actionDescription: string,
-    bypassTextArea: boolean,
-): boolean {
-    if (!bypassTextArea && isEditingTextSomewhereInDocument()) {
-        return false;
+    flags: number,
+): DiscoverableCommand | null {
+    if (!(flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) {
+        return null;
     }
 
     const commands = ctx.discoverableCommands;
 
-    const idx = commands.idx;
     // Shouldn't accidentally trigger invisible commands imo.
-    if (idx >= commands.thisFrame.length) return false;
+    if (commands.idx >= commands.thisFrame.length) return null;
 
     let found = false;
     for (let i = 0; i < commands.idx; i++) {
@@ -200,13 +191,39 @@ function pushDiscoverableCommand(
     }
 
     // Can't handle the same command twice.
-    if (found) return false;
+    if (found) return null;
 
-    commands.thisFrame[idx].key               = key;
-    commands.thisFrame[idx].actionDescription = actionDescription;
+    const command = commands.thisFrame[commands.idx];
+
+    command.desc   = actionDescription;
+    command.key    = key;
+    command.ctrl   = !!(flags & CTRL);
+    command.shift  = !!(flags & SHIFT);
+    command.alt    = !!(flags & ALT);
+    command.repeat = !!(flags & REPEAT);
+    command.bypassTextArea = !!(flags & BYPASS_TEXT_AREA);
+
+    const currentlyHeld = (
+        (ctx.keyboard.ctrlKey.held ? CTRL : 0) |
+        (ctx.keyboard.shiftKey.held ? SHIFT : 0) |
+        (ctx.keyboard.altKey.held ? ALT : 0)
+    );
+
+    const commandWants = (CTRL | SHIFT | ALT) & flags;
+
+    const excessKeys = currentlyHeld & (~commandWants);
+    if (excessKeys) return null;
+
+    const remainingToPress = commandWants & (~currentlyHeld);
+    if (remainingToPress & CTRL) commands.ctrlAvailable = true;
+    if (remainingToPress & SHIFT) commands.shiftAvailable = true;
+    if (remainingToPress & ALT) commands.altAvailable = true;
+
+    if (currentlyHeld !== commandWants) return null;
+
+    // only increment when we reach the end
     commands.idx++;
-
-    return true;
+    return command;
 }
 
 type KeyState = {
@@ -241,6 +258,7 @@ type KeyboardState = {
     sKey: KeyState;
     dKey: KeyState;
     bKey: KeyState;
+    tKey: KeyState;
 
     enterKey:  KeyState;
     escapeKey: KeyState;
@@ -302,6 +320,7 @@ function newKeyboardState(): KeyboardState {
         sKey: newKeyState("S", "S", "s"),
         dKey: newKeyState("D", "D", "d"),
         bKey: newKeyState("B", "B", "b"),
+        tKey: newKeyState("T", "T", "t"),
 
         enterKey:  newKeyState("Enter", "Enter"),
         escapeKey: newKeyState("Esc", "Escape"),
@@ -436,27 +455,36 @@ export function preventImKeysDefault() {
 
 
 export function updateDiscoverableCommands(s: DiscoverableCommands) {
-    const didChange = s.changed;
-
-    s.changed = s.idx !== s.lastIdx;
-    s.lastIdx = s.idx;
+    let changed = s.idx !== s.stabilizedIdx;
     for (let i = 0; i < s.idx; i++) {
         let equal = false;
 
         equal =
-            s.lastFrame[i]?.key === s.thisFrame[i].key &&
-            s.lastFrame[i]?.actionDescription === s.thisFrame[i].actionDescription;
+            s.stabilized[i]?.key === s.thisFrame[i].key &&
+            s.stabilized[i]?.desc === s.thisFrame[i].desc;
 
-        if (!equal) s.changed = true;
-
-        s.lastFrame[i] = s.thisFrame[i];
+        if (!equal) changed = true;
     }
-    s.idx = 0;
 
-    if (!s.changed && didChange) {
-        s.stablized.length = s.lastIdx;
-        for (let i = 0; i < s.stablized.length; i++) {
-            s.stablized[i] = s.lastFrame[i];
+    if (changed && !s.changed) s.stableFrames = 0;
+    s.changed ||= changed;
+
+    if (changed) {
+        const requiredStableFramesForSnapshot = 3;
+        if (s.stableFrames < requiredStableFramesForSnapshot) {
+            s.stableFrames++;
+            if (s.stableFrames >= requiredStableFramesForSnapshot) {
+                // command list actually stabilized. let's snapshot it
+
+                s.stabilizedIdx = s.idx;
+                for (let i = 0; i < s.idx; i++) {
+                    s.stabilized[i] = { ...s.thisFrame[i] };
+                }
+                s.changed = false;
+            }
         }
     }
+
+
+    s.idx = 0;
 }

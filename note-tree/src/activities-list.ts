@@ -32,8 +32,8 @@ import {
     getAxisRaw,
     GlobalContext,
     hasDiscoverableCommand,
-    hasDiscoverableHold,
-    REPEAT
+    REPEAT,
+    SHIFT
 } from "./global-context";
 import {
     imBeginListRow,
@@ -60,7 +60,9 @@ import {
     isCurrentlyTakingABreak,
     newBreakActivity,
     pushBreakActivity,
-    state
+    setCurrentNote,
+    state,
+    TreeNote
 } from "./state";
 import { imEditableTime } from "./time-input";
 import { boundsCheck, get } from "./utils/array-utils";
@@ -108,6 +110,7 @@ export type ActivitiesViewState = {
     activities: Activity[];
 
     viewHasFocus: boolean;
+    noteBeforeFocus: TreeNote | null;
 
     currentFocus: typeof FOCUS_ACTIVITIES_LIST | typeof FOCUS_DATE_SELECTOR;
     activityListPositon: ListPosition;
@@ -132,6 +135,7 @@ export function newActivitiesViewState(): ActivitiesViewState {
         activities: [],
 
         viewHasFocus: false,
+        noteBeforeFocus: null,
 
         currentFocus: FOCUS_ACTIVITIES_LIST,
         activityListPositon: newListPosition(),
@@ -196,7 +200,7 @@ export function activitiesViewTakeBreak(
     }
     activitiesViewSetIdx(ctx.activityView, ctx.activityView.activities.length - 1, NOT_IN_RANGE);
     s.isEditing = EDITING_ACTIVITY;
-    ctx.requestSaveState = true;
+    state._notesMutationCounter++;
 }
 
 function getActivitiesNextDateStartIdx(
@@ -247,7 +251,7 @@ export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInR
 
         const activity = s.activities[newIdx];
         if (activity.nId) {
-            state.currentNoteId = activity.nId;
+            setCurrentNote(state, activity.nId, s.noteBeforeFocus?.id);
         }
     }
 
@@ -275,9 +279,10 @@ function insertBreakBetweenCurrentAndNext(
     const midpoint = timeA + duration / 2;
 
     const newBreak = newBreakActivity("New break", new Date(midpoint), false);
-    s.activities.splice(idx + 1, 0, newBreak);
 
-    ctx.requestSaveState = true;
+    s.activities.splice(idx + 1, 0, newBreak);
+    state._activitiesMutationCounter++;
+
     s.isEditing = EDITING_ACTIVITY;;
     activitiesViewSetIdx(s, idx + 1, IN_RANGE);
 };
@@ -287,8 +292,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
     let nextActivityIdx = -1;
     let nextActivityIdxNotInRange = false;
-
-    const shift = hasDiscoverableHold(ctx, keyboard.shiftKey);
 
     const lastIdx = s.activityListPositon.idx;
     const currentActivity = get(s.activities, s.activityListPositon.idx);
@@ -345,36 +348,42 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         }
     }
 
-    if (!ctx.handled && activityListFocused) {
+    if (activityListFocused) {
         if (s.isEditing === EDITING_NOTHING) {
-            if (keyboard.homeKey.pressed) {
+            if (!ctx.handled && keyboard.homeKey.pressed) {
                 const [lo, hi] = getActivityRange(s);
                 nextActivityIdx = lo;
                 ctx.handled = true;
-            } else if (keyboard.endKey.pressed) {
+            } 
+
+            if (!ctx.handled && keyboard.endKey.pressed) {
                 const [lo, hi] = getActivityRange(s);
                 nextActivityIdx = hi - 1;
                 ctx.handled = true;
-            } else if (
+            } 
+
+            if (
                 currentActivity &&
                 isBreak(currentActivity) &&
                 // !currentActivity.locked && // TODO: review this flag. Not sure what the point of it is.
-                !shift && hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
+                hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
             ) {
                 s.isEditing = EDITING_ACTIVITY;;
                 ctx.handled = true;
-            } else if (
+            } 
+
+            if (
                 currentActivity &&
                 !isBreak(currentActivity) &&
-                !shift &&  hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit activity time")
+                hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit activity time")
             ) {
                 s.isEditing = EDITING_TIME;
                 ctx.handled = true;
-            } else if (shift) {
-                if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under")) {
-                    insertBreakBetweenCurrentAndNext(ctx, s);
-                    ctx.handled = true;
-                }
+            } 
+
+            if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under", SHIFT)) {
+                insertBreakBetweenCurrentAndNext(ctx, s);
+                ctx.handled = true;
             }
 
             // TODO: make axis discoverable
@@ -409,42 +418,37 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 }
                 ctx.handled = true;
             }
-        } else {
-            if (currentActivity && isBreak(currentActivity)) {
-                let command;
-                let editNext: EditingStatus;
-                if (s.isEditing === EDITING_TIME) {
-                    command = "Edit break info";
-                    editNext = EDITING_ACTIVITY;
-                } else  {
-                    command = "Edit time";
-                    editNext = EDITING_TIME;
-                }
-
-                if (hasDiscoverableCommand(ctx, keyboard.tabKey, command, BYPASS_TEXT_AREA | REPEAT)) {
-                    ctx.handled = true;
-                    s.isEditing = editNext;
-                }
+        } else if (currentActivity && isBreak(currentActivity)) {
+            let command;
+            let editNext: EditingStatus;
+            if (s.isEditing === EDITING_TIME) {
+                command = "Edit break info";
+                editNext = EDITING_ACTIVITY;
             } else {
-                if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) {
-                    // xddd
-                    ctx.handled = true;
-                }
+                command = "Edit time";
+                editNext = EDITING_TIME;
+            }
+
+            if (hasDiscoverableCommand(ctx, keyboard.tabKey, command, BYPASS_TEXT_AREA | REPEAT)) {
+                ctx.handled = true;
+                s.isEditing = editNext;
+            }
+        } else {
+            if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) {
+                // xddd
+                ctx.handled = true;
             }
         }
     }
 
-
     // escape key
-    if (!ctx.handled) {
-        if (s.isEditing !== EDITING_NOTHING) {
-            if (
-                hasDiscoverableCommand(ctx, keyboard.enterKey, "Finish editing", BYPASS_TEXT_AREA) ||
-                hasDiscoverableCommand(ctx, keyboard.escapeKey, "Finish editing", BYPASS_TEXT_AREA) // TODO: this has to revert the edit.
-            ) {
-                s.isEditing = EDITING_NOTHING;
-                ctx.handled = true;
-            }
+    if (s.isEditing !== EDITING_NOTHING) {
+        if (
+            hasDiscoverableCommand(ctx, keyboard.enterKey, "Finish editing", BYPASS_TEXT_AREA) ||
+            hasDiscoverableCommand(ctx, keyboard.escapeKey, "Finish editing", BYPASS_TEXT_AREA) // TODO: escape has to also revert the edit.
+        ) {
+            s.isEditing = EDITING_NOTHING;
+            ctx.handled = true;
         }
     }
 
@@ -543,7 +547,9 @@ export function imActivitiesList(
 
     const viewHasFocusChanged = imMemo(viewHasFocus);
     if (viewHasFocusChanged) {
-        if (!viewHasFocus) {
+        if (viewHasFocus) {
+            s.noteBeforeFocus = getCurrentNote(state);
+        } else {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
             activitiesViewSetIdx(s, s.activities.length - 1, NOT_IN_RANGE);
         }
@@ -700,7 +706,7 @@ export function imActivitiesList(
                                     if (newVal) {
                                         newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
                                         activity.t = newVal;
-                                        ctx.requestSaveState = true;
+                                        state._activitiesMutationCounter++;
                                         ctx.handled = true;
                                     }
                                 }
@@ -740,7 +746,7 @@ export function imActivitiesList(
 
                                     if (input || change) {
                                         activity.breakInfo = textArea.root.value;
-                                        ctx.requestSaveState = true;
+                                        state._activitiesMutationCounter++;
                                         ctx.handled = true;
                                     }
 

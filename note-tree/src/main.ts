@@ -3,6 +3,7 @@ import { imLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import {
+    CENTER,
     CH,
     COL,
     imAlign,
@@ -27,19 +28,20 @@ import {
     stopFpsCounter
 } from "./components/fps-counter";
 import {
-    BYPASS_TEXT_AREA,
-    handleImKeysInput,
-    hasDiscoverableCommand,
-    hasDiscoverableHold,
-    newGlobalContext,
-    preventImKeysDefault,
-    REPEAT,
-    updateDiscoverableCommands,
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
     APP_VIEW_PLAN,
     APP_VIEW_TRAVERSAL,
     appViewToString,
+    BYPASS_TEXT_AREA,
+    CTRL,
+    handleImKeysInput,
+    hasDiscoverableCommand,
+    newGlobalContext,
+    preventImKeysDefault,
+    REPEAT,
+    SHIFT,
+    updateDiscoverableCommands,
 } from "./global-context";
 import { imNoteTraversal } from "./lateral-traversal";
 import { imNoteTreeView } from "./note-tree-view";
@@ -60,14 +62,11 @@ import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
-    getCurrentRoot,
     getDeltaTimeSeconds,
     HORIZONTAL,
-    imNowInCodepath,
     imBeginSpan,
     imCatch,
     imElse,
-    imElseIf,
     imEnd,
     imEndFor,
     imEndIf,
@@ -75,6 +74,8 @@ import {
     imEndTry,
     imFor,
     imIf,
+    imIsFirstishRender,
+    imMemoMany,
     imNextRoot,
     imRef,
     imState,
@@ -83,7 +84,7 @@ import {
     imTry,
     initImDomUtils,
     isEditingTextSomewhereInDocument,
-    imIsFirstishRender,
+    MEMO_CHANGED,
     newBoolean,
     newNumber,
     setStyle,
@@ -123,8 +124,10 @@ function imMain() {
         if (imIf() && !realShitRef.val) {
             handleImKeysInput(ctx);
 
-            if (ctx.requestSaveState) {
-                ctx.requestSaveState = false;
+            if (MEMO_CHANGED === imMemoMany(
+                state._notesMutationCounter,
+                state._activitiesMutationCounter
+            )) {
                 debouncedSave();
             }
 
@@ -210,7 +213,7 @@ function imMain() {
                             } imEndIf();
                         } imEnd();
 
-                        imBegin(ROW); imFlex(2); imGap(1, CH); imAlign(); imJustify(RIGHT); {
+                        imBegin(ROW); imFlex(2); imGap(1, CH); imJustify(RIGHT); {
                             // NOTE: these could be buttons.
                             if (imIsFirstishRender()) {
                                 // TODO: standardize
@@ -220,38 +223,39 @@ function imMain() {
 
                             const commands = ctx.discoverableCommands;
                             imFor(); {
-                                for (const command of commands.stablized) {
+                                for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                    const command = commands.stabilized[i];
                                     if (!command.key) continue;
 
                                     imNextRoot();
 
-                                    imCommandDescription(command.key.stringRepresentation, command.actionDescription);
+                                    imCommandDescription(command.key.stringRepresentation, command.desc);
                                 }
 
-                                const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftHeld) ||
-                                    (ctx.keyboard.ctrlKey.held && commands.ctrlHeld) ||
-                                    (ctx.keyboard.altKey.held && commands.altHeld)
+                                const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftAvailable) ||
+                                    (ctx.keyboard.ctrlKey.held && commands.ctrlAvailable) ||
+                                    (ctx.keyboard.altKey.held && commands.altAvailable)
 
                                 if (!anyFulfilled) {
                                     imNextRoot();
-                                    if (commands.shiftHeld) {
+                                    if (commands.shiftAvailable) {
                                         imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
                                     }
 
                                     imNextRoot();
-                                    if (commands.ctrlHeld) {
+                                    if (commands.ctrlAvailable) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
                                     }
 
                                     imNextRoot();
-                                    if (commands.altHeld) {
+                                    if (commands.altAvailable) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
                                     }
                                 }
 
-                                commands.shiftHeld = false;
-                                commands.ctrlHeld = false;
-                                commands.altHeld = false;
+                                commands.shiftAvailable = false;
+                                commands.ctrlAvailable = false;
+                                commands.altAvailable = false;
                             } imEndFor();
 
                             imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
@@ -267,23 +271,25 @@ function imMain() {
                             imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                         } imEnd();
 
+
+                        const leftTab = imStateInline(() => {
+                            return { val: APP_VIEW_ACTIVITIES };
+                        });
+
+                        if (
+                            ctx.currentScreen === APP_VIEW_PLAN ||
+                            ctx.currentScreen === APP_VIEW_TRAVERSAL
+                        ) {
+                            leftTab.val = ctx.currentScreen;
+                            ctx.activityViewVisible = true;
+                        } else {
+                            leftTab.val = APP_VIEW_ACTIVITIES;
+                        }
+
                         if (imIf() && ctx.activityViewVisible) {
                             imBegin(COL); {
                                 if (imIsFirstishRender()) {
                                     setStyle("width", "33%");
-                                }
-
-                                const leftTab = imStateInline(() => {
-                                    return { val: APP_VIEW_ACTIVITIES };
-                                });
-
-                                if (
-                                    ctx.currentScreen === APP_VIEW_PLAN ||
-                                    ctx.currentScreen === APP_VIEW_TRAVERSAL
-                                ) {
-                                    leftTab.val = ctx.currentScreen;
-                                } else {
-                                    leftTab.val = APP_VIEW_ACTIVITIES;
                                 }
 
                                 imSwitch(leftTab.val); switch (leftTab.val) {
@@ -291,7 +297,7 @@ function imMain() {
                                         imActivitiesList(ctx, ctx.activityView, ctx.currentScreen === APP_VIEW_ACTIVITIES);
                                         break;
                                     case APP_VIEW_TRAVERSAL:
-                                        imNoteTraversal(ctx, ctx.currentScreen === APP_VIEW_ACTIVITIES);
+                                        imNoteTraversal(ctx, ctx.currentScreen === APP_VIEW_TRAVERSAL);
                                         break;
                                 } imEndSwitch();
                             } imEnd();
@@ -308,29 +314,22 @@ function imMain() {
             {
                 // toggle activity view open
                 {
-                    // ensure visible when it needs to be
-                    if (ctx.currentScreen === APP_VIEW_ACTIVITIES) {
-                        ctx.activityViewVisible = true;
-                    }
-
-                    if (hasDiscoverableHold(ctx, ctx.keyboard.ctrlKey)) {
-                        if (hasDiscoverableCommand(
-                            ctx,
-                            ctx.keyboard.spaceKey,
-                            !ctx.activityViewVisible ? "Open activity view" : "Close activity view",
-                            BYPASS_TEXT_AREA,
-                        )) {
-                            ctx.activityViewVisible = !ctx.activityViewVisible;
-                            ctx.currentScreen = APP_VIEW_NOTES;
-                            ctx.handled = true;
-                        }
+                    if (hasDiscoverableCommand(
+                        ctx,
+                        ctx.keyboard.spaceKey,
+                        !ctx.activityViewVisible ? "Open activity view" : "Close activity view",
+                        CTRL | BYPASS_TEXT_AREA,
+                    )) {
+                        ctx.activityViewVisible = !ctx.activityViewVisible;
+                        ctx.currentScreen = APP_VIEW_NOTES;
+                        ctx.handled = true;
                     }
                 }
 
                 // navigate between every view
                 if (!isEditingTextSomewhereInDocument()) {
                     const idx = ctx.navigationList.indexOf(ctx.currentScreen);
-                    if (!ctx.handled && ctx.navigationList.length > 0) {
+                    if (ctx.navigationList.length > 0) {
                         let next, prev;
                         if (idx === -1) {
                             next = getWrapped(ctx.navigationList, 0);
@@ -340,15 +339,12 @@ function imMain() {
                             prev = getWrapped(ctx.navigationList, idx - 1);
                         }
 
-                        if (
-                            hasDiscoverableHold(ctx, ctx.keyboard.shiftKey) &&
-                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(prev), REPEAT)
-                        ) {
+                        if (hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(prev), SHIFT | REPEAT)) {
                             ctx.currentScreen = prev;
                             ctx.handled = true;
-                        } else if (
-                            hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(next), REPEAT)
-                        ) {
+                        } 
+
+                        if (hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(next), REPEAT)) {
                             ctx.currentScreen = next;
                             ctx.handled = true;
                         }
@@ -358,14 +354,12 @@ function imMain() {
                     }
                 }
 
-                // take a break from any view
-                if (!ctx.handled && hasDiscoverableHold(ctx, ctx.keyboard.shiftKey)) {
-                    // Shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
-                    if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break")) {
-                        ctx.currentScreen = APP_VIEW_ACTIVITIES;
-                        activitiesViewTakeBreak(ctx, ctx.activityView);
-                        ctx.handled = true;
-                    }
+                // Take a break from any view.
+                // Also, shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
+                if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", SHIFT)) {
+                    ctx.currentScreen = APP_VIEW_ACTIVITIES;
+                    activitiesViewTakeBreak(ctx, ctx.activityView);
+                    ctx.handled = true;
                 }
 
                 if (!ctx.handled) {
@@ -423,10 +417,9 @@ function imMain() {
 }
 
 function imCommandDescription(key: string, action: string) {
-    imBegin(INLINE_BLOCK); {
-        imBeginSpan(); setText("["); imEnd();
-        imBeginSpan(); setText(key); imEnd();
-        imBeginSpan(); setText("] " + action); imEnd();
+    imBegin(COL); imAlign(CENTER); {
+        imBegin(); setText("[" + key + "]"); imEnd();
+        imBegin(); setText(action); imEnd();
     } imEnd();
 }
 
@@ -497,8 +490,6 @@ let statusTextType = IN_PROGRESS;
 
 let saveTimeout = 0;
 function saveCurrentState({ debounced } = { debounced: false }) {
-    return;
-
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 

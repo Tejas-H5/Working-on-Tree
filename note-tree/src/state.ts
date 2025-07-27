@@ -101,6 +101,8 @@ function newFuzzyFindState(): FuzzyFindState {
 export type NoteTreeGlobalState = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: tree.TreeStore<Note>;
+    _notesMutationCounter: number;
+
     currentNoteId: NoteId;
     dockedMenu: DockableMenu;
     showDockedMenu: boolean;
@@ -115,6 +117,7 @@ export type NoteTreeGlobalState = {
 
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
+    _activitiesMutationCounter: number;
 
     /** 
      * A task stream is way to group tasks, and chunk out which ones we're working on at any given time. 
@@ -446,10 +449,13 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         schemaMajorVersion: 2,
 
         notes,
+        _notesMutationCounter: 0,
+
         currentNoteId: tree.NIL_ID,
         dockedMenu: "activities",
         showDockedMenu: false,
         activities: [],
+        _activitiesMutationCounter: 0,
 
         _scratchPadCanvasLayers: [],
         _scratchPadCanvasCurrentNoteIdPendingSave: tree.NIL_ID,
@@ -804,6 +810,7 @@ export function setNoteText(
 ) {
     note.data.text = text;
     recomputeNoteStatusRecursively(state, note);
+    state._notesMutationCounter++;
 }
 
 // Incrementally recompute status of notes in the tree. Rules:
@@ -1452,6 +1459,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
         state._statusText = "Can't delete notes with children!";
         state._statusTextColor = "#F00";
 
+        state._notesMutationCounter++;
         return true;
     }
 
@@ -1489,6 +1497,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
     }
     removeNoteFromNoteIds(state.scheduledNoteIds, note.id);
 
+    state._notesMutationCounter++;
     return true;
 }
 

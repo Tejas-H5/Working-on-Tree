@@ -1,6 +1,4 @@
-import { imBeginScrollContainer, newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { getAxisRaw, GlobalContext } from "./global-context";
-import { imEnd, imState } from "./utils/im-dom-utils";
 
 // TODO: maybe there should be a keyboard module instead?
 
@@ -27,6 +25,9 @@ export function clampedListIdxRange(idx: number, min: number, maxEx: number): nu
 // NOTE: only works if called in the animation loop
 export function getNavigableListInput(ctx: GlobalContext): number {
     const keyboard = ctx.keyboard;
+
+    // NOTE: the keyboard repeat rate can be changed at the OS settings level, so I've
+    // deleted our custom repeat code
 
     // Arrays are rendered downards most of the time. traversing them by idx means that up goes down and down goes up
     const pressedDelta = getAxisRaw(keyboard.upKey.pressed, keyboard.downKey.pressed) +

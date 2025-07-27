@@ -559,6 +559,7 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     itemRemoveLevel:    RemovedLevel; // how much has this item been removed?
 
     // true for the first frame where this UI root is in the current code path.
+    // you'll need this to correctly handle on-focus interactions.
     startedConditionallyRendering: boolean; 
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
@@ -1722,8 +1723,9 @@ function newMemoState(): { last: unknown } {
     return { last: MEMO_INITIAL_VALUE };
 }
 
+
 /**
- * Returns true if it was different to the previous value.
+ * Returns a non-zero value if it was different to the previous value.
  * ```ts
  * if (imMemo(val)) {
  *      // do expensive thing with val here
@@ -1731,24 +1733,29 @@ function newMemoState(): { last: unknown } {
  * }
  * ```
  *
- * NOTE: I had previously implemented imBeginMemo() and imEndMemo():
- * ```
- * if (imBeginMemo().val(x).objectVals(obj)) {
- *      <Memoized component>
- * } imEndMemo();
- * ```
- * Looks great right? Ended up with all sorts of stale state bugs so 
- * I deleted it. 
+ * NOTE: also returns a non-zero value when:
+ *      - we first render
+ *      - we were not in the conditional-rendering code path before, but we are now
  *
- * What I'm finding now, is that while imMemo is a super common pattern
- * that you will need in your components, it is really easy to lean on it
- * in situations where it isn't needed, and end up with a bad architecture.
- *
- * In other words, consider centralizing all your state into a single object, and using a setter instead.
- *
- * TODO: think about when it _is_ needed. 
+ *  This is because memos usually gate computations - you probably want those computations to 
+ *  be done once, and then updated as the input changes. However, you may 
+ *  also just want to run a side-effect on an actual change, in which case you can 
+ *  compare the result to {@link MEMO_CHANGED}.
  */
+// NOTE: I had previously implemented imBeginMemo() and imEndMemo():
+// ```
+// if (imBeginMemo().val(x).objectVals(obj)) {
+//      <Memoized component>
+// } imEndMemo();
+// ```
+// It's pretty straightforward to implement - just memorize the dom index and the state index,
+// ensure it returns true the first time so that you always have some components,
+// and then onwards, if the values are the same, just advance the dom index and state index.
+// else, return true and allow the rendering code to do this for you, and cache the new offsets
+// in imEndMemo. Looks great right? Ended up with all sorts of stale state bugs so I deleted it.
+// It's just not worth it ever, imo.
 export function imMemo(val: unknown): ImMemoResult {
+    const r = getCurrentRoot();
     const ref = imState(newMemoState);
 
     let result: ImMemoResult = MEMO_NOT_CHANGED;
@@ -1756,52 +1763,62 @@ export function imMemo(val: unknown): ImMemoResult {
     if (ref.last !== val) {
         result = ref.last === MEMO_INITIAL_VALUE ? MEMO_FIRST_RENDER : MEMO_CHANGED;
         ref.last = val;
-    } 
+    } else if (r.startedConditionallyRendering) {
+        result = MEMO_FIRST_RENDER_CONDITIONAL;
+    }
 
     return result;
 }
 
 export const MEMO_NOT_CHANGED  = 0;
 /** returned by {@link imMemo} if the value changed */
-export const MEMO_CHANGED      = 1; 
+export const MEMO_CHANGED      = 1 << 1; 
 /** 
  * returned by {@link imMemo} if this is simply the first render. 
  * Most of the time the distinction is not important, but sometimes,
  * you want to happen on a change but NOT the initial renderer.
  */
-export const MEMO_FIRST_RENDER = 2;
+export const MEMO_FIRST_RENDER = 1 << 2;
+/** 
+ * returned by {@link imMemo} if this is is caused by the component
+ * re-entering the conditional rendering codepath.
+ */
+export const MEMO_FIRST_RENDER_CONDITIONAL = 1 << 3;
 
 export type ImMemoResult
     = typeof MEMO_NOT_CHANGED
     | typeof MEMO_CHANGED 
-    | typeof MEMO_FIRST_RENDER;
-
-
+    | typeof MEMO_FIRST_RENDER
+    | typeof MEMO_FIRST_RENDER_CONDITIONAL;
 
 // TODO: performance benchmark vs imMemo before this becomes the default.
 export function imMemoMany(
     // NOTE (Dev): use `arugments` instead - I'm told that arguments is faster than using `val`
+    // TODO: various benchmarks - immemo, immemomany (args vs arguments)
     ...args: unknown[]
-): boolean {
+): ImMemoResult {
     const arr = imArray();
 
-    let changed = false;
+    if (arguments.length === 0) {
+        return MEMO_NOT_CHANGED;
+    }
+
+    const changedResult = arr.length === 0 ? MEMO_FIRST_RENDER : MEMO_CHANGED;
+    let result: ImMemoResult = MEMO_NOT_CHANGED;
+
     if (arguments.length !== arr.length) {
-        changed = true;
+        result = changedResult;
         arr.length = arguments.length;
     }
 
     for (let i = 0; i < arguments.length; i++) {
-        if (i === arr.length) {
-            changed = true;
-            arr.push(arguments[i]);
-        } else if (arr[i] !== arguments[i]) {
-            changed = true;
+        if (arr[i] !== arguments[i]) {
+            result = changedResult;
             arr[i] = arguments[i];
         }
     }
 
-    return changed;
+    return result;
 }
 
 export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
@@ -2329,42 +2346,6 @@ export function imTrackSize() {
 }
 
 /**
- * Use this to check if a component that was not being conditionally rendered in the last frame
- * is now being conditionally rendered in this frame. 
- * Has nothing to do with the literal visibility of the element.
- *
- * Useful, because your component has no other way of knowing this info.
- *
- * ```ts
- * function imApp(s: AppState) { 
- *      const viewIsModal1 = s.topBar.view === MODAL_1;
- *
- *
- *      if (imMemo(viewIsModal1) && viewIsModal1) { 
- *          // works. but it can be inconvenient to query it here.
- *      }
- *
- *      if (imIf() && viewIsModal1) {
- *          if (imMemo(viewIsModal1) && viewIsModal1) { 
- *              // doesn't work - imMemo wont run when !viewIsModal1, so it can't know
- *          }
- *
- *          if (isNowInCodepath()) { // works - the framework knows that `beginList() :: nextRoot()` has just started.
- *              // initialize the state
- *          }
- *
- *          ...
- *      } else { 
- *              ...
- *      } imEndIf();
- * }
- * ```
- */
-export function imNowInCodepath(r = getCurrentRoot()) {
-    return r.startedConditionallyRendering;
-}
-
-/**
  * This is similar to {@link imInit}, but does not create an im-state entry, which should up each render.
  * However, if components after this one throw an error in the first render, 
  * this will remain true for the next render as well. If you want real idempotency, use {@link imInit}.
@@ -2380,7 +2361,7 @@ export function imNowInCodepath(r = getCurrentRoot()) {
  * - triggering API requests, initializing a thing. Not ideal to do it multiple times
  */
 export function imIsFirstishRender(): boolean {
-  return !getCurrentRoot().completedOneRender;
+    return !getCurrentRoot().completedOneRender;
 }
 
 // Doing string comparisons every frame kills performance, if done for every singe DOM node.
