@@ -1,7 +1,7 @@
 import { cssVarsApp } from "src/app-styling";
 import { imBegin, imSize, NOT_SET, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { HORIZONTAL, imEnd, imMemo, isFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
+import { HORIZONTAL, imEnd, imMemo, imIsFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
 
 const cssb = newCssBuilder();
 const cnHLine = cssb.cn("hline", [
@@ -21,7 +21,7 @@ export function imLine(
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
-        if (isFirstishRender()) {
+        if (imIsFirstishRender()) {
             setStyle("backgroundColor", cssVarsApp.fgColor);
             setClass(cnHLine);
         }

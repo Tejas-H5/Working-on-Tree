@@ -10,20 +10,20 @@ import {
 import {
     imEnd,
     imMemo,
-    isFirstishRender,
+    imIsFirstishRender,
     setStyle
 } from "./utils/im-dom-utils";
 
 
 type RowStatusInstance = number & { __rowStatus: void; };
 
-export const ROW_EXISTS      = 0 as RowStatusInstance;
-export const ROW_HIGHLIGHTED = 1 as RowStatusInstance;
-export const ROW_SELECTED    = 2 as RowStatusInstance;
-export const ROW_FOCUSED     = 3 as RowStatusInstance;
-export const ROW_EDITING     = 4 as RowStatusInstance;
+const ROW_EXISTS      = 0 as RowStatusInstance;
+const ROW_HIGHLIGHTED = 1 as RowStatusInstance;
+const ROW_SELECTED    = 2 as RowStatusInstance;
+const ROW_FOCUSED     = 3 as RowStatusInstance;
+const ROW_EDITING     = 4 as RowStatusInstance;
 
-export type RowStatus
+type RowStatus
     = typeof ROW_EXISTS
     | typeof ROW_HIGHLIGHTED
     | typeof ROW_SELECTED
@@ -40,7 +40,22 @@ function getBg(status: RowStatus): string {
     return "";
 }
 
-export function imBeginListRow(status: RowStatus) {
+export function imBeginListRow(
+    highlighted: boolean,
+    focused: boolean,
+    isEditing = false
+) {
+    let status: RowStatus = ROW_EXISTS;
+    if (highlighted) {
+        status = ROW_SELECTED;
+        if (focused) {
+            status = ROW_FOCUSED;
+            if (isEditing) {
+                status = ROW_EDITING;
+            }
+        }
+    }
+
     const statusChanged = imMemo(status);
     const root = imBegin(ROW); {
         if (statusChanged) {
@@ -67,7 +82,7 @@ export function imEndListRow() {
 }
 
 export function imListRowCellStyle() {
-    if (isFirstishRender()) {
+    if (imIsFirstishRender()) {
         setStyle("minHeight", "1em");
     }
     imPadding(8, PX, 3, PX, 3, PX, 3, PX);

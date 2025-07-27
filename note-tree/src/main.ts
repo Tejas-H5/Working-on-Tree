@@ -35,14 +35,16 @@ import {
     preventImKeysDefault,
     REPEAT,
     updateDiscoverableCommands,
-} from "./global-context";
-import { imNoteTreeView } from "./note-tree-view";
-import {
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
     APP_VIEW_PLAN,
-    applyPendingScratchpadWrites,
+    APP_VIEW_TRAVERSAL,
     appViewToString,
+} from "./global-context";
+import { imNoteTraversal } from "./lateral-traversal";
+import { imNoteTreeView } from "./note-tree-view";
+import {
+    applyPendingScratchpadWrites,
     getActivityTime,
     getLastActivity,
     isCurrentlyTakingABreak,
@@ -58,14 +60,18 @@ import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
+    getCurrentRoot,
     getDeltaTimeSeconds,
     HORIZONTAL,
+    imNowInCodepath,
     imBeginSpan,
     imCatch,
     imElse,
+    imElseIf,
     imEnd,
     imEndFor,
     imEndIf,
+    imEndSwitch,
     imEndTry,
     imFor,
     imIf,
@@ -73,10 +79,11 @@ import {
     imRef,
     imState,
     imStateInline,
+    imSwitch,
     imTry,
     initImDomUtils,
     isEditingTextSomewhereInDocument,
-    isFirstishRender,
+    imIsFirstishRender,
     newBoolean,
     newNumber,
     setStyle,
@@ -111,7 +118,7 @@ function imMain() {
     const errorRef = imRef();
     const framesSinceError = imState(newNumber);
     const realShitRef = imState(newBoolean);
-    
+
     const l = imTry(); try {
         if (imIf() && !realShitRef.val) {
             handleImKeysInput(ctx);
@@ -126,7 +133,7 @@ function imMain() {
                     const error = state.criticalSavingError || state._criticalLoadingError;
                     if (imIf() && error) {
                         imBegin(); {
-                            if (isFirstishRender()) {
+                            if (imIsFirstishRender()) {
                                 setStyle("color", "white");
                                 setStyle("backgroundColor", "red");
                             }
@@ -141,7 +148,7 @@ function imMain() {
                     }
 
                     imBegin(ROW); imAlign(); {
-                        if (isFirstishRender()) {
+                        if (imIsFirstishRender()) {
                             // TODO: standardize
                             setStyle("fontSize", "28px");
                             setStyle("fontWeight", "bold");
@@ -155,7 +162,7 @@ function imMain() {
                         } imEnd();
 
                         const root = imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                            if (isFirstishRender()) {
+                            if (imIsFirstishRender()) {
                                 // TODO: standardize
                                 setStyle("fontSize", "20px");
                                 setStyle("fontWeight", "bold");
@@ -174,7 +181,7 @@ function imMain() {
                                     setStyle("opacity", sin01 * 0.7 + 0.3 + "", root);
 
                                     imBegin(); {
-                                        if (isFirstishRender()) {
+                                        if (imIsFirstishRender()) {
                                             setStyle("width", "20px");
                                             setStyle("height", "20px");
                                         }
@@ -205,7 +212,7 @@ function imMain() {
 
                         imBegin(ROW); imFlex(2); imGap(1, CH); imAlign(); imJustify(RIGHT); {
                             // NOTE: these could be buttons.
-                            if (isFirstishRender()) {
+                            if (imIsFirstishRender()) {
                                 // TODO: standardize
                                 setStyle("fontSize", "18px");
                                 setStyle("fontWeight", "bold");
@@ -222,8 +229,8 @@ function imMain() {
                                 }
 
                                 const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftHeld) ||
-                                                     (ctx.keyboard.ctrlKey.held  && commands.ctrlHeld)  ||
-                                                     (ctx.keyboard.altKey.held   && commands.altHeld)
+                                    (ctx.keyboard.ctrlKey.held && commands.ctrlHeld) ||
+                                    (ctx.keyboard.altKey.held && commands.altHeld)
 
                                 if (!anyFulfilled) {
                                     imNextRoot();
@@ -254,34 +261,39 @@ function imMain() {
                     imLine(HORIZONTAL, 4);
 
                     imBegin(ROW); imFlex(); {
-                        imNoteTreeView(ctx, ctx.noteTreeView, state._currentScreen === APP_VIEW_NOTES);
+                        imNoteTreeView(ctx, ctx.noteTreeView, ctx.currentScreen === APP_VIEW_NOTES);
 
                         imBegin(); {
                             imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                         } imEnd();
 
-                        const leftTab = imStateInline(() => {
-                            return { val: APP_VIEW_ACTIVITIES };
-                        });
-
                         if (imIf() && ctx.activityViewVisible) {
                             imBegin(COL); {
-                                if (isFirstishRender()) {
+                                if (imIsFirstishRender()) {
                                     setStyle("width", "33%");
                                 }
 
+                                const leftTab = imStateInline(() => {
+                                    return { val: APP_VIEW_ACTIVITIES };
+                                });
+
                                 if (
-                                    state._currentScreen === APP_VIEW_ACTIVITIES ||
-                                    state._currentScreen === APP_VIEW_PLAN
+                                    ctx.currentScreen === APP_VIEW_PLAN ||
+                                    ctx.currentScreen === APP_VIEW_TRAVERSAL
                                 ) {
-                                    leftTab.val = state._currentScreen;
+                                    leftTab.val = ctx.currentScreen;
+                                } else {
+                                    leftTab.val = APP_VIEW_ACTIVITIES;
                                 }
 
-                                if (imIf() && leftTab.val === APP_VIEW_ACTIVITIES) {
-                                    imActivitiesList(ctx, ctx.activityView, state._currentScreen === APP_VIEW_ACTIVITIES);
-                                } else {
-                                    imElse();
-                                } imEndIf();
+                                imSwitch(leftTab.val); switch (leftTab.val) {
+                                    case APP_VIEW_ACTIVITIES:
+                                        imActivitiesList(ctx, ctx.activityView, ctx.currentScreen === APP_VIEW_ACTIVITIES);
+                                        break;
+                                    case APP_VIEW_TRAVERSAL:
+                                        imNoteTraversal(ctx, ctx.currentScreen === APP_VIEW_ACTIVITIES);
+                                        break;
+                                } imEndSwitch();
                             } imEnd();
                         } imEndIf();
                     } imEnd();
@@ -297,7 +309,7 @@ function imMain() {
                 // toggle activity view open
                 {
                     // ensure visible when it needs to be
-                    if (state._currentScreen === APP_VIEW_ACTIVITIES) {
+                    if (ctx.currentScreen === APP_VIEW_ACTIVITIES) {
                         ctx.activityViewVisible = true;
                     }
 
@@ -309,7 +321,7 @@ function imMain() {
                             BYPASS_TEXT_AREA,
                         )) {
                             ctx.activityViewVisible = !ctx.activityViewVisible;
-                            state._currentScreen = APP_VIEW_NOTES;
+                            ctx.currentScreen = APP_VIEW_NOTES;
                             ctx.handled = true;
                         }
                     }
@@ -317,7 +329,7 @@ function imMain() {
 
                 // navigate between every view
                 if (!isEditingTextSomewhereInDocument()) {
-                    const idx = ctx.navigationList.indexOf(state._currentScreen);
+                    const idx = ctx.navigationList.indexOf(ctx.currentScreen);
                     if (!ctx.handled && ctx.navigationList.length > 0) {
                         let next, prev;
                         if (idx === -1) {
@@ -332,12 +344,12 @@ function imMain() {
                             hasDiscoverableHold(ctx, ctx.keyboard.shiftKey) &&
                             hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(prev), REPEAT)
                         ) {
-                            state._currentScreen = prev;
+                            ctx.currentScreen = prev;
                             ctx.handled = true;
                         } else if (
                             hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, appViewToString(next), REPEAT)
                         ) {
-                            state._currentScreen = next;
+                            ctx.currentScreen = next;
                             ctx.handled = true;
                         }
 
@@ -350,7 +362,7 @@ function imMain() {
                 if (!ctx.handled && hasDiscoverableHold(ctx, ctx.keyboard.shiftKey)) {
                     // Shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
                     if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break")) {
-                        state._currentScreen = APP_VIEW_ACTIVITIES;
+                        ctx.currentScreen = APP_VIEW_ACTIVITIES;
                         activitiesViewTakeBreak(ctx, ctx.activityView);
                         ctx.handled = true;
                     }
@@ -393,7 +405,7 @@ function imMain() {
             imElse();
 
             imBegin(); setText("An error occured in the main render loop. It's irrecoverable, I'm afraid"); imEnd();
-        } imEndIf(); 
+        } imEndIf();
     } catch (e) {
         // unmounts imComponent1 immediately, rewinds the stack back to this list.
         imCatch(l);
@@ -406,7 +418,7 @@ function imMain() {
         } else {
             realShitRef.val = true;
         }
-    } 
+    }
     imEndTry();
 }
 
@@ -485,6 +497,8 @@ let statusTextType = IN_PROGRESS;
 
 let saveTimeout = 0;
 function saveCurrentState({ debounced } = { debounced: false }) {
+    return;
+
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 
@@ -538,7 +552,7 @@ function saveCurrentState({ debounced } = { debounced: false }) {
 
                 if (mb * CRITICAL_ERROR_THRESHOLD < estimatedMbUsage) {
                     // This should be fixed. I guess we're keeping this code here 'just in case'.
-                    
+
                     const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on " + GITHUB_PAGE
 
                     state.criticalSavingError = criticalSavingError;

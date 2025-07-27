@@ -93,25 +93,6 @@ function newFuzzyFindState(): FuzzyFindState {
 }
 
 
-type AppViewInstance = number & { __appView: void; };
-
-export const APP_VIEW_NOTES      = 0 as AppViewInstance;
-export const APP_VIEW_ACTIVITIES = 1 as AppViewInstance;
-export const APP_VIEW_PLAN       = 2 as AppViewInstance;
-
-export function appViewToString(view: AppView): string {
-    switch(view) {
-        case APP_VIEW_NOTES:      return "Notes";
-        case APP_VIEW_ACTIVITIES: return "Activities";
-    }
-    throw new Error("Cant reach here");
-}
-
-export type AppView
-    = typeof APP_VIEW_NOTES
-    | typeof APP_VIEW_ACTIVITIES
-    | typeof APP_VIEW_PLAN;
-
 
 // TODO: remove dead state after rewrite
 
@@ -209,8 +190,6 @@ export type NoteTreeGlobalState = {
     _showStatusText: boolean;
     _statusText: string;
     _statusTextColor: string;
-
-    _currentScreen: AppView;
 };
 
 export type TaskStream = {
@@ -522,8 +501,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _showStatusText: false,
         _statusText: "",
         _statusTextColor: "",
-
-        _currentScreen: APP_VIEW_NOTES,
     };
 
     setActivityRangeToToday(state);

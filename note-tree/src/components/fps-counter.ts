@@ -6,7 +6,7 @@ import {
     setStyle,
     imMemo,
     isExcessEventRender,
-    isFirstishRender,
+    imIsFirstishRender,
     imBeginDiv,
     imBeginSpan,
     getImCore
@@ -141,7 +141,7 @@ export function imFpsCounterOutputVerbose(fps: FpsCounterState) {
     const im = getImCore();
 
     imBeginDiv(); {
-        if (isFirstishRender()) {
+        if (imIsFirstishRender()) {
             setStyle("position", "absolute");
             setStyle("bottom", "5px");
             setStyle("left", "5px");

@@ -9,7 +9,7 @@ import {
     imRef,
     imState,
     isExcessEventRender,
-    isFirstishRender,
+    imIsFirstishRender,
     newDiv,
     pushAttr,
     setAttr,
@@ -132,7 +132,7 @@ export function imPadding(
 }
 
 export function imRelative() {
-    if (isFirstishRender()) {
+    if (imIsFirstishRender()) {
         setClass(cn.relative);
     }
 }
@@ -246,7 +246,7 @@ export function imFixed(
     bottom: number | null,
     right: number | null,
 ) {
-    if (isFirstishRender()) {
+    if (imIsFirstishRender()) {
         setClass(cn.fixed);
     }
     
@@ -264,7 +264,7 @@ export function imAbsolute(
     top: number, topType: SizeUnits,
     bottom: number, bottomType: SizeUnits, 
 ) {
-    if (isFirstishRender()) {
+    if (imIsFirstishRender()) {
         setClass(cn.absolute);
     }
 
@@ -295,7 +295,7 @@ export function imAbsolute(
     }
 }
 
-export function imBeginScrollContainer(noScroll: boolean = false) {
+export function imBeginOverflowContainer(noScroll: boolean = false) {
     const root = imBeginDiv();
 
     if (imMemo(noScroll)) {
@@ -313,7 +313,7 @@ export function imBeginScrollContainer(noScroll: boolean = false) {
 export function imBeginAspectRatio(w: number, h: number) {
     const lastAr = imRef();
     const root = imBegin(); {
-        if (isFirstishRender()) {
+        if (imIsFirstishRender()) {
             setStyle("width", "auto");
             setStyle("height", "auto");
         }
@@ -354,7 +354,7 @@ export function imInitStyles(val: string) {
  * Otherwise, you'll just be creating garbage every frame.
  */
 export function imInitClasses(..._val: string[]) {
-    if (isFirstishRender()) {
+    if (imIsFirstishRender()) {
         for (let i = 0; i < arguments.length; i++) {
             setClass(arguments[i]);
         }

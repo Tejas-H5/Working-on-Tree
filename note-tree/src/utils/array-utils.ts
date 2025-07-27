@@ -171,8 +171,9 @@ export function getWrapped<T>(arr: T[], i: number): T  {
     if (arr.length === 0) throw new Error("Array was empty");
     if (i >= arr.length) return arr[i % arr.length];
     if (i < 0) {
-        const unflipped = -i % arr.length
-        return arr[arr.length - unflipped];
+        // + 1 because -1 rempaps to 0th from the back
+        const unflipped = -(i + 1) % arr.length
+        return arr[arr.length - 1 - unflipped];
     }
     return arr[i];
 }

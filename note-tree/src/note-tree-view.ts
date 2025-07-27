@@ -28,27 +28,30 @@ import {
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
-import { addToNavigationList, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, hasDiscoverableHold, REPEAT } from "./global-context";
+import {
+    addToNavigationList,
+    APP_VIEW_ACTIVITIES,
+    APP_VIEW_NOTES,
+    APP_VIEW_TRAVERSAL,
+    BYPASS_TEXT_AREA,
+    GlobalContext,
+    hasDiscoverableCommand,
+    hasDiscoverableHold,
+    REPEAT
+} from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
     imListRowCellStyle,
-    ROW_EDITING,
-    ROW_EXISTS,
-    ROW_FOCUSED,
-    ROW_SELECTED
 } from "./list-row";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 import {
-    APP_VIEW_ACTIVITIES,
-    APP_VIEW_NOTES,
     COLLAPSED_STATUS,
     createNewNote,
     deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
     getNumSiblings,
-    getTodoNotePriority,
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
@@ -79,7 +82,7 @@ import {
     imMemo,
     imNextRoot,
     imOn,
-    isFirstishRender,
+    imIsFirstishRender,
     setClass,
     setStyle,
     setText
@@ -354,6 +357,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const ctrl = hasDiscoverableHold(ctx, keyboard.ctrlKey);
     const shift = hasDiscoverableHold(ctx, keyboard.shiftKey);
 
+    const listNavInput = getNavigableListInput(ctx);
+
     if (!ctx.handled && state._isEditingFocusedNote) {
         if (!ctrl && !shift && hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
             setIsEditingCurrentNote(state, false);
@@ -361,11 +366,15 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         }
     }
 
+    if (!ctx.handled && ctrl && listNavInput !== 0) {
+        ctx.currentScreen = APP_VIEW_TRAVERSAL;
+        ctx.handled = true;
+    }
+
     if (!ctx.handled && !state._isEditingFocusedNote) {
-        const delta = getNavigableListInput(ctx);
         const moveNote = keyboard.altKey.held;
-        if (delta) {
-            moveToLocalidx(ctx, s, delta, moveNote);
+        if (listNavInput) {
+            moveToLocalidx(ctx, s, listNavInput, moveNote);
             ctx.handled = true;
         } else if (keyboard.leftKey.pressed) {
             moveOutOfCurrent(ctx, s, moveNote);
@@ -380,7 +389,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
                 activitiesViewSetIdx(ctx.activityView, idx, NOT_IN_RANGE);
-                state._currentScreen = APP_VIEW_ACTIVITIES;
+                ctx.currentScreen = APP_VIEW_ACTIVITIES;
             }
             ctx.handled = true;
         }
@@ -442,18 +451,7 @@ function imNoteTreeRow(
         }
     }
 
-    let rowStatus = ROW_EXISTS;
-    if (itemSelected) {
-        rowStatus = ROW_SELECTED;
-        if (viewFocused) {
-            rowStatus = ROW_FOCUSED;
-            if (state._isEditingFocusedNote) {
-                rowStatus = ROW_EDITING;
-            }
-        }
-    }
-
-    const root = imBeginListRow(rowStatus); {
+    const root = imBeginListRow(itemSelected, viewFocused, state._isEditingFocusedNote); {
         imBegin(ROW); imFlex(); {
             setClass(cn.preWrap, itemSelected);
 
@@ -516,7 +514,7 @@ function imNoteTreeRow(
                                     isThick ? largeThicnkess : smallThicnkess, PX,
                                 );
                                 imBg(cssVarsApp.fgColor); {
-                                    if (isFirstishRender()) {
+                                    if (imIsFirstishRender()) {
                                         setStyle("transform", "translate(0, -100%)");
                                     }
                                 } imEnd();

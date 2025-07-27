@@ -1,5 +1,5 @@
 import {
-    imBeginScrollContainer, 
+    imBeginScrollContainer,
     newScrollContainer,
     ScrollContainer,
     scrollToItem,
@@ -25,26 +25,20 @@ import {
 import { cn } from "./components/core/stylesheets";
 import { imSpan } from "./components/core/text";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
-import { imEditableTime } from "./time-input";
 import {
     addToNavigationList,
+    APP_VIEW_ACTIVITIES,
     BYPASS_TEXT_AREA,
     getAxisRaw,
     GlobalContext,
     hasDiscoverableCommand,
     hasDiscoverableHold,
-    REPEAT,
-    updateDiscoverableCommands
+    REPEAT
 } from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
     imListRowCellStyle,
-    ROW_EDITING,
-    ROW_EXISTS,
-    ROW_FOCUSED,
-    ROW_HIGHLIGHTED,
-    ROW_SELECTED
 } from "./list-row";
 import {
     clampedListIdx,
@@ -55,7 +49,6 @@ import {
 } from "./navigable-list";
 import {
     Activity,
-    APP_VIEW_ACTIVITIES,
     getActivityDurationMs,
     getActivityText,
     getActivityTime,
@@ -69,6 +62,7 @@ import {
     pushBreakActivity,
     state
 } from "./state";
+import { imEditableTime } from "./time-input";
 import { boundsCheck, get } from "./utils/array-utils";
 import {
     clampDate,
@@ -77,12 +71,10 @@ import {
     formatDate,
     formatDuration,
     formatTime,
-    formatTimeForInput,
     isDayBefore,
     isSameDate
 } from "./utils/datetime";
 import {
-    getImCore,
     HORIZONTAL,
     imElse,
     imEnd,
@@ -94,12 +86,11 @@ import {
     imMemoMany,
     imNextRoot,
     imOn,
-    isFirstishRender,
+    imIsFirstishRender,
     setStyle,
     setText,
     VERTICAL
 } from "./utils/im-dom-utils";
-import { assert, mustGet } from "./utils/assert";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -585,7 +576,7 @@ export function imActivitiesList(
     imBegin(COL); imFlex(); {
 
         imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
-            if (isFirstishRender()) {
+            if (imIsFirstishRender()) {
                 setStyle("fontWeight", "bold");
             }
 
@@ -603,8 +594,11 @@ export function imActivitiesList(
 
         const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
-        imBeginListRow(dateSelectorFocused ? (viewHasFocus ? ROW_FOCUSED : ROW_SELECTED) : ROW_EXISTS); {
-            if (isFirstishRender()) {
+        imBeginListRow(
+            dateSelectorFocused,
+            viewHasFocus && dateSelectorFocused
+        ); {
+            if (imIsFirstishRender()) {
                 setStyle("fontWeight", "bold");
             }
 
@@ -668,30 +662,24 @@ export function imActivitiesList(
                 const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                 const isEditingTime     = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
-                let status = ROW_EXISTS;
-                if (itemSelected) {
-                    status = ROW_SELECTED;
-                    if (viewHasFocus) {
-                        status = ROW_FOCUSED;
-                        if (s.isEditing) {
-                            status = ROW_EDITING;
-                        }
-                    }
-                }
-
-                if (status === ROW_EXISTS && hlt) {
+                let itemHighlighted = itemSelected;
+                if (!itemHighlighted && hlt) {
                     if (activity.nId) {
                         const note = getNote(state, activity.nId);
                         const noteHlt = getHigherLevelTask(state, note);
                         if (noteHlt === hlt) {
-                            status = ROW_HIGHLIGHTED;
+                            itemHighlighted = true;
                         }
                     }
                 }
 
                 const isBreakActivity = isBreak(activity);
 
-                const root = imBeginListRow(status); {
+                const root = imBeginListRow(
+                    itemHighlighted,
+                    viewHasFocus && itemSelected,
+                    !!s.isEditing
+                ); {
                     imBegin(ROW); imListRowCellStyle(); imGap(10, PX); imFlex(); imAlign(); {
                         imBegin(INLINE_BLOCK); {
                             if (imIf() && isEditingTime) {

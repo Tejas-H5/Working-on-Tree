@@ -5,7 +5,7 @@ import {
     imInit,
     imMemo,
     imMemoMany,
-    isFirstishRender,
+    imIsFirstishRender,
     setAttr,
     setClass,
     setInputValue,
@@ -116,7 +116,7 @@ export function imBeginTextArea({
 
                 // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
                 imBegin(INLINE); {
-                    if (isFirstishRender()) {
+                    if (imIsFirstishRender()) {
                         setAttr("style", "color: transparent");
                         setAttr("userSelect", "none");
                         setText(".");

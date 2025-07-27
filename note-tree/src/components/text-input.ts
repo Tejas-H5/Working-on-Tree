@@ -1,5 +1,5 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { imBeginRoot, imEnd, imMemo, isFirstishRender, setAttr, setClass } from "src/utils/im-dom-utils";
+import { imBeginRoot, imEnd, imMemo, imIsFirstishRender, setAttr, setClass } from "src/utils/im-dom-utils";
 import { cssVars } from "./core/stylesheets";
 
 function newInput() {
@@ -34,7 +34,7 @@ export function imBeginTextInput({
     placeholder?: string;
 }) {
     const input = imBeginRoot(newInput); {
-        if (isFirstishRender()) {
+        if (imIsFirstishRender()) {
             setClass(cnInput);
             setAttr("type", "text");
         }

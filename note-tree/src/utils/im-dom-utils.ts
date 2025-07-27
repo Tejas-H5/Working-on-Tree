@@ -17,6 +17,8 @@
 //      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
 
 import { assert } from "./assert";
+import { newCssBuilder } from "./cssb";
+import { remove } from "./int-tree";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -239,12 +241,14 @@ const ITEM_STATE = 3;
 // the dom-appender code hasn't been updated to 'ignore' or 'step over'
 // things that we have REMOVE_LEVEL_NONE removed, so that stuff ends up being pushed to the bottom of the DOM - not ideal.
 // I recon we should see if there is an easy way to make it work.
-export const REMOVE_LEVEL_NONE = 0;
-export const REMOVE_LEVEL_DOM = 1;
-export const REMOVE_LEVEL_DESTROY = 2;
+export const REMOVE_LEVEL_NOT_INITIALIZED = 0;
+export const REMOVE_LEVEL_NONE = 1;
+export const REMOVE_LEVEL_DOM = 2;
+export const REMOVE_LEVEL_DESTROY = 3;
 
 export type RemovedLevel 
-    = typeof REMOVE_LEVEL_NONE
+    = typeof REMOVE_LEVEL_NOT_INITIALIZED
+    | typeof REMOVE_LEVEL_NONE
     | typeof REMOVE_LEVEL_DOM   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
     | typeof REMOVE_LEVEL_DESTROY;
 
@@ -553,7 +557,9 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     completedOneRender: boolean; // have we completed at least one render without erroring?
     childRemoveLevel:   RemovedLevel; // how much have the children been removed?
     itemRemoveLevel:    RemovedLevel; // how much has this item been removed?
-    visibilityChanged:  boolean;
+
+    // true for the first frame where this UI root is in the current code path.
+    startedConditionallyRendering: boolean; 
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
@@ -581,9 +587,9 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        childRemoveLevel: REMOVE_LEVEL_NONE,
-        itemRemoveLevel: REMOVE_LEVEL_DOM,
-        visibilityChanged: false,
+        childRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        itemRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        startedConditionallyRendering: false,
         completedOneRender: false,
         lastText: "",
     }
@@ -592,14 +598,26 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
 function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number) {
     resetDomAppender(r.domAppender, startDomIdx);
     r.itemsIdx = startItemIdx;
-
-    r.visibilityChanged = r.itemRemoveLevel !== REMOVE_LEVEL_NONE;
-    r.itemRemoveLevel = REMOVE_LEVEL_NONE;
-
     pushRoot(r);
 
-    // NOTE: avoid any more asertions here - the component may error out, and
-    // __end may not get called. No I'm not going to catch it with an exception stfu. We livin on the edge, bois.
+
+    if (r.itemRemoveLevel !== REMOVE_LEVEL_NONE)  {
+        // Roots get detatched via internal methods, but re-attached via the immedate mode API. 
+        // So no such corresponding call to this kind of a method in the other banch
+        r.itemRemoveLevel = REMOVE_LEVEL_NONE;
+        r.startedConditionallyRendering = true;
+
+        /**
+        console.log("visibility change", r.root);
+        setClass(debugClass, true, r);
+        setTimeout(() => {
+            setClass(debugClass, false, r);
+        }, 1000);
+        // */
+        //
+    } else {
+        r.startedConditionallyRendering = false;
+    }
 }
 
 function isDerived(r: UIRoot) {
@@ -668,7 +686,8 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
 // Recursively destroys all UI roots under this one.
 // Should only be called in one place, and never called twice on the same root.
 function __onUIRootDestroy(r: UIRoot) {
-    for (let i = 0; i < r.items.length; i++) { const item = r.items[i];
+    for (let i = 0; i < r.items.length; i++) {
+        const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
             __onUIRootDestroy(item);
         } else if (item.t === ITEM_LIST_RENDERER) {
@@ -698,14 +717,15 @@ function __onUIRootDestroy(r: UIRoot) {
 // Can potentially be called again later after being un-removed.
 function __onUIRootDomRemove(r: UIRoot) {
     // These items should no longer be accessible via the UI tree
-    assert(r.itemRemoveLevel !== REMOVE_LEVEL_DESTROY); 
-    if (r.itemRemoveLevel >= REMOVE_LEVEL_DOM) {
+    assert(r.itemRemoveLevel < REMOVE_LEVEL_DESTROY); 
+    if (r.itemRemoveLevel === REMOVE_LEVEL_DOM) {
         // already detached, so we don't need to go back over this.
         return;
     }
     r.itemRemoveLevel = REMOVE_LEVEL_DOM;
 
-    for (let i = 0; i < r.items.length; i++) { const item = r.items[i];
+    for (let i = 0; i < r.items.length; i++) {
+        const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
             __onUIRootDomRemove(item);
         } else if (item.t === ITEM_LIST_RENDERER) {
@@ -732,6 +752,7 @@ export function __removeAllDomElementsFromUiRoot(
     // Don't call this method twice at the same remove level
     if (r.childRemoveLevel >= removeLevel) return;
     r.childRemoveLevel = removeLevel;
+    r.itemRemoveLevel = removeLevel;
 
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
@@ -934,15 +955,16 @@ export function imIf() {
  * } imEndSwitch();
  * ```
  *
- * Do note that you can introduce some subtle double-component bugs if you use fallthrough:
+ * NOTE: fallthrough introduces subtle double-component bugs.
+ * You should use if-statements instead.
  *
  * ```
- * // Super subtle bug here - you've created 2 instances of imComponent1And2Layout, with different internal states.
+ * // Super subtle bug here - 
  * // You should prefer an if-statement here, or normalize the key to avoid fallthrough cases.
  * imSwitch(key); switch(key) {
- *      case 1: case 2: {   
- *          imComponent1And2Layout();
- *      } break;
+ *      // effectively creates 2 unrelated instances of imComponent1And2Layout, with different internal states.
+ *      case 1: 
+ *      case 2: imComponent1And2Layout(); break; 
  *      case 3: imComponent3(); break;
  * } imEndSwitch();
  * ```
@@ -1398,6 +1420,12 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementS
 
     return result as UIRoot<E>;
 } 
+
+
+/**
+const cssb = newCssBuilder("debug");
+const debugClass = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
+// */
 
 export function imBeginExistingRoot<E extends ValidElement = ValidElement>(root: UIRoot<E>) {
     const r = getCurrentRoot();
@@ -1877,25 +1905,6 @@ export function imInit(): boolean {
     return false;
 }
 
-/**
- * This is similar to {@link imInit}, but does not create an im-state entry, which speeds up each render.
- * However, if components after this one throw an error in the first render, 
- * this will remain true for the next render as well. If you want real idempotency, use {@link imInit}.
- *
- * Examples for when you may want to use isFirstRender for performance:
- * - setting text just once or twice
- * - setting a style just once or twice
- * - setting a css class just once or twice
- *
- * Examples for when you should use imInit instead: 
- * - when you are pushing attributes with {@link pushAttr} in the initialization phase - you don't want to infinitely grow this array in a failure state
- * - adding/removing event handlers. Bad things happen when we do this twice
- * - triggering API requests, initializing a thing. Not ideal to do it multiple times
- */
-export function isFirstishRender(): boolean {
-  return !getCurrentRoot().completedOneRender;
-}
-
 export function addClasses(classes: string[]) {
     for (let i = 0; i < classes.length; i++) {
         setClass(classes[i]);
@@ -2320,10 +2329,11 @@ export function imTrackSize() {
 }
 
 /**
- * Use this to check if a component that was not being conditionally rendered
- * has just become visible. Useful, because your component has no other way of knowing
- * that it was detatched and re-attached by conditional rendering - when it is detatched, it is simply 
- * not doing anything, so has no way to rememeber. It's like being in a coma I suppose.
+ * Use this to check if a component that was not being conditionally rendered in the last frame
+ * is now being conditionally rendered in this frame. 
+ * Has nothing to do with the literal visibility of the element.
+ *
+ * Useful, because your component has no other way of knowing this info.
  *
  * ```ts
  * function imApp(s: AppState) { 
@@ -2339,7 +2349,7 @@ export function imTrackSize() {
  *              // doesn't work - imMemo wont run when !viewIsModal1, so it can't know
  *          }
  *
- *          if (becameVisible()) { // works
+ *          if (isNowInCodepath()) { // works - the framework knows that `beginList() :: nextRoot()` has just started.
  *              // initialize the state
  *          }
  *
@@ -2350,8 +2360,27 @@ export function imTrackSize() {
  * }
  * ```
  */
-export function becameVisible(r = getCurrentRoot()) {
-    return r.visibilityChanged;
+export function imNowInCodepath(r = getCurrentRoot()) {
+    return r.startedConditionallyRendering;
+}
+
+/**
+ * This is similar to {@link imInit}, but does not create an im-state entry, which should up each render.
+ * However, if components after this one throw an error in the first render, 
+ * this will remain true for the next render as well. If you want real idempotency, use {@link imInit}.
+ *
+ * Examples for when you may want to use isFirstRender for performance:
+ * - setting text just once or twice
+ * - setting a style just once or twice
+ * - setting a css class just once or twice
+ *
+ * Examples for when you should use imInit instead: 
+ * - when you are pushing attributes with {@link pushAttr} in the initialization phase - you don't want to infinitely grow this array in a failure state
+ * - adding/removing event handlers. Bad things happen when we do this twice
+ * - triggering API requests, initializing a thing. Not ideal to do it multiple times
+ */
+export function imIsFirstishRender(): boolean {
+  return !getCurrentRoot().completedOneRender;
 }
 
 // Doing string comparisons every frame kills performance, if done for every singe DOM node.

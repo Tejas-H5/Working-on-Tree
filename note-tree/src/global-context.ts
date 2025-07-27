@@ -1,6 +1,5 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { APP_VIEW_ACTIVITIES, AppView } from "./state";
 import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
@@ -18,6 +17,7 @@ export type GlobalContext = {
     noteTreeView: NoteTreeViewState;
     activityView: ActivitiesViewState;
     activityViewVisible: boolean;
+    currentScreen: AppView;
 
     navigationList: AppView[];
 
@@ -82,6 +82,7 @@ export function newGlobalContext(): GlobalContext {
         noteTreeView: newNoteTreeViewState(),
         activityView: newActivitiesViewState(),
         activityViewVisible: true,
+        currentScreen: APP_VIEW_NOTES,
 
         requestSaveState: false,
 
@@ -90,6 +91,31 @@ export function newGlobalContext(): GlobalContext {
         discoverableCommands: newDiscoverableCommands(),
     };
 }
+
+type AppViewInstance = number & { __appView: void; };
+
+export const APP_VIEW_NOTES      = 0 as AppViewInstance;
+export const APP_VIEW_ACTIVITIES = 1 as AppViewInstance;
+export const APP_VIEW_PLAN       = 2 as AppViewInstance;
+export const APP_VIEW_TRAVERSAL  = 3 as AppViewInstance;
+
+export type AppView
+    = typeof APP_VIEW_NOTES
+    | typeof APP_VIEW_ACTIVITIES
+    | typeof APP_VIEW_PLAN
+    | typeof APP_VIEW_TRAVERSAL;
+
+export function appViewToString(view: AppView): string {
+    switch(view) {
+        case APP_VIEW_NOTES:      return "Notes";
+        case APP_VIEW_ACTIVITIES: return "Activities";
+        case APP_VIEW_PLAN:       return "Plan";
+        case APP_VIEW_TRAVERSAL:  return "Traversal";
+    }
+    return "??";
+}
+
+
 
 export const REPEAT           = 1 << 0;
 export const BYPASS_TEXT_AREA = 1 << 1;

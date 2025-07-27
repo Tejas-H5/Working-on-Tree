@@ -1,4 +1,6 @@
+import { imBeginScrollContainer, newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { getAxisRaw, GlobalContext } from "./global-context";
+import { imEnd, imState } from "./utils/im-dom-utils";
 
 // TODO: maybe there should be a keyboard module instead?
 
