@@ -16,6 +16,8 @@ import {
     Activity,
     defaultActivity,
     defaultNote,
+    getNote,
+    idIsNilOrRoot,
     newNoteTreeGlobalState,
     newTaskStream,
     newWorkdayConfigWeekDay,
@@ -44,8 +46,10 @@ export function asNoteTreeGlobalState(val: unknown) {
     const stateNotesObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "notes"));
     if (stateNotesObj) {
         const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(stateNotesObj, "nodes"));
+        let editedAtNeedsBackfill = false;
+
         if (nodesArr) {
-            // TODO: handle schema version 1.
+            // NOTE: we no longer handle schema 1. All 2 users (both of which are me) have migrated off it.
 
             state.notes.nodes = nodesArr.map(nodeArrVal => {
                 const nodeObj = mustGet(asObject(nodeArrVal) || asNull(nodeArrVal));
@@ -53,6 +57,14 @@ export function asNoteTreeGlobalState(val: unknown) {
 
                 const noteObjDataObj = mustGet(asObject(extractKey<TreeNote>(nodeObj, "data")));
                 const noteData = defaultNote();
+
+                const editedAt = asDate(extractKey<Note>(noteObjDataObj, "editedAt"));
+                if (editedAt) {
+                    noteData.editedAt = editedAt;
+                } else {
+                    editedAtNeedsBackfill = true;
+                }
+
                 deserializeObject(noteData, noteObjDataObj, "note.nodes[].data");
 
                 const node = tree.newTreeNode(noteData);
@@ -66,6 +78,20 @@ export function asNoteTreeGlobalState(val: unknown) {
         }
 
         deserializeObject(state.notes, stateNotesObj, "notes");
+
+        if (editedAtNeedsBackfill) {
+            for (const note of state.notes.nodes) {
+                if (!note) continue;
+                if (note.childIds.length > 0) continue;
+                
+                let current = note;
+                const editedAt = note.data.openedAt;
+                while (!idIsNilOrRoot(current.id)) {
+                    current.data.editedAt = new Date(editedAt);
+                    current = getNote(state, current.parentId);
+                }
+            }
+        }
     }
 
     const activitiesArr = mustGet(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))

@@ -9,7 +9,7 @@ export type TreeNode<T> = {
     // NOTE: id=0 will always be _the_ root node. There may still be other root nodes, however...
     id: TreeId;
     parentId: TreeId;
-    idxInParentList: number; // NOTE: this id is transient, and can always change as nodes are added/removed.
+    idxInParentList: number; // NOTE: this index is transient, and can always change as nodes are added/removed.
     childIds: TreeId[];
     data: T;
 };

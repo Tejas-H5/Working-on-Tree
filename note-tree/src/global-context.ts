@@ -132,7 +132,8 @@ export const SHIFT  = 1 << 2;
 export const ALT    = 1 << 3;
 export const BYPASS_TEXT_AREA = 1 << 4;
 
-// NOTE: we can kinda assume that a discoverable command was handeld. so maybe we just set it here instead?
+// NOTE: always false if ctx.handled.
+// if true, will set ctx.handled = true.
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
     key: KeyState,
@@ -142,7 +143,12 @@ export function hasDiscoverableCommand(
     const command = pushDiscoverableCommand(ctx, key, actionDescription, flags);
     if (!command) return false;
 
-    return hasCommand(ctx, command);
+    if (hasCommand(ctx, command)) {
+        ctx.handled = true;
+        return true;
+    }
+
+    return false;
 }
 
 // Mainly for when you don't want a command to be discoverable for some reason.

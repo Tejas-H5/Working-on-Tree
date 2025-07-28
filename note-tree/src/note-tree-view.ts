@@ -17,6 +17,7 @@ import {
     imBegin,
     imBg,
     imFlex,
+    imGap,
     imInitClasses,
     imOpacity,
     imRelative,
@@ -90,6 +91,7 @@ import {
     setText
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
+import { formatDateTime, formatDurationAsHours } from "./utils/datetime";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -119,7 +121,9 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         s.note = note;
         startScrolling(s.scrollContainer, true);
         recomputeNoteParents(state, s.noteParentNotes, s.note);
-        setCurrentNote(state, note.id);
+        // if (state.currentNoteId !== note.id) {
+            setCurrentNote(state, note.id);
+        // }
 
         const viewRoot = getNoteViewRoot(state, note);
         if (s.viewRoot !== viewRoot) {
@@ -194,7 +198,7 @@ function moveOutOfCurrent(
             const parentIdx = parent.idxInParentList;
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
             setNote(s, s.note, true);
-            recomputeNoteStatusRecursively(state, s.note);
+            recomputeNoteStatusRecursively(state, parent);
             state._notesMutationCounter++;
         }
     } else {
@@ -300,6 +304,14 @@ export function imNoteTreeView(
             imBegin(); imSize(0, NOT_SET, 200, PX); imEnd();
         } imEnd();
 
+        imLine(HORIZONTAL, 1);
+
+        const currentNote = getCurrentNote(state);
+        imBegin(ROW); imGap(10, PX); {
+            imBegin(); setText("Created " + formatDateTime(currentNote.data.openedAt)); imEnd();
+            imBegin(); setText("|"); imEnd();
+            imBegin(); setText("Last Edited " + formatDateTime(currentNote.data.editedAt)); imEnd();
+        } imEnd();
     } imEnd();
 }
 
@@ -330,13 +342,12 @@ function addNoteAtCurrent(ctx: GlobalContext, s: NoteTreeViewState, insertType: 
 function moveToLocalidx(
     ctx: GlobalContext,
     s: NoteTreeViewState,
-    delta: number,
+    idx: number,
     moveNote: boolean
 ) {
     if (idIsNil(s.note.parentId)) return;
     
     const parent = getNote(state, s.note.parentId);
-    let idx = s.note.idxInParentList + delta;
     idx = clampedListIdx(idx, parent.childIds.length);
     if (!boundsCheck(parent.childIds, idx)) return;
 
@@ -356,7 +367,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
     const currentNote = getCurrentNote(state);
-    const listNavInput = getNavigableListInput(ctx);
+    const parent = getNote(state, currentNote.parentId);
+    const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
 
     if (state._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
@@ -374,7 +386,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (!ctx.handled) {
             const moveNote = keyboard.altKey.held;
             if (listNavInput) {
-                moveToLocalidx(ctx, s, listNavInput, moveNote);
+                moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
                 ctx.handled = true;
             } else if (keyboard.leftKey.pressed) {
                 moveOutOfCurrent(ctx, s, moveNote);

@@ -1,13 +1,27 @@
-import { imActivitiesList } from "./activities-list";
-import { COL, imAlign, imBegin, imJustify, INLINE, ROW } from "./components/core/layout";
-import { imBeginScrollContainer, newScrollContainer, ScrollContainer } from "./components/scroll-container";
+import { imLine } from "./app-components/common";
+import { COL, imAlign, imBegin, INLINE } from "./components/core/layout";
+import { imBeginScrollContainer, newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { addToNavigationList, APP_VIEW_NOTES, APP_VIEW_TRAVERSAL, GlobalContext, hasDiscoverableCommand } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
 import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
 import { getNoteViewRoot } from "./note-tree-view";
-import { getCurrentNote, getNote, isHigherLevelTask, setCurrentNote, state, STATUS_IN_PROGRESS, TreeNote } from "./state";
+import { getCurrentNote, getNote, isHigherLevelTask, NoteId, setCurrentNote, state, STATUS_IN_PROGRESS, TreeNote } from "./state";
 import { get } from "./utils/array-utils";
-import { imEnd, imEndFor, imEndIf, imFor, imIf, imIsFirstishRender, imMemo, imNextRoot, imState, MEMO_CHANGED, MEMO_FIRST_RENDER, setStyle, setText } from "./utils/im-dom-utils";
+import {
+    HORIZONTAL,
+    imEnd,
+    imEndFor,
+    imEndIf,
+    imFor,
+    imIf,
+    imIsFirstishRender,
+    imMemo,
+    imMemoMany,
+    imNextRoot,
+    imState,
+    setStyle,
+    setText
+} from "./utils/im-dom-utils";
 
 
 export type NoteTraversalViewState = {
@@ -47,19 +61,77 @@ function setIdx(
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
-    const delta = getNavigableListInput(ctx);
-    if (!ctx.handled && delta) {
-        setIdx(ctx, s, s.listPosition.idx + delta);
+    const current = getCurrentNote(state);
+
+    const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.notes.length);
+    if (!ctx.handled && listNavigation) {
+        setIdx(ctx, s, listNavigation.newIdx);
         ctx.handled = true;
+    }
+
+    if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out")) {
+        recomputeTraversal(s, s.viewRoot.id, false);
+    }
+
+    if (
+        isHigherLevelTask(current) && 
+        current.childIds.length > 0 && 
+        hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in")
+    ) {
+        recomputeTraversal(s, current.childIds[0], false);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
         ctx.currentScreen = APP_VIEW_NOTES;
-        ctx.handled = true;
     }
 
 
     // TODO: left/right should move up/down high level tasks
+}
+
+function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePosition: boolean) {
+    s.notes.length = 0;
+
+
+    // TODO: sort by date last edited
+
+    const note = getNote(state, noteId);
+    s.viewRoot = getNoteViewRoot(state, note);
+
+    const dfs = (note: TreeNote, doThing: boolean) => {
+        if (doThing) {
+            if (note.data._status === STATUS_IN_PROGRESS) {
+                const isHlt = isHigherLevelTask(note);
+                if (note.childIds.length === 0 || isHlt) {
+                    s.notes.push(note);
+
+                    // don't go further into this note
+                    return;
+                }
+            }
+        }
+
+        for (const id of note.childIds) {
+            const child = getNote(state, id);
+            dfs(child, true);
+        }
+    }
+
+    dfs(s.viewRoot, false);
+
+    s.notes.sort((a, b) => b.data.editedAt.getTime() - a.data.editedAt.getTime());
+
+    const idx = s.notes.indexOf(note);
+    if (useNotePosition && idx !== -1) {
+        s.listPosition.idx = idx;
+    } else {
+        s.listPosition.idx = 0;
+        noteId = s.notes[0].id;
+    }
+
+    if (state.currentNoteId !== noteId) {
+        setCurrentNote(state, noteId);
+    }
 }
 
 export function imNoteTraversal(
@@ -69,35 +141,12 @@ export function imNoteTraversal(
     addToNavigationList(ctx, APP_VIEW_TRAVERSAL);
 
     const s = imState(newNoteTraversalViewState);
-    if (viewHasFocus) {
-        handleKeyboardInput(ctx, s);
-    }
 
-    if (imMemo(state._notesMutationCounter)) {
-        s.notes.length = 0;
+    if (viewHasFocus) handleKeyboardInput(ctx, s);
 
-        // TODO: sort by date last edited
+    if (imMemo(state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
 
-        const current = getCurrentNote(state);
-        s.viewRoot = getNoteViewRoot(state, current);
-
-        const dfs = (note: TreeNote, doThing = false) => {
-            if (doThing) {
-                if (note.data._status === STATUS_IN_PROGRESS) {
-                    if (note.childIds.length === 0 || isHigherLevelTask(note)) {
-                        s.notes.push(note);
-                    }
-                }
-            }
-
-            for (const id of note.childIds) {
-                const child = getNote(state, id);
-                dfs(child, true);
-            }
-        }
-
-        dfs(s.viewRoot);
-    }
+    if (imMemoMany(s.listPosition.idx, s.viewRoot)) startScrolling(s.scrollContainer, true);
 
     imBegin(COL); imListRowCellStyle(); imAlign(); {
         if (imIsFirstishRender()) {
@@ -111,6 +160,9 @@ export function imNoteTraversal(
         } imEndIf();
     } imEnd();
 
+    imLine(HORIZONTAL, 1);
+
+
     imBeginScrollContainer(s.scrollContainer); {
         imFor(); for (
             let idx = 0;
@@ -121,22 +173,24 @@ export function imNoteTraversal(
             const note = s.notes[idx];
             const itemSelected = idx === s.listPosition.idx;
 
-            imBeginListRow(
+            const root = imBeginListRow(
                 itemSelected,
                 itemSelected && viewHasFocus,
             ); {
                 imBegin(); imListRowCellStyle(); {
                     const text = note.data.text;
                     imBegin(INLINE); {
-                        const isHlt = isHigherLevelTask(note);
-                        if (imMemo(isHlt)) {
-                            setStyle("fontWeight", isHlt ? "bold" : "");
+                        const canGoIn = note.childIds.length > 0;
+                        if (imMemo(canGoIn)) {
+                            setStyle("fontWeight", canGoIn ? "bold" : "");
                         }
                         
                         setText(text); 
                     } imEnd();
                 } imEnd();
             } imEndListRow();
+
+            if (itemSelected) scrollToItem(s.scrollContainer, root);
         } imEndFor();
     } imEnd();
 }

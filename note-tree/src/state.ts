@@ -24,7 +24,6 @@ import { setCssVars } from "./utils/cssb";
 import { darkTheme, lightTheme } from "./app-styling";
 import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
 import { asNoteTreeGlobalState  } from "./schema";
-import * as oldTree from "src/utils/tree";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -233,6 +232,9 @@ export type Note = {
     openedAt: Date;
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
+
+    editedAt: Date; // this is when the note or any of it's children was last edited. since it was added later, some notes may not have this field.
+
 
     // The note's higher level task.
     _higherLevelTask: TreeNote | undefined;
@@ -669,6 +671,7 @@ export function defaultNote(): Note {
         id: tree.NIL_ID,
         text: "",
         openedAt: new Date(),
+        editedAt: new Date(),
         lastSelectedChildIdx: 0,
 
         // the following are just visual flags which are frequently recomputed
@@ -811,6 +814,13 @@ export function setNoteText(
     note.data.text = text;
     recomputeNoteStatusRecursively(state, note);
     state._notesMutationCounter++;
+
+    let current = note;
+    const now = new Date();
+    while (!idIsNilOrRoot(current.id)) {
+        current.data.editedAt = new Date(now);
+        current = getNote(state, current.parentId)
+    }
 }
 
 // Incrementally recompute status of notes in the tree. Rules:

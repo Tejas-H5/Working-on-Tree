@@ -1,4 +1,4 @@
-import { getAxisRaw, GlobalContext } from "./global-context";
+import { getAxisRaw, GlobalContext, newDiscoverableCommands } from "./global-context";
 
 // TODO: maybe there should be a keyboard module instead?
 
@@ -23,15 +23,29 @@ export function clampedListIdxRange(idx: number, min: number, maxEx: number): nu
 }
 
 // NOTE: only works if called in the animation loop
-export function getNavigableListInput(ctx: GlobalContext): number {
+export function getNavigableListInput(
+    ctx: GlobalContext,
+    idx: number,
+    lo: number, hi: number
+): ({ newIdx: number } | null) {
+    if (hi <= lo) return null;
+
     const keyboard = ctx.keyboard;
 
-    // NOTE: the keyboard repeat rate can be changed at the OS settings level, so I've
-    // deleted our custom repeat code
+    const oldIdx = idx;
+    let newIdx = -1;
 
     // Arrays are rendered downards most of the time. traversing them by idx means that up goes down and down goes up
-    const pressedDelta = getAxisRaw(keyboard.upKey.pressed, keyboard.downKey.pressed) +
-        getAxisRaw(keyboard.pageUpKey.pressed, keyboard.pageDownKey.pressed) * 10;
 
-    return pressedDelta;
+    if (keyboard.upKey.pressed)       newIdx = oldIdx - 1;
+    if (keyboard.downKey.pressed)     newIdx = oldIdx + 1;
+    if (keyboard.pageUpKey.pressed)   newIdx = oldIdx - 10;
+    if (keyboard.pageDownKey.pressed) newIdx = oldIdx + 10;
+    if (keyboard.homeKey.pressed)     newIdx = lo;
+    if (keyboard.endKey.pressed)      newIdx = hi - 1;
+
+    if (newIdx === -1) return null;
+
+    newIdx = clampedListIdxRange(newIdx, lo, hi);
+    return { newIdx };
 }

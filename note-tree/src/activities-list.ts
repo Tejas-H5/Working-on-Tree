@@ -123,6 +123,7 @@ export type ActivitiesViewState = {
     currentViewingDate: Date;
     _startActivityIdx: number;
     _endActivityIdxEx: number; // exclusive index
+    _range: [number, number]; // TODO: remove _startidx and _endIdx
     _canMoveToNextDay: boolean;
     _canMoveToPrevDay: boolean;
 }
@@ -149,6 +150,7 @@ export function newActivitiesViewState(): ActivitiesViewState {
 
         _startActivityIdx: 0,
         _endActivityIdxEx: 0,
+        _range: [0, 0],
         _canMoveToNextDay: false,
         _canMoveToPrevDay: false,
     };
@@ -226,18 +228,51 @@ function getActivitiesNextDateStartIdx(
 function getActivityRange(s: ActivitiesViewState): [number, number] {
     s._startActivityIdx = getActivitiesForDateStartIdx(s.activities, s.currentViewingDate, s._startActivityIdx);
     s._endActivityIdxEx = getActivitiesNextDateStartIdx(s.activities, s._startActivityIdx);
-    const lo = s._startActivityIdx;
-    const hi = s._endActivityIdxEx;
-    return [lo, hi];
+
+    s._range[0] = s._startActivityIdx;
+    s._range[1] = s._endActivityIdxEx;
+    return s._range;
 }
 
 export const IN_RANGE = false;
 export const NOT_IN_RANGE = true;
 
+function moveToNextDay(s: ActivitiesViewState) {
+    const [lo, hi] = getActivityRange(s);
+
+    if (hi < s.activities.length - 1) {
+        // move to the next day, if notes available
+        activitiesViewSetIdx(s, hi + 1, true);
+    } else if (!isSameDate(s.now, s.currentViewingDate)) {
+        // if no more notes, move to today
+        setCurrentViewingDate(s, s.now);
+    }
+}
+
+function moveToPrevDay(s: ActivitiesViewState) {
+    const [lo, hi] = getActivityRange(s);
+
+    if (lo > 0) {
+        // move to prev day
+        activitiesViewSetIdx(s, lo - 1, true);
+    }
+}
+
 export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInRange: boolean) {
     if (s.activities.length === 0) return;
 
+    const lastIdx = s.activityListPositon.idx;
     let newIdx = idx;
+
+    if (boundsCheck(s.activities, lastIdx)) {
+        const lastActivity = s.activities[lastIdx];
+        if (isBreak(lastActivity) && lastActivity.breakInfo !== undefined && lastActivity.breakInfo.length === 0) {
+            s.activities.splice(lastIdx, 1);
+            if (newIdx >= lastIdx) {
+                newIdx--;
+            }
+        }
+    }
 
     if (notInRange) {
         newIdx = clampedListIdx(idx, s.activities.length);
@@ -290,78 +325,30 @@ function insertBreakBetweenCurrentAndNext(
 function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     const { keyboard } = ctx;
 
-    let nextActivityIdx = -1;
-    let nextActivityIdxNotInRange = false;
-
-    const lastIdx = s.activityListPositon.idx;
+    const [lo, hi] = getActivityRange(s);
     const currentActivity = get(s.activities, s.activityListPositon.idx);
     const viewingActivities = hasActivitiesToView(s);
-    const currentFocus = getCurrentFocus(s);
-    const activityListFocused = currentFocus === FOCUS_ACTIVITIES_LIST;
-    const dateSelectorFocused = currentFocus === FOCUS_DATE_SELECTOR;
 
-    if (dateSelectorFocused) {
+    if (!hasActivitiesToView(s)) {
+        s.currentFocus === FOCUS_DATE_SELECTOR;
+    }
+
+    if (s.currentFocus === FOCUS_DATE_SELECTOR) {
         s.isEditing = EDITING_NOTHING;
     }
 
-    // Moving up/down
-    const delta = getNavigableListInput(ctx);
-    if (!ctx.handled && delta) {
-        const [lo, hi] = getActivityRange(s);
-
-        if (activityListFocused) {
-            if (s.isEditing === EDITING_NOTHING) {
-                if (s.activityListPositon.idx === lo && delta < 0) {
-                    s.currentFocus = FOCUS_DATE_SELECTOR;
-                    ctx.handled = true;
-                } else if (s.activityListPositon.idx === hi - 1 && delta > 0) {
-                    // move to next day
-                    if (hi < s.activities.length - 1) {
-                        setCurrentViewingDate(s, s.activities[hi + 1].t);
-                        const [lo2] = getActivityRange(s);
-                        nextActivityIdx = lo - 1;
-                        s.currentFocus = FOCUS_DATE_SELECTOR;
-                    } else if (!isSameDate(s.now, s.currentViewingDate)) {
-                        setCurrentViewingDate(s, s.now);
-                        s.currentFocus = FOCUS_DATE_SELECTOR;
-                    }
-                    ctx.handled = true;
-                } else {
-                    nextActivityIdx = s.activityListPositon.idx + delta;
-                    ctx.handled = true;
-                }
-            }
-        } else {
-            if (delta > 0 && viewingActivities) {
-                s.currentFocus = FOCUS_ACTIVITIES_LIST;
-                nextActivityIdx = lo;
-                ctx.handled = true;
-            } else if (delta < 0) {
-                if (lo > 0) {
-                    // move to prev day
-                    nextActivityIdx = lo - 1;
-                    nextActivityIdxNotInRange = true;
-                    s.currentFocus = FOCUS_ACTIVITIES_LIST;
-                }
-                ctx.handled = true;
-            }
+    if (s.currentFocus === FOCUS_ACTIVITIES_LIST) {
+        if (s.activityListPositon.idx === lo && hasDiscoverableCommand(ctx, keyboard.upKey, "Select date", REPEAT)) {
+            s.currentFocus = FOCUS_DATE_SELECTOR;
         }
-    }
 
-    if (activityListFocused) {
+        // Moving to the date view - down
+        if (s.activityListPositon.idx === hi - 1 && hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)) {
+            s.currentFocus = FOCUS_DATE_SELECTOR;
+            moveToNextDay(s);
+        }
+
         if (s.isEditing === EDITING_NOTHING) {
-            if (!ctx.handled && keyboard.homeKey.pressed) {
-                const [lo, hi] = getActivityRange(s);
-                nextActivityIdx = lo;
-                ctx.handled = true;
-            } 
-
-            if (!ctx.handled && keyboard.endKey.pressed) {
-                const [lo, hi] = getActivityRange(s);
-                nextActivityIdx = hi - 1;
-                ctx.handled = true;
-            } 
-
             if (
                 currentActivity &&
                 isBreak(currentActivity) &&
@@ -369,7 +356,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
             ) {
                 s.isEditing = EDITING_ACTIVITY;;
-                ctx.handled = true;
             } 
 
             if (
@@ -378,17 +364,17 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit activity time")
             ) {
                 s.isEditing = EDITING_TIME;
-                ctx.handled = true;
             } 
 
             if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under", SHIFT)) {
                 insertBreakBetweenCurrentAndNext(ctx, s);
-                ctx.handled = true;
             }
 
             // TODO: make axis discoverable
             const hDelta = getAxisRaw(keyboard.leftKey.pressed, keyboard.rightKey.pressed);
             if (!ctx.handled && hDelta) {
+                ctx.handled = true;
+
                 if (currentActivity?.nId) {
                     const note = getNote(state, currentActivity.nId);
                     const hlt = getHigherLevelTask(state, note);
@@ -412,11 +398,18 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                     }
 
                     if (foundIdx !== -1) {
-                        nextActivityIdx = foundIdx;
-                        nextActivityIdxNotInRange = true;
+                        activitiesViewSetIdx(s, foundIdx, true);
                     }
                 }
-                ctx.handled = true;
+            }
+
+            // Moving up/down in the list
+            if (!ctx.handled) {
+                const listNavigation = getNavigableListInput(ctx, s.activityListPositon.idx, lo, hi);
+                if (listNavigation) {
+                    activitiesViewSetIdx(s, listNavigation.newIdx, false);
+                    ctx.handled = true;
+                }
             }
         } else if (currentActivity && isBreak(currentActivity)) {
             let command;
@@ -441,6 +434,39 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         }
     }
 
+    if (s.currentFocus === FOCUS_DATE_SELECTOR) {
+        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day")) {
+            moveToPrevDay(s);
+            const [lo, hi] = getActivityRange(s);
+            activitiesViewSetIdx(s, lo, false);
+        }
+
+        if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day")) {
+            moveToNextDay(s);
+        }
+
+        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day - end", REPEAT)) {
+            moveToPrevDay(s);
+            s.currentFocus = FOCUS_ACTIVITIES_LIST;
+        }
+
+        if (
+            hasActivitiesToView(s) &&
+            hasDiscoverableCommand(ctx, keyboard.downKey, "Activities", REPEAT)
+        ) {
+            activitiesViewSetIdx(s, lo, true);
+            s.currentFocus = FOCUS_ACTIVITIES_LIST;
+        }
+
+        if (s.activities.length > 0 && hasDiscoverableCommand(ctx, keyboard.homeKey, "First day")) {
+            setCurrentViewingDate(s, s.activities[0].t);
+        }
+
+        if (s.activities.length > 0 && hasDiscoverableCommand(ctx, keyboard.endKey, "Today")) {
+            setCurrentViewingDate(s, s.now);
+        }
+    }
+
     // escape key
     if (s.isEditing !== EDITING_NOTHING) {
         if (
@@ -450,68 +476,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             s.isEditing = EDITING_NOTHING;
             ctx.handled = true;
         }
-    }
-
-    if (!ctx.handled && dateSelectorFocused) {
-        let newDate: Date | undefined;
-
-        if (s.activities.length > 0) {
-            if (keyboard.homeKey.pressed) {
-                newDate = s.activities[0].t;
-            } else if (keyboard.endKey.pressed) {
-                newDate = s.now;
-            }
-        }
-
-        if (!newDate) {
-            const hDelta = getAxisRaw(keyboard.leftKey.pressed, keyboard.rightKey.pressed);
-
-            if (hDelta) {
-                const [lo, hi] = getActivityRange(s);
-                if (hDelta > 0) {
-                    if (hi < s.activities.length - 1) {
-                        // next day
-                        newDate = s.activities[hi + 1].t;
-                    } else {
-                        // today
-                        newDate = s.now;
-                    }
-                    ctx.handled = true;
-                } else if (hDelta < 0) {
-                    if (lo > 0) {
-                        // previous day
-                        newDate = s.activities[lo - 1].t;
-                    }
-                    ctx.handled = true;
-                }
-            }
-        }
-
-        if (newDate) {
-            if (isDayBefore(s.now, newDate)) {
-                newDate = s.now;
-            } else if (s.activities.length > 0 && isDayBefore(newDate, s.activities[0].t)) {
-                newDate = s.activities[0].t;
-            }
-            setCurrentViewingDate(s, newDate);
-            ctx.handled = true;
-        }
-    }
-
-    // Move activities. Also delete the current activity if it was empty.
-    // TODO: we need a more robust way to do this, without simply recomputing the entire list like before.
-    if (ctx.handled && nextActivityIdx !== -1) {
-        if (boundsCheck(s.activities, lastIdx)) {
-            const lastActivity = s.activities[lastIdx];
-            if (isBreak(lastActivity) && lastActivity.breakInfo !== undefined && lastActivity.breakInfo.length === 0) {
-                s.activities.splice(lastIdx, 1);
-                if (nextActivityIdx >= lastIdx) {
-                    nextActivityIdx--;
-                }
-            }
-        }
-
-        activitiesViewSetIdx(s, nextActivityIdx, nextActivityIdxNotInRange);
     }
 }
 
