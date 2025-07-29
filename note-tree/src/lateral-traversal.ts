@@ -1,23 +1,40 @@
 import { imLine } from "./app-components/common";
 import { COL, imAlign, imBegin, INLINE } from "./components/core/layout";
-import { imBeginScrollContainer, newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
-import { addToNavigationList, APP_VIEW_NOTES, APP_VIEW_TRAVERSAL, GlobalContext, hasDiscoverableCommand } from "./global-context";
-import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
-import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
+import { newScrollContainer, ScrollContainer, startScrolling } from "./components/scroll-container";
+import { addToNavigationList, APP_VIEW_FAST_TRAVEL, APP_VIEW_NOTES, GlobalContext, hasDiscoverableCommand } from "./global-context";
+import { imListRowCellStyle } from "./list-row";
+import {
+    clampedListIdx,
+    getNavigableListInput,
+    imBeginNavList,
+    imBeginNavListRow,
+    imEndNavList,
+    imEndNavListRow,
+    imNavListNextArray,
+    ListPosition,
+    newListPosition
+} from "./navigable-list";
 import { getNoteViewRoot } from "./note-tree-view";
-import { getCurrentNote, getNote, isHigherLevelTask, NoteId, setCurrentNote, state, STATUS_IN_PROGRESS, TreeNote } from "./state";
+import {
+    getCurrentNote,
+    getNote,
+    isHigherLevelTask,
+    NoteId,
+    setCurrentNote,
+    state,
+    STATUS_IN_PROGRESS,
+    TreeNote
+} from "./state";
 import { get } from "./utils/array-utils";
 import {
     HORIZONTAL,
     imEnd,
     imEndFor,
     imEndIf,
-    imFor,
     imIf,
     imIsFirstishRender,
     imMemo,
     imMemoMany,
-    imNextRoot,
     imState,
     setStyle,
     setText
@@ -64,9 +81,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     const current = getCurrentNote(state);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.notes.length);
-    if (!ctx.handled && listNavigation) {
+    if (listNavigation) {
         setIdx(ctx, s, listNavigation.newIdx);
-        ctx.handled = true;
     }
 
     if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out")) {
@@ -138,7 +154,7 @@ export function imNoteTraversal(
     ctx: GlobalContext,
     viewHasFocus: boolean
 ) {
-    addToNavigationList(ctx, APP_VIEW_TRAVERSAL);
+    addToNavigationList(ctx, APP_VIEW_FAST_TRAVEL);
 
     const s = imState(newNoteTraversalViewState);
 
@@ -162,36 +178,25 @@ export function imNoteTraversal(
 
     imLine(HORIZONTAL, 1);
 
+    const list = imBeginNavList(s.scrollContainer, s.listPosition, viewHasFocus); {
+        while (imNavListNextArray(list, s.notes)) {
+            const { i } = list;
+            const note = s.notes[i];
 
-    imBeginScrollContainer(s.scrollContainer); {
-        imFor(); for (
-            let idx = 0;
-            idx < s.notes.length;
-            idx++
-        ) {
-            imNextRoot();
-            const note = s.notes[idx];
-            const itemSelected = idx === s.listPosition.idx;
-
-            const root = imBeginListRow(
-                itemSelected,
-                itemSelected && viewHasFocus,
-            ); {
+            imBeginNavListRow(list); {
                 imBegin(); imListRowCellStyle(); {
-                    const text = note.data.text;
                     imBegin(INLINE); {
                         const canGoIn = note.childIds.length > 0;
                         if (imMemo(canGoIn)) {
                             setStyle("fontWeight", canGoIn ? "bold" : "");
                         }
                         
+                        const text = note.data.text;
                         setText(text); 
                     } imEnd();
                 } imEnd();
-            } imEndListRow();
-
-            if (itemSelected) scrollToItem(s.scrollContainer, root);
-        } imEndFor();
-    } imEnd();
+            } imEndNavListRow(list);
+        }
+    } imEndNavList(list);
 }
 

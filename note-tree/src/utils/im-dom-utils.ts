@@ -790,7 +790,6 @@ export function addDestructor(r: UIRoot, destructor: () => void) {
     r.destructors.push(destructor);
 }
 
-type ValidKey = string | number | Function | object;
 
 export type ListRenderer = {
     readonly t: typeof ITEM_LIST_RENDERER;
@@ -828,7 +827,7 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  * Allows you to render a variable number of UI roots at a particular point in your component.
  * UI Roots that aren't rendered in subsequent renders get removed from the dom when you `end()` a list.
  *
- * See {@link imNextRoot} for more info.
+ * See {@link imNextListRoot} for more info.
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  *
  * Normal usage:
@@ -918,7 +917,7 @@ function getCurrentRootForRendering() {
  *  } imEndIf();
  * ```
  *
- * Everythig this method does can also be done using {@link imBeginList}, {@link imEndList} and {@link imNextRoot},
+ * Everythig this method does can also be done using {@link imBeginList}, {@link imEndList} and {@link imNextListRoot},
  * but you have to type more, and I feel that code doesn't evolve correctly with 
  * that approach. For example, the following code is valid:
  *
@@ -943,7 +942,7 @@ function getCurrentRootForRendering() {
  */
 export function imIf() {
     imBeginList(REMOVE_LEVEL_DOM);
-    imNextRoot();
+    imNextListRoot();
     return true as const;
 }
 
@@ -972,7 +971,7 @@ export function imIf() {
  */
 export function imSwitch(key: ValidKey) {
     imBeginList(REMOVE_LEVEL_DOM);
-    imNextRoot(key);
+    imNextListRoot(key);
 }
 
 /** See {@link imSwitch} */
@@ -982,13 +981,13 @@ export function imEndSwitch() {
 
 /** See {@link imIf} */
 export function imElseIf(): true {
-    imNextRoot();
+    imNextListRoot();
     return true;
 }
 
 /** See {@link imIf} */
 export function imElse(): true {
-    imNextRoot();
+    imNextListRoot();
     return true;
 }
 
@@ -1006,7 +1005,7 @@ export const imEndWhile = imEndList;
 
 /**
  * Helpers for implementing try-catch.
- * You can also do this with {@link imBeginList}/{@link imEndList} and {@link imNextRoot},
+ * You can also do this with {@link imBeginList}/{@link imEndList} and {@link imNextListRoot},
  * but you need to know what you're doing, and it is annoying to remember.
  *
  * ```ts
@@ -1040,7 +1039,7 @@ export const imEndWhile = imEndList;
  */
 export function imTry(): ListRenderer {
     const l = imBeginList();
-    imNextRoot();
+    imNextListRoot();
     return l;
 }
 
@@ -1056,6 +1055,7 @@ export function imEndTry() {
     imEndList();
 }
 
+export type ValidKey = string | number | Function | object;
 
 /**
  * Read {@link imBeginList}'s doc first for context and examples.
@@ -1080,7 +1080,7 @@ export function imEndTry() {
  *
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  */
-export function imNextRoot(key?: ValidKey) {
+export function imNextListRoot(key?: ValidKey) {
     if (imCore.currentRoot !== undefined) {
         imEndListRoot(imCore.currentRoot);
     }
@@ -1557,7 +1557,7 @@ export function imEndList() {
     const core = imCore;
 
     if (core.currentRoot !== undefined) {
-        imEnd();
+        imEndListRoot(core.currentRoot)
     }
 
     // NOTE: the main reason why I won't make a third ITEM_COMPONENT_FENCE 
@@ -1736,10 +1736,11 @@ function newMemoState(): { last: unknown } {
  * NOTE: also returns a non-zero value when:
  *      - we first render
  *      - we were not in the conditional-rendering code path before, but we are now
+ *          (when we are not in the conditional rendering path, we have no way to know if the value
+ *              is changing while we're gone, so the idea is to just return true once when we're back).
  *
- *  This is because memos usually gate computations - you probably want those computations to 
- *  be done once, and then updated as the input changes. However, you may 
- *  also just want to run a side-effect on an actual change, in which case you can 
+ *  This is because memos usually gate computations that need to be kept up to date.
+ *  However, if you just want to run a side-effect when a component sees a change, you can 
  *  compare the result to {@link MEMO_CHANGED}.
  */
 // NOTE: I had previously implemented imBeginMemo() and imEndMemo():

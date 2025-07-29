@@ -14,7 +14,8 @@ export function assert(value: boolean): asserts value {
     }
 }
 
-export function mustGet<T>(val: T | undefined, field = "this value"): T {
+export function mustGetDefined<T>(val: T | undefined, field = "this value"): T {
     if (val === undefined) throw new Error(`Expected ${field} to not be undefined`);
     return val;
 }
+

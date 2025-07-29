@@ -27,11 +27,12 @@ import {
     startFpsCounter,
     stopFpsCounter
 } from "./components/fps-counter";
+import { imFuzzyFinder } from "./fuzzy-finder";
 import {
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
     APP_VIEW_PLAN,
-    APP_VIEW_TRAVERSAL,
+    APP_VIEW_FAST_TRAVEL,
     appViewToString,
     BYPASS_TEXT_AREA,
     CTRL,
@@ -42,6 +43,7 @@ import {
     REPEAT,
     SHIFT,
     updateDiscoverableCommands,
+    APP_VIEW_FUZZY_FIND,
 } from "./global-context";
 import { imNoteTraversal } from "./lateral-traversal";
 import { imNoteTreeView } from "./note-tree-view";
@@ -76,7 +78,7 @@ import {
     imIf,
     imIsFirstishRender,
     imMemoMany,
-    imNextRoot,
+    imNextListRoot,
     imRef,
     imState,
     imStateInline,
@@ -119,6 +121,8 @@ function imMain() {
     const errorRef = imRef();
     const framesSinceError = imState(newNumber);
     const realShitRef = imState(newBoolean);
+
+    console.log(ctx.currentScreen);
 
     const l = imTry(); try {
         if (imIf() && !realShitRef.val) {
@@ -227,7 +231,7 @@ function imMain() {
                                     const command = commands.stabilized[i];
                                     if (!command.key) continue;
 
-                                    imNextRoot();
+                                    imNextListRoot();
 
                                     imCommandDescription(command.key.stringRepresentation, command.desc);
                                 }
@@ -237,17 +241,17 @@ function imMain() {
                                     (ctx.keyboard.altKey.held && commands.altAvailable)
 
                                 if (!anyFulfilled) {
-                                    imNextRoot();
+                                    imNextListRoot();
                                     if (commands.shiftAvailable) {
                                         imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
                                     }
 
-                                    imNextRoot();
+                                    imNextListRoot();
                                     if (commands.ctrlAvailable) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
                                     }
 
-                                    imNextRoot();
+                                    imNextListRoot();
                                     if (commands.altAvailable) {
                                         imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
                                     }
@@ -278,7 +282,8 @@ function imMain() {
 
                         if (
                             ctx.currentScreen === APP_VIEW_PLAN ||
-                            ctx.currentScreen === APP_VIEW_TRAVERSAL
+                            ctx.currentScreen === APP_VIEW_FAST_TRAVEL ||
+                            ctx.currentScreen === APP_VIEW_FUZZY_FIND
                         ) {
                             leftTab.val = ctx.currentScreen;
                             ctx.activityViewVisible = true;
@@ -293,11 +298,14 @@ function imMain() {
                                 }
 
                                 imSwitch(leftTab.val); switch (leftTab.val) {
-                                    case APP_VIEW_ACTIVITIES:
+                                    case APP_VIEW_ACTIVITIES:  
                                         imActivitiesList(ctx, ctx.activityView, ctx.currentScreen === APP_VIEW_ACTIVITIES);
                                         break;
-                                    case APP_VIEW_TRAVERSAL:
-                                        imNoteTraversal(ctx, ctx.currentScreen === APP_VIEW_TRAVERSAL);
+                                    case APP_VIEW_FAST_TRAVEL: 
+                                        imNoteTraversal(ctx, ctx.currentScreen === APP_VIEW_FAST_TRAVEL);
+                                        break;
+                                    case APP_VIEW_FUZZY_FIND:  
+                                        imFuzzyFinder(ctx, ctx.currentScreen === APP_VIEW_FUZZY_FIND);
                                         break;
                                 } imEndSwitch();
                             } imEnd();

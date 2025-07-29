@@ -33,20 +33,21 @@ import {
     addToNavigationList,
     APP_VIEW_ACTIVITIES,
     APP_VIEW_NOTES,
-    APP_VIEW_TRAVERSAL,
+    APP_VIEW_FAST_TRAVEL,
     BYPASS_TEXT_AREA,
     CTRL,
     GlobalContext,
     hasDiscoverableCommand,
     REPEAT,
-    SHIFT
+    SHIFT,
+    APP_VIEW_FUZZY_FIND
 } from "./global-context";
 import {
     imBeginListRow,
     imEndListRow,
     imListRowCellStyle,
 } from "./list-row";
-import { clampedListIdx, getNavigableListInput, ListPosition, newListPosition } from "./navigable-list";
+import { clampedListIdx, getNavigableListInput, imBeginNavList, imBeginNavListRow, imEndNavList, imEndNavListRow, imNavListNextArray, ListPosition, NavigableListState, newListPosition } from "./navigable-list";
 import {
     COLLAPSED_STATUS,
     createNewNote,
@@ -83,12 +84,13 @@ import {
     imFor,
     imIf,
     imMemo,
-    imNextRoot,
+    imNextListRoot,
     imOn,
     imIsFirstishRender,
     setClass,
     setStyle,
-    setText
+    setText,
+    getCurrentRoot
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
 import { formatDateTime, formatDurationAsHours } from "./utils/datetime";
@@ -271,8 +273,8 @@ export function imNoteTreeView(
         imBegin(); {
             s.numVisible = 0;
             imFor(); for (const row of s.viewRootParentNotes) {
-                imNextRoot(row); 
-                imNoteTreeRow(ctx, s, row, viewFocused);
+                imNextListRoot(row); 
+                imNoteTreeRow(ctx, null, s, row, viewFocused);
             } imEndFor();
         } imEnd();
 
@@ -281,28 +283,17 @@ export function imNoteTreeView(
             !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
         );
 
-        imBeginScrollContainer(s.scrollContainer); {
-            const SCROLL_TIMEOUT_SECONDS = 1;
-            if (imTimerRepeat(SCROLL_TIMEOUT_SECONDS, s.scrollContainer.isScrolling)) {
-                s.scrollContainer.isScrolling = false;
-            }
-
-            imFor(); for (let i = 0; i < s.childNotes.length; i++) {
+        const list = imBeginNavList(s.scrollContainer, s.listPos, viewFocused, state._isEditingFocusedNote); {
+            while (imNavListNextArray(list, s.childNotes)) {
+                const { i, itemSelected } = list;
                 const row = s.childNotes[i];
-
-                imNextRoot(row.id);
-
-                const itemSelected = s.listPos.idx === i;
-                const root = imNoteTreeRow(ctx, s, row, viewFocused, i, itemSelected);
-
-                if (itemSelected) {
-                    scrollToItem(s.scrollContainer, root)
-                }
-            } imEndFor();
+                imNoteTreeRow(ctx, list, s, row, viewFocused, i, itemSelected);
+            };
 
             // Want to scroll off the bottom a bit
-            imBegin(); imSize(0, NOT_SET, 200, PX); imEnd();
-        } imEnd();
+            imNextListRoot("scrolloff");
+            imBegin(); imSize(0, NOT_SET, 500, PX); imEnd();
+        } imEndNavList(list);
 
         imLine(HORIZONTAL, 1);
 
@@ -368,7 +359,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 
     const currentNote = getCurrentNote(state);
     const parent = getNote(state, currentNote.parentId);
-    const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
 
     if (state._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
@@ -378,16 +368,21 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.tKey, "Fast-travel")) {
-        ctx.currentScreen = APP_VIEW_TRAVERSAL;
+        ctx.currentScreen = APP_VIEW_FAST_TRAVEL;
+        ctx.handled = true;
+    }
+
+    if (hasDiscoverableCommand(ctx, keyboard.fKey, "Find")) {
+        ctx.currentScreen = APP_VIEW_FUZZY_FIND;
         ctx.handled = true;
     }
 
     if (!state._isEditingFocusedNote) {
         if (!ctx.handled) {
             const moveNote = keyboard.altKey.held;
+            const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
             if (listNavInput) {
                 moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
-                ctx.handled = true;
             } else if (keyboard.leftKey.pressed) {
                 moveOutOfCurrent(ctx, s, moveNote);
                 ctx.handled = true;
@@ -436,6 +431,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 
 function imNoteTreeRow(
     ctx: GlobalContext,
+    list: NavigableListState | null,
     s: NoteTreeViewState,
     note: TreeNote, 
     viewFocused: boolean,
@@ -455,7 +451,7 @@ function imNoteTreeRow(
         }
     }
 
-    const root = imBeginListRow(itemSelected, viewFocused, state._isEditingFocusedNote); {
+    const root = imBeginNavListRow(list); {
         imBegin(ROW); imFlex(); {
             setClass(cn.preWrap, itemSelected);
 
@@ -470,7 +466,7 @@ function imNoteTreeRow(
                 let depth = -1;
 
                 while (!idIsNil(it.parentId)) {
-                    imNextRoot();
+                    imNextListRoot();
 
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
@@ -644,7 +640,7 @@ function imNoteTreeRow(
                 } imEnd();
             } imEnd();
         } imEnd();
-    } imEndListRow();
+    } imEndNavListRow(list);
 
     return root;
 }

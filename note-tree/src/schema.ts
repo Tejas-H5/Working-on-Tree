@@ -31,7 +31,7 @@ import {
     WorkdayConfigWeekDay
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
-import { mustGet } from "./utils/assert";
+import { mustGetDefined } from "./utils/assert";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -52,10 +52,10 @@ export function asNoteTreeGlobalState(val: unknown) {
             // NOTE: we no longer handle schema 1. All 2 users (both of which are me) have migrated off it.
 
             state.notes.nodes = nodesArr.map(nodeArrVal => {
-                const nodeObj = mustGet(asObject(nodeArrVal) || asNull(nodeArrVal));
+                const nodeObj = mustGetDefined(asObject(nodeArrVal) || asNull(nodeArrVal));
                 if (nodeObj === null) return null;
 
-                const noteObjDataObj = mustGet(asObject(extractKey<TreeNote>(nodeObj, "data")));
+                const noteObjDataObj = mustGetDefined(asObject(extractKey<TreeNote>(nodeObj, "data")));
                 const noteData = defaultNote();
 
                 const editedAt = asDate(extractKey<Note>(noteObjDataObj, "editedAt"));
@@ -69,7 +69,7 @@ export function asNoteTreeGlobalState(val: unknown) {
 
                 const node = tree.newTreeNode(noteData);
 
-                node.childIds = mustGet(asNoteIds(extractKey<TreeNote>(nodeObj, "childIds")));
+                node.childIds = mustGetDefined(asNoteIds(extractKey<TreeNote>(nodeObj, "childIds")));
 
                 deserializeObject(node, nodeObj, "note.nodes[]");
 
@@ -94,11 +94,11 @@ export function asNoteTreeGlobalState(val: unknown) {
         }
     }
 
-    const activitiesArr = mustGet(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
+    const activitiesArr = mustGetDefined(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
     state.activities = activitiesArr.map((val, i) => {
-        const activityObj = mustGet(asObject(val));
+        const activityObj = mustGetDefined(asObject(val));
 
-        const t = mustGet(asDate(extractKey<Activity>(activityObj, "t")));
+        const t = mustGetDefined(asDate(extractKey<Activity>(activityObj, "t")));
         const activity = defaultActivity(t);
 
         activity.nId       = asNumber(extractKey<Activity>(activityObj, "nId")) as NoteId | undefined;
@@ -131,12 +131,12 @@ export function asNoteTreeGlobalState(val: unknown) {
     const taskStreamsArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "taskStreams"));
     if (taskStreamsArr) {
         state.taskStreams = taskStreamsArr.map(taskStreamVal => {
-            const taskStreamObj = mustGet(asObject(taskStreamVal));
+            const taskStreamObj = mustGetDefined(asObject(taskStreamVal));
 
-            const name = mustGet(asString(extractKey<TaskStream>(taskStreamObj, "name")));
+            const name = mustGetDefined(asString(extractKey<TaskStream>(taskStreamObj, "name")));
             const taskStream = newTaskStream(name);
 
-            taskStream.noteIds =  mustGet(asNoteIds(extractKey<TaskStream>(taskStreamObj, "noteIds")));
+            taskStream.noteIds =  mustGetDefined(asNoteIds(extractKey<TaskStream>(taskStreamObj, "noteIds")));
 
             deserializeObject(taskStream, taskStreamObj);
 
@@ -150,12 +150,12 @@ export function asNoteTreeGlobalState(val: unknown) {
     const workdayConfigObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "workdayConfig"));
     if (workdayConfigObj) {
 
-        const weekdayConfigsArr = mustGet(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "weekdayConfigs")));
+        const weekdayConfigsArr = mustGetDefined(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "weekdayConfigs")));
         state.workdayConfig.weekdayConfigs = weekdayConfigsArr.map(u => {
-            const weekdayConfigObj = mustGet(asObject(u));
+            const weekdayConfigObj = mustGetDefined(asObject(u));
             const weekdayConfig = newWorkdayConfigWeekDay();
 
-            const weekdays = mustGet(asArray(extractKey<WorkdayConfigWeekDay>(weekdayConfigObj, "weekdayFlags")));
+            const weekdays = mustGetDefined(asArray(extractKey<WorkdayConfigWeekDay>(weekdayConfigObj, "weekdayFlags")));
             for (let i = 0; i < weekdayConfig.weekdayFlags.length && i < weekdays.length; i++) {
                 weekdayConfig.weekdayFlags[i] = !!weekdays[i];
             }
@@ -165,9 +165,9 @@ export function asNoteTreeGlobalState(val: unknown) {
             return weekdayConfig;
         });
 
-        const holidayConfigsArr = mustGet(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "holidays")));
+        const holidayConfigsArr = mustGetDefined(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "holidays")));
         state.workdayConfig.holidays = holidayConfigsArr.map(u => {
-            const holidayConfigObj = mustGet(asObject(u));
+            const holidayConfigObj = mustGetDefined(asObject(u));
             const holidayConfig: WorkdayConfigHoliday = {
                 name: "",
                 date: new Date(),
@@ -181,15 +181,15 @@ export function asNoteTreeGlobalState(val: unknown) {
 
     const mainGraphDataObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "mainGraphData"));
     if (mainGraphDataObj) {
-        state.mainGraphData.nodes = mustGet(asStringMap(extractKey<GraphData>(mainGraphDataObj, "nodes"), u => {
-            const nodeObj = mustGet(asObject(u));
+        state.mainGraphData.nodes = mustGetDefined(asStringMap(extractKey<GraphData>(mainGraphDataObj, "nodes"), u => {
+            const nodeObj = mustGetDefined(asObject(u));
             const node = newGraphNode("", "", 0, 0);
             deserializeObject(node, nodeObj);
             return node;
         }));
 
-        state.mainGraphData.edges = mustGet(asStringMap(extractKey<GraphData>(mainGraphDataObj, "edges"), u => {
-            const edgeObj = mustGet(asObject(u));
+        state.mainGraphData.edges = mustGetDefined(asStringMap(extractKey<GraphData>(mainGraphDataObj, "edges"), u => {
+            const edgeObj = mustGetDefined(asObject(u));
             const edge = newGraphEdge("", "", 0)
             deserializeObject(edge, edgeObj);
             return edge;

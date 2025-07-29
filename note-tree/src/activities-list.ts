@@ -44,6 +44,11 @@ import {
     clampedListIdx,
     clampedListIdxRange,
     getNavigableListInput,
+    imBeginNavList,
+    imBeginNavListRow,
+    imEndNavList,
+    imEndNavListRow,
+    imNavListNextSlice,
     ListPosition,
     newListPosition
 } from "./navigable-list";
@@ -86,7 +91,7 @@ import {
     imIf,
     imMemo,
     imMemoMany,
-    imNextRoot,
+    imNextListRoot,
     imOn,
     imIsFirstishRender,
     setStyle,
@@ -343,7 +348,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         }
 
         // Moving to the date view - down
-        if (s.activityListPositon.idx === hi - 1 && hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)) {
+        if (
+            !isSameDate(s.now, s.currentViewingDate) && 
+            hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)
+        ) {
             s.currentFocus = FOCUS_DATE_SELECTOR;
             moveToNextDay(s);
         }
@@ -404,12 +412,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             }
 
             // Moving up/down in the list
-            if (!ctx.handled) {
-                const listNavigation = getNavigableListInput(ctx, s.activityListPositon.idx, lo, hi);
-                if (listNavigation) {
-                    activitiesViewSetIdx(s, listNavigation.newIdx, false);
-                    ctx.handled = true;
-                }
+            const listNavigation = getNavigableListInput(ctx, s.activityListPositon.idx, lo, hi);
+            if (listNavigation) {
+                activitiesViewSetIdx(s, listNavigation.newIdx, false);
             }
         } else if (currentActivity && isBreak(currentActivity)) {
             let command;
@@ -441,7 +446,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             activitiesViewSetIdx(s, lo, false);
         }
 
-        if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day")) {
+        if (
+            !isSameDate(s.now, s.currentViewingDate) && 
+            hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day")
+        ) {
             moveToNextDay(s);
         }
 
@@ -517,13 +525,6 @@ export function imActivitiesList(
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
             activitiesViewSetIdx(s, s.activities.length - 1, NOT_IN_RANGE);
         }
-    }
-
-    if (imMemoMany(
-        s.activityListPositon.idx,
-        s.currentFocus
-    )) {
-        startScrolling(s.scrollContainer, true);
     }
 
     if (imMemo(s.currentViewingDate)) {
@@ -607,27 +608,28 @@ export function imActivitiesList(
                 imBegin(); imFlex(); imEnd();
             } imEnd();
 
-        } imEnd();
+        } imEndListRow();
 
         imLine(
             HORIZONTAL, 1,
             !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
         );
 
-        imBeginScrollContainer(s.scrollContainer); {
+        const list = imBeginNavList(
+            s.scrollContainer,
+            s.activityListPositon,
+            viewHasFocus && currentFocus === FOCUS_ACTIVITIES_LIST,
+            !!s.isEditing
+        ); {
             const current = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, current);
 
-            imFor(); for (
-                let idx = s._startActivityIdx;
-                idx < s._endActivityIdxEx;
-                idx++
-            ) {
-                const activity = s.activities[idx];
-                imNextRoot(activity);
-
-                const itemSelected = currentFocus === FOCUS_ACTIVITIES_LIST &&
-                    s.activityListPositon.idx === idx;
+            while (imNavListNextSlice(
+                list,
+                s.activities, s._startActivityIdx, s._endActivityIdxEx
+            )) {
+                const { i, itemSelected } = list;
+                const activity = s.activities[i];
 
                 const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                 const isEditingTime     = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
@@ -645,16 +647,12 @@ export function imActivitiesList(
 
                 const isBreakActivity = isBreak(activity);
 
-                const root = imBeginListRow(
-                    itemHighlighted,
-                    viewHasFocus && itemSelected,
-                    !!s.isEditing
-                ); {
+                imBeginNavListRow(list, itemHighlighted); {
                     imBegin(ROW); imListRowCellStyle(); imGap(10, PX); imFlex(); imAlign(); {
                         imBegin(INLINE_BLOCK); {
                             if (imIf() && isEditingTime) {
-                                const lowerBound = get(s.activities, idx - 1)?.t;
-                                const upperBound = get(s.activities, idx + 1)?.t;
+                                const lowerBound = get(s.activities, i - 1)?.t;
+                                const upperBound = get(s.activities, i + 1)?.t;
 
                                 const { edit, textArea } = imEditableTime(activity.t, lowerBound ?? null, upperBound);
 
@@ -683,7 +681,7 @@ export function imActivitiesList(
                                 imBegin(); setText(formatTime(activity.t)); imInitClasses(cn.noWrap); imEnd();
                             } imEndIf();
 
-                            const duration = getActivityDurationMs(activity, s.activities[idx + 1]);
+                            const duration = getActivityDurationMs(activity, s.activities[i + 1]);
                             imBegin(); setText(formatDuration(duration, 2)); imInitClasses(cn.noWrap); imEnd();
                         } imEnd();
 
@@ -727,13 +725,10 @@ export function imActivitiesList(
                             setText(text);
                         } imEnd();
                     } imEnd();
-                } imEndListRow();
+                } imEndNavListRow(list);
+            } 
 
-                if (itemSelected) {
-                    scrollToItem(s.scrollContainer, root)
-                }
-            } imEndFor();
-
+            imNextListRoot("footer");
             if (imIf() && !hasActivities) {
                 imBegin(ROW); imFlex(); imAlign(); imJustify(); {
                     imSpan(
@@ -742,6 +737,6 @@ export function imActivitiesList(
                     ); imEnd();
                 } imEnd();
             } imEndIf();
-        } imEnd();
+        } imEndNavList(list);
     } imEnd();
 }

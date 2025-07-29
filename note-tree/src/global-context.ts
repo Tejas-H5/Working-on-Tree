@@ -37,7 +37,7 @@ export type DiscoverableCommands = {
 }
 
 export function newDiscoverableCommands(): DiscoverableCommands {
-    const newCommandArray = () => Array(8).fill(null).map((): DiscoverableCommand => {
+    const newCommandArray = () => Array(16).fill(null).map((): DiscoverableCommand => {
         return {
             key: null,
             desc: "",
@@ -105,23 +105,26 @@ export function newGlobalContext(): GlobalContext {
 
 type AppViewInstance = number & { __appView: void; };
 
-export const APP_VIEW_NOTES      = 0 as AppViewInstance;
-export const APP_VIEW_ACTIVITIES = 1 as AppViewInstance;
-export const APP_VIEW_PLAN       = 2 as AppViewInstance;
-export const APP_VIEW_TRAVERSAL  = 3 as AppViewInstance;
+export const APP_VIEW_NOTES       = 0 as AppViewInstance;
+export const APP_VIEW_ACTIVITIES  = 1 as AppViewInstance;
+export const APP_VIEW_PLAN        = 2 as AppViewInstance;
+export const APP_VIEW_FAST_TRAVEL = 3 as AppViewInstance;
+export const APP_VIEW_FUZZY_FIND  = 4 as AppViewInstance;
 
 export type AppView
     = typeof APP_VIEW_NOTES
     | typeof APP_VIEW_ACTIVITIES
     | typeof APP_VIEW_PLAN
-    | typeof APP_VIEW_TRAVERSAL;
+    | typeof APP_VIEW_FAST_TRAVEL
+    | typeof APP_VIEW_FUZZY_FIND;
 
 export function appViewToString(view: AppView): string {
     switch(view) {
-        case APP_VIEW_NOTES:      return "Notes";
-        case APP_VIEW_ACTIVITIES: return "Activities";
-        case APP_VIEW_PLAN:       return "Plan";
-        case APP_VIEW_TRAVERSAL:  return "Traversal";
+        case APP_VIEW_NOTES:        return "Notes";
+        case APP_VIEW_ACTIVITIES:   return "Activities";
+        case APP_VIEW_PLAN:         return "Plan";
+        case APP_VIEW_FAST_TRAVEL:  return "Traversal";
+        case APP_VIEW_FUZZY_FIND:   return "Find";
     }
     return "??";
 }
@@ -131,6 +134,7 @@ export const CTRL   = 1 << 1;
 export const SHIFT  = 1 << 2;
 export const ALT    = 1 << 3;
 export const BYPASS_TEXT_AREA = 1 << 4;
+export const HIDDEN = 1 << 5;
 
 // NOTE: always false if ctx.handled.
 // if true, will set ctx.handled = true.
@@ -227,8 +231,11 @@ function pushDiscoverableCommand(
 
     if (currentlyHeld !== commandWants) return null;
 
-    // only increment when we reach the end
-    commands.idx++;
+    if (!(flags & HIDDEN)) {
+        // only increment when we reach the end
+        commands.idx++;
+    }
+
     return command;
 }
 
@@ -265,6 +272,7 @@ type KeyboardState = {
     dKey: KeyState;
     bKey: KeyState;
     tKey: KeyState;
+    fKey: KeyState;
 
     enterKey:  KeyState;
     escapeKey: KeyState;
@@ -327,6 +335,7 @@ function newKeyboardState(): KeyboardState {
         dKey: newKeyState("D", "D", "d"),
         bKey: newKeyState("B", "B", "b"),
         tKey: newKeyState("T", "T", "t"),
+        fKey: newKeyState("F", "F", "f"),
 
         enterKey:  newKeyState("Enter", "Enter"),
         escapeKey: newKeyState("Esc", "Escape"),
