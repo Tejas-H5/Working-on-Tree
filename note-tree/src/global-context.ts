@@ -68,12 +68,7 @@ export function newDiscoverableCommands(): DiscoverableCommands {
 export type DiscoverableCommand = {
     key: KeyState | null;
     desc: string;
-
-    ctrl: boolean;
-    shift: boolean;
-    alt: boolean;
-    repeat: boolean;
-    bypassTextArea: boolean;
+    flags: number;
 
     // TODO: consider back and forth interaction here
     // active: boolean;
@@ -138,6 +133,7 @@ export const HIDDEN = 1 << 5;
 
 // NOTE: always false if ctx.handled.
 // if true, will set ctx.handled = true.
+// TODO: maybe SHIFT and BYPASS_TEXT_AREA at the same time should throw?
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
     key: KeyState,
@@ -159,14 +155,14 @@ export function hasDiscoverableCommand(
 function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
     if (ctx.handled) return false;
 
-    if (!command.bypassTextArea && isEditingTextSomewhereInDocument()) return false;
+    if (!(command.flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) return false;
 
     if (!command.key || !command.key.pressed)  return false;
-    if (!command.repeat && command.key.repeat) return false;
+    if (!(command.flags & REPEAT) && command.key.repeat) return false;
 
-    if (command.alt   && !ctx.keyboard.altKey.held)   return false;
-    if (command.ctrl  && !ctx.keyboard.ctrlKey.held)  return false;
-    if (command.shift && !ctx.keyboard.shiftKey.held) return false;
+    if ((command.flags & ALT)   && !ctx.keyboard.altKey.held)   return false;
+    if ((command.flags & CTRL)  && !ctx.keyboard.ctrlKey.held)  return false;
+    if ((command.flags & SHIFT) && !ctx.keyboard.shiftKey.held) return false;
 
     return true;
 }
@@ -194,7 +190,7 @@ function pushDiscoverableCommand(
     let found = false;
     for (let i = 0; i < commands.idx; i++) {
         const command = commands.thisFrame[i];
-        if (command.key === key) {
+        if (command.key === key && command.flags === flags) {
             found = true;
             break;
         }
@@ -207,11 +203,7 @@ function pushDiscoverableCommand(
 
     command.desc   = actionDescription;
     command.key    = key;
-    command.ctrl   = !!(flags & CTRL);
-    command.shift  = !!(flags & SHIFT);
-    command.alt    = !!(flags & ALT);
-    command.repeat = !!(flags & REPEAT);
-    command.bypassTextArea = !!(flags & BYPASS_TEXT_AREA);
+    command.flags  = flags;
 
     const currentlyHeld = (
         (ctx.keyboard.ctrlKey.held ? CTRL : 0) |

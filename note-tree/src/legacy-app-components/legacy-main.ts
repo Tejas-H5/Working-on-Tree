@@ -74,7 +74,7 @@ import {
     span,
 } from "src/utils/dom-utils";
 import { loadFile, saveText } from "src/utils/file-download";
-import { Range } from "src/utils/fuzzyfind";
+import { FuzzyFindRange } from "src/utils/fuzzyfind";
 import * as tree from "src/utils/int-tree";
 import { Pagination, getCurrentEnd, getStart, idxToPage, setPage } from "src/utils/pagination";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
@@ -753,7 +753,7 @@ function LinkNavModal(rg: RenderGroup) {
     function LinkItem(rg: RenderGroup<{
         noteId: NoteId;
         text: string;
-        range: Range;
+        range: FuzzyFindRange;
         url: string;
         isFocused: boolean;
     }>) {
@@ -1130,7 +1130,7 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
 
 function HighlightedText(rg: RenderGroup<{
     text: string;
-    highlightedRanges: Range[];
+    highlightedRanges: FuzzyFindRange[];
 }>) {
     function HighlightedTextSpan(rg: RenderGroup<{
         highlighted: boolean;
@@ -1174,7 +1174,7 @@ function FuzzyFindResultsList(rg: RenderGroup<{
 }>) {
     function FuzzyFinderResultItem(rg: RenderGroup<{
         note: TreeNote;
-        ranges: Range[];
+        ranges: FuzzyFindRange[];
         hasFocus: boolean;
         compact: boolean;
         isCursorActive: boolean;

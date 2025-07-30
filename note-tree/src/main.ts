@@ -122,8 +122,6 @@ function imMain() {
     const framesSinceError = imState(newNumber);
     const realShitRef = imState(newBoolean);
 
-    console.log(ctx.currentScreen);
-
     const l = imTry(); try {
         if (imIf() && !realShitRef.val) {
             handleImKeysInput(ctx);
@@ -253,7 +251,7 @@ function imMain() {
 
                                     imNextListRoot();
                                     if (commands.altAvailable) {
-                                        imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
+                                        imCommandDescription(ctx.keyboard.altKey.stringRepresentation, "Hold");
                                     }
                                 }
 
@@ -334,6 +332,13 @@ function imMain() {
                     }
                 }
 
+                if (
+                    ctx.currentScreen !== APP_VIEW_FUZZY_FIND &&
+                    hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)
+                ) {
+                    ctx.currentScreen = APP_VIEW_FUZZY_FIND;
+                }
+
                 // navigate between every view
                 if (!isEditingTextSomewhereInDocument()) {
                     const idx = ctx.navigationList.indexOf(ctx.currentScreen);
@@ -372,11 +377,9 @@ function imMain() {
 
                 if (!ctx.handled) {
                     const keyboard = ctx.keyboard;
-                    if (keyboard.aKey.pressed && keyboard.ctrlKey.held) {
-                        if (!ctx.textAreaToFocus) {
-                            // no, I don't want to select all text being in the DOM, actually
-                            ctx.handled = true;
-                        }
+                    if (keyboard.aKey.pressed && keyboard.ctrlKey.held && !isEditingTextSomewhereInDocument()) {
+                        // no, I don't want to select all text being in the DOM, actually
+                        ctx.handled = true;
                     }
                 }
 

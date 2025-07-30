@@ -1,4 +1,4 @@
-export type Range = [number, number];
+export type FuzzyFindRange = [start: number, end: number];
 
 
 // Returns a result containing the matches, as well as a 'score' saying how good the match was.
@@ -6,7 +6,7 @@ export type FuzyyFindResult = {
     /**
      * If this is empty, that means there was no match, and vice-versa.
      */
-    ranges: Range[];
+    ranges: FuzzyFindRange[];
 
     /** 
      * NOTE: only scores using the same algorithm and query text may be compared with one another, due to their fuzzy nature.
@@ -37,6 +37,9 @@ export function fuzzyFind(text: string, query: string, {
     limit?: number;
 }): FuzyyFindResult {
     const result: FuzyyFindResult = { ranges: [], score: 0 };
+
+    query = query.toLowerCase();
+    text = text.toLowerCase();
 
     if (query.length === 0) {
         return result;

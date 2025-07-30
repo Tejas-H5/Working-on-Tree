@@ -18,7 +18,7 @@ import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
 import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { fuzzyFind, Range } from "./utils/fuzzyfind";
+import { fuzzyFind, FuzzyFindRange } from "./utils/fuzzyfind";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 import { setCssVars } from "./utils/cssb";
 import { darkTheme, lightTheme } from "./app-styling";
@@ -74,7 +74,7 @@ export type FuzzyFindState = {
     scopedToNoteId: NoteId;
 }
 
-function newFuzzyFindState(): FuzzyFindState {
+export function newFuzzyFindState(): FuzzyFindState {
     return {
         query: "",
         matches: [],
@@ -2314,7 +2314,7 @@ export function resetState() {
 
 type NoteFuzzyFindMatches = {
     note: TreeNote;
-    ranges: Range[] | null;
+    ranges: FuzzyFindRange[] | null;
     score: number;
 };
 
@@ -2326,59 +2326,9 @@ export function searchAllNotesForText(
     query: string,
     dstMatches: NoteFuzzyFindMatches[],
     fuzzySearch: boolean,
-) {
+): void {
     clearArray(dstMatches);
-
-    if (query.length === 0) {
-        // if no query, default to just the current task stream.
-
-        const noteIds = state.currentTaskStreamIdx < 0 ? state.scheduledNoteIds :
-            state.taskStreams[state.currentTaskStreamIdx]?.noteIds;
-        if (noteIds) {
-            // Actually, we want the in-progress notes under those task stream notes, and not just the notes themsevles.
-            const dfs = (note: TreeNote) => {
-                for (const id of note.childIds) {
-                    const note = getNote(state, id);
-
-                    if (note.data._status !== STATUS_IN_PROGRESS) {
-                        continue;
-                    }
-
-                    if (dstMatches.find(m => m.note === note)) {
-                        // this note appears in the stream, and as a child of another note in the stream. forgeddabadit.
-                        continue;
-                    }
-
-                    if (note.childIds.length === 0) {
-                        dstMatches.push({
-                            note: note,
-                            ranges: null,
-                            // no need for sorting tbh - we're already iterating in order!
-                            score: 100,
-                        });
-                        continue;
-                    }
-
-                    dfs(note);
-                }
-            };
-
-            for (let i = 0; i < noteIds.length; i++) {
-                const id = noteIds[i];
-                const note = getNote(state, id);
-                dstMatches.push({
-                    note: note,
-                    ranges: null,
-                    // no need for sorting tbh - we're already iterating in order!
-                    score: 100,
-                });
-                // also add the in-progress notes underneath!
-                dfs(note);
-            }
-        }
-
-        return;
-    }
+    if (query.length === 0) return;
 
     const SORT_BY_SCORE = 1;
     const SORT_BY_RECENCY = 2;

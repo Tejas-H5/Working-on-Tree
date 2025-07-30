@@ -2,7 +2,7 @@ import { imBeginScrollContainer, ScrollContainer, scrollToItem, startScrolling }
 import { GlobalContext } from "./global-context";
 import { imBeginListRow, imEndListRow } from "./list-row";
 import { assert } from "./utils/assert";
-import { imBeginList, imEnd, imEndList, imNextListRoot, imState, ValidKey } from "./utils/im-dom-utils";
+import { imBeginList, imEnd, imEndList, imNextListRoot, imState, isEditingTextSomewhereInDocument, ValidKey } from "./utils/im-dom-utils";
 
 // TODO: maybe there should be a keyboard module instead?
 
@@ -44,8 +44,11 @@ export function getNavigableListInput(
     if (keyboard.downKey.pressed)     newIdx = oldIdx + 1;
     if (keyboard.pageUpKey.pressed)   newIdx = oldIdx - 10;
     if (keyboard.pageDownKey.pressed) newIdx = oldIdx + 10;
-    if (keyboard.homeKey.pressed)     newIdx = lo;
-    if (keyboard.endKey.pressed)      newIdx = hi - 1;
+    // if I'm editing text, I want to use these for horizontal movements instead of list movements.
+    if (!isEditingTextSomewhereInDocument()) {
+        if (keyboard.homeKey.pressed) newIdx = lo;
+        if (keyboard.endKey.pressed) newIdx = hi - 1;
+    }
 
     // TODO: make this discoverable in a way that doesn't eat up a lot of space
     // TODO: modifiers
@@ -65,7 +68,6 @@ export function getNavigableListInput(
 
 export type NavigableListState = {
     scrollContainer: ScrollContainer | null;
-    listPosition: ListPosition | null;
     viewHasFocus: boolean;
 
     listIdx: number;
@@ -73,12 +75,13 @@ export type NavigableListState = {
     i: number;
     itemSelected: boolean;
     isEditing: boolean;
+
+    isMassiveAhhList: boolean;
 };
 
 function newNavigabeListState(): NavigableListState {
     return {
         scrollContainer: null,
-        listPosition: null,
         viewHasFocus: false,
         isEditing: false,
 
@@ -86,6 +89,8 @@ function newNavigabeListState(): NavigableListState {
 
         i: -1,
         itemSelected: false,
+
+        isMassiveAhhList: false,
     };
 }
 
@@ -125,20 +130,20 @@ export function imNavListNextSlice<T extends ValidKey>(
 }
 
 
+// TODO: virtalize when isMassiveAhhList=true;
 export function imBeginNavList(
     scrollContainer: ScrollContainer,
-    listPosition: ListPosition,
+    listPositionIdx: number,
     viewHasFocus: boolean,
     isEditing: boolean = false,
 ): NavigableListState {
     const s = imState(newNavigabeListState);
 
-    if (s.listIdx !== listPosition.idx) {
-        s.listIdx = listPosition.idx;
+    if (s.listIdx !== listPositionIdx) {
+        s.listIdx = listPositionIdx;
         startScrolling(scrollContainer, scrollContainer.smoothScroll);
     }
 
-    s.listPosition = listPosition;
     s.scrollContainer = scrollContainer;
     s.viewHasFocus = viewHasFocus;
     s.isEditing = isEditing;

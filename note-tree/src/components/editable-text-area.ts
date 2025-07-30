@@ -54,7 +54,8 @@ const cssb = newCssBuilder();
 const cnTextAreaRoot = cssb.newClassName("customTextArea");
 cssb.s(`
 .${cnTextAreaRoot} textarea { 
-    white-space: pre-wrap; padding: 5px; 
+    white-space: pre-wrap; 
+    padding: 5px; 
     caret-color: ${cssVars.fg};
     color: transparent;
 }
@@ -81,64 +82,60 @@ export function imBeginTextArea({
     let textArea: UIRoot<HTMLTextAreaElement>;
 
     const root = imBegin(); {
-        imInitClasses(cnTextAreaRoot);
+        imInitClasses(cn.flex1, cn.row, cn.h100, cn.overflowYAuto, cnTextAreaRoot);
 
+        // This is now always present.
         imBegin(); {
-            imInitClasses(cn.flex1, cn.row, cn.h100, cn.overflowYAuto);
+            if (imInit()) {
+                setAttr("class", [cn.handleLongWords, cn.relative, cn.w100, cn.hFitContent].join(" "));
+                setAttr("style", "min-height: 100%");
+            }
 
-            // This is now always present.
-            imBegin(); {
+            setClass(cn.preWrap, !isOneLine)
+            setClass(cn.pre, !!isOneLine)
+            setClass(cn.overflowHidden, isOneLine)
+            setClass(cn.noWrap, !!isOneLine);
+
+            // This is a facade that gives the text area the illusion of auto-sizing!
+            // but it only works if the text doesn't end in whitespace....
+            imBegin(INLINE); {
+                const placeholderChanged = imMemo(placeholder);
+                const valueChanged = imMemo(value);
+                if (placeholderChanged || valueChanged) {
+                    if (!value) {
+                        setText(placeholder);
+                        setStyle("color", cssVars.fg2);
+                    } else {
+                        setText(value);
+                        setStyle("color", cssVars.fg);
+                    }
+                }
+            } imEnd();
+
+            // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
+            imBegin(INLINE); {
+                if (imIsFirstishRender()) {
+                    setStyle("color", "transparent");
+                    setStyle("userSelect", "none");
+                    setText(".");
+                }
+            } imEnd();
+
+            textArea = imBeginRoot(newTextArea); {
                 if (imInit()) {
-                    setAttr("class", [cn.handleLongWords, cn.relative, cn.w100, cn.hFitContent].join(" "));
-                    setAttr("style", "min-height: 100%");
+                    setAttr("class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
+                    setAttr("style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
                 }
 
-                setClass(cn.preWrap, !isOneLine)
-                setClass(cn.pre, !!isOneLine)
-                setClass(cn.overflowHidden, isOneLine)
-                setClass(cn.noWrap, !!isOneLine);
+                if (imMemo(value)) {
+                    // don't update the value out from under the user implicitly
+                    setInputValue(textArea.root, value);
+                }
 
-                // This is a facade that gives the text area the illusion of auto-sizing!
-                // but it only works if the text doesn't end in whitespace....
-                imBegin(INLINE); {
-                    const placeholderChanged = imMemo(placeholder);
-                    const valueChanged = imMemo(value);
-                    if (placeholderChanged || valueChanged) {
-                        if (!value) {
-                            setText(placeholder);
-                            setStyle("color", cssVars.fg2);
-                        } else {
-                            setText(value);
-                            setStyle("color", cssVars.fg);
-                        }
-                    }
-                } imEnd();
-
-                // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
-                imBegin(INLINE); {
-                    if (imIsFirstishRender()) {
-                        setAttr("style", "color: transparent");
-                        setAttr("userSelect", "none");
-                        setText(".");
-                    }
-                } imEnd();
-
-                textArea = imBeginRoot(newTextArea); {
-                    if (imInit()) {
-                        setAttr("class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
-                        setAttr("style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
-                    }
-
-                    if (imMemo(value)) {
-                        // don't update the value out from under the user implicitly
-                        setInputValue(textArea.root, value);
-                    }
-
-                } // imEnd();
             } // imEnd();
-
-            // TODO: some way to optionally render other stuff hereYou can now render your own overlays here.
         } // imEnd();
+
+        // TODO: some way to optionally render other stuff hereYou can now render your own overlays here.
     } // imEnd();
 
 
@@ -149,8 +146,6 @@ export function imEndTextArea() {
     {
         {
             {
-                {
-                } imEnd();
             } imEnd();
         } imEnd();
     } imEnd();

@@ -1,5 +1,5 @@
 import { imLine } from "./app-components/common";
-import { COL, imAlign, imBegin, INLINE } from "./components/core/layout";
+import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer, startScrolling } from "./components/scroll-container";
 import { addToNavigationList, APP_VIEW_FAST_TRAVEL, APP_VIEW_NOTES, GlobalContext, hasDiscoverableCommand } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
@@ -29,12 +29,12 @@ import { get } from "./utils/array-utils";
 import {
     HORIZONTAL,
     imEnd,
-    imEndFor,
     imEndIf,
     imIf,
     imIsFirstishRender,
     imMemo,
     imMemoMany,
+    imNextListRoot,
     imState,
     setStyle,
     setText
@@ -101,6 +101,13 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         ctx.currentScreen = APP_VIEW_NOTES;
     }
 
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+        if (s.noteBeforeFocus) {
+            setCurrentNote(state, s.noteBeforeFocus.id);
+        }
+        ctx.currentScreen = APP_VIEW_NOTES;
+    }
+
 
     // TODO: left/right should move up/down high level tasks
 }
@@ -140,7 +147,7 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
     const idx = s.notes.indexOf(note);
     if (useNotePosition && idx !== -1) {
         s.listPosition.idx = idx;
-    } else {
+    } else if (s.notes.length > 0) {
         s.listPosition.idx = 0;
         noteId = s.notes[0].id;
     }
@@ -160,6 +167,13 @@ export function imNoteTraversal(
 
     if (viewHasFocus) handleKeyboardInput(ctx, s);
 
+    const viewHasFocusChanged = imMemo(viewHasFocus);
+    if (viewHasFocusChanged) {
+        if (viewHasFocus) {
+            s.noteBeforeFocus = getCurrentNote(state);
+        }
+    }
+
     if (imMemo(state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
 
     if (imMemoMany(s.listPosition.idx, s.viewRoot)) startScrolling(s.scrollContainer, true);
@@ -178,8 +192,10 @@ export function imNoteTraversal(
 
     imLine(HORIZONTAL, 1);
 
-    const list = imBeginNavList(s.scrollContainer, s.listPosition, viewHasFocus); {
+    let renderedAny = false;
+    const list = imBeginNavList(s.scrollContainer, s.listPosition.idx, viewHasFocus); {
         while (imNavListNextArray(list, s.notes)) {
+            renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
 
@@ -197,6 +213,14 @@ export function imNoteTraversal(
                 } imEnd();
             } imEndNavListRow(list);
         }
+
+        imNextListRoot("empty");
+        if (imIf() && !renderedAny) {
+            imBegin(ROW); imFlex(); imAlign(); imJustify(); {
+                setText("This level has been cleared!");
+            } imEnd();
+        } imEndIf();
     } imEndNavList(list);
+
 }
 

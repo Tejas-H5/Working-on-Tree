@@ -7,6 +7,7 @@
 // - All immediate mode methods should start with 'im', like imState.
 //      - Any method that calls another method prefixed with `im` should automatically be considered an 'immediate mode method' 
 //      - Some methods don't call any `im` methods, but if they are to be used alongside other im methods, you should call them imBlah anyway. E.g imListNext.
+//      TODO: a convention like imXBegin() and imXEnd() would be way nicer, and allows better autocomplete and easier naming.
 // - All immediate mode methods that open up a 'scope' must be prefixed with `imBegin`, and be closed by a corresponding `imEnd` method
 //      The only exceptions are: 
 //          - The control-flow helpers: `imIf`, `imElseIf`, `imElse`, `imSwitch`, `imTry`, `imCatch`, `imFor`, `imWhile`.
@@ -1072,11 +1073,10 @@ export type ValidKey = string | number | Function | object;
  *  - Your components are not simply a function of state. You have untangible state that isn't stored anywere like text area focus/selection states, 
  *      so re-ordering your data and rendering it without keying it leads to bugs in your app
  *  - You just like using the key, actually
+ *  - You have a key that you can use
  * 
  * When you probably don't need a key:
- *  - You want to keep the code simple
  *  - Your components are so simple and purely a function of state such that setting a bunch of attributes/styles/innerText is faster than moving DOM nodes around, and won't introduce bugs
- *  - Your components will never change order
  *
  * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
  */

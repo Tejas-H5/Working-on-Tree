@@ -28,6 +28,7 @@ import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area"
 import {
     addToNavigationList,
     APP_VIEW_ACTIVITIES,
+    APP_VIEW_NOTES,
     BYPASS_TEXT_AREA,
     getAxisRaw,
     GlobalContext,
@@ -432,15 +433,12 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 s.isEditing = editNext;
             }
         } else {
-            if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) {
-                // xddd
-                ctx.handled = true;
-            }
+            if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) { /* xddd */ }
         }
     }
 
     if (s.currentFocus === FOCUS_DATE_SELECTOR) {
-        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day")) {
+        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day", REPEAT)) {
             moveToPrevDay(s);
             const [lo, hi] = getActivityRange(s);
             activitiesViewSetIdx(s, lo, false);
@@ -448,7 +446,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
         if (
             !isSameDate(s.now, s.currentViewingDate) && 
-            hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day")
+            hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day", REPEAT)
         ) {
             moveToNextDay(s);
         }
@@ -483,6 +481,13 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         ) {
             s.isEditing = EDITING_NOTHING;
             ctx.handled = true;
+        }
+    } else {
+        if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+            if (s.noteBeforeFocus) {
+                setCurrentNote(state, s.noteBeforeFocus.id);
+            }
+            ctx.currentScreen = APP_VIEW_NOTES;
         }
     }
 }
@@ -617,7 +622,7 @@ export function imActivitiesList(
 
         const list = imBeginNavList(
             s.scrollContainer,
-            s.activityListPositon,
+            s.activityListPositon.idx,
             viewHasFocus && currentFocus === FOCUS_ACTIVITIES_LIST,
             !!s.isEditing
         ); {

@@ -1,14 +1,11 @@
 import {
-    imBeginScrollContainer,
     newScrollContainer,
     ScrollContainer,
-    scrollToItem,
     startScrolling
 } from "src/components/scroll-container";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 import { imLine } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
-import { imTimerRepeat } from "./app-utils/timer";
 import {
     CH,
     COL,
@@ -32,20 +29,17 @@ import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./
 import {
     addToNavigationList,
     APP_VIEW_ACTIVITIES,
-    APP_VIEW_NOTES,
     APP_VIEW_FAST_TRAVEL,
+    APP_VIEW_NOTES,
     BYPASS_TEXT_AREA,
     CTRL,
     GlobalContext,
     hasDiscoverableCommand,
     REPEAT,
-    SHIFT,
-    APP_VIEW_FUZZY_FIND
+    SHIFT
 } from "./global-context";
 import {
-    imBeginListRow,
-    imEndListRow,
-    imListRowCellStyle,
+    imListRowCellStyle
 } from "./list-row";
 import { clampedListIdx, getNavigableListInput, imBeginNavList, imBeginNavListRow, imEndNavList, imEndNavListRow, imNavListNextArray, ListPosition, NavigableListState, newListPosition } from "./navigable-list";
 import {
@@ -61,6 +55,7 @@ import {
     isNoteCollapsed,
     isNoteEmpty,
     noteStatusToString,
+    NoteTreeGlobalState,
     recomputeFlatNotes,
     recomputeNoteParents,
     recomputeNoteStatusRecursively,
@@ -69,11 +64,11 @@ import {
     setNoteText,
     state,
     STATUS_IN_PROGRESS,
-    TreeNote,
-    NoteTreeGlobalState
+    TreeNote
 } from "./state";
 import { boundsCheck, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
+import { formatDateTime } from "./utils/datetime";
 import {
     HORIZONTAL,
     imBeginSpan,
@@ -83,17 +78,15 @@ import {
     imEndIf,
     imFor,
     imIf,
+    imIsFirstishRender,
     imMemo,
     imNextListRoot,
     imOn,
-    imIsFirstishRender,
     setClass,
     setStyle,
-    setText,
-    getCurrentRoot
+    setText
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
-import { formatDateTime, formatDurationAsHours } from "./utils/datetime";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -283,7 +276,7 @@ export function imNoteTreeView(
             !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
         );
 
-        const list = imBeginNavList(s.scrollContainer, s.listPos, viewFocused, state._isEditingFocusedNote); {
+        const list = imBeginNavList(s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
             while (imNavListNextArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const row = s.childNotes[i];
@@ -363,18 +356,11 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     if (state._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
             setIsEditingCurrentNote(state, false);
-            ctx.handled = true;
         }
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.tKey, "Fast-travel")) {
         ctx.currentScreen = APP_VIEW_FAST_TRAVEL;
-        ctx.handled = true;
-    }
-
-    if (hasDiscoverableCommand(ctx, keyboard.fKey, "Find")) {
-        ctx.currentScreen = APP_VIEW_FUZZY_FIND;
-        ctx.handled = true;
     }
 
     if (!state._isEditingFocusedNote) {
