@@ -44,6 +44,7 @@ import {
     SHIFT,
     updateDiscoverableCommands,
     APP_VIEW_FUZZY_FIND,
+    APP_VIEW_URL_LIST,
 } from "./global-context";
 import { imNoteTraversal } from "./lateral-traversal";
 import { imNoteTreeView } from "./note-tree-view";
@@ -51,15 +52,18 @@ import {
     applyPendingScratchpadWrites,
     getActivityTime,
     getLastActivity,
+    getNoteOrUndefined,
     isCurrentlyTakingABreak,
     loadState,
     newBreakActivity,
     pushBreakActivity,
     recomputeState,
     saveState,
+    setCurrentNote,
     setTheme,
     state
 } from "./state";
+import { imUrlList } from "./url-list";
 import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
@@ -77,6 +81,7 @@ import {
     imFor,
     imIf,
     imIsFirstishRender,
+    imMemo,
     imMemoMany,
     imNextListRoot,
     imRef,
@@ -116,6 +121,27 @@ export const CHECK_INTERVAL_MS = 1000 * 10;
 function imMain() {
     const fpsCounter = imState(newFpsCounterState);
     const ctx = imState(newGlobalContext);
+
+    if (imMemo(ctx.currentScreen)) {
+        const currentNote = getNoteOrUndefined(state, state.currentNoteId);
+        if (currentNote) {
+            ctx.noteBeforeFocus = currentNote;
+        }
+    }
+
+    if (
+        ctx.currentScreen !== APP_VIEW_NOTES &&
+        ctx.noteBeforeFocus && 
+        hasDiscoverableCommand(
+            ctx, ctx.keyboard.escapeKey, "Back to notes",
+            ctx.currentScreen === APP_VIEW_FUZZY_FIND ? BYPASS_TEXT_AREA
+                : 0
+        )
+    ) {
+        setCurrentNote(state, ctx.noteBeforeFocus.id);
+        ctx.currentScreen = APP_VIEW_NOTES;
+    }
+
     ctx.now = new Date();
 
     const errorRef = imRef();
@@ -281,7 +307,8 @@ function imMain() {
                         if (
                             ctx.currentScreen === APP_VIEW_PLAN ||
                             ctx.currentScreen === APP_VIEW_FAST_TRAVEL ||
-                            ctx.currentScreen === APP_VIEW_FUZZY_FIND
+                            ctx.currentScreen === APP_VIEW_FUZZY_FIND ||
+                            ctx.currentScreen === APP_VIEW_URL_LIST
                         ) {
                             leftTab.val = ctx.currentScreen;
                             ctx.activityViewVisible = true;
@@ -305,6 +332,9 @@ function imMain() {
                                     case APP_VIEW_FUZZY_FIND:  
                                         imFuzzyFinder(ctx, ctx.currentScreen === APP_VIEW_FUZZY_FIND);
                                         break;
+                                    default: 
+                                        imUrlList(ctx, ctx.currentScreen === APP_VIEW_URL_LIST);
+                                        break
                                 } imEndSwitch();
                             } imEnd();
                         } imEndIf();

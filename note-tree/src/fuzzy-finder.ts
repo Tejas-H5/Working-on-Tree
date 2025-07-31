@@ -55,13 +55,10 @@ export type FuzzyFinderViewState = {
     scrollContainer: ScrollContainer;
     fuzzyFindState: FuzzyFindState;
     timeTakenMs: number;
-
-    noteBeforeFocus: TreeNote | null;
 };
 
 export function newFuzzyFinderViewState(): FuzzyFinderViewState {
     return {
-        noteBeforeFocus: null,
         fuzzyFindState: newFuzzyFindState(),
         timeTakenMs: 0,
 
@@ -99,21 +96,16 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
         ctx.currentScreen = APP_VIEW_NOTES;
     }
 
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Toggle scope", CTRL | BYPASS_TEXT_AREA)) {
-        assert(!!s.noteBeforeFocus);
-        finderState.scopedToNoteId = idIsNilOrRoot(finderState.scopedToNoteId) ? s.noteBeforeFocus.id : NIL_ID;
+    if (
+        ctx.noteBeforeFocus &&
+        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Toggle scope", CTRL | BYPASS_TEXT_AREA)
+    ) {
+        finderState.scopedToNoteId = idIsNilOrRoot(finderState.scopedToNoteId) ? ctx.noteBeforeFocus.id : NIL_ID;
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Newline", SHIFT | BYPASS_TEXT_AREA)) {
         // let the text editor handle this one.
         ctx.handled = false;
-    }
-
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
-        if (s.noteBeforeFocus) {
-            setCurrentNote(state, s.noteBeforeFocus.id);
-        }
-        ctx.currentScreen = APP_VIEW_NOTES;
     }
 }
 

@@ -116,7 +116,6 @@ export type ActivitiesViewState = {
     activities: Activity[];
 
     viewHasFocus: boolean;
-    noteBeforeFocus: TreeNote | null;
 
     currentFocus: typeof FOCUS_ACTIVITIES_LIST | typeof FOCUS_DATE_SELECTOR;
     activityListPositon: ListPosition;
@@ -481,13 +480,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         ) {
             s.isEditing = EDITING_NOTHING;
             ctx.handled = true;
-        }
-    } else {
-        if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
-            if (s.noteBeforeFocus) {
-                setCurrentNote(state, s.noteBeforeFocus.id);
-            }
-            ctx.currentScreen = APP_VIEW_NOTES;
         }
     }
 }

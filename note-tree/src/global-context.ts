@@ -1,5 +1,6 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
+import { TreeNote } from "./state";
 import { getDeltaTimeSeconds, getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
@@ -20,6 +21,8 @@ export type GlobalContext = {
     currentScreen: AppView;
 
     navigationList: AppView[];
+
+    noteBeforeFocus: TreeNote | null;
 };
 
 export type DiscoverableCommands = {
@@ -94,6 +97,8 @@ export function newGlobalContext(): GlobalContext {
 
         navigationList: [],
 
+        noteBeforeFocus: null,
+
         discoverableCommands: newDiscoverableCommands(),
     };
 }
@@ -105,13 +110,15 @@ export const APP_VIEW_ACTIVITIES  = 1 as AppViewInstance;
 export const APP_VIEW_PLAN        = 2 as AppViewInstance;
 export const APP_VIEW_FAST_TRAVEL = 3 as AppViewInstance;
 export const APP_VIEW_FUZZY_FIND  = 4 as AppViewInstance;
+export const APP_VIEW_URL_LIST    = 5 as AppViewInstance;
 
 export type AppView
     = typeof APP_VIEW_NOTES
     | typeof APP_VIEW_ACTIVITIES
     | typeof APP_VIEW_PLAN
     | typeof APP_VIEW_FAST_TRAVEL
-    | typeof APP_VIEW_FUZZY_FIND;
+    | typeof APP_VIEW_FUZZY_FIND
+    | typeof APP_VIEW_URL_LIST;
 
 export function appViewToString(view: AppView): string {
     switch(view) {
@@ -120,6 +127,7 @@ export function appViewToString(view: AppView): string {
         case APP_VIEW_PLAN:         return "Plan";
         case APP_VIEW_FAST_TRAVEL:  return "Traversal";
         case APP_VIEW_FUZZY_FIND:   return "Find";
+        case APP_VIEW_URL_LIST:     return "Url";
     }
     return "??";
 }
@@ -258,6 +266,7 @@ type KeyboardState = {
     homeKey:     KeyState;
     endKey:      KeyState;
     spaceKey:    KeyState;
+    slashKey:    KeyState;
 
     aKey: KeyState;
     sKey: KeyState;
@@ -321,6 +330,7 @@ function newKeyboardState(): KeyboardState {
         homeKey:     newKeyState("Home", "Home"),
         endKey:      newKeyState("End", "End"),
         spaceKey:    newKeyState("Space", " "),
+        slashKey:    newKeyState("/", "?", "/"),
 
         aKey: newKeyState("A", "A", "a"),
         sKey: newKeyState("S", "S", "s"),

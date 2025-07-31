@@ -43,7 +43,6 @@ import {
 
 export type NoteTraversalViewState = {
     viewRoot: TreeNote | null;
-    noteBeforeFocus: TreeNote | null;
     notes: TreeNote[];
 
     scrollContainer: ScrollContainer;
@@ -53,7 +52,6 @@ export type NoteTraversalViewState = {
 export function newNoteTraversalViewState(): NoteTraversalViewState {
     return {
         viewRoot: null,
-        noteBeforeFocus: null,
         notes: [],
 
         scrollContainer: newScrollContainer(),
@@ -100,14 +98,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
         ctx.currentScreen = APP_VIEW_NOTES;
     }
-
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
-        if (s.noteBeforeFocus) {
-            setCurrentNote(state, s.noteBeforeFocus.id);
-        }
-        ctx.currentScreen = APP_VIEW_NOTES;
-    }
-
 
     // TODO: left/right should move up/down high level tasks
 }
@@ -175,8 +165,6 @@ export function imNoteTraversal(
     }
 
     if (imMemo(state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
-
-    if (imMemoMany(s.listPosition.idx, s.viewRoot)) startScrolling(s.scrollContainer, true);
 
     imBegin(COL); imListRowCellStyle(); imAlign(); {
         if (imIsFirstishRender()) {

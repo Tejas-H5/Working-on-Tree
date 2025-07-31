@@ -31,6 +31,7 @@ import {
     APP_VIEW_ACTIVITIES,
     APP_VIEW_FAST_TRAVEL,
     APP_VIEW_NOTES,
+    APP_VIEW_URL_LIST,
     BYPASS_TEXT_AREA,
     CTRL,
     GlobalContext,
@@ -385,7 +386,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
                 activitiesViewSetIdx(ctx.activityView, idx, NOT_IN_RANGE);
                 ctx.currentScreen = APP_VIEW_ACTIVITIES;
             }
-            ctx.handled = true;
+        }
+
+        if (hasDiscoverableCommand(ctx, keyboard.slashKey, "URLs", CTRL)) {
+            ctx.currentScreen = APP_VIEW_URL_LIST;
         }
     }
 
