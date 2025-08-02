@@ -1,7 +1,7 @@
 import { imLine } from "./app-components/common";
 import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
-import { newScrollContainer, ScrollContainer, startScrolling } from "./components/scroll-container";
-import { addToNavigationList, APP_VIEW_FAST_TRAVEL, APP_VIEW_NOTES, GlobalContext, hasDiscoverableCommand } from "./global-context";
+import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -10,7 +10,7 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
-    imNavListNextArray,
+    imNavListNextItemArray,
     ListPosition,
     newListPosition
 } from "./navigable-list";
@@ -33,7 +33,6 @@ import {
     imIf,
     imIsFirstishRender,
     imMemo,
-    imMemoMany,
     imNextListRoot,
     imState,
     setStyle,
@@ -59,19 +58,11 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
     };
 }
 
-function setIdx(
-    ctx: GlobalContext,
-    s: NoteTraversalViewState,
-    idx: number
-) {
+function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, idx: number) {
     s.listPosition.idx = clampedListIdx(idx, s.notes.length);
     const note = get(s.notes, s.listPosition.idx);
     if (note) {
-        setCurrentNote(
-            state,
-            note.id,
-            s.noteBeforeFocus?.id
-        );
+        setCurrentNote(state, note.id, ctx.noteBeforeFocus?.id);
     }
 }
 
@@ -96,7 +87,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
-        ctx.currentScreen = APP_VIEW_NOTES;
+        ctx.currentView = ctx.views.noteTree;
     }
 
     // TODO: left/right should move up/down high level tasks
@@ -147,21 +138,10 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
     }
 }
 
-export function imNoteTraversal(
-    ctx: GlobalContext,
-    viewHasFocus: boolean
-) {
-    addToNavigationList(ctx, APP_VIEW_FAST_TRAVEL);
-
-    const s = imState(newNoteTraversalViewState);
-
-    if (viewHasFocus) handleKeyboardInput(ctx, s);
-
-    const viewHasFocusChanged = imMemo(viewHasFocus);
-    if (viewHasFocusChanged) {
-        if (viewHasFocus) {
-            s.noteBeforeFocus = getCurrentNote(state);
-        }
+export function imNoteTraversal(ctx: GlobalContext, s: NoteTraversalViewState) {
+    const viewHasFocus = ctx.currentView === s;
+    if (viewHasFocus) {
+        handleKeyboardInput(ctx, s);
     }
 
     if (imMemo(state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
@@ -182,7 +162,7 @@ export function imNoteTraversal(
 
     let renderedAny = false;
     const list = imBeginNavList(s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        while (imNavListNextArray(list, s.notes)) {
+        while (imNavListNextItemArray(list, s.notes)) {
             renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
@@ -199,7 +179,7 @@ export function imNoteTraversal(
                         setText(text); 
                     } imEnd();
                 } imEnd();
-            } imEndNavListRow(list);
+            } imEndNavListRow();
         }
 
         imNextListRoot("empty");

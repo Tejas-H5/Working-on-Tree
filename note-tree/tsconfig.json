@@ -18,5 +18,8 @@
     "strict": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "**/legacy-**/*.ts",
+  ]
 }

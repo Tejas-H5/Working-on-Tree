@@ -1,8 +1,8 @@
 import { cnApp } from "./app-styling";
-import { COL, imAlign, imBegin, imFlex, imInitStyles, imJustify, INLINE, ROW } from "./components/core/layout";
+import { COL, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { addToNavigationList, APP_VIEW_FAST_TRAVEL, APP_VIEW_NOTES, BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
+import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -11,26 +11,26 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
-    imNavListNextArray
+    imNavListNextItemArray
 } from "./navigable-list";
 import {
-    FuzzyFindState,
-    getCurrentNote,
-    getNote,
-    getNoteTextWithoutPriority,
+    dfsPre,
+    forEachChildNote,
+    forEachParentNote,
+    getNoteOrUndefined,
     getRootNote,
     idIsNil,
-    idIsNilOrRoot,
-    newFuzzyFindState,
-    searchAllNotesForText,
+    idIsRoot,
+    isHigherLevelTask,
+    isNoteRequestingShelf,
+    NoteTreeGlobalState,
     setCurrentNote,
     state,
     STATUS_IN_PROGRESS,
     TreeNote
 } from "./state";
-import { assert } from "./utils/assert";
 import { truncate } from "./utils/datetime";
-import { FuzzyFindRange } from "./utils/fuzzyfind";
+import { fuzzyFind, FuzzyFindRange } from "./utils/fuzzyfind";
 import {
     imElse,
     imEnd,
@@ -43,13 +43,193 @@ import {
     imMemoMany,
     imNextListRoot,
     imOn,
-    imState,
     imStateInline,
     setClass,
     setStyle,
     setText
 } from "./utils/im-dom-utils";
-import { NIL_ID } from "./utils/int-tree";
+
+
+const SCOPE_EVERTHING = 0;
+const SCOPE_CHILDREN = 1;
+const SCOPE_SHALLOW_PARENTS = 2;
+const SCOPE_COUNT = 3;
+
+type Scope 
+    = typeof SCOPE_EVERTHING
+    | typeof SCOPE_CHILDREN
+    | typeof SCOPE_SHALLOW_PARENTS;
+
+function getNextScope(scope: Scope): Scope {
+    return ((scope + 1) % SCOPE_COUNT) as Scope;
+}
+
+function scopeToString(nextScope: number) {
+    switch(nextScope) {
+        case SCOPE_EVERTHING:        return "Everything";
+        case SCOPE_CHILDREN:         return "Children";
+        case SCOPE_SHALLOW_PARENTS:  return "Parents";
+    }
+    throw new Error("Scope's name not known: " + nextScope);
+}
+
+export type FuzzyFindState = {
+    query: string;
+    matches: NoteFuzzyFindMatches[];
+    exactMatchSucceeded: boolean;
+    counts: {
+        numInProgress: number;
+        numFinished: number;
+        numShelved: number;
+    },
+    currentIdx: number;
+
+    scope: Scope;
+}
+
+export function newFuzzyFindState(): FuzzyFindState {
+    return {
+        query: "",
+        matches: [],
+        exactMatchSucceeded: false,
+        counts: {
+            numInProgress: 0,
+            numFinished: 0,
+            numShelved: 0,
+        },
+        currentIdx: 0,
+        scope: SCOPE_EVERTHING,
+    };
+}
+
+type NoteFuzzyFindMatches = {
+    note: TreeNote;
+    ranges: FuzzyFindRange[] | null;
+    score: number;
+};
+
+
+// NOTE: this thing currently populates the quicklist
+export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: TreeNote, query: string, dstMatches: NoteFuzzyFindMatches[], {
+    fuzzySearch,
+    traverseUpwards,
+}: {
+    fuzzySearch: boolean,
+    traverseUpwards: boolean;
+}): void {
+    dstMatches.length = 0;
+    if (query.length === 0) return;
+
+    const SORT_BY_SCORE = 1;
+    const SORT_BY_RECENCY = 2;
+
+    let sortMethod = SORT_BY_SCORE;
+
+    // this can chain with the other two queries
+    const isShelvedQuery = query.startsWith("||");
+    if (isShelvedQuery) {
+        query = query.substring(2).trim();
+    }
+
+    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
+    // It's too hard to find them in the todo list, so I'm trying other options.
+    const isHltQuery = query.startsWith(">>");
+    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
+
+    if (isHltQuery) {
+        query = query.substring(2).trim();
+    } else if (isInProgressQuery) {
+        query = query.substring(1).trim();
+    }
+
+    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
+        if (query.trim().length === 0) {
+            sortMethod = SORT_BY_RECENCY;
+        }
+    }
+
+    const processNote = (n: TreeNote) => {
+        if (idIsNil(n.parentId)) {
+            // ignore the root note
+            return;
+        }
+
+        let text = n.data.text.toLowerCase();
+
+        if (
+            isShelvedQuery ||
+            isHltQuery ||
+            isInProgressQuery
+        ) {
+            if (isShelvedQuery !== isNoteRequestingShelf(n.data)) {
+                return;
+            }
+
+            if (isShelvedQuery && isHltQuery) {
+                if (!isNoteRequestingShelf(n.data)) {
+                    return;
+                }
+
+                const parent = getNoteOrUndefined(state, n.parentId);
+                if (parent && parent.data._shelved) {
+                    // If `n` wants to be shelved but its parent is already shelved, 
+                    // don't include this in the list of matches
+                    return;
+                }
+            }
+
+            if (isHltQuery && !isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isInProgressQuery && isHigherLevelTask(n)) {
+                return;
+            }
+
+            if (isHltQuery || isInProgressQuery) {
+                if (n.data._status !== STATUS_IN_PROGRESS) {
+                    return;
+                }
+            }
+        }
+
+        if (sortMethod === SORT_BY_SCORE && query.trim().length > 0) {
+            let results = fuzzyFind(text, query, { allowableMistakes: fuzzySearch ? 1 : 0 });
+            if (results.ranges.length > 0) {
+                let score = 0;
+                score = results.score;
+                if (n.data._status === STATUS_IN_PROGRESS) {
+                    score *= 2;
+                }
+
+                dstMatches.push({
+                    note: n,
+                    ranges: results.ranges,
+                    score,
+                });
+            }
+        } else {
+            // score by recency by default
+            let score = n.data._activityListMostRecentIdx;
+
+            dstMatches.push({
+                note: n,
+                ranges: null,
+                score,
+            });
+        }
+    }
+
+    if (idIsRoot(rootNote.id) || !traverseUpwards) {
+        dfsPre(state, rootNote, processNote);
+    } else {
+        forEachParentNote(state, rootNote, note => forEachChildNote(state, note, processNote));
+    }
+
+    dstMatches.sort((a, b) => {
+        return b.score - a.score;
+    });
+}
 
 export type FuzzyFinderViewState = {
     scrollContainer: ScrollContainer;
@@ -76,11 +256,7 @@ function setIdx(
 
     s.fuzzyFindState.currentIdx = clampedListIdx(idx, matches.length);
     const match = matches[s.fuzzyFindState.currentIdx];
-    setCurrentNote(
-        state,
-        match.note.id,
-        s.noteBeforeFocus?.id
-    );
+    setCurrentNote(state, match.note.id, ctx.noteBeforeFocus?.id);
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
@@ -93,14 +269,15 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note", BYPASS_TEXT_AREA)) {
-        ctx.currentScreen = APP_VIEW_NOTES;
+        ctx.currentView = ctx.views.noteTree;
     }
 
+    const nextScope = getNextScope(finderState.scope);
     if (
         ctx.noteBeforeFocus &&
-        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Toggle scope", CTRL | BYPASS_TEXT_AREA)
+        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Scope search to " + scopeToString(nextScope), CTRL | BYPASS_TEXT_AREA)
     ) {
-        finderState.scopedToNoteId = idIsNilOrRoot(finderState.scopedToNoteId) ? ctx.noteBeforeFocus.id : NIL_ID;
+        finderState.scope = nextScope;
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Newline", SHIFT | BYPASS_TEXT_AREA)) {
@@ -109,21 +286,33 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
     }
 }
 
-function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
-    const rootNote = !idIsNil(finderState.scopedToNoteId) ? getNote(state, finderState.scopedToNoteId)
-        : getRootNote(state);
+function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindState) {
+    const dst = finderState.matches;
+    dst.length = 0;
 
-    const matches = finderState.matches;
+    const rootNote = finderState.scope === SCOPE_EVERTHING ? getRootNote(state)
+        : finderState.scope === SCOPE_CHILDREN ? ctx.noteBeforeFocus
+        : ctx.noteBeforeFocus;
 
-    searchAllNotesForText(state, rootNote, finderState.query, matches, false);
-    finderState.exactMatchSucceeded = matches.length > 0;
+    if (!rootNote) return;
+
+
+    searchAllNotesForText(state, rootNote, finderState.query, dst, {
+        fuzzySearch: false,
+        traverseUpwards: finderState.scope === SCOPE_SHALLOW_PARENTS,
+    });
+
+    finderState.exactMatchSucceeded = dst.length > 0;
     if (!finderState.exactMatchSucceeded) {
-        searchAllNotesForText(state, rootNote, finderState.query, matches, true);
+        searchAllNotesForText(state, rootNote, finderState.query, dst, {
+            fuzzySearch: true,
+            traverseUpwards: finderState.scope === SCOPE_SHALLOW_PARENTS,
+        });
     }
 
     const MAX_MATCHES = 100;
-    if (matches.length > MAX_MATCHES) {
-        matches.length = MAX_MATCHES;
+    if (dst.length > MAX_MATCHES) {
+        dst.length = MAX_MATCHES;
     }
 
     const counts = finderState.counts;
@@ -131,7 +320,7 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
     counts.numFinished = 0;
     counts.numInProgress = 0;
     counts.numShelved = 0;
-    for (const match of matches) {
+    for (const match of dst) {
         if (match.note.data._status === STATUS_IN_PROGRESS) {
             counts.numInProgress++;
         } else {
@@ -142,27 +331,16 @@ function recomputeFuzzyFinderMatches(finderState: FuzzyFindState) {
             counts.numShelved++;
         }
     }
-
-    if (!idIsNil(finderState.scopedToNoteId)) {
-        finderState.currentIdx = finderState.currentIdxLocal;
-    } else {
-        finderState.currentIdx = finderState.currentIdxGlobal;
-    }
 }
 
 function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState) {
-    recomputeFuzzyFinderMatches(s.fuzzyFindState);
+    recomputeFuzzyFinderMatches(ctx, s.fuzzyFindState);
     setIdx(ctx, s, s.fuzzyFindState.currentIdx);
 }
 
-export function imFuzzyFinder(
-    ctx: GlobalContext,
-    viewHasFocus: boolean
-) {
-    addToNavigationList(ctx, APP_VIEW_FAST_TRAVEL);
-
-    const s = imState(newFuzzyFinderViewState);
+export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
     const finderState = s.fuzzyFindState;
+    const viewHasFocus = ctx.currentView === s;
 
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
@@ -171,11 +349,10 @@ export function imFuzzyFinder(
 
     const viewHasFocusChanged = imMemo(viewHasFocus);
     if (viewHasFocusChanged && viewHasFocus) {
-        s.noteBeforeFocus = getCurrentNote(state);
-        finderState.scopedToNoteId = NIL_ID;
+        finderState.scope = SCOPE_EVERTHING;
     }
 
-    const queryChanged = imMemoMany(finderState.query, finderState.scopedToNoteId);
+    const queryChanged = imMemoMany(finderState.query, finderState.scope);
     let t0 = 0;
     if (queryChanged) {
         t0 = performance.now();
@@ -193,7 +370,7 @@ export function imFuzzyFinder(
                 setStyle("fontWeight", "bold");
             }
 
-            let scope = idIsNilOrRoot(finderState.scopedToNoteId) ? "Everywhere" : "Under initial note";
+            let scope = scopeToString(finderState.scope);
             setText(`Finder [${scope}]`);
         } imEnd();
 
@@ -230,8 +407,8 @@ export function imFuzzyFinder(
             viewHasFocus
         ); {
             const matches = s.fuzzyFindState.matches;
-            while (imNavListNextArray(list, matches)) {
-                const { i } = list;
+            while (imNavListNextItemArray(list, matches)) {
+                const { currentIdx: i } = list;
                 const item = matches[i];
 
                 imBeginNavListRow(list); {
@@ -315,7 +492,7 @@ export function imFuzzyFinder(
                             imBegin(INLINE); setText(truncate(item.note.data.text, 50)); imEnd();
                         } imEndIf();
                     } imEnd();
-                } imEndNavListRow(list);
+                } imEndNavListRow();
             }
         } imEndNavList(list);
 

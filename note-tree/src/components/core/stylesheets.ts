@@ -1,7 +1,7 @@
 import { newColorFromHex } from "src/utils/colour";
 import { newCssBuilder, setCssVars } from "src/utils/cssb";
 
-export const mainTheme = Object.freeze({
+export const defaultCoreTheme = Object.freeze({
     bg: newColorFromHex("#FFF"),
     bg2: newColorFromHex("#CCC"),
     mg: newColorFromHex("#888"),
@@ -12,7 +12,7 @@ export const mainTheme = Object.freeze({
     smallText: "1rem",
 });
 
-export type Theme = typeof mainTheme;
+export type Theme = typeof defaultCoreTheme;
 
 export const cssVars = Object.freeze<Record<keyof Theme, string>>({
     bg: "var(--bg)",
@@ -25,18 +25,12 @@ export const cssVars = Object.freeze<Record<keyof Theme, string>>({
     smallText: "var(--smallText)",
 });
 
-setCssVars(mainTheme);
+setCssVars(defaultCoreTheme);
 
-let currentTheme: Theme = mainTheme;
+let currentTheme: Theme = defaultCoreTheme;
 
 export function getCurrentTheme(): Readonly<Theme> {
     return currentTheme;
-}
-
-// Eventually, we may have more themes!
-export function setTheme(theme: Theme) {
-    currentTheme = theme;
-    setCssVars(currentTheme);
 }
 
 const cssb = newCssBuilder();

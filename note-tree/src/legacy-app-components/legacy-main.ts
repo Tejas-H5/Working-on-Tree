@@ -190,7 +190,8 @@ import {
     setTheme,
     shouldScrollToNotes,
     state,
-    toggleActivityScopedNote
+    toggleActivityScopedNote,
+    DONT_INTERRUPT
 } from "../state";
 import { cnApp, cssVars } from "../legacy-stylingponents/legacy-styling";
 import { assert } from "../utils/assert";
@@ -4350,7 +4351,7 @@ function autoInsertBreakIfRequired() {
         const time = !lastActivity ? lastCheckTime.getTime() :
             Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
 
-        pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false));
+        pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), false), DONT_INTERRUPT);
         rerenderApp();
         debouncedSave();
     }

@@ -92,7 +92,3 @@ export function parserParseKeyword(p: Parser, keyword: string): boolean {
 
     return true;
 }
-
-export function parserParseWord(p: Parser): string {
-
-}

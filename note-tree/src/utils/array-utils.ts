@@ -1,3 +1,5 @@
+import { getMostRecentlyWorkedOnChildActivityIdx } from "src/state";
+
 export function swap(arr: unknown[], a: number, b: number) {
     if (
         a < 0 || a >= arr.length ||
@@ -167,13 +169,19 @@ export function get<T>(arr: T[], i: number): T | undefined {
     return result;
 }
 
-export function getWrapped<T>(arr: T[], i: number): T  {
-    if (arr.length === 0) throw new Error("Array was empty");
-    if (i >= arr.length) return arr[i % arr.length];
+export function getWrappedIdx(i: number, len: number): number {
+    if (len === 0) return -1;
+    if (i >= len) return i % len;
     if (i < 0) {
         // + 1 because -1 rempaps to 0th from the back
-        const unflipped = -(i + 1) % arr.length
-        return arr[arr.length - 1 - unflipped];
+        const unflipped = -(i + 1) % len
+        return len - 1 - unflipped;
     }
-    return arr[i];
+    return i;
+}
+
+export function getWrapped<T>(arr: T[], i: number): T  {
+    const iWrapped = getWrappedIdx(i, arr.length);
+    if (iWrapped === -1) throw new Error("Array was empty");
+    return arr[iWrapped];
 }

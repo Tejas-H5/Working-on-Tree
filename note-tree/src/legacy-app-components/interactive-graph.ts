@@ -1137,13 +1137,6 @@ function makeDragRects(setupfn: (dragRect: Insertable<HTMLDivElement>) => void) 
 }
 
 
-type ContextMenuItem = {
-    text: string;
-    visible: boolean;
-    toggled: boolean;
-    onClick(): void;
-};
-
 const cnContextMenu = cssb.cn(`context-menu`, [
     ` .item:hover { background-color: ${cssVars.bgColorFocus}; cursor: pointer; }`
 ])

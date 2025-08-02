@@ -27,11 +27,6 @@ import {
 import { cn } from "./components/core/stylesheets";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import {
-    addToNavigationList,
-    APP_VIEW_ACTIVITIES,
-    APP_VIEW_FAST_TRAVEL,
-    APP_VIEW_NOTES,
-    APP_VIEW_URL_LIST,
     BYPASS_TEXT_AREA,
     CTRL,
     GlobalContext,
@@ -42,7 +37,18 @@ import {
 import {
     imListRowCellStyle
 } from "./list-row";
-import { clampedListIdx, getNavigableListInput, imBeginNavList, imBeginNavListRow, imEndNavList, imEndNavListRow, imNavListNextArray, ListPosition, NavigableListState, newListPosition } from "./navigable-list";
+import {
+    clampedListIdx,
+    getNavigableListInput,
+    imBeginNavList,
+    imBeginNavListRow,
+    imEndNavList,
+    imEndNavListRow,
+    imNavListNextItemArray,
+    ListPosition,
+    NavigableListState,
+    newListPosition
+} from "./navigable-list";
 import {
     COLLAPSED_STATUS,
     createNewNote,
@@ -115,7 +121,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         }
 
         s.note = note;
-        startScrolling(s.scrollContainer, true);
+        if (s.scrollContainer) startScrolling(s.scrollContainer, true);
         recomputeNoteParents(state, s.noteParentNotes, s.note);
         // if (state.currentNoteId !== note.id) {
             setCurrentNote(state, note.id);
@@ -124,7 +130,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         const viewRoot = getNoteViewRoot(state, note);
         if (s.viewRoot !== viewRoot) {
             s.viewRoot = viewRoot;
-            startScrolling(s.scrollContainer, false);
+            if (s.scrollContainer) startScrolling(s.scrollContainer, false);
             recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
         }
 
@@ -242,12 +248,8 @@ function moveIntoCurrent(
 }
 
 
-export function imNoteTreeView(
-    ctx: GlobalContext,
-    s: NoteTreeViewState,
-    viewFocused: boolean
-) {
-    addToNavigationList(ctx, APP_VIEW_NOTES);
+export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
+    const viewFocused = ctx.currentView === s;
 
     if (imMemo(state.currentNoteId)) {
         const note = getCurrentNote(state);
@@ -278,7 +280,7 @@ export function imNoteTreeView(
         );
 
         const list = imBeginNavList(s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
-            while (imNavListNextArray(list, s.childNotes)) {
+            while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const row = s.childNotes[i];
                 imNoteTreeRow(ctx, list, s, row, viewFocused, i, itemSelected);
@@ -299,7 +301,6 @@ export function imNoteTreeView(
         } imEnd();
     } imEnd();
 }
-
 
 const UNDER = 1;
 const AFTER = 2;
@@ -361,7 +362,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.tKey, "Fast-travel")) {
-        ctx.currentScreen = APP_VIEW_FAST_TRAVEL;
+        ctx.currentView = ctx.views.fastTravel;
     }
 
     if (!state._isEditingFocusedNote) {
@@ -383,13 +384,13 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             // TODO: just recompute this when we set the note
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
-                activitiesViewSetIdx(ctx.activityView, idx, NOT_IN_RANGE);
-                ctx.currentScreen = APP_VIEW_ACTIVITIES;
+                activitiesViewSetIdx(ctx, ctx.views.activities, idx, NOT_IN_RANGE);
+                ctx.currentView = ctx.views.activities;
             }
         }
 
         if (hasDiscoverableCommand(ctx, keyboard.slashKey, "URLs", CTRL)) {
-            ctx.currentScreen = APP_VIEW_URL_LIST;
+            ctx.currentView = ctx.views.urls;
         }
     }
 
@@ -630,7 +631,7 @@ function imNoteTreeRow(
                 } imEnd();
             } imEnd();
         } imEnd();
-    } imEndNavListRow(list);
+    } imEndNavListRow();
 
     return root;
 }

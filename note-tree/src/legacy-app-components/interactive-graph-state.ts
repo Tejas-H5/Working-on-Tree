@@ -32,7 +32,7 @@ export type GraphNodeUIArgs = {
     onMouseUp(e: MouseEvent): void;
     onContextMenu(e: MouseEvent): void;
 
-    relativeContainer: Insertable<HTMLDivElement>;
+    relativeContainer: HTMLDivElement;
     renderGraph(): void;
 
     graphArgs: GraphArgs;
@@ -51,7 +51,7 @@ export type GraphEdgeUIArgs = {
     onMouseUp(e: MouseEvent): void;
     onContextMenu(e: MouseEvent): void;
 
-    relativeContainer: Insertable<HTMLDivElement>;
+    relativeContainer: HTMLDivElement;
     renderGraph(): void;
 
     graphArgs: GraphArgs;
@@ -120,6 +120,13 @@ export type GraphState = {
     currentEdgeDragStartIsSrc?: boolean;
     currentEdgeDragEdgeId?: string;
 }
+
+type ContextMenuItem = {
+    text: string;
+    visible: boolean;
+    toggled: boolean;
+    onClick(): void;
+};
 
 export type GraphData = {
     nodes: Map<string, GraphNode>;

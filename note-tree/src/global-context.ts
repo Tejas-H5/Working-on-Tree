@@ -1,7 +1,11 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
+import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
+import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { TreeNote } from "./state";
-import { getDeltaTimeSeconds, getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
+import { newSettingsViewState, SettingsViewState } from "./settings-view";
+import { newAppSettings, TreeNote } from "./state";
+import { newUrlListViewState, UrlListViewState } from "./url-viewer";
+import { isEditingTextSomewhereInDocument, UIRoot, getImKeys } from "./utils/im-dom-utils";
 
 export type GlobalContext = {
     now: Date;
@@ -15,15 +19,30 @@ export type GlobalContext = {
 
     discoverableCommands: DiscoverableCommands;
 
-    noteTreeView: NoteTreeViewState;
-    activityView: ActivitiesViewState;
-    activityViewVisible: boolean;
-    currentScreen: AppView;
+    views: {
+        noteTree: NoteTreeViewState;
+        activities: ActivitiesViewState;
+        urls: UrlListViewState;
+        fastTravel: NoteTraversalViewState;
+        finder: FuzzyFinderViewState;
+        settings: SettingsViewState;
+    };
+    currentView: unknown;
+    leftTab: unknown;
 
-    navigationList: AppView[];
+    notLockedIn: boolean;
+
+    navListPrevious: NavigationListLink;
+    navListNext: NavigationListLink;
+    foundFocused: boolean;
 
     noteBeforeFocus: TreeNote | null;
 };
+
+type NavigationListLink = {
+    view: unknown | null;
+    name: string;
+}
 
 export type DiscoverableCommands = {
     thisFrame: DiscoverableCommand[];
@@ -40,15 +59,11 @@ export type DiscoverableCommands = {
 }
 
 export function newDiscoverableCommands(): DiscoverableCommands {
-    const newCommandArray = () => Array(16).fill(null).map((): DiscoverableCommand => {
+    const newCommandArray = () => Array(32).fill(null).map((): DiscoverableCommand => {
         return {
             key: null,
             desc: "",
-            shift: false,
-            ctrl: false,
-            alt: false,
-            bypassTextArea: false,
-            repeat: false,
+            flags: 0,
         };
     });
 
@@ -90,12 +105,21 @@ export function newGlobalContext(): GlobalContext {
         textAreaToFocus:      null,
         focusWithAllSelected: false,
 
-        noteTreeView: newNoteTreeViewState(),
-        activityView: newActivitiesViewState(),
-        activityViewVisible: true,
-        currentScreen: APP_VIEW_NOTES,
+        views: {
+            noteTree: newNoteTreeViewState(),
+            activities: newActivitiesViewState(),
+            urls: newUrlListViewState(),
+            fastTravel: newNoteTraversalViewState(),
+            finder: newFuzzyFinderViewState(),
+            settings: newSettingsViewState(),
+        },
+        notLockedIn: true,
+        currentView: null,
+        leftTab: null,
 
-        navigationList: [],
+        navListPrevious: { view: null, name: "" },
+        navListNext: { view: null, name: "" },
+        foundFocused: false,
 
         noteBeforeFocus: null,
 
@@ -103,41 +127,13 @@ export function newGlobalContext(): GlobalContext {
     };
 }
 
-type AppViewInstance = number & { __appView: void; };
-
-export const APP_VIEW_NOTES       = 0 as AppViewInstance;
-export const APP_VIEW_ACTIVITIES  = 1 as AppViewInstance;
-export const APP_VIEW_PLAN        = 2 as AppViewInstance;
-export const APP_VIEW_FAST_TRAVEL = 3 as AppViewInstance;
-export const APP_VIEW_FUZZY_FIND  = 4 as AppViewInstance;
-export const APP_VIEW_URL_LIST    = 5 as AppViewInstance;
-
-export type AppView
-    = typeof APP_VIEW_NOTES
-    | typeof APP_VIEW_ACTIVITIES
-    | typeof APP_VIEW_PLAN
-    | typeof APP_VIEW_FAST_TRAVEL
-    | typeof APP_VIEW_FUZZY_FIND
-    | typeof APP_VIEW_URL_LIST;
-
-export function appViewToString(view: AppView): string {
-    switch(view) {
-        case APP_VIEW_NOTES:        return "Notes";
-        case APP_VIEW_ACTIVITIES:   return "Activities";
-        case APP_VIEW_PLAN:         return "Plan";
-        case APP_VIEW_FAST_TRAVEL:  return "Traversal";
-        case APP_VIEW_FUZZY_FIND:   return "Find";
-        case APP_VIEW_URL_LIST:     return "Url";
-    }
-    return "??";
-}
-
 export const REPEAT = 1 << 0;
 export const CTRL   = 1 << 1;
 export const SHIFT  = 1 << 2;
 export const ALT    = 1 << 3;
-export const BYPASS_TEXT_AREA = 1 << 4;
-export const HIDDEN = 1 << 5;
+export const HIDDEN = 1 << 4;
+export const BYPASS_TEXT_AREA = 1 << 5;
+export const ANY_MODIFIERS = 1 << 6;
 
 // NOTE: always false if ctx.handled.
 // if true, will set ctx.handled = true.
@@ -168,16 +164,13 @@ function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
     if (!command.key || !command.key.pressed)  return false;
     if (!(command.flags & REPEAT) && command.key.repeat) return false;
 
-    if ((command.flags & ALT)   && !ctx.keyboard.altKey.held)   return false;
-    if ((command.flags & CTRL)  && !ctx.keyboard.ctrlKey.held)  return false;
-    if ((command.flags & SHIFT) && !ctx.keyboard.shiftKey.held) return false;
+    if (!(command.flags & ANY_MODIFIERS)) {
+        if ((command.flags & ALT) && !ctx.keyboard.altKey.held) return false;
+        if ((command.flags & CTRL) && !ctx.keyboard.ctrlKey.held) return false;
+        if ((command.flags & SHIFT) && !ctx.keyboard.shiftKey.held) return false;
+    }
 
     return true;
-}
-
-export function addToNavigationList(ctx: GlobalContext, view: AppView) {
-    if (ctx.navigationList.length > 10) return; // should ideally never happen, but it could happen in case of rendering error.
-    ctx.navigationList.push(view);
 }
 
 function pushDiscoverableCommand(
@@ -267,6 +260,7 @@ type KeyboardState = {
     endKey:      KeyState;
     spaceKey:    KeyState;
     slashKey:    KeyState;
+    commaKey:    KeyState;
 
     aKey: KeyState;
     sKey: KeyState;
@@ -331,6 +325,7 @@ function newKeyboardState(): KeyboardState {
         endKey:      newKeyState("End", "End"),
         spaceKey:    newKeyState("Space", " "),
         slashKey:    newKeyState("/", "?", "/"),
+        commaKey:    newKeyState(",", ",", "<"),
 
         aKey: newKeyState("A", "A", "a"),
         sKey: newKeyState("S", "S", "s"),
@@ -501,7 +496,6 @@ export function updateDiscoverableCommands(s: DiscoverableCommands) {
             }
         }
     }
-
 
     s.idx = 0;
 }

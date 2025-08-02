@@ -1,23 +1,21 @@
 import {
-    END,
     imBeginDiv,
     imBeginRoot,
     imEnd,
     imInit,
+    imIsFirstishRender,
     imMemo,
     imMemoMany,
     imRef,
     imState,
     isExcessEventRender,
-    imIsFirstishRender,
     newDiv,
     pushAttr,
-    setAttr,
     setClass,
     setStyle,
     setText
 } from 'src/utils/im-dom-utils.ts';
-import { cn, cssVars } from "./stylesheets.ts";
+import { cn } from "./stylesheets.ts";
 
 // It occurs to me that I can actually just make my own fully custom layout system that significantly minimizes
 // number of DOM nodes required to get things done.

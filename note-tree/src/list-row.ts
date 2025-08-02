@@ -4,6 +4,7 @@ import {
     imPadding,
     imSize,
     NOT_SET,
+    PERCENT,
     PX,
     ROW
 } from "./components/core/layout";
@@ -78,7 +79,9 @@ export function imBeginListRow(
 }
 
 export function imEndListRow() {
-    imEnd();
+    {
+        imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
+    } imEnd();
 }
 
 export function imListRowCellStyle() {

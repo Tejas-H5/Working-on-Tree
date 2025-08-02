@@ -18,8 +18,6 @@
 //      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
 
 import { assert } from "./assert";
-import { newCssBuilder } from "./cssb";
-import { remove } from "./int-tree";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -1056,7 +1054,8 @@ export function imEndTry() {
     imEndList();
 }
 
-export type ValidKey = string | number | Function | object;
+// Can be anything, I'm pretty sure.
+export type ValidKey = string | number | Function | object | unknown;
 
 /**
  * Read {@link imBeginList}'s doc first for context and examples.
@@ -1272,7 +1271,11 @@ function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): Stat
  *
  * }
  * ```
- *
+ * 
+ * NOTE: I added this API because I kept thinking of cool usecases for this.
+ * however, every time I have reached for it in practice, I have regretted it.
+ * There was often a far simpler and straightforward way to accomplish the same thing.
+ * You may find the same to be true as well.
  */
 export function imBeginContext<T>(supplier: () => T): T {
     const core = imCore;
@@ -1292,7 +1295,8 @@ export function imEndContext<T>(supplier: () => T) {
     return (core.currentContexts.pop() as StateItem<T>).v;
 }
 
-export function imGetContext<T>(supplier: () => T): T {
+
+export function imGetContextOrNull<T>(supplier: () => T): T | null {
     const core = imCore;
 
     for (let i = core.currentContexts.length - 1; i >= 0; i--) {
@@ -1302,7 +1306,17 @@ export function imGetContext<T>(supplier: () => T): T {
         }
     }
 
-    throw new Error("No context for " + supplier.name + " could be found on the context stack");
+    return null;
+}
+
+export function imGetContext<T>(supplier: () => T): T {
+    const ctx = imGetContextOrNull(supplier);
+
+    if (ctx === null) {
+        throw new Error("No context for " + supplier.name + " could be found on the context stack");
+    }
+
+    return ctx;
 }
 
 /**
@@ -2347,9 +2361,9 @@ export function imTrackSize() {
 }
 
 /**
- * This is similar to {@link imInit}, but does not create an im-state entry, which should up each render.
+ * This is similar to {@link imInit}, but does not create an im-state entry, which should speed up each render.
  * However, if components after this one throw an error in the first render, 
- * this will remain true for the next render as well. If you want real idempotency, use {@link imInit}.
+ * this flag will remain true for the next render as well. If you want real idempotency, use {@link imInit}.
  *
  * Examples for when you may want to use isFirstRender for performance:
  * - setting text just once or twice

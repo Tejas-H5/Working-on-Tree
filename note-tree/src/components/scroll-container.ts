@@ -1,4 +1,4 @@
-import { COL, imBegin, imFlex, imScrollOverflow } from "./core/layout";
+import { COL, imBegin, imFlex, imScrollOverflow, ROW } from "./core/layout";
 import {
     getDeltaTimeSeconds,
     getScrollVH,
@@ -34,8 +34,8 @@ export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
     sc.lastScrollTop = -1;
 }
 
-export function imBeginScrollContainer(sc: ScrollContainer): UIRoot<HTMLElement> {
-    const scrollParent = imBegin(COL); imFlex(); imScrollOverflow();
+export function imBeginScrollContainer(sc: ScrollContainer, orientation: typeof ROW | typeof COL = COL): UIRoot<HTMLElement> {
+    const scrollParent = imBegin(orientation); imFlex(); imScrollOverflow(orientation === COL, orientation === ROW);
     sc.root = scrollParent;
     return scrollParent;
 }

@@ -52,7 +52,7 @@ const saveFile = async (blob: Blob, suggestedName: string) => {
     }, 1000);
 };
 
-export function saveText(text: string, suggestedName: string) {
+export function downloadTextAsFile(text: string, suggestedName: string) {
     const fileBlob = new Blob([text], { type: "text/plain" });
     saveFile(fileBlob, suggestedName);
 }

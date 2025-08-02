@@ -16,14 +16,15 @@ import {
 import * as tree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
+import * as oldTree from "src/utils/tree";
+import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
+import { asNoteTreeGlobalState } from "./schema";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { fuzzyFind, FuzzyFindRange } from "./utils/fuzzyfind";
-import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 import { setCssVars } from "./utils/cssb";
-import { darkTheme, lightTheme } from "./app-styling";
+import { fuzzyFind } from "./utils/fuzzyfind";
 import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
-import { asNoteTreeGlobalState  } from "./schema";
+import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -38,9 +39,9 @@ export function setTheme(newTheme: AppTheme) {
     state.currentTheme = newTheme;
 
     if (newTheme === "Light") {
-        setCssVars(lightTheme);
+        setAppTheme(lightTheme);
     } else {
-        setCssVars(darkTheme);
+        setAppTheme(darkTheme);
     }
 };
 
@@ -58,40 +59,6 @@ export type DockableMenu = "activities" | "quicklist";
 export type AppTheme = "Light" | "Dark";
 
 export type CurrentDateScope = "any" | "week";
-
-export type FuzzyFindState = {
-    query: string;
-    matches: NoteFuzzyFindMatches[];
-    exactMatchSucceeded: boolean;
-    counts: {
-        numInProgress: number;
-        numFinished: number;
-        numShelved: number;
-    },
-    currentIdx: number;
-    currentIdxLocal: number;
-    currentIdxGlobal: number;
-    scopedToNoteId: NoteId;
-}
-
-export function newFuzzyFindState(): FuzzyFindState {
-    return {
-        query: "",
-        matches: [],
-        exactMatchSucceeded: false,
-        counts: {
-            numInProgress: 0,
-            numFinished: 0,
-            numShelved: 0,
-        },
-        currentIdx: 0,
-        currentIdxLocal: 0,
-        currentIdxGlobal: 0,
-        scopedToNoteId: tree.NIL_ID,
-    };
-}
-
-
 
 // TODO: remove dead state after rewrite
 
@@ -182,7 +149,6 @@ export type NoteTreeGlobalState = {
     _currentFlatNotesRootId: NoteId;
     // TODO: doesn't need to be a reference
     _currentFlatNotesRootHltId: NoteId;
-    _fuzzyFindState: FuzzyFindState;
 
     // App state
     _currentModal: number;
@@ -502,7 +468,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _currentDateScopeWeekDay: -1,
         _currentFlatNotesRootId: tree.NIL_ID,
         _currentFlatNotesRootHltId: tree.NIL_ID,
-        _fuzzyFindState: newFuzzyFindState(),
 
         _currentModal: 0,
 
@@ -1203,12 +1168,6 @@ export function recomputeState(state: NoteTreeGlobalState) {
         }
     }
 
-    // remove deleted notes from the quicklist
-    {
-        filterInPlace(state._fuzzyFindState.matches, (match) => {
-            return !!getNoteOrUndefined(state, match.note.id);
-        });
-    }
 
     // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
     /* {
@@ -1272,29 +1231,6 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 }
 
-export function setFuzzyFindIndex(state: FuzzyFindState, idx: number) {
-    if (idx < 0) {
-        idx = 0;
-    }
-    if (idx >= state.matches.length) {
-        idx = state.matches.length - 1;
-    }
-
-    state.currentIdx = idx;
-    if (!idIsNil(state.scopedToNoteId)) {
-        state.currentIdxLocal = state.currentIdx;
-    } else {
-        state.currentIdxGlobal = state.currentIdx;
-    }
-}
-
-export function setQuicklistIndex(state: NoteTreeGlobalState, idx: number) {
-    setFuzzyFindIndex(state._fuzzyFindState, idx);
-}
-
-export function getQuicklistIndex(state: NoteTreeGlobalState): number {
-    return state._fuzzyFindState.currentIdx;
-}
 
 export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
     return note.data._isAboveCurrentNote ||    // Current note inside this note
@@ -1624,17 +1560,20 @@ export function newBreakActivity(breakInfoText: string, time: Date, locked: bool
     return activity;
 }
 
-export function pushBreakActivity(state: NoteTreeGlobalState, breakActivtiy: Activity) {
+export const DONT_INTERRUPT = 1;
+
+export function pushBreakActivity(state: NoteTreeGlobalState, breakActivtiy: Activity, flags = 0) {
     if (breakActivtiy.nId || !breakActivtiy.breakInfo) {
         throw new Error("Invalid break activity");
     }
 
     pushActivity(state, breakActivtiy);
 
-    if (state._isEditingFocusedNote) {
-        setIsEditingCurrentNote(state, false);
+    if (!(flags & DONT_INTERRUPT)) {
+        if (state._isEditingFocusedNote) {
+            setIsEditingCurrentNote(state, false);
+        }
     }
-
 }
 
 export function isCurrentlyTakingABreak(state: NoteTreeGlobalState): boolean {
@@ -1706,6 +1645,23 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
     }
 
     return undefined;
+}
+
+
+export function forEachParentNote(state: NoteTreeGlobalState, start: TreeNote, it: (note: TreeNote) => void) {
+    let current = start;
+    while (!idIsNilOrRoot(current.id)) {
+        it(current);
+        current = getNote(state, current.parentId);
+    }
+}
+
+export function forEachChildNote(state: NoteTreeGlobalState, note: TreeNote, it: (note: TreeNote) => void) {
+    for (let i = 0; i < note.childIds.length; i++) {
+        const id = note.childIds[i];
+        const child = getNote(state, id);
+        it(child);
+    }
 }
 
 // TODO: fix this method.
@@ -2309,131 +2265,6 @@ export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
 
 export function resetState() {
     state = newNoteTreeGlobalState();
-}
-
-
-type NoteFuzzyFindMatches = {
-    note: TreeNote;
-    ranges: FuzzyFindRange[] | null;
-    score: number;
-};
-
-
-// NOTE: this thing currently populates the quicklist
-export function searchAllNotesForText(
-    state: NoteTreeGlobalState,
-    rootNote: TreeNote,
-    query: string,
-    dstMatches: NoteFuzzyFindMatches[],
-    fuzzySearch: boolean,
-): void {
-    clearArray(dstMatches);
-    if (query.length === 0) return;
-
-    const SORT_BY_SCORE = 1;
-    const SORT_BY_RECENCY = 2;
-
-    let sortMethod = SORT_BY_SCORE;
-
-    // this can chain with the other two queries
-    const isShelvedQuery = query.startsWith("||");
-    if (isShelvedQuery) {
-        query = query.substring(2).trim();
-    }
-
-    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
-    // It's too hard to find them in the todo list, so I'm trying other options.
-    const isHltQuery = query.startsWith(">>");
-    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
-
-    if (isHltQuery) {
-        query = query.substring(2).trim();
-    } else if (isInProgressQuery) {
-        query = query.substring(1).trim();
-    }
-
-    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
-        if (query.trim().length === 0) {
-            sortMethod = SORT_BY_RECENCY;
-        }
-    }
-
-    dfsPre(state, rootNote, (n) => {
-        if (idIsNil(n.parentId)) {
-            // ignore the root note
-            return;
-        }
-
-        let text = n.data.text.toLowerCase();
-
-        if (
-            isShelvedQuery ||
-            isHltQuery ||
-            isInProgressQuery
-        ) {
-            if (isShelvedQuery !== isNoteRequestingShelf(n.data)) {
-                return;
-            }
-
-            if (isShelvedQuery && isHltQuery) {
-                if (!isNoteRequestingShelf(n.data)) {
-                    return;
-                }
-
-                const parent = getNoteOrUndefined(state, n.parentId);
-                if (parent && parent.data._shelved) {
-                    // If `n` wants to be shelved but its parent is already shelved, 
-                    // don't include this in the list of matches
-                    return;
-                }
-            }
-
-            if (isHltQuery && !isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isInProgressQuery && isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isHltQuery || isInProgressQuery) {
-                if (n.data._status !== STATUS_IN_PROGRESS) {
-                    return;
-                }
-            }
-        }
-
-        if (sortMethod === SORT_BY_SCORE && query.trim().length > 0) {
-            let results = fuzzyFind(text, query, { allowableMistakes: fuzzySearch ? 1 : 0 });
-            if (results.ranges.length > 0) {
-                let score = 0;
-                score = results.score;
-                if (n.data._status === STATUS_IN_PROGRESS) {
-                    score *= 2;
-                }
-
-                dstMatches.push({
-                    note: n,
-                    ranges: results.ranges,
-                    score,
-                });
-            }
-        } else {
-            // score by recency by default
-            let score = n.data._activityListMostRecentIdx;
-
-            dstMatches.push({
-                note: n,
-                ranges: null,
-                score,
-            });
-        }
-
-    });
-
-    dstMatches.sort((a, b) => {
-        return b.score - a.score;
-    });
 }
 
 // TODO: move this to a variable inside of the App component, and just pass it to all the child components.

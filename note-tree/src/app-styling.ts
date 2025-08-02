@@ -1,5 +1,5 @@
-import { cssVars, mainTheme, setTheme, Theme } from "./components/core/stylesheets";
-import { newColor, newColorFromHex, CssColor } from "./utils/colour";
+import { cssVars, defaultCoreTheme } from "./components/core/stylesheets";
+import { newColor, newColorFromHex } from "./utils/colour";
 import { newCssBuilder, setCssVars } from "./utils/cssb";
 
 const cssb = newCssBuilder();
@@ -45,7 +45,7 @@ export const darkTheme: AppTheme = {
     bgEditing: newColorFromHex("#F00"),
     bgColor: newColorFromHex("#000"),
     bgColorFocus: newColorFromHex("#333"),
-    bgColorFocus2: newColor(1, 1, 1, 0.4),
+    bgColorFocus2: newColorFromHex("#222"),
     fgColor: newColorFromHex("#EEE"),
     unfocusTextColor: newColorFromHex("#707070"),
     focusedTreePathWidth: "4px",
@@ -55,7 +55,14 @@ export const darkTheme: AppTheme = {
 let currentAppTheme: AppTheme = lightTheme;
 
 export function setAppTheme(theme: AppTheme) {
-    setTheme(mainTheme);
+    setCssVars({
+        ...defaultCoreTheme,
+        fg: theme.fgColor,
+        fg2: theme.bgColorFocus2,
+        mg: theme.unfocusTextColor,
+        bg2: theme.bgColorFocus,
+        bg: theme.bgColor,
+    });
 
     currentAppTheme = theme;
     setCssVars(currentAppTheme);
@@ -85,8 +92,6 @@ ${normalStyle}
     bgFocus: cssb.cn("bgFocus", [` { background-color: ${cssVars.bg2}; }`]),
 
     border1Solid: cssb.cn("border1Solid", [`{ border: 1px solid ${cssVars.fg}; }`]),
-
-    translucent: cssb.cn("translucent", [` { background-color: ${cssVarsApp.translucent}; }`]),
 
     bold: cssb.cn("bold", [` { font-weight: bold; }`]),
     italic: cssb.cn("italic", [` { font-style: italic; }`]),

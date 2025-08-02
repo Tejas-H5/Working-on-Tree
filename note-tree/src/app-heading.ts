@@ -1,8 +1,4 @@
-import {
-    imPadding,
-    NOT_SET,
-    PX
-} from "./components/core/layout";
+import { imPadding, NOT_SET, PX } from "./components/core/layout";
 import { newH1 } from "./components/core/new-dom-nodes";
 import {
     imBeginRoot,
@@ -17,6 +13,13 @@ export function imBeginAppHeading() {
         if (imIsFirstishRender()) {
             setStyle("textOverflow", "ellipsis");
             setStyle("whiteSpace", "nowrap");
+            setStyle("fontSize", "28px");
         }
     } // imEnd();
+}
+
+export function imBold() {
+    if (imIsFirstishRender()) {
+        setStyle("fontWeight", "bold");
+    }
 }

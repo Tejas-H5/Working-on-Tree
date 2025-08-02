@@ -2,7 +2,7 @@ import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 import { imLine } from "./app-components/common";
 import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { addToNavigationList, APP_VIEW_NOTES, APP_VIEW_URL_LIST, GlobalContext, hasDiscoverableCommand } from "./global-context";
+import { GlobalContext, hasDiscoverableCommand } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -11,15 +11,15 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
-    imNavListNextArray,
+    imNavListNextItemArray,
     ListPosition,
     newListPosition
 } from "./navigable-list";
 import {
     dfsPre,
+    forEachChildNote,
+    forEachParentNote,
     getCurrentNote,
-    getNote,
-    idIsNilOrRoot,
     state,
     TreeNote
 } from "./state";
@@ -33,7 +33,6 @@ import {
     imIsFirstishRender,
     imMemo,
     imNextListRoot,
-    imState,
     setAttr,
     setStyle,
     setText
@@ -95,30 +94,18 @@ function recomputeUrls(s: UrlListViewState) {
     const currentNote = getCurrentNote(state);
 
     // traverse all parents, and 1 level under the parents.
-    // TODO: make this a finder scope
     let notes: TreeNote[] = []; 
-    {
-        let note = currentNote;
-        let lastNote = note;
-        while (!idIsNilOrRoot(note.parentId)) {
-            note = getNote(state, note.parentId);
-
-            notes.push(note);
-
-            // Also search children 1 level underneath parents. This is very very helpful.
-            for (let id of note.childIds) {
-                const note = getNote(state, id);
-                if (note === lastNote) {
-                    // don't collect urls from the same note twice.
-                    continue;
-                }
-
-                notes.push(note);
+    let lastNote = currentNote;
+    forEachParentNote(state, currentNote, note => {
+        notes.push(note);
+        forEachChildNote(state, note, note => {
+            if (note !== lastNote) {
+                notes.push(note)
             }
+        });
 
-            lastNote = note;
-        }
-    }
+        lastNote = note;
+    });
 
     // we want the urls to appear highest to lowest.
     for (let i = notes.length - 1; i >= 0; i--) {
@@ -135,14 +122,8 @@ function recomputeUrls(s: UrlListViewState) {
     setIdx(s, wantedIdx);
 }
 
-export function imUrlList(
-    ctx: GlobalContext,
-    viewHasFocus: boolean
-) {
-    const s = imState(newUrlListViewState);
-
-    addToNavigationList(ctx, APP_VIEW_URL_LIST);
-
+export function imUrlViewer(ctx: GlobalContext, s: UrlListViewState) {
+    const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
     }
@@ -163,7 +144,7 @@ export function imUrlList(
 
     let renderedAny = false;
     const list = imBeginNavList(s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        while (imNavListNextArray(list, s.urls)) {
+        while (imNavListNextItemArray(list, s.urls)) {
             renderedAny = true;
             const { i } = list;
             const url = s.urls[i];
@@ -178,7 +159,7 @@ export function imUrlList(
                         imBegin(INLINE); setText(url.url); imEnd();
                     } imEnd();
                 } imEnd();
-            } imEndNavListRow(list);
+            } imEndNavListRow();
         }
 
         imNextListRoot("empty");

@@ -1,9 +1,6 @@
 import {
-    imBeginScrollContainer,
     newScrollContainer,
-    ScrollContainer,
-    scrollToItem,
-    startScrolling
+    ScrollContainer
 } from "src/components/scroll-container";
 import { imLine } from "./app-components/common";
 import {
@@ -26,9 +23,6 @@ import { cn } from "./components/core/stylesheets";
 import { imSpan } from "./components/core/text";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import {
-    addToNavigationList,
-    APP_VIEW_ACTIVITIES,
-    APP_VIEW_NOTES,
     BYPASS_TEXT_AREA,
     getAxisRaw,
     GlobalContext,
@@ -49,7 +43,7 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
-    imNavListNextSlice,
+    imNavListNextItemSlice,
     ListPosition,
     newListPosition
 } from "./navigable-list";
@@ -67,8 +61,7 @@ import {
     newBreakActivity,
     pushBreakActivity,
     setCurrentNote,
-    state,
-    TreeNote
+    state
 } from "./state";
 import { imEditableTime } from "./time-input";
 import { boundsCheck, get } from "./utils/array-utils";
@@ -79,22 +72,18 @@ import {
     formatDate,
     formatDuration,
     formatTime,
-    isDayBefore,
     isSameDate
 } from "./utils/datetime";
 import {
     HORIZONTAL,
     imElse,
     imEnd,
-    imEndFor,
     imEndIf,
-    imFor,
     imIf,
+    imIsFirstishRender,
     imMemo,
-    imMemoMany,
     imNextListRoot,
     imOn,
-    imIsFirstishRender,
     setStyle,
     setText,
     VERTICAL
@@ -134,14 +123,11 @@ export type ActivitiesViewState = {
 }
 
 
-
-
 export function newActivitiesViewState(): ActivitiesViewState {
     return {
         activities: [],
 
         viewHasFocus: false,
-        noteBeforeFocus: null,
 
         currentFocus: FOCUS_ACTIVITIES_LIST,
         activityListPositon: newListPosition(),
@@ -205,7 +191,7 @@ export function activitiesViewTakeBreak(
     } else {
         // allow the next code select the last break for editing
     }
-    activitiesViewSetIdx(ctx.activityView, ctx.activityView.activities.length - 1, NOT_IN_RANGE);
+    activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
     s.isEditing = EDITING_ACTIVITY;
     state._notesMutationCounter++;
 }
@@ -242,28 +228,28 @@ function getActivityRange(s: ActivitiesViewState): [number, number] {
 export const IN_RANGE = false;
 export const NOT_IN_RANGE = true;
 
-function moveToNextDay(s: ActivitiesViewState) {
+function moveToNextDay(ctx: GlobalContext, s: ActivitiesViewState) {
     const [lo, hi] = getActivityRange(s);
 
     if (hi < s.activities.length - 1) {
         // move to the next day, if notes available
-        activitiesViewSetIdx(s, hi + 1, true);
+        activitiesViewSetIdx(ctx, s, hi + 1, true);
     } else if (!isSameDate(s.now, s.currentViewingDate)) {
         // if no more notes, move to today
         setCurrentViewingDate(s, s.now);
     }
 }
 
-function moveToPrevDay(s: ActivitiesViewState) {
+function moveToPrevDay(ctx: GlobalContext, s: ActivitiesViewState) {
     const [lo, hi] = getActivityRange(s);
 
     if (lo > 0) {
         // move to prev day
-        activitiesViewSetIdx(s, lo - 1, true);
+        activitiesViewSetIdx(ctx, s, lo - 1, true);
     }
 }
 
-export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInRange: boolean) {
+export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState, idx: number, notInRange: boolean) {
     if (s.activities.length === 0) return;
 
     const lastIdx = s.activityListPositon.idx;
@@ -291,7 +277,7 @@ export function activitiesViewSetIdx(s: ActivitiesViewState, idx: number, notInR
 
         const activity = s.activities[newIdx];
         if (activity.nId) {
-            setCurrentNote(state, activity.nId, s.noteBeforeFocus?.id);
+            setCurrentNote(state, activity.nId, ctx.noteBeforeFocus?.id);
         }
     }
 
@@ -324,7 +310,7 @@ function insertBreakBetweenCurrentAndNext(
     state._activitiesMutationCounter++;
 
     s.isEditing = EDITING_ACTIVITY;;
-    activitiesViewSetIdx(s, idx + 1, IN_RANGE);
+    activitiesViewSetIdx(ctx, s, idx + 1, IN_RANGE);
 };
 
 function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
@@ -353,7 +339,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)
         ) {
             s.currentFocus = FOCUS_DATE_SELECTOR;
-            moveToNextDay(s);
+            moveToNextDay(ctx, s);
         }
 
         if (s.isEditing === EDITING_NOTHING) {
@@ -406,7 +392,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                     }
 
                     if (foundIdx !== -1) {
-                        activitiesViewSetIdx(s, foundIdx, true);
+                        activitiesViewSetIdx(ctx, s, foundIdx, true);
                     }
                 }
             }
@@ -414,7 +400,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             // Moving up/down in the list
             const listNavigation = getNavigableListInput(ctx, s.activityListPositon.idx, lo, hi);
             if (listNavigation) {
-                activitiesViewSetIdx(s, listNavigation.newIdx, false);
+                activitiesViewSetIdx(ctx, s, listNavigation.newIdx, false);
             }
         } else if (currentActivity && isBreak(currentActivity)) {
             let command;
@@ -438,20 +424,20 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
     if (s.currentFocus === FOCUS_DATE_SELECTOR) {
         if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day", REPEAT)) {
-            moveToPrevDay(s);
+            moveToPrevDay(ctx, s);
             const [lo, hi] = getActivityRange(s);
-            activitiesViewSetIdx(s, lo, false);
+            activitiesViewSetIdx(ctx, s, lo, false);
         }
 
         if (
             !isSameDate(s.now, s.currentViewingDate) && 
             hasDiscoverableCommand(ctx, keyboard.rightKey, "Next day", REPEAT)
         ) {
-            moveToNextDay(s);
+            moveToNextDay(ctx, s);
         }
 
         if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day - end", REPEAT)) {
-            moveToPrevDay(s);
+            moveToPrevDay(ctx, s);
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
         }
 
@@ -459,7 +445,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             hasActivitiesToView(s) &&
             hasDiscoverableCommand(ctx, keyboard.downKey, "Activities", REPEAT)
         ) {
-            activitiesViewSetIdx(s, lo, true);
+            activitiesViewSetIdx(ctx, s, lo, true);
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
         }
 
@@ -503,12 +489,8 @@ function getCurrentFocus(s: ActivitiesViewState) {
     return s.currentFocus;
 }
 
-export function imActivitiesList(
-    ctx: GlobalContext,
-    s: ActivitiesViewState,
-    viewHasFocus: boolean
-) {
-    addToNavigationList(ctx, APP_VIEW_ACTIVITIES);
+export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
+    const viewHasFocus = ctx.currentView === s;
 
     s.activities = state.activities;;
 
@@ -516,11 +498,9 @@ export function imActivitiesList(
 
     const viewHasFocusChanged = imMemo(viewHasFocus);
     if (viewHasFocusChanged) {
-        if (viewHasFocus) {
-            s.noteBeforeFocus = getCurrentNote(state);
-        } else {
+        if (!viewHasFocus) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
-            activitiesViewSetIdx(s, s.activities.length - 1, NOT_IN_RANGE);
+            activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
         }
     }
 
@@ -621,7 +601,7 @@ export function imActivitiesList(
             const current = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, current);
 
-            while (imNavListNextSlice(
+            while (imNavListNextItemSlice(
                 list,
                 s.activities, s._startActivityIdx, s._endActivityIdxEx
             )) {
@@ -661,7 +641,7 @@ export function imActivitiesList(
                                         newVal = cloneDate(upperBound ?? null) || new Date();
                                         newVal.setTime(newVal.getTime() - edit.durationInput);
                                     }
-                                    
+
                                     if (newVal) {
                                         newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
                                         activity.t = newVal;
@@ -690,7 +670,7 @@ export function imActivitiesList(
                                 setStyle("padding", isBreakActivity ? "40px" : "0");
                             }
 
-                            const isEditingActivityChanged  = imMemo(isEditingActivity);
+                            const isEditingActivityChanged = imMemo(isEditingActivity);
                             if (imIf() && !isEditingActivity) {
                                 imBegin(); setText(text); imEnd();
                             } else {
@@ -722,7 +702,7 @@ export function imActivitiesList(
                             setText(text);
                         } imEnd();
                     } imEnd();
-                } imEndNavListRow(list);
+                } imEndNavListRow();
             } 
 
             imNextListRoot("footer");
