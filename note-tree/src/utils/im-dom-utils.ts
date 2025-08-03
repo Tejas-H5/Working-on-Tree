@@ -386,6 +386,10 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
             }
         },
     };
+
+    // the root is assumed to never be removed.
+    core.appRoot.childRemoveLevel = REMOVE_LEVEL_NONE;
+
     return core;
 }
 
@@ -555,12 +559,14 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
 
     hasRealChildren:    boolean; // can we add text to this element ?
     completedOneRender: boolean; // have we completed at least one render without erroring?
-    removeLevel: RemovedLevel; // how much has this UI root or it's ancestor item been removed?
+    childRemoveLevel: RemovedLevel; // an indication of an ancenstor's remove level.
+    itemRemoveLevel:  RemovedLevel; // an indication of this root's remove level
+    parentRoot: UIRoot<ValidElement> | null;
 
     // true for the first frame where this UI root is in the current code path.
     // you'll need this to correctly handle on-focus interactions.
     startedConditionallyRendering: boolean; 
-    isDebuggingThisElement: boolean; // debug flag
+    // debug: boolean; // debug flag
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
@@ -588,17 +594,21 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        removeLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+
+        childRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        itemRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        parentRoot: null,
+
         startedConditionallyRendering: false,
-        isDebuggingThisElement: false,
         completedOneRender: false,
         lastText: "",
     }
 }
 
-function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number) {
+function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number, parent: UIRoot | null) {
     resetDomAppender(r.domAppender, startDomIdx);
     r.itemsIdx = startItemIdx;
+    r.parentRoot = parent;
     pushRoot(r);
 }
 
@@ -674,6 +684,10 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
 // Recursively destroys all UI roots under this one.
 // Should only be called in one place, and never called twice on the same root.
 function __onUIRootDestroy(r: UIRoot) {
+    // don't re-traverse this bit.
+    if (r.childRemoveLevel >= REMOVE_LEVEL_DESTROY) return;
+    r.childRemoveLevel = REMOVE_LEVEL_DESTROY;
+
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
@@ -704,6 +718,10 @@ function __onUIRootDestroy(r: UIRoot) {
 // Recursively soft-destroys (aka removes) all UI roots under this one.
 // Can potentially be called again later after being un-removed.
 function __onUIRootDomRemove(r: UIRoot) {
+    // don't re-traverse this bit.
+    if (r.childRemoveLevel >= REMOVE_LEVEL_DOM) return;
+    r.childRemoveLevel = REMOVE_LEVEL_DOM;
+
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
@@ -730,8 +748,9 @@ export function __removeAllDomElementsFromUiRoot(
     removeLevel: RemovedLevel,
 ) {
     // Don't call this method twice at the same remove level
-    if (r.removeLevel >= removeLevel) return;
-    r.removeLevel = removeLevel;
+    if (r.itemRemoveLevel >= removeLevel) return;
+    r.itemRemoveLevel = removeLevel;
+    r.parentRoot = null;
 
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
@@ -879,23 +898,27 @@ function getNextItemSlot(r: UIRoot, core: ImCore): number {
     // Don't access immediate mode state when immediate mode is disabled
     assert(core.imDisabled === false);
 
+    
     if (r.itemsIdx === -1) { 
-        // only on the first render
-
-        if (r.removeLevel !== REMOVE_LEVEL_NONE) {
-            // Should only be set when we actually start putting things under this root. 
-            // Otherwise, it will just get reverted when 0 items are rendered.
-
-            r.removeLevel = REMOVE_LEVEL_NONE;
+        // only for the first slot.
+        // Setting it now, when we are actually putting things under this root. 
+        // If we do it in __beginUiRoot, it will just get reverted when 0 items are rendered.
+        if (r.childRemoveLevel !== REMOVE_LEVEL_NONE) {
+            r.childRemoveLevel = REMOVE_LEVEL_NONE;
             r.startedConditionallyRendering = true;
+            if (r.parentRoot !== null) {
+                r.parentRoot.itemRemoveLevel = REMOVE_LEVEL_NONE;
+            }
 
-            if (r.isDebuggingThisElement === true) {
+            /** 
+            if (r.debug === true) {
                 console.log("visibility change", r.root);
                 setClass(debug1PxSolidRed, true, r);
                 setTimeout(() => {
                     setClass(debug1PxSolidRed, false, r);
                 }, 1000);
             }
+            // */
         } else {
             // NOTE: if an error occured in the previous render, then
             // subsequent things that depended on `startedConditionallyRendering` being true won't run.
@@ -1101,7 +1124,7 @@ export function imNextListRoot(key?: ValidKey) {
         }
 
         let block = l.keys.get(key);
-        if (block === undefined || block.root.removeLevel === REMOVE_LEVEL_DESTROY) {
+        if (block === undefined) {
             block = {
                 root: newUiRoot(null, l.uiRoot.domAppender),
                 rendered: false,
@@ -1167,7 +1190,7 @@ export function imNextListRoot(key?: ValidKey) {
         }
     }
 
-    __beginUiRoot(result, result.domAppender.idx, -1);
+    __beginUiRoot(result, result.domAppender.idx, -1, l.uiRoot);
 
     l.current = result;
 
@@ -1402,7 +1425,7 @@ function startRendering(root: UIRoot, itemIdx: number, domIdx: number) {
     imCore.currentStack.length = 0;
     imCore.currentContexts.length = 0;
     enableIm();
-    __beginUiRoot(root, itemIdx, domIdx);
+    __beginUiRoot(root, itemIdx, domIdx, null);
 }
 
 export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
@@ -1450,7 +1473,7 @@ export function imBeginExistingRoot<E extends ValidElement = ValidElement>(root:
     r.hasRealChildren = true;
     appendToDomRoot(r.domAppender, root.domAppender.root);
 
-    __beginUiRoot(root, -1, -1);
+    __beginUiRoot(root, -1, -1, r);
 }
 
 export function imBeginRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
