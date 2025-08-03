@@ -43,7 +43,7 @@ import {
     imMemoMany,
     imNextListRoot,
     imOn,
-    imStateInline,
+    imState,
     setClass,
     setStyle,
     setText
@@ -415,13 +415,13 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
                     imBegin(); imListRowCellStyle(); {
 
                         if (imIf() && item.ranges) {
-                            const diffState = imStateInline((): {
+                            const diffState = imState((): {
                                 text: string;
                                 ranges: FuzzyFindRange[]
                             } => ({
                                 text: "",
                                 ranges: []
-                            }));
+                            }), true);
                             if (imMemo(item)) {
                                 let text = item.note.data.text;
                                 let ranges = item.ranges;

@@ -56,22 +56,24 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
         0.5, null
     );
 
+    const currentScrollTop = scrollParent.root.scrollTop;
+
     if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
         l.isScrolling = false;
     } else {
         if (l.smoothScroll) {
-            const currentScrollTop = scrollParent.root.scrollTop;
-            if (l.lastScrollTop !== currentScrollTop) {
-                l.lastScrollTop = currentScrollTop;
-                l.lastScrollTopStableFrames = 0;
-            }
-            l.lastScrollTopStableFrames += 1;
-
             scrollParent.root.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds());
         } else {
             scrollParent.root.scrollTop = scrollTop;
         }
     }
+
+    if (l.lastScrollTop !== currentScrollTop) {
+        l.lastScrollTop = currentScrollTop;
+        l.lastScrollTopStableFrames = 0;
+    }
+    l.lastScrollTopStableFrames += 1;
+
 }
 
 function lerp(a: number, b: number, t: number): number {

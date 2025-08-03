@@ -121,7 +121,7 @@ function imMain() {
     const ctx = imState(newGlobalContext);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.settings;
+    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
 
     ctx.now = new Date();
 

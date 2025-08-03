@@ -36,7 +36,6 @@ import {
     imNextListRoot,
     imRef,
     imState,
-    imStateInline,
     imSwitch,
     newBoolean,
     newNumber,
