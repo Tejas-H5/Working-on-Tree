@@ -25,6 +25,7 @@ import { setCssVars } from "./utils/cssb";
 import { fuzzyFind } from "./utils/fuzzyfind";
 import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { newS } from "./components/core/text";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
@@ -481,7 +482,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
     return state;
 }
 
-interface LoadStateFromJSONResult {
+export type LoadStateFromJSONResult = {
     state?: NoteTreeGlobalState;
     error?: string;
     criticalError?: string;
@@ -595,14 +596,17 @@ export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: s
         state._criticalLoadingErrorWasOurFault = true;
     } else if (loaded.error) {
         logTrace("Couldn't load state - " + loaded.error);
-        state = newNoteTreeGlobalState();
+        setState(newNoteTreeGlobalState());
     } else if (loaded.state) {
-        state = loaded.state;
+        setState(loaded.state);
     }
 
     // NOTE: even the error paths should call `then`
     then?.(loaded.criticalError || loaded.error || "Unknown error occured");
+}
 
+export function setState(newState: NoteTreeGlobalState) {
+    state = newState;
 }
 
 export function getLastActivity(state: NoteTreeGlobalState): Activity | undefined {
@@ -1670,7 +1674,7 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
         return;
     }
 
-    const note = getNote(state, noteId);
+    const note = getNoteOrUndefined(state, noteId);
     if (!note || note === getRootNote(state)) {
         return false;
     }

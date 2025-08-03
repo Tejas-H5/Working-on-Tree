@@ -1,5 +1,5 @@
 import { cssVarsApp } from "./app-styling";
-import { imBegin, ROW, imFlex, ROW_REVERSE, imRelative, imSize, PX, NOT_SET, imAbsolute, EM, imBg, imOpacity, imInitClasses, CH } from "./components/core/layout";
+import { imBegin, ROW, imFlex, ROW_REVERSE, imRelative, imSize, PX, NA, imAbsolute, EM, imBg, imOpacity, imInitClasses, CH } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { imBeginTextArea, doExtraTextAreaInputHandling, imEndTextArea } from "./components/editable-text-area";
 import { GlobalContext } from "./global-context";
@@ -79,11 +79,11 @@ export function imNoteTreeRow(
 
                     // the tree visuals. It was a lot easier to do these here than in my last framework
                     {
-                        imBegin(); imRelative(); imSize(indent, PX, 0, NOT_SET); {
+                        imBegin(); imRelative(); imSize(indent, PX, 0, NA); {
                             // horizontal line xD
                             if (imIf() && hasHLine) {
                                 imBegin();
-                                imAbsolute(0, NOT_SET, 0, PX, 1, EM, 0, NOT_SET);
+                                imAbsolute(0, NA, 0, PX, 1, EM, 0, NA);
                                 const isThick = isLineInPath && pathGoesRight;
                                 imSize(
                                     bulletStart, PX,
@@ -105,8 +105,8 @@ export function imNoteTreeRow(
                                 // Vertical line part 1. xd. We need a better API
                                 imBegin();
                                 imAbsolute(
-                                    0, NOT_SET, bulletStart, PX,
-                                    0, PX, 0, isLast ? NOT_SET : PX
+                                    0, NA, bulletStart, PX,
+                                    0, PX, 0, isLast ? NA : PX
                                 );
                                 imSize(
                                     isLineInPath ? largeThicnkess : smallThicnkess, PX,
@@ -118,13 +118,13 @@ export function imNoteTreeRow(
                                 // Vertical line part 2.
                                 imBegin();
                                 imAbsolute(
-                                    0, NOT_SET, bulletStart, PX,
-                                    midpointLen, midpointUnits, 0, isLast ? NOT_SET : PX
+                                    0, NA, bulletStart, PX,
+                                    midpointLen, midpointUnits, 0, isLast ? NA : PX
                                 );
                                 const isThick = isLineInPath && !pathGoesRight;
                                 imSize(
                                     isThick ? largeThicnkess : smallThicnkess, PX,
-                                    0, NOT_SET
+                                    0, NA
                                 );
                                 imOpacity(isLast ? 0 : 1);
                                 imBg(cssVarsApp.fgColor); {
@@ -153,10 +153,10 @@ export function imNoteTreeRow(
                         imInitClasses(cn.noWrap);
                         imBegin(); setText(noteStatusToString(note.data._status)); imEnd();
                         if (imIf() && (numInProgress + numDone) > 0) {
-                            imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
+                            imBegin(); imSize(0.5, CH, 0, NA); imEnd();
                             imBeginSpan(); setText(`(${numDone}/${numInProgress + numDone})`); imEnd();
                         } imEndIf();
-                        imBegin(); imSize(0.5, CH, 0, NOT_SET); imEnd();
+                        imBegin(); imSize(0.5, CH, 0, NA); imEnd();
                     } imEnd();
 
                     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;

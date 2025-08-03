@@ -4,7 +4,7 @@ import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand,
 import { imBeginListRow, imEndListRow } from "./list-row";
 import { getWrappedIdx } from "./utils/array-utils";
 import { assert } from "./utils/assert";
-import { imBeginList, imEnd, imEndList, imMemo, imNextListRoot, imState, isEditingTextSomewhereInDocument, ValidKey } from "./utils/im-dom-utils";
+import { imBeginList, imEnd, imEndList, imNextListRoot, imState, isEditingTextSomewhereInDocument, ValidKey } from "./utils/im-dom-utils";
 
 
 // TODO: maybe there should be a keyboard module instead?
@@ -237,7 +237,7 @@ export function imEndNavListRow() {
 
 export type ViewsList = {
     idx: number;
-    imIdx: number;
+    imLength: number;
     views: {
         focusRef: unknown;
         name: string;
@@ -245,42 +245,65 @@ export type ViewsList = {
 }
 
 function newViewsList(): ViewsList {
-    return { imIdx: 0, views: [], idx: 0 };
+    return { imLength: 0, views: [], idx: 0 };
 }
 
-export function imViewsList(focusRef: unknown): ViewsList {
+export type FocusRef = { focused: unknown; };
+export function newFocusRef(): FocusRef {
+    return { focused: null };
+}
+
+export function imViewsList(focusRef: FocusRef): ViewsList {
     const s = imState(newViewsList);
-    s.imIdx = 0;
-    s.idx = -1;
-    for (let i = 0; i < s.views.length; i++) {
-        if (s.views[i].focusRef === focusRef) {
-            s.idx = i;
-            break;
+    s.idx = clampedListIdx(s.idx, s.imLength);
+    assert(s.imLength <= s.views.length);
+
+    if (s.imLength > 0) {
+        if (s.views[s.idx] !== focusRef.focused) {
+            let idx = -1;
+            for (let i = 0; i < s.views.length; i++) {
+                if (s.views[i].focusRef === focusRef.focused) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx === -1) {
+                idx = 0;
+            }
+            s.idx = idx;
+            focusRef.focused = s.views[idx].focusRef;
         }
     }
+
+    s.imLength = 0;
+
     return s;
 }
 
 export function addView(list: ViewsList, focusRef: unknown, name: string) {
-    assert(list.imIdx <= list.views.length);
-    if (list.imIdx === list.views.length) {
+    assert(list.imLength <= list.views.length);
+    if (list.imLength === list.views.length) {
         list.views.push({ focusRef: null, name: "" });
     }
 
-    list.views[list.imIdx].focusRef = focusRef;
-    list.views[list.imIdx].name = name;
-    list.imIdx++;
+    list.views[list.imLength].focusRef = focusRef;
+    list.views[list.imLength].name = name;
+    list.imLength++;
 }
 
 export function getTabInput(
     ctx: GlobalContext,
-    prevCommand: string,
-    nextCommand: string
+    prevCommand: string | null,
+    nextCommand: string | null,
 ) {
     const keyboard = ctx.keyboard;
 
-    if (hasDiscoverableCommand(ctx, keyboard.tabKey, prevCommand, REPEAT | SHIFT | BYPASS_TEXT_AREA)) return -1;
-    if (hasDiscoverableCommand(ctx, keyboard.tabKey, nextCommand, REPEAT | BYPASS_TEXT_AREA)) return 1;
+    if (prevCommand !== null) {
+        if (hasDiscoverableCommand(ctx, keyboard.tabKey, prevCommand, REPEAT | SHIFT | BYPASS_TEXT_AREA)) return -1;
+    }
+    if (nextCommand !== null) {
+        if (hasDiscoverableCommand(ctx, keyboard.tabKey, nextCommand, REPEAT | BYPASS_TEXT_AREA)) return 1;
+    }
 
     return 0;
 }

@@ -13,14 +13,12 @@ import {
     imGap,
     imInitClasses,
     imJustify,
-    imText,
     INLINE_BLOCK,
     NONE,
     PX,
     ROW
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
-import { imSpan } from "./components/core/text";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
@@ -76,6 +74,7 @@ import {
 } from "./utils/datetime";
 import {
     HORIZONTAL,
+    imBeginSpan,
     imElse,
     imEnd,
     imEndIf,
@@ -88,6 +87,7 @@ import {
     setText,
     VERTICAL
 } from "./utils/im-dom-utils";
+import { imStr } from "./components/core/text";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -536,7 +536,8 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
                     text = "Taking a break: " + last.breakInfo;
                 }
             } 
-            imText(text);
+
+            imStr(text);
 
         } imEnd();
 
@@ -574,7 +575,8 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
                         const relIdx = s.activityListPositon.idx - s._startActivityIdx;
                         text = "Activity " + (relIdx + 1) + "/" + numActivities + dateText;
                     }
-                    imSpan(text); imEnd();
+
+                    imStr(text);
                 } imEnd();
 
                 if (imIf() && dateSelectorFocused && s._canMoveToNextDay) {
@@ -708,10 +710,7 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
             imNextListRoot("footer");
             if (imIf() && !hasActivities) {
                 imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                    imSpan(
-                        s.activities.length === 0 ? "No activities yet!"
-                            : "No activities today"
-                    ); imEnd();
+                    imStr(s.activities.length === 0 ? "No activities yet!" : "No activities today");
                 } imEnd();
             } imEndIf();
         } imEndNavList(list);

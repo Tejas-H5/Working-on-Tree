@@ -408,7 +408,7 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
         ); {
             const matches = s.fuzzyFindState.matches;
             while (imNavListNextItemArray(list, matches)) {
-                const { currentIdx: i } = list;
+                const { i } = list;
                 const item = matches[i];
 
                 imBeginNavListRow(list); {

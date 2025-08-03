@@ -16,11 +16,12 @@ import {
     imGap,
     imJustify,
     imSize,
-    NOT_SET,
+    NA,
     PX,
     RIGHT,
     ROW
 } from "./components/core/layout";
+import { imStr } from "./components/core/text";
 import {
     imFpsCounterOutputCompact,
     imFpsCounterOutputVerbose,
@@ -32,15 +33,18 @@ import { imFuzzyFinder } from "./fuzzy-finder";
 import {
     BYPASS_TEXT_AREA,
     CTRL,
+    debouncedSave,
+    GlobalContext,
     handleImKeysInput,
     hasDiscoverableCommand,
+    TASK_IN_PROGRESS,
     newGlobalContext,
     preventImKeysDefault,
     SHIFT,
     updateDiscoverableCommands
 } from "./global-context";
-import { imNoteTraversal, newNoteTraversalViewState } from "./lateral-traversal";
-import { addView, AXIS_TAB, getNavigableListInput, getTabInput, imViewsList, } from "./navigable-list";
+import { imNoteTraversal } from "./lateral-traversal";
+import { addView, getTabInput, imViewsList, newFocusRef } from "./navigable-list";
 import { imNoteTreeView } from "./note-tree-view";
 import { imSettingsView } from "./settings-view";
 import {
@@ -58,14 +62,13 @@ import {
     state
 } from "./state";
 import { imUrlViewer } from "./url-viewer";
-import { getWrapped, getWrappedIdx } from "./utils/array-utils";
+import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
     elementHasMousePress,
     getDeltaTimeSeconds,
     HORIZONTAL,
-    imArray,
     imCatch,
     imElse,
     imEnd,
@@ -75,6 +78,7 @@ import {
     imEndTry,
     imFor,
     imIf,
+    imInit,
     imIsFirstishRender,
     imMemo,
     imMemoMany,
@@ -97,18 +101,10 @@ import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 
-const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;
-
-const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
-const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
 
 // TODO: expose via UI
 console.log("Note tree v" + VERSION_NUMBER);
-console.log({
-    github_page: GITHUB_PAGE,
-    if_you_encounter_bugs: GITHUB_PAGE_ISSUES
-});
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 30000 * 10;
@@ -133,6 +129,61 @@ function imMain() {
     const framesSinceError = imState(newNumber);
     const irrecoverableErrorRef = imState(newBoolean);
 
+
+    if (imInit()) {
+        // some side-effects
+
+        // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
+        // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
+        // closes the tab, which is what we want here
+        const worker = newWebWorker([CHECK_INTERVAL_MS], (checkIntervalMs: number) => {
+            let started = false;
+            setInterval(() => {
+                postMessage("is-open-check");
+
+                if (!started) {
+                    started = true;
+                    // logTrace isn't dfined inside of web workers, so using console.log instead
+                    console.log("Web worker successfuly started! This page can now auto-insert breaks if you've closed this tab for extended periods of time");
+                }
+            }, checkIntervalMs);
+        });
+        worker.onmessage = () => {
+            autoInsertBreakIfRequired();
+        };
+        worker.onerror = (e) => {
+            console.error("Webworker error: ", e);
+        }
+
+        // NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
+        function autoInsertBreakIfRequired() {
+            // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
+            // webpage opens for the first time.
+            // It may or may not need to be called more or less often, depending on what we add.
+
+            // Need to automatically add breaks if we haven't called this method in a while.
+            const time = new Date();
+            const lastCheckTime = parseDateSafe(state.breakAutoInsertLastPolledTime);
+
+            if (
+                !!lastCheckTime &&
+                (time.getTime() - lastCheckTime.getTime()) > CHECK_INTERVAL_MS * 2
+            ) {
+                // If this javascript was running, i.e the computer was open constantly, this code should never run.
+                // So, we can insert a break now, if we aren't already taking one. 
+                // This should solve the problem of me constantly forgetting to add breaks...
+                const lastActivity = getLastActivity(state);
+                const time = !lastActivity ? lastCheckTime.getTime() :
+                    Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
+
+                pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
+            }
+
+            state.breakAutoInsertLastPolledTime = getTimestamp(time);
+            debouncedSave(ctx, state);
+        }
+    }
+
     const l = imTry(); try {
         if (imIf() && !irrecoverableErrorRef.val) {
             handleImKeysInput(ctx);
@@ -141,7 +192,7 @@ function imMain() {
                 state._notesMutationCounter,
                 state._activitiesMutationCounter
             )) {
-                debouncedSave();
+                debouncedSave(ctx, state);
             }
 
             startFpsCounter(fpsCounter); {
@@ -165,8 +216,8 @@ function imMain() {
 
                     if (imIf() && ctx.notLockedIn) {
                         imBegin(ROW); imAlign(); {
-                            imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
-                            imBegin(ROW); imSize(0, NOT_SET, 50, PX); imAlign(); imJustify(); {
+                            imBegin(); imSize(10, PX, 0, NA); imEnd();
+                            imBegin(ROW); imSize(0, NA, 50, PX); imAlign(); imJustify(); {
                                 if (imIsFirstishRender()) {
                                     setStyle("cursor", "pointer");
                                 }
@@ -175,10 +226,10 @@ function imMain() {
 
                                 if (elementHasMousePress()) {
                                     setTheme(state.currentTheme === "Dark" ? "Light" : "Dark");
-                                    debouncedSave();
+                                    debouncedSave(ctx, state);
                                 }
                             } imEnd();
-                            imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
+                            imBegin(); imSize(10, PX, 0, NA); imEnd();
 
 
                             imLine(VERTICAL);
@@ -198,12 +249,12 @@ function imMain() {
 
                                 const tRef = imState(newNumber);
 
-                                if (imIf() && statusTextTimeLeft > 0) {
-                                    statusTextTimeLeft -= getDeltaTimeSeconds();
+                                if (imIf() && ctx.status.statusTextTimeLeft > 0) {
+                                    ctx.status.statusTextTimeLeft -= getDeltaTimeSeconds();
                                     tRef.val += getDeltaTimeSeconds();
 
                                     // bruh
-                                    if (imIf() && statusTextType === IN_PROGRESS) {
+                                    if (imIf() && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                         const sin01 = 0.5 * (1 + Math.sin(5 * tRef.val));
 
                                         setStyle("opacity", sin01 * 0.7 + 0.3 + "", root);
@@ -219,11 +270,11 @@ function imMain() {
                                         } imEnd();
                                     } imEndIf();
 
-                                    imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
+                                    imBegin(); imSize(10, PX, 0, NA); imEnd();
 
-                                    imBegin(); setText(statusText); imEnd();
+                                    imBegin(); setText(ctx.status.statusText); imEnd();
 
-                                    if (imIf() && statusTextType === IN_PROGRESS) {
+                                    if (imIf() && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                         imBegin(); {
                                             setText(".".repeat(Math.ceil(2 * tRef.val % 3)));
                                         } imEnd();
@@ -283,7 +334,7 @@ function imMain() {
                                     commands.altAvailable = false;
                                 } imEndFor();
 
-                                imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
+                                imBegin(); imSize(10, PX, 0, NA); imEnd();
                             } imEnd();
                         } imEnd();
                     } imEndIf();
@@ -295,11 +346,15 @@ function imMain() {
                     } else {
                         imElse();
 
-                        const navList = imArray();
-                        navList.length = 2;
 
                         imBegin(ROW); imFlex(); {
-                            const navList = imViewsList(ctx.currentView);
+                            // TODO: think about this.
+                            const focusRef = imState(newFocusRef);
+                            focusRef.focused = ctx.currentView;
+                            const navList = imViewsList(focusRef);
+                            if (focusRef.focused !== ctx.currentView) {
+                                ctx.currentView = focusRef.focused;
+                            }
 
                             imNoteTreeView(ctx, ctx.views.noteTree);
                             addView(navList, ctx.views.noteTree, "Notes");
@@ -343,13 +398,16 @@ function imMain() {
                                 } imEnd();
                             } imEndIf();
 
-                            const prev = getWrapped(navList.views, navList.idx - 1);
-                            const next = getWrapped(navList.views, navList.idx + 1);
-                            const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
-                            if (tabInput < 0) {
-                                ctx.currentView = prev.focusRef;
-                            } else if (tabInput > 0) {
-                                ctx.currentView = next.focusRef;
+                            // navigate list
+                            {
+                                const prev = getWrapped(navList.views, navList.idx - 1);
+                                const next = getWrapped(navList.views, navList.idx + 1);
+                                const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
+                                if (tabInput < 0) {
+                                    ctx.currentView = prev.focusRef;
+                                } else if (tabInput > 0) {
+                                    ctx.currentView = next.focusRef;
+                                }
                             }
                         } imEnd();
                     } imEndIf();
@@ -481,164 +539,10 @@ function imMain() {
 
 function imCommandDescription(key: string, action: string) {
     imBegin(COL); imAlign(CENTER); {
-        imBegin(); setText("[" + key + "]"); imEnd();
-        imBegin(); setText(action); imEnd();
+        imBegin(); imStr("["); imStr(key); imStr("]"); imEnd();
+        imBegin(); imStr(action); imEnd();
     } imEnd();
 }
-
-// some side-effects
-{
-    // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
-    // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
-    // closes the tab, which is what we want here
-    const worker = newWebWorker([CHECK_INTERVAL_MS], (checkIntervalMs: number) => {
-        let started = false;
-        setInterval(() => {
-            postMessage("is-open-check");
-
-            if (!started) {
-                started = true;
-                // logTrace isn't dfined inside of web workers, so using console.log instead
-                console.log("Web worker successfuly started! This page can now auto-insert breaks if you've closed this tab for extended periods of time");
-            }
-        }, checkIntervalMs);
-    });
-    worker.onmessage = () => {
-        autoInsertBreakIfRequired();
-    };
-    worker.onerror = (e) => {
-        console.error("Webworker error: ", e);
-    }
-
-    // NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
-    function autoInsertBreakIfRequired() {
-        // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
-        // webpage opens for the first time.
-        // It may or may not need to be called more or less often, depending on what we add.
-
-        // Need to automatically add breaks if we haven't called this method in a while.
-        const time = new Date();
-        const lastCheckTime = parseDateSafe(state.breakAutoInsertLastPolledTime);
-
-        if (
-            !!lastCheckTime &&
-            (time.getTime() - lastCheckTime.getTime()) > CHECK_INTERVAL_MS * 2
-        ) {
-            // If this javascript was running, i.e the computer was open constantly, this code should never run.
-            // So, we can insert a break now, if we aren't already taking one. 
-            // This should solve the problem of me constantly forgetting to add breaks...
-            const lastActivity = getLastActivity(state);
-            const time = !lastActivity ? lastCheckTime.getTime() :
-                Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
-
-            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
-        }
-
-        state.breakAutoInsertLastPolledTime = getTimestamp(time);
-        debouncedSave();
-    }
-}
-
-const IN_PROGRESS = 0;
-const DONE = 1;
-const FAILED = 2;
-
-let statusTextTimeLeft = 0;
-let statusText = "";
-let statusTextType = IN_PROGRESS;
-
-let saveTimeout = 0;
-function saveCurrentState({ debounced } = { debounced: false }) {
-    // user can switch to a different note mid-debounce, so we need to save
-    // these here before the debounce
-
-    const thisState = state;
-
-    const save = () => {
-        if (state !== thisState) {
-            logTrace("The state changed unexpectedly! let's not save...");
-            return;
-        }
-
-        // We need to apply the current scratch pad state to the current note just before we save, so that we don't lose what
-        // we were working on in the scratchpad.
-        applyPendingScratchpadWrites(thisState);
-
-
-        // save current note
-        saveState(thisState, (serialized) => {
-            // notification
-
-            // JavaScript strings are UTF-16 encoded
-            const bytes = utf8ByteLength(serialized);
-            const mb = bytesToMegabytes(bytes);
-
-            // in case the storage.estimate().then never happens, lets just show something.
-            showStatusText(`Saved (` + mb.toFixed(2) + `mb)`, DONE);
-
-            // A shame we need to do this :(
-            navigator.storage.estimate().then((data) => {
-                state.criticalSavingError = "";
-
-                const estimatedMbUsage = bytesToMegabytes(data.usage ?? 0);
-                if (estimatedMbUsage < 100) {
-                    // don't bother showing this warning if we're using way less than 100 mb. it will
-                    // cause unnecessary panic. We're more concerned about when it starts taking up 15gb and
-                    // then locking up/freezing/crashing the site.
-                    return;
-                }
-
-                showStatusText(`Saved (` + mb.toFixed(2) + `mb / ` + estimatedMbUsage.toFixed(2) + `mb)`, DONE);
-
-                const baseErrorMessage = "WARNING: Your browser is consuming SIGNIFICANTLY more disk space on this site than what should be required: " +
-                    estimatedMbUsage.toFixed(2) + "mb being used instead of an expected " + (mb * 2).toFixed(2) + "mb.";
-
-                const COMPACTION_THRESHOLD = 20;
-                const CRITICAL_ERROR_THRESHOLD = 40;
-
-                if (mb * COMPACTION_THRESHOLD < estimatedMbUsage) {
-                    console.warn(baseErrorMessage);
-                }
-
-                if (mb * CRITICAL_ERROR_THRESHOLD < estimatedMbUsage) {
-                    // This should be fixed. I guess we're keeping this code here 'just in case'.
-
-                    const criticalSavingError = baseErrorMessage + " You should start backing up your data ever day, and anticipate a crash of some sort. Also consider using this website in another browser. This bug should be reported as a github issue on " + GITHUB_PAGE
-
-                    state.criticalSavingError = criticalSavingError;
-                    console.error(criticalSavingError);
-                }
-            });
-
-        });
-    };
-
-    if (!debounced) {
-        save();
-        return;
-    }
-
-    showStatusText(`Saving`, IN_PROGRESS, SAVE_DEBOUNCE);
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-        save();
-    }, SAVE_DEBOUNCE);
-};
-
-const STATUS_TEXT_PERSIST_TIME = 1;
-function showStatusText(
-    text: string,
-    type: typeof IN_PROGRESS | typeof DONE | typeof FAILED,
-    timeout: number = STATUS_TEXT_PERSIST_TIME,
-) {
-    statusText = text;
-    statusTextType = type;
-    statusTextTimeLeft = timeout;
-}
-
-function debouncedSave() {
-    saveCurrentState({ debounced: true });
-};
 
 loadState(() => {
     console.log("State: ", state);

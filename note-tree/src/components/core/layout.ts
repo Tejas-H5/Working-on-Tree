@@ -1,7 +1,6 @@
 import {
     imBeginDiv,
     imBeginRoot,
-    imEnd,
     imInit,
     imIsFirstishRender,
     imMemo,
@@ -12,8 +11,7 @@ import {
     newDiv,
     pushAttr,
     setClass,
-    setStyle,
-    setText
+    setStyle
 } from 'src/utils/im-dom-utils.ts';
 import { cn } from "./stylesheets.ts";
 
@@ -27,14 +25,14 @@ export const EM = 20001 as SizeUnitInstance;
 export const PERCENT = 30001 as SizeUnitInstance;
 export const REM = 50001 as SizeUnitInstance;
 export const CH = 50001 as SizeUnitInstance;
-export const NOT_SET = 40001 as SizeUnitInstance;
+export const NA = 40001 as SizeUnitInstance; // Not applicable. Nahh. 
 
 export type SizeUnits = typeof PX |
     typeof EM |
     typeof PERCENT |
     typeof REM |
     typeof CH |
-    typeof NOT_SET;
+    typeof NA;
 
 function getUnits(num: SizeUnits) {
     switch(num) {
@@ -48,7 +46,7 @@ function getUnits(num: SizeUnits) {
 }
 
 function getSize(num: number, units: SizeUnits) {
-    return units === NOT_SET ? "" : num + getUnits(units);
+    return units === NA ? "" : num + getUnits(units);
 }
 
 function newSizeState(): { width: number; height: number; wType: number; hType: number; } {
@@ -89,10 +87,10 @@ function newPaddingState(): {
     bottom: number, bottomType: SizeUnits, 
 } {
     return { 
-        left: 0, leftType: NOT_SET,
-        right: 0, rightType: NOT_SET,
-        top: 0, topType: NOT_SET,
-        bottom: 0, bottomType: NOT_SET,
+        left: 0, leftType: NA,
+        right: 0, rightType: NA,
+        top: 0, topType: NA,
+        bottom: 0, bottomType: NA,
     };
 }
 
@@ -363,6 +361,3 @@ export function imDebug() {
     imInitClasses(cn.debug1pxSolidRed);
 }
 
-export function imText(text: string) {
-    imBegin(INLINE); setText(text); imEnd();
-}

@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { imBegin, imSize, NOT_SET, PERCENT, PX } from "src/components/core/layout";
+import { imBegin, imSize, NA, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
 import { HORIZONTAL, imEnd, imMemo, imIsFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
 
@@ -33,6 +33,6 @@ export function imLine(
 }
 
 export function imHLineDivider() {
-    imBegin(); imSize(0, NOT_SET, 10, PX); imEnd();
+    imBegin(); imSize(0, NA, 10, PX); imEnd();
 }
 

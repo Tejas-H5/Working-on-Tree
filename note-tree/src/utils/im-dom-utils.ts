@@ -16,9 +16,13 @@
 //              you don't need to provide your own imEndX method.
 //
 //      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
+//
+//  Some interesting things I've found out about javascript that are true when the debugger is open:
+//  - early returns appear to be slower
+//  - doing if (blah) instead of if (blah === true) or if(blah !== undefined) appears to be slower
 
 import { assert } from "./assert";
-import { newCssBuilder } from "./cssb";
+// import { newCssBuilder } from "./cssb";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -41,17 +45,17 @@ export function isEditingInput(el: HTMLElement): boolean {
  * Sets an input's value while retaining it's selection and undo history
  */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
-    if (el.value === text) {
-        // performance speedup
-        return;
+    if (
+        // performance speedup, and required to be able to select text
+        el.value !== text
+    ) {
+        const { selectionStart, selectionEnd } = el;
+
+        el.value = text;
+
+        el.selectionStart = selectionStart;
+        el.selectionEnd = selectionEnd;
     }
-
-    const { selectionStart, selectionEnd } = el;
-
-    el.value = text;
-
-    el.selectionStart = selectionStart;
-    el.selectionEnd = selectionEnd;
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
@@ -154,13 +158,15 @@ export function getElementExtentNormalized(
     scrollTo: HTMLElement,
     flags = VERTICAL | START
 ) {
-    if (flags & VERTICAL) {
+    let result;
+
+    if ((flags & VERTICAL) !== 0) {
         const scrollOffset = scrollTo.offsetTop - scrollParent.scrollTop - scrollParent.offsetTop;
 
         if (flags & END) {
-            return (scrollOffset + scrollTo.getBoundingClientRect().height) / scrollParent.offsetHeight;
+            result = (scrollOffset + scrollTo.getBoundingClientRect().height) / scrollParent.offsetHeight;
         } else {
-            return scrollOffset / scrollParent.offsetHeight;
+            result = scrollOffset / scrollParent.offsetHeight;
         }
     } else {
         // NOTE: This is just a copy-paste from above. 
@@ -168,12 +174,14 @@ export function getElementExtentNormalized(
 
         const scrollOffset = scrollTo.offsetLeft - scrollParent.scrollLeft - scrollParent.offsetLeft;
 
-        if (flags & END) {
-            return (scrollOffset + scrollTo.getBoundingClientRect().width) / scrollParent.offsetWidth;
+        if ((flags & END) !== 0) {
+            result = (scrollOffset + scrollTo.getBoundingClientRect().width) / scrollParent.offsetWidth;
         } else {
-            return scrollOffset / scrollParent.offsetWidth;
+            result = scrollOffset / scrollParent.offsetWidth;
         }
     }
+
+    return result;
 }
 
 ///////// 
@@ -351,7 +359,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
             },
             mouseup: (e: MouseEvent) => {
                 const { mouse } = core;
-                if (mouse.hasMouseEvent) {
+                if (mouse.hasMouseEvent === true) {
                     return;
                 }
                 if (e.button === 0) {
@@ -613,7 +621,7 @@ function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number, par
 }
 
 function isDerived(r: UIRoot) {
-    return r.elementSupplier === null;
+    return (r.elementSupplier === null);
 }
 
 function assertNotDerived(r: UIRoot) {
@@ -623,7 +631,7 @@ function assertNotDerived(r: UIRoot) {
 }
 
 export function setClass(val: string, enabled: boolean | number = true, r = getCurrentRoot()) {
-    if (enabled) {
+    if (enabled !== false && enabled !== 0) {
         r.root.classList.add(val);
     } else {
         r.root.classList.remove(val);
@@ -643,10 +651,10 @@ export function setText(text: string, r = getCurrentRoot()) {
 
     // While this is a performance optimization, we also kinda need to do this - 
     // otherwise, if we're constantly mutating the text, we can never select it!
-    if (r.lastText === text) return;
-    r.lastText = text;
-
-    setTextSafetyRemoved(text);
+    if (r.lastText !== text) {
+        r.lastText = text;
+        setTextSafetyRemoved(text);
+    }
 }
 
 /**
@@ -685,55 +693,57 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
 // Should only be called in one place, and never called twice on the same root.
 function __onUIRootDestroy(r: UIRoot) {
     // don't re-traverse this bit.
-    if (r.childRemoveLevel >= REMOVE_LEVEL_DESTROY) return;
-    r.childRemoveLevel = REMOVE_LEVEL_DESTROY;
+    if (r.childRemoveLevel < REMOVE_LEVEL_DESTROY) {
+        r.childRemoveLevel = REMOVE_LEVEL_DESTROY;
 
-    for (let i = 0; i < r.items.length; i++) {
-        const item = r.items[i];
-        if (item.t === ITEM_UI_ROOT) {
-            __onUIRootDestroy(item);
-        } else if (item.t === ITEM_LIST_RENDERER) {
-            const l = item;
-            for (let i = 0; i < l.builders.length; i++) {
-                __onUIRootDestroy(l.builders[i]);
-            }
-            if (l.keys !== undefined) {
-                for (const v of l.keys.values()) {
-                    __onUIRootDestroy(v.root);
+        for (let i = 0; i < r.items.length; i++) {
+            const item = r.items[i];
+            if (item.t === ITEM_UI_ROOT) {
+                __onUIRootDestroy(item);
+            } else if (item.t === ITEM_LIST_RENDERER) {
+                const l = item;
+                for (let i = 0; i < l.builders.length; i++) {
+                    __onUIRootDestroy(l.builders[i]);
+                }
+                if (l.keys !== undefined) {
+                    for (const v of l.keys.values()) {
+                        __onUIRootDestroy(v.root);
+                    }
                 }
             }
         }
-    }
 
-    for (const d of r.destructors) {
-        try {
-            d();
-        } catch (e) {
-            console.error("A destructor threw an error: ", e);
+        for (const d of r.destructors) {
+            try {
+                d();
+            } catch (e) {
+                console.error("A destructor threw an error: ", e);
+            }
         }
+        r.destructors.length = 0;
     }
-    r.destructors.length = 0;
 }
 
 // Recursively soft-destroys (aka removes) all UI roots under this one.
 // Can potentially be called again later after being un-removed.
 function __onUIRootDomRemove(r: UIRoot) {
     // don't re-traverse this bit.
-    if (r.childRemoveLevel >= REMOVE_LEVEL_DOM) return;
-    r.childRemoveLevel = REMOVE_LEVEL_DOM;
+    if (r.childRemoveLevel < REMOVE_LEVEL_DOM) {
+        r.childRemoveLevel = REMOVE_LEVEL_DOM;
 
-    for (let i = 0; i < r.items.length; i++) {
-        const item = r.items[i];
-        if (item.t === ITEM_UI_ROOT) {
-            __onUIRootDomRemove(item);
-        } else if (item.t === ITEM_LIST_RENDERER) {
-            const l = item;
-            for (let i = 0; i < l.builders.length; i++) {
-                __onUIRootDomRemove(l.builders[i]);
-            }
-            if (l.keys !== undefined) {
-                for (const v of l.keys.values()) {
-                    __onUIRootDomRemove(v.root);
+        for (let i = 0; i < r.items.length; i++) {
+            const item = r.items[i];
+            if (item.t === ITEM_UI_ROOT) {
+                __onUIRootDomRemove(item);
+            } else if (item.t === ITEM_LIST_RENDERER) {
+                const l = item;
+                for (let i = 0; i < l.builders.length; i++) {
+                    __onUIRootDomRemove(l.builders[i]);
+                }
+                if (l.keys !== undefined) {
+                    for (const v of l.keys.values()) {
+                        __onUIRootDomRemove(v.root);
+                    }
                 }
             }
         }
@@ -748,35 +758,36 @@ export function __removeAllDomElementsFromUiRoot(
     removeLevel: RemovedLevel,
 ) {
     // Don't call this method twice at the same remove level
-    if (r.itemRemoveLevel >= removeLevel) return;
-    r.itemRemoveLevel = removeLevel;
-    r.parentRoot = null;
+    if (r.itemRemoveLevel < removeLevel) {
+        r.itemRemoveLevel = removeLevel;
+        r.parentRoot = null;
 
-    for (let i = 0; i < r.items.length; i++) {
-        const item = r.items[i];
-        if (item.t === ITEM_UI_ROOT) {
-            item.domAppender.root.remove();
-            if (removeLevel === REMOVE_LEVEL_DOM) {
-                __onUIRootDomRemove(item);
-            } else if (removeLevel === REMOVE_LEVEL_DESTROY) {
-                __onUIRootDestroy(item);
-            }
-        } else if (item.t === ITEM_LIST_RENDERER) {
-            // needs to be fully recursive. because even though our UI tree is like
-            //
-            // -list
-            //   -list
-            //     -list
-            // 
-            // They're still all rendering to the same DOM root!!!
-            
-            const l = item;
-            for (let i = 0; i < l.builders.length; i++) {
-                __removeAllDomElementsFromUiRoot(l.builders[i], removeLevel);
-            }
-            if (l.keys !== undefined) {
-                for (const v of l.keys.values()) {
-                    __removeAllDomElementsFromUiRoot(v.root, removeLevel);
+        for (let i = 0; i < r.items.length; i++) {
+            const item = r.items[i];
+            if (item.t === ITEM_UI_ROOT) {
+                item.domAppender.root.remove();
+                if (removeLevel === REMOVE_LEVEL_DOM) {
+                    __onUIRootDomRemove(item);
+                } else if (removeLevel === REMOVE_LEVEL_DESTROY) {
+                    __onUIRootDestroy(item);
+                }
+            } else if (item.t === ITEM_LIST_RENDERER) {
+                // needs to be fully recursive. because even though our UI tree is like
+                //
+                // -list
+                //   -list
+                //     -list
+                // 
+                // They're still all rendering to the same DOM root!!!
+
+                const l = item;
+                for (let i = 0; i < l.builders.length; i++) {
+                    __removeAllDomElementsFromUiRoot(l.builders[i], removeLevel);
+                }
+                if (l.keys !== undefined) {
+                    for (const v of l.keys.values()) {
+                        __removeAllDomElementsFromUiRoot(v.root, removeLevel);
+                    }
                 }
             }
         }
@@ -891,8 +902,8 @@ function assertCanPushImmediateModeStateEntry(r: UIRoot) {
     assert(r.lastItemIdx === -1);
 }
 
-const cssb = newCssBuilder("im-dom-utils--debug");
-const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
+// const cssb = newCssBuilder("im-dom-utils--debug");
+// const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
 
 function getNextItemSlot(r: UIRoot, core: ImCore): number {
     // Don't access immediate mode state when immediate mode is disabled
@@ -1775,12 +1786,15 @@ function newMemoState(): { last: unknown } {
  * NOTE: also returns a non-zero value when:
  *      - we first render
  *      - we were not in the conditional-rendering code path before, but we are now
- *          (when we are not in the conditional rendering path, we have no way to know if the value
- *              is changing while we're gone, so the idea is to just return true once when we're back).
+ *        when we are not in the conditional rendering path, we have no way to know if the value
+ *        is changing while we're gone, so the idea is to just return true anyway once when we're back, assuming it probably has. 
+ *        This is because memos usually gate computation of state that need to be kept up-to-date.
  *
- *  This is because memos usually gate computations that need to be kept up to date.
  *  However, if you just want to run a side-effect when a component sees a change, you can 
  *  compare the result to {@link MEMO_CHANGED}.
+ *  ```ts
+ *  if (imMemo(val === MEMO_CHANGED)) { //side-effect }
+ *  ```
  */
 // NOTE: I had previously implemented imBeginMemo() and imEndMemo():
 // ```
@@ -1803,7 +1817,7 @@ export function imMemo(val: unknown): ImMemoResult {
     if (ref.last !== val) {
         result = ref.last === MEMO_INITIAL_VALUE ? MEMO_FIRST_RENDER : MEMO_CHANGED;
         ref.last = val;
-    } else if (r.startedConditionallyRendering) {
+    } else if (r.startedConditionallyRendering === true) {
         result = MEMO_FIRST_RENDER_CONDITIONAL;
     }
 
@@ -2333,7 +2347,7 @@ export function imPreventScrollEventPropagation() {
     }
 
     const mouse = getImMouse();
-    if (state.isBlocking && elementHasMouseHover() && mouse.scrollWheel !== 0) {
+    if (state.isBlocking === true && elementHasMouseHover() && mouse.scrollWheel !== 0) {
         state.scrollY += mouse.scrollWheel;
         mouse.scrollWheel = 0;
     } else {

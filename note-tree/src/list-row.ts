@@ -3,15 +3,14 @@ import {
     imBegin,
     imPadding,
     imSize,
-    NOT_SET,
-    PERCENT,
+    NA,
     PX,
     ROW
 } from "./components/core/layout";
 import {
     imEnd,
-    imMemo,
     imIsFirstishRender,
+    imMemo,
     setStyle
 } from "./utils/im-dom-utils";
 
@@ -63,7 +62,7 @@ export function imBeginListRow(
             setStyle("backgroundColor", getBg(status));
         }
 
-        imBegin(); imSize(10, PX, 0, NOT_SET); {
+        imBegin(); imSize(10, PX, 0, NA); {
             if (statusChanged) {
                 setStyle("backgroundColor",
                     status === ROW_FOCUSED ? cssVarsApp.fgColor 
@@ -80,7 +79,7 @@ export function imBeginListRow(
 
 export function imEndListRow() {
     {
-        imBegin(); imSize(10, PX, 0, NOT_SET); imEnd();
+        imBegin(); imSize(10, PX, 0, NA); imEnd();
     } imEnd();
 }
 
