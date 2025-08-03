@@ -18,6 +18,7 @@
 //      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
 
 import { assert } from "./assert";
+import { newCssBuilder } from "./cssb";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -554,12 +555,12 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
 
     hasRealChildren:    boolean; // can we add text to this element ?
     completedOneRender: boolean; // have we completed at least one render without erroring?
-    childRemoveLevel:   RemovedLevel; // how much have the children been removed?
-    itemRemoveLevel:    RemovedLevel; // how much has this item been removed?
+    removeLevel: RemovedLevel; // how much has this UI root or it's ancestor item been removed?
 
     // true for the first frame where this UI root is in the current code path.
     // you'll need this to correctly handle on-focus interactions.
     startedConditionallyRendering: boolean; 
+    isDebuggingThisElement: boolean; // debug flag
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
@@ -587,9 +588,9 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         itemsIdx: -1,
         lastItemIdx: -1,
         hasRealChildren: false,
-        childRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
-        itemRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        removeLevel: REMOVE_LEVEL_NOT_INITIALIZED,
         startedConditionallyRendering: false,
+        isDebuggingThisElement: false,
         completedOneRender: false,
         lastText: "",
     }
@@ -599,25 +600,6 @@ function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number) {
     resetDomAppender(r.domAppender, startDomIdx);
     r.itemsIdx = startItemIdx;
     pushRoot(r);
-
-
-    if (r.itemRemoveLevel !== REMOVE_LEVEL_NONE)  {
-        // Roots get detatched via internal methods, but re-attached via the immedate mode API. 
-        // So no such corresponding call to this kind of a method in the other banch
-        r.itemRemoveLevel = REMOVE_LEVEL_NONE;
-        r.startedConditionallyRendering = true;
-
-        /**
-        console.log("visibility change", r.root);
-        setClass(debugClass, true, r);
-        setTimeout(() => {
-            setClass(debugClass, false, r);
-        }, 1000);
-        // */
-        //
-    } else {
-        r.startedConditionallyRendering = false;
-    }
 }
 
 function isDerived(r: UIRoot) {
@@ -647,7 +629,6 @@ export function setClass(val: string, enabled: boolean | number = true, r = getC
 export function setText(text: string, r = getCurrentRoot()) {
     // don't overwrite the real children!
     assert(r.hasRealChildren === false);
-
     assertNotDerived(r);
 
     // While this is a performance optimization, we also kinda need to do this - 
@@ -655,6 +636,13 @@ export function setText(text: string, r = getCurrentRoot()) {
     if (r.lastText === text) return;
     r.lastText = text;
 
+    setTextSafetyRemoved(text);
+}
+
+/**
+ * Use this if you are already memoizing the text somehow on your end
+ */
+export function setTextSafetyRemoved(text: string, r = getCurrentRoot()) {
     if (r.root.childNodes.length === 0) {
         r.root.appendChild(document.createTextNode(text));
     } else {
@@ -716,14 +704,6 @@ function __onUIRootDestroy(r: UIRoot) {
 // Recursively soft-destroys (aka removes) all UI roots under this one.
 // Can potentially be called again later after being un-removed.
 function __onUIRootDomRemove(r: UIRoot) {
-    // These items should no longer be accessible via the UI tree
-    assert(r.itemRemoveLevel < REMOVE_LEVEL_DESTROY); 
-    if (r.itemRemoveLevel === REMOVE_LEVEL_DOM) {
-        // already detached, so we don't need to go back over this.
-        return;
-    }
-    r.itemRemoveLevel = REMOVE_LEVEL_DOM;
-
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
         if (item.t === ITEM_UI_ROOT) {
@@ -750,9 +730,8 @@ export function __removeAllDomElementsFromUiRoot(
     removeLevel: RemovedLevel,
 ) {
     // Don't call this method twice at the same remove level
-    if (r.childRemoveLevel >= removeLevel) return;
-    r.childRemoveLevel = removeLevel;
-    r.itemRemoveLevel = removeLevel;
+    if (r.removeLevel >= removeLevel) return;
+    r.removeLevel = removeLevel;
 
     for (let i = 0; i < r.items.length; i++) {
         const item = r.items[i];
@@ -857,14 +836,13 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
 export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DOM): ListRenderer {
     const core = imCore;
 
-    // Don't access immediate mode state when immediate mode is disabled
-    assert(core.imDisabled === false);
+    const r = getCurrentRoot();
 
-    const r = getCurrentRootForRendering();
+    const items = r.items;
+
+    const idx = getNextItemSlot(r, core);
 
     let result: ListRenderer | undefined; 
-    const items = r.items;
-    const idx = ++r.itemsIdx;
     if (idx < items.length) {
         const val = items[idx];
 
@@ -894,12 +872,39 @@ function assertCanPushImmediateModeStateEntry(r: UIRoot) {
     assert(r.lastItemIdx === -1);
 }
 
-function getCurrentRootForRendering() {
-    const r = getCurrentRoot();
-    // Should only be set when we actually start putting things under this root. Otherwise, it will just get reverted when 0 thigns are rendered.
-    r.childRemoveLevel = REMOVE_LEVEL_NONE;
+const cssb = newCssBuilder("im-dom-utils--debug");
+const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
 
-    return r;
+function getNextItemSlot(r: UIRoot, core: ImCore): number {
+    // Don't access immediate mode state when immediate mode is disabled
+    assert(core.imDisabled === false);
+
+    if (r.itemsIdx === -1) { 
+        // only on the first render
+
+        if (r.removeLevel !== REMOVE_LEVEL_NONE) {
+            // Should only be set when we actually start putting things under this root. 
+            // Otherwise, it will just get reverted when 0 items are rendered.
+
+            r.removeLevel = REMOVE_LEVEL_NONE;
+            r.startedConditionallyRendering = true;
+
+            if (r.isDebuggingThisElement === true) {
+                console.log("visibility change", r.root);
+                setClass(debug1PxSolidRed, true, r);
+                setTimeout(() => {
+                    setClass(debug1PxSolidRed, false, r);
+                }, 1000);
+            }
+        } else {
+            // NOTE: if an error occured in the previous render, then
+            // subsequent things that depended on `startedConditionallyRendering` being true won't run.
+            // I think this is better than re-running all the things that ran successfully over and over again.
+            r.startedConditionallyRendering = false;
+        }
+    }
+
+    return ++r.itemsIdx;
 }
 
 /**
@@ -1096,7 +1101,7 @@ export function imNextListRoot(key?: ValidKey) {
         }
 
         let block = l.keys.get(key);
-        if (block === undefined || block.root.childRemoveLevel === REMOVE_LEVEL_DESTROY) {
+        if (block === undefined || block.root.removeLevel === REMOVE_LEVEL_DESTROY) {
             block = {
                 root: newUiRoot(null, l.uiRoot.domAppender),
                 rendered: false,
@@ -1179,16 +1184,14 @@ export type DeferredAction = (() => void) | undefined;
 function imStateInternal<T>(supplier: () => T, skipSupplierCheck: boolean): StateItem<T> {
     const core = imCore;
 
-    // Don't access immediate mode state when immediate mode is disabled
-    assert(core.imDisabled === false);
+    const r = getCurrentRoot();
 
-    const r = getCurrentRootForRendering();
+    const items = r.items;
+    const idx = getNextItemSlot(r, core);
 
     let result: StateItem<T>;
-    const items = r.items;
-    const idx = ++r.itemsIdx;
     if (idx < items.length) {
-        const box = items[idx];
+        const box = r.items[idx];
         assert(box.t === ITEM_STATE);
 
         // imState recieved a different supplier this render. If you're passing an inline lambda to this method, then use imStateInline to skip this check.
@@ -1405,14 +1408,13 @@ function startRendering(root: UIRoot, itemIdx: number, domIdx: number) {
 export function imUnappendedRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
     const core = imCore;
 
-    // Don't access immediate mode state when immediate mode is disabled
-    assert(core.imDisabled === false);
+    const r = getCurrentRoot();
 
-    const r = getCurrentRootForRendering();
+    const items = r.items;
+
+    const idx = getNextItemSlot(r, core);
 
     let result: UIRoot<E> | undefined;
-    const items = r.items;
-    const idx = ++r.itemsIdx;
     if (idx < items.length) {
         result = items[idx] as UIRoot<E>;
 
@@ -1691,7 +1693,7 @@ export function setRef<T>(ref: Ref<T>, val: T): T {
 }
 
 // These are mainly for quick prototyping or simple logic.
-// You're better off using real objects if that simplifies the code.
+// You're better off using your own objects in 99% of scenarios.
 
 function newArray() {
     return [];
@@ -1787,18 +1789,18 @@ export function imMemo(val: unknown): ImMemoResult {
 
 export const MEMO_NOT_CHANGED  = 0;
 /** returned by {@link imMemo} if the value changed */
-export const MEMO_CHANGED      = 1 << 1; 
+export const MEMO_CHANGED      = 1; 
 /** 
  * returned by {@link imMemo} if this is simply the first render. 
  * Most of the time the distinction is not important, but sometimes,
  * you want to happen on a change but NOT the initial renderer.
  */
-export const MEMO_FIRST_RENDER = 1 << 2;
+export const MEMO_FIRST_RENDER = 2;
 /** 
  * returned by {@link imMemo} if this is is caused by the component
  * re-entering the conditional rendering codepath.
  */
-export const MEMO_FIRST_RENDER_CONDITIONAL = 1 << 3;
+export const MEMO_FIRST_RENDER_CONDITIONAL = 3;
 
 export type ImMemoResult
     = typeof MEMO_NOT_CHANGED
@@ -1949,7 +1951,7 @@ export function setStyle<K extends (keyof ValidElement["style"])>(key: K, value:
 
     // NOTE: memoization should be done on your end, not mine
 
-    // @ts-expect-error it sure can
+    // @ts-expect-error it sure is
     r.root.style[key] = value;
 }
 
