@@ -21,7 +21,7 @@
 //  - early returns appear to be slower
 //  - doing if (blah) instead of if (blah === true) or if(blah !== undefined) appears to be slower
 
-// import { newCssBuilder } from "./cssb";
+import { newCssBuilder } from "./cssb";
 
 ///////
 // Various seemingly random/arbitrary functions that actually end up being very useful
@@ -248,14 +248,12 @@ const ITEM_STATE = 3;
 // the dom-appender code hasn't been updated to 'ignore' or 'step over'
 // things that we have REMOVE_LEVEL_NONE removed, so that stuff ends up being pushed to the bottom of the DOM - not ideal.
 // I recon we should see if there is an easy way to make it work.
-export const REMOVE_LEVEL_NOT_INITIALIZED = 0;
 export const REMOVE_LEVEL_NONE = 1;
 export const REMOVE_LEVEL_DOM = 2;
 export const REMOVE_LEVEL_DESTROY = 3;
 
 export type RemovedLevel 
-    = typeof REMOVE_LEVEL_NOT_INITIALIZED
-    | typeof REMOVE_LEVEL_NONE
+    = typeof REMOVE_LEVEL_NONE
     | typeof REMOVE_LEVEL_DOM   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
     | typeof REMOVE_LEVEL_DESTROY;
 
@@ -395,7 +393,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
     };
 
     // the root is assumed to never be removed.
-    core.appRoot.childRemoveLevel = REMOVE_LEVEL_NONE;
+    core.appRoot.removeLevel = REMOVE_LEVEL_NONE;
 
     return core;
 }
@@ -562,15 +560,15 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
 
     hasRealChildren:    boolean; // can we add text to this element ?
     completedOneRender: boolean; // have we completed at least one render without erroring?
-    childRemoveLevel: RemovedLevel; // an indication of an ancenstor's remove level.
-    itemRemoveLevel:  RemovedLevel; // an indication of this root's remove level
     parentRoot: UIRoot<ValidElement> | null;
     parentListRenderer: ListRenderer | null;
 
+    removeLevel: RemovedLevel; // an indication of an ancenstor's remove level.
+    isInConditionalPathway: boolean;
     // true for the first frame where this UI root is in the current code path.
     // you'll need this to correctly handle on-focus interactions.
     startedConditionallyRendering: boolean; 
-    // debug: boolean; // debug flag
+    debug: boolean; // debug flag
 
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
@@ -599,14 +597,16 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         lastItemIdx: -1,
         hasRealChildren: false,
 
-        childRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
-        itemRemoveLevel: REMOVE_LEVEL_NOT_INITIALIZED,
+        removeLevel: REMOVE_LEVEL_DOM,
         parentRoot: null,
+        isInConditionalPathway: false,
         parentListRenderer: null,
 
         startedConditionallyRendering: false,
         completedOneRender: false,
         lastText: "",
+
+        debug: false,
     }
 }
 
@@ -686,8 +686,8 @@ export function getAttr(k: string, r = getCurrentRoot()) : string {
 // Should only be called in one place, and never called twice on the same root.
 function __onUIRootDestroy(r: UIRoot) {
     // don't re-traverse this bit.
-    if (r.childRemoveLevel < REMOVE_LEVEL_DESTROY) {
-        r.childRemoveLevel = REMOVE_LEVEL_DESTROY;
+    if (r.removeLevel < REMOVE_LEVEL_DESTROY) {
+        r.removeLevel = REMOVE_LEVEL_DESTROY;
 
         for (let i = 0; i < r.items.length; i++) {
             const item = r.items[i];
@@ -721,8 +721,8 @@ function __onUIRootDestroy(r: UIRoot) {
 // Can potentially be called again later after being un-removed.
 function __onUIRootDomRemove(r: UIRoot) {
     // don't re-traverse this bit.
-    if (r.childRemoveLevel < REMOVE_LEVEL_DOM) {
-        r.childRemoveLevel = REMOVE_LEVEL_DOM;
+    if (r.isInConditionalPathway === true) {
+        r.isInConditionalPathway = false;
 
         for (let i = 0; i < r.items.length; i++) {
             const item = r.items[i];
@@ -751,9 +751,10 @@ export function __removeAllDomElementsFromUiRoot(
     removeLevel: RemovedLevel,
 ) {
     // Don't call this method twice at the same remove level
-    if (r.itemRemoveLevel < removeLevel) {
-        r.itemRemoveLevel = removeLevel;
+    if (r.removeLevel < removeLevel) {
+        r.removeLevel = removeLevel;
         r.parentRoot = null;
+        r.isInConditionalPathway = false;
 
         for (let i = 0; i < r.items.length; i++) {
             const item = r.items[i];
@@ -861,10 +862,9 @@ export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LE
     if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
 
     const r = getCurrentRoot();
-    updateRemoveLevel(r);
 
     const items = r.items;
-    const idx = ++r.itemsIdx;
+    const idx = getNextItemSlotIdx(r);
 
     let result: ListRenderer | undefined; 
     if (idx < items.length) {
@@ -891,30 +891,30 @@ export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LE
 }
 
 
-// const cssb = newCssBuilder("im-dom-utils--debug");
-// const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
+const cssb = newCssBuilder("im-dom-utils--debug");
+const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
 
-function updateRemoveLevel(r: UIRoot) {
+function getNextItemSlotIdx(r: UIRoot): number {
     if (r.itemsIdx === -1) { 
-        // only for the first slot.
-        // Setting it now, when we are actually putting things under this root. 
-        // If we do it in __beginUiRoot, it will just get reverted when 0 items are rendered.
-        if (r.childRemoveLevel !== REMOVE_LEVEL_NONE) {
-            r.childRemoveLevel = REMOVE_LEVEL_NONE;
+        if (r.isInConditionalPathway === false) {
+            r.isInConditionalPathway = true;
             r.startedConditionallyRendering = true;
-            if (r.parentRoot !== null) {
-                r.parentRoot.itemRemoveLevel = REMOVE_LEVEL_NONE;
-            }
+            r.removeLevel = REMOVE_LEVEL_NONE;
 
-            /** 
+            /*
+            if (r.parentRoot !== null) {
+                // The only way to know that a root is no longer removed is that
+                // we have actually started rendering things underneath it.
+                r.parentRoot.removeLevel = REMOVE_LEVEL_NONE;
+            } */
+
             if (r.debug === true) {
-                console.log("visibility change", r.root);
+                console.log("visibility change", r.parentRoot);
                 setClass(debug1PxSolidRed, true, r);
                 setTimeout(() => {
                     setClass(debug1PxSolidRed, false, r);
                 }, 1000);
             }
-            // */
         } else {
             // NOTE: if an error occured in the previous render, then
             // subsequent things that depended on `startedConditionallyRendering` being true won't run.
@@ -922,7 +922,10 @@ function updateRemoveLevel(r: UIRoot) {
             r.startedConditionallyRendering = false;
         }
     }
+
+    return ++r.itemsIdx;
 }
+
 
 /**
  * Helpers to make conditional rendering with the list easier to type and read.
@@ -1231,10 +1234,8 @@ function imStateInternal<T>(supplier: () => T, inline: boolean, r: UIRoot = getC
     const core = imCore;
     if (core.imDisabled === true) throw new Error("Don't access immediate mode state when immediate mode is disabled");
 
-    updateRemoveLevel(r);
-
     const items = r.items;
-    const idx = ++r.itemsIdx;
+    const idx = getNextItemSlotIdx(r);
 
     let result: StateItem<T>;
     if (idx < items.length) {
@@ -1413,10 +1414,8 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(
     const core = imCore;
     if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
 
-    updateRemoveLevel(r);
-
     const items = r.items;
-    const idx = ++r.itemsIdx;
+    const idx = getNextItemSlotIdx(r);
 
     let result: UIRoot<E> | undefined;
     if (idx < items.length) {

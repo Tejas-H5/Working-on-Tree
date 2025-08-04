@@ -34,7 +34,6 @@ import {
     BYPASS_TEXT_AREA,
     CTRL,
     debouncedSave,
-    GlobalContext,
     handleImKeysInput,
     hasDiscoverableCommand,
     TASK_IN_PROGRESS,
@@ -68,6 +67,7 @@ import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
     elementHasMousePress,
     getDeltaTimeSeconds,
+    getImKeys,
     HORIZONTAL,
     imCatch,
     imElse,
@@ -116,12 +116,13 @@ function getIcon(theme: AppTheme) {
     return ASCII_MOON_STARS;
 }
 
+
 function imMain() {
     const fpsCounter = imState(newFpsCounterState);
     const ctx = imState(newGlobalContext);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
+    if (!ctx.currentView) ctx.currentView = ctx.views.settings;
 
     ctx.now = new Date();
 
@@ -352,9 +353,6 @@ function imMain() {
                             const focusRef = imState(newFocusRef);
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(focusRef);
-                            if (focusRef.focused !== ctx.currentView) {
-                                ctx.currentView = focusRef.focused;
-                            }
 
                             imNoteTreeView(ctx, ctx.views.noteTree);
                             addView(navList, ctx.views.noteTree, "Notes");

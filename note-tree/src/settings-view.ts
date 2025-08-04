@@ -23,6 +23,7 @@ import { get } from "./utils/array-utils";
 import { formatDateTime, parseDateSafe } from "./utils/datetime";
 import { downloadTextAsFile, loadFile } from "./utils/file-download";
 import {
+    getCurrentRoot,
     getDeltaTimeSeconds,
     imElse,
     imEnd,
@@ -153,7 +154,9 @@ const menus: MenuItem[] = [
                 imBegin(COL); imFlex(); imAlign(); imJustify(); {
                     const importModalState = imState(importModal);
 
-                    if (imMemo(hasFocus)) resetImportModal(importModalState);
+                    if (imMemo(hasFocus)) {
+                        resetImportModal(importModalState);
+                    }
 
                     const loadResult = importModalState.state;
                     if (imIf() && loadResult) {
@@ -375,6 +378,8 @@ const menus: MenuItem[] = [
 
                         const timerRef = imState(newNumber);
                         timerRef.val += getDeltaTimeSeconds();
+
+                        getCurrentRoot().debug = true;
 
                         if (imMemo(hasFocus)) {
                             timerRef.val = 0;
