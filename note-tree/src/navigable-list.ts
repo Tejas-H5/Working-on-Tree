@@ -151,7 +151,6 @@ export function imNavListNextItemSlice<T extends ValidKey>(
     let result = list.i < end;
     if (result) {
         imNextListRoot(items[list.i]);
-        imNextListRoot();
         list.itemSelected = list.i === list.currentListIdx;
     }
 
@@ -226,6 +225,8 @@ export function imBeginNavListRow(
     }
 
     // imEndListRow();
+
+    return root;
 }
 
 // Should never accept the list as input. 

@@ -73,10 +73,12 @@ import {
     STATUS_IN_PROGRESS,
     TreeNote
 } from "./state";
-import { boundsCheck, findLastIndex } from "./utils/array-utils";
+import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
 import {
+    END,
+    getElementExtentNormalized,
     HORIZONTAL,
     imBeginSpan,
     imElse,
@@ -91,7 +93,9 @@ import {
     imOn,
     setClass,
     setStyle,
-    setText
+    setText,
+    START,
+    VERTICAL
 } from "./utils/im-dom-utils";
 import * as tree from "./utils/int-tree";
 
@@ -99,6 +103,7 @@ export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
     note:                TreeNote;
     noteParentNotes:     TreeNote[];
+    stickyNotes:         TreeNote[];
     viewRoot:            TreeNote;
     viewRootParentNotes: TreeNote[];
     childNotes:          TreeNote[];
@@ -130,6 +135,7 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         const viewRoot = getNoteViewRoot(state, note);
         if (s.viewRoot !== viewRoot) {
             s.viewRoot = viewRoot;
+            s.stickyNotes.length = 0;
             if (s.scrollContainer) startScrolling(s.scrollContainer, false);
             recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
         }
@@ -169,6 +175,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
         note,
         viewRoot,
         noteParentNotes:     [],
+        stickyNotes:         [],
         viewRootParentNotes: [],
         childNotes:          [],
 
@@ -279,11 +286,38 @@ export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
             !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
         );
 
+        imBegin(); {
+            imFor(); for (const row of s.stickyNotes) {
+                imNextListRoot(row); 
+                imNoteTreeRow(ctx, null, s, row, viewFocused);
+            } imEndFor();
+        } imEnd();
+
         const list = imBeginNavList(s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
             while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
-                const row = s.childNotes[i];
-                imNoteTreeRow(ctx, list, s, row, viewFocused, i, itemSelected);
+                const note = s.childNotes[i];
+
+                const root = imNoteTreeRow(ctx, list, s, note, viewFocused, i, itemSelected);
+
+                // A bit stupid but yeah whatever.
+                if (
+                    s.noteParentNotes.includes(note) &&
+                    s.scrollContainer.root
+                    
+                ) {
+                    if (
+                        !s.stickyNotes.includes(note) &&
+                        getElementExtentNormalized(s.scrollContainer.root.root, root.root, VERTICAL | END) < 0
+                    ) {
+                        s.stickyNotes.push(note);
+                    } else if (
+                        s.stickyNotes.includes(note) &&
+                        getElementExtentNormalized(s.scrollContainer.root.root, root.root, VERTICAL | START) > 0
+                    ) {
+                        filterInPlace(s.stickyNotes, n => n !== note);
+                    }
+                }
             };
 
             // Want to scroll off the bottom a bit

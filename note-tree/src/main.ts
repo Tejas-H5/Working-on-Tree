@@ -36,10 +36,10 @@ import {
     debouncedSave,
     handleImKeysInput,
     hasDiscoverableCommand,
-    TASK_IN_PROGRESS,
     newGlobalContext,
     preventImKeysDefault,
     SHIFT,
+    TASK_IN_PROGRESS,
     updateDiscoverableCommands
 } from "./global-context";
 import { imNoteTraversal } from "./lateral-traversal";
@@ -47,7 +47,6 @@ import { addView, getTabInput, imViewsList, newFocusRef } from "./navigable-list
 import { imNoteTreeView } from "./note-tree-view";
 import { imSettingsView } from "./settings-view";
 import {
-    applyPendingScratchpadWrites,
     AppTheme,
     getActivityTime,
     getLastActivity,
@@ -55,7 +54,6 @@ import {
     loadState,
     newBreakActivity,
     pushBreakActivity,
-    saveState,
     setCurrentNote,
     setTheme,
     state
@@ -67,7 +65,6 @@ import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
     elementHasMousePress,
     getDeltaTimeSeconds,
-    getImKeys,
     HORIZONTAL,
     imCatch,
     imElse,
@@ -96,8 +93,6 @@ import {
     setText,
     VERTICAL
 } from "./utils/im-dom-utils";
-import { logTrace } from "./utils/log";
-import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 
@@ -112,7 +107,7 @@ export const CHECK_INTERVAL_MS = 30000 * 10;
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
-    if (theme === "Dark") return ASCII_MOON_STARS;
+    if (theme === "Dark")  return ASCII_MOON_STARS;
     return ASCII_MOON_STARS;
 }
 
@@ -122,7 +117,7 @@ function imMain() {
     const ctx = imState(newGlobalContext);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.settings;
+    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
 
     ctx.now = new Date();
 

@@ -152,6 +152,8 @@ export function scrollIntoViewRect(
     scrollIntoViewVH(scrollParent, scrollTo, scrollV, scrollH);
 }
 
+// Useful for scrolling.
+// numbers < 0 indicate offscreen in the negative direction, and > 1 in the positive. kind-of - just hte top or bottom edge, not whole thing
 export function getElementExtentNormalized(
     scrollParent: HTMLElement,
     scrollTo: HTMLElement,
@@ -550,7 +552,7 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
     readonly elementSupplier: (() => ValidElement) | null;
 
-    readonly destructors: (() => void)[];
+    destructors: (() => void)[] | undefined;
 
     // TODO: use an SOA representation here. Can reduce 1 indirection I'm pretty sure.
     readonly items: UIRootItem[];
@@ -591,7 +593,7 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         domAppender,
         // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
         elementSupplier: supplier, 
-        destructors: [],
+        destructors: undefined,
         items: [],
         itemsIdx: -1,
         lastItemIdx: -1,
@@ -706,14 +708,16 @@ function __onUIRootDestroy(r: UIRoot) {
             }
         }
 
-        for (const d of r.destructors) {
-            try {
-                d();
-            } catch (e) {
-                console.error("A destructor threw an error: ", e);
+        if (r.destructors) {
+            for (const d of r.destructors) {
+                try {
+                    d();
+                } catch (e) {
+                    console.error("A destructor threw an error: ", e);
+                }
             }
+            r.destructors = undefined;
         }
-        r.destructors.length = 0;
     }
 }
 
@@ -789,6 +793,7 @@ export function __removeAllDomElementsFromUiRoot(
 }
 
 export function addDestructor(r: UIRoot, destructor: () => void) {
+    if (!r.destructors) r.destructors = [];
     r.destructors.push(destructor);
 }
 
@@ -2370,3 +2375,49 @@ export function imIsFirstishRender(): boolean {
 // TODO: enum for all events
 // TODO: enum for all styles
 // TODO: enum for all DOM node types
+
+
+
+
+
+
+type UIRootSOA<E extends ValidElement = ValidElement> = {
+    readonly t: typeof ITEM_UI_ROOT;
+
+    readonly root: E;
+    readonly domAppender: DomAppender<E>;
+    // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
+    readonly elementSupplier: (() => ValidElement) | null;
+
+    readonly destructors: (() => void)[];
+
+    // TODO: use an SOA representation here. Can reduce 1 indirection I'm pretty sure.
+    readonly items: UIRootItem[];
+
+    itemsIdx: number;
+    lastItemIdx: number;
+
+    hasRealChildren:    boolean; // can we add text to this element ?
+    completedOneRender: boolean; // have we completed at least one render without erroring?
+    parentRoot: UIRoot<ValidElement> | null;
+    parentListRenderer: ListRenderer | null;
+
+    removeLevel: RemovedLevel; // an indication of an ancenstor's remove level.
+    isInConditionalPathway: boolean;
+    // true for the first frame where this UI root is in the current code path.
+    // you'll need this to correctly handle on-focus interactions.
+    startedConditionallyRendering: boolean; 
+    debug: boolean; // debug flag
+
+    // We need to memoize on the last text - otherwise, we literally can't even select the text.
+    lastText: string;
+};
+
+
+
+
+
+
+
+
+

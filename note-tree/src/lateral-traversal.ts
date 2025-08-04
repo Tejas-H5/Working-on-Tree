@@ -1,7 +1,7 @@
 import { imLine } from "./app-components/common";
 import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand } from "./global-context";
+import { GlobalContext, hasDiscoverableCommand, REPEAT } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -74,14 +74,14 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         setIdx(ctx, s, listNavigation.newIdx);
     }
 
-    if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out")) {
+    if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)) {
         recomputeTraversal(s, s.viewRoot.id, false);
     }
 
     if (
         isHigherLevelTask(current) && 
         current.childIds.length > 0 && 
-        hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in")
+        hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
         recomputeTraversal(s, current.childIds[0], false);
     }
