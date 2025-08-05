@@ -1,48 +1,34 @@
-// *IM* DOM-utils v0.1.02 - @Tejas-H5
-// A variation on DOM-utils with the immediate-mode API isntead of the normal one. I'm still deciding which one I will continue to use.
-// Right now, this one seems better, but the other one has a 'proven' track record of actually working.
-// But in a matter of hours/days, I was able to implement features in this framework that I wasn't able to for months/years in the other one...
-//
-// Conventions:
-// - All immediate mode methods should start with 'im', like imState.
-//      - Any method that calls another method prefixed with `im` should automatically be considered an 'immediate mode method' 
-//      - Some methods don't call any `im` methods, but if they are to be used alongside other im methods, you should call them imBlah anyway. E.g imListNext.
-//      TODO: a convention like imXBegin() and imXEnd() would be way nicer, and allows better autocomplete and easier naming.
-// - All immediate mode methods that open up a 'scope' must be prefixed with `imBegin`, and be closed by a corresponding `imEnd` method
-//      The only exceptions are: 
-//          - The control-flow helpers: `imIf`, `imElseIf`, `imElse`, `imSwitch`, `imTry`, `imCatch`, `imFor`, `imWhile`.
-//          - `imEnd`. It's the same as imEndRoot. Used very often, and since a large number of abstractions end up being just 1 root deep, it can be used to end a lot of different things.
-//          - If you can guarantee that your imBeginX method only needs a single imEnd method to finalize it well into the future, then 
-//              you don't need to provide your own imEndX method.
-//
-//      Be very conservative when adding your own exceptions to this rule. Usually it's going to be for things that are so common that you want a shorter thing to type.
-//
-//  Some interesting things I've found out about javascript that are true when the debugger is open:
-//  - early returns appear to be slower
-//  - doing if (blah) instead of if (blah === true) or if(blah !== undefined) appears to be slower
+/**
+ * IM-DOM-utils v0.1.05 - @Tejas-H5
+ * A variation on DOM-utils with the immediate-mode API isntead of the normal one. 
+ * This one has been a better developer experience so far, but the other one is far simpler and has a 'proven' track record of actually working.
+ * But in a matter of hours/days, I was able to implement features in this framework that I wasn't able to for months/years in the other one.
+ * (Some examples: try-catch abstraction, switch abstraction, conditional rendering that respects type narrowing (mostly), destructors).
+ * There are also a lot of features that I previosly considered very difficult to implement that become trivial in an immediate-mode
+ * paradigm, even with the restriction that you have to call the same things in the same order every time.
+ *
+ * Code conventions:
+ * - 'im' method prefix
+ *      - All immediate mode methods should be prefixed with 'im'.
+ *      - Any method calling another im method is also an im method, and should be prefixed
+ *      - If some methods are only used with other im methods, prefix those with im too.
+ *
+ * - 'imBegin' and 'imEnd' method prefixes
+ *      - most open/close method pairs should be prefixed with 'imBegin' and 'imEnd';
+ *          - If the method is used often enough, and the name makes it obvious enough that the method is opening some sort of scope that will need to be closed by you later, you can choose to just do 'im'/'imEnd' instead. There are several such examples in this framework. `imIf`, `imElseIf`, `imElse`, `imSwitch`, `imTry`, `imCatch`, `imFor`, `imWhile`.
+ *          - If the method is just a 1-level deep abstraction and will be that way forever, we should just be able to end it with {@link imEnd}
+ *
+ * Framework code conevtions:
+ * - prefer not using early returns ever. Methods are more easily inlined this way, apparently
+ * - prefer using if (x === true) instead of if (x). This appears to be better in performance.
+ */
 
 import { newCssBuilder } from "./cssb";
 
-///////
+///////// 
 // Various seemingly random/arbitrary functions that actually end up being very useful
 
-/** 
- * This jQuery code is taken from: https://stackoverflow.com/questions/19669786/check-if-element-is-visible-in-dom
- * This method is mainly used in gobal event handlers to early-return when a UI component isn't visble yet, so
- * it will also return false if the component hasn't been rendered for the first time. 
- */
-export function isVisibleEl(el: HTMLElement) {
-    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-}
-
-export function isEditingInput(el: HTMLElement): boolean {
-    return document.activeElement === el;
-}
-
-
-/**
- * Sets an input's value while retaining it's selection and undo history
- */
+/** Sets an input's value while retaining it's selection */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (
         // performance speedup, and required to be able to select text
@@ -58,20 +44,40 @@ export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: 
 }
 
 export function isEditingTextSomewhereInDocument(): boolean {
-    const type = document.activeElement?.nodeName?.toLowerCase();
-    return type === "textarea" || type === "input";
+    const type = document.activeElement?.nodeName;
+    if (type) {
+        return stringsAreEqual2Versions(type, "textarea", "TEXTAREA") ||
+            stringsAreEqual2Versions(type, "input", "INPUT");
+    }
+    return false;
+}
+
+function stringsAreEqual2Versions(val: string, lowercase: string, uppercase: string) {
+    let result = true;
+
+    if (val.length !== lowercase.length) {
+        result = false;
+    } else {
+        for (let i = 0; i < lowercase.length; i++) {
+            if (val[i] !== lowercase[i] && val[i] !== uppercase[i]) {
+                result = false;
+                break;
+            }
+        }
+    }
+
+    return result;
 }
 
 
-// Flags are kinda based. vastly reduces the need for boolean flags, and API is also nicer looking.
+// Flags vastly reduces the need for boolean flags, and look nicer in code compared to  booleans. They also don't allocate memory like args objects
 export const HORIZONTAL = 1 << 1;
 export const VERTICAL   = 1 << 2;
 export const START      = 1 << 3;
 export const END        = 1 << 4;
 
 /**
- * Get the amount you will need to scroll along the horizontal and vertical axes to get the element
- * into view
+ * Get the amount you will need to scroll along the horizontal and vertical axes to get the element into view
  */
 export function getScrollVH(
     scrollParent: HTMLElement,
@@ -154,11 +160,7 @@ export function scrollIntoViewRect(
 
 // Useful for scrolling.
 // numbers < 0 indicate offscreen in the negative direction, and > 1 in the positive. kind-of - just hte top or bottom edge, not whole thing
-export function getElementExtentNormalized(
-    scrollParent: HTMLElement,
-    scrollTo: HTMLElement,
-    flags = VERTICAL | START
-) {
+export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: HTMLElement, flags = VERTICAL | START) {
     let result;
 
     if ((flags & VERTICAL) !== 0) {
@@ -186,12 +188,7 @@ export function getElementExtentNormalized(
 }
 
 ///////// 
-// The immediate-mode rendering API.
-// You might think I made this for performance, but I didn't. 
-// What I really wanted, was a UI framework that lets me colocate logic and UI, and composes correctly
-// i.e There is never a scenario where I _have_ to create a function or a class to get some sort of 
-// component-like behavior, and I can put 'state' as close to some UI as needed, so that we can
-// evolve better abstractions.
+// The immediate-mode rendering API
 
 function renderStub() {}
 
@@ -242,14 +239,11 @@ export type ImCore = {
     numCacheMisses: number;
 };
 
+// Not defining them this early causes lexical whatever javascript errors
 const ITEM_LIST_RENDERER = 2;
 const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
 
-// TODO: we added this, but I suspect it doesn't actually work yet - 
-// the dom-appender code hasn't been updated to 'ignore' or 'step over'
-// things that we have REMOVE_LEVEL_NONE removed, so that stuff ends up being pushed to the bottom of the DOM - not ideal.
-// I recon we should see if there is an easy way to make it work.
 export const REMOVE_LEVEL_NONE = 1;
 export const REMOVE_LEVEL_DOM = 2;
 export const REMOVE_LEVEL_DESTROY = 3;
@@ -259,10 +253,7 @@ export type RemovedLevel
     | typeof REMOVE_LEVEL_DOM   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
     | typeof REMOVE_LEVEL_DESTROY;
 
-
-/**
- * Don't forget to initialize this core with {@link initImDomUtils}
- */
+/** Don't forget to initialize this core with {@link initImDomUtils} */
 export function newImCore(root: HTMLElement = document.body): ImCore {
     const keyboard: ImKeyboardState = {
         keyDown: null,
@@ -284,10 +275,6 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         X: 0,
         Y: 0,
 
-        /**
-         * NOTE: if you want to use this, you may have to prevent normal scroll event propagation.
-         * See {@link imPreventScrollEventPropagation}
-         */
         scrollWheel: 0,
 
         clickedElement: null,
@@ -328,7 +315,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         numIntersectionObservers: 0,
         numCacheMisses: 0,
 
-        // Event handlers
+        // stored, so we can dispose them later if needed.
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
                 const { mouse } = core;
@@ -407,23 +394,18 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
  *
  * Wrong:
  * ```ts
- * resizeObserver.onResize(() => {
- *      rerenderCore(imCore);
- * })
+ * resizeObserver.onResize(() => rerenderCore(imCore));
  * ```
  *
  * Right:
  * ```ts
  * const core = imCore;
- * resizeObserver.onResize(() => {
- *      rerenderCore(core);
- * })
+ * resizeObserver.onResize(() => rerenderCore(core));
  * ```
  */
 const defaultCore = newImCore();
 
 // Contains ALL the state. In an atypical usecase, there may be multiple cores that must switch between each other.
-// This used to be called imContext, but this name was better suited for a feature similar to React.Context
 let imCore = defaultCore;
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -440,109 +422,33 @@ export type UIRootItem = UIRoot | ListRenderer | StateItem;
 export type DomAppender<E extends ValidElement = ValidElement> = {
     root: E;
     idx: number;
-    /** NOTE: we don't know anything about children that weren't appended via the framework */
-    // children: ValidElement[];
 };
 
 export function appendToDomRoot(domAppender: DomAppender, child: ValidElement) {
     const i = ++domAppender.idx;
-
     const root = domAppender.root;
 
-    // NOTE: it appears there's not much difference between querying the real children vs having a separate array.
     const children = root.children;
     if (i === children.length) {
         root.appendChild(child);
     } else if (children[i] !== child) {
         root.insertBefore(child, children[i]);
     }
-
-    // NOTE: THere appears to be a bug in this code which isn't present in the above
-    // if (i === domAppender.children.length) {
-    //     root.appendChild(child);
-    //     domAppender.children.push(child);
-    // } else if (domAppender.children[i] !== child) {
-    //     root.insertBefore(child, domAppender.children[i]);
-    //     domAppender.children[i] = child;
-    // }
 }
 
-export function finalizeDomRoot(domAppender: DomAppender) {
-    // domAppender.children.length = domAppender.idx + 1e
-}
-
-
-/**
- * Whenever your app starts rendering, a {@link UIRoot} backed by the DOM root is pushed onto {@link currentStack}.
- * {@link imBeginRoot} will create a {@link UIRoot} backed by a custom DOM node, and push it onto {@link currentStack}.
- * {@link imEnd} will pop a {@link UIRoot} from {@link currentStack}.
- * {@link getCurrentRoot} can be used to get the current UIRoot.
+/** 
+ * This is a node in the immediate-mode tree.
+ * It's children can either be more UIRoots, regular state, or List renderers.
  *
- * ```ts
- * function imApp() {
- *     r = getCurrentRoot()  // assertion failed - no current root
- *     imDiv(); {
- *          r = getCurrentRoot() // div that we rendered above
- *     } imEnd();
- *     r = getCurrentRoot()  // assertion failed - no current root
- * }
- * ```
+ * Once a single render pass has completed, you have to render the same things
+ * in the same order to a UI Root every time. This is because the order in which 
+ * a method was called is what we use to correlate the state we persist for that callsite.
  *
- * In the first render, any number of things can be rendered. 
- * To be more specific, a 'thing' is an immediate mode state entry. 
- * Only 3 methods can create im-state entries - {@link imBeginRoot}, {@link imState}, and {@link imBeginList}.
- * In every subsequent render, the same number of im-state entries must be 'created' in the same order.
- * This is because in subsequent renders, calls to the im-state functions don't recreate state, but 
- * increment an array index, and retrieve the state they created in the first render.
- * 
- * For example:
+ * List renderers can render an arbitrary number of UI roots. They form the basis of
+ * how conditional and keyed rendering is implemented, which is why the
+ * restriction of rendering the same things ever time doesn't actually restrict what can be built.
  *
- * ```ts
- * // Valid
- * function imApp() {
- *     imDiv(); imEnd();
- * }
- *
- * // Not valid
- * let n = 0;
- * function imApp() {
- *      n++;
- *      for (let i = 0; i < n; i++) {
- *          // As soon as n is incremented, the app will (ideally) throw an Error, complaining about a different number of 
- *          // things being rendered.
- *          imDiv(); imEnd{}; 
- *      }
- * }
- *
- * // Also not valid
- * let n = 0;
- * function imApp() {
- *      n++
- *      if (n < 10) {
- *          Component1();
- *      } else {
- *          // This is especially bad, because every im-state call in Component2 will retrieve state that was
- *          // created by Component1, and none of it will line up at all. You will corrupt your data, basically.
- *          // I haven't been able to think of any good safeguards against this.
- *          Component2();   
- *      }
- * }
- *
- * ```
- *
- * Then how the heck do we do conditional rendering, or list rendering, AKA anything actually useful?
- * You'll need to take a look at:
- * list rendering:
- *      {@link imBeginList}.
- * conditional rendering helpers (they are just variants on `imList`):
- *      {@link imIf}
- *      {@link imElseIf}
- *      {@link imElse}
- * control flow helpers (they are also just variants on `imList`):
- *      {@link imTry}
- *      {@link imCatch}
- *      {@link imSwitch}
- *
+ * TODO: it should all just be regular state. This will allow us to decouple from the DOM.
  */
 export type UIRoot<E extends ValidElement = ValidElement> = {
     readonly t: typeof ITEM_UI_ROOT;
@@ -576,13 +482,17 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     lastText: string;
 };
 
-export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, domAppender: DomAppender<E> | null = null): UIRoot<E> {
+export function newUiRoot<E extends ValidElement>(
+    supplier: (() => E) | null,
+    domAppender: DomAppender<E> | null = null
+): UIRoot<E> {
     let root: E | undefined;
     if (domAppender === null) {
         if (supplier === null) throw new Error("Expected supplier to be present if domAppender was null");
         root = supplier();
         domAppender = { root, idx: -1 };
     } else {
+        // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
         if (domAppender === null) throw new Error("Expected domAppender to be present if supplier was null");
         root = domAppender.root;
     }
@@ -591,7 +501,6 @@ export function newUiRoot<E extends ValidElement>(supplier: (() => E) | null, do
         t: ITEM_UI_ROOT,
         root,
         domAppender,
-        // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
         elementSupplier: supplier, 
         destructors: undefined,
         items: [],
@@ -617,16 +526,12 @@ function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number, par
     r.itemsIdx = startItemIdx;
     r.parentRoot = parent;
 
-    // push ui root
-    {
-        const core = imCore;
-        core.currentStack.push(r);
-        core.currentRoot = r;
-        core.currentListRenderer = undefined;
-    }
+    imCore.currentStack.push(r);
+    imCore.currentRoot = r;
+    imCore.currentListRenderer = undefined;
 }
 
-export function setClass(val: string, enabled: boolean | number = true, r = getCurrentRoot()) {
+export function setClass(val: string, enabled: boolean | number = true, r = getCurrentRoot()): boolean {
     if (enabled !== false && enabled !== 0) {
         r.root.classList.add(val);
     } else {
@@ -638,7 +543,7 @@ export function setClass(val: string, enabled: boolean | number = true, r = getC
 
 /**
  * NOTE: this method is not ideal - it can only manage a single text node under a DOM element at a time.
- * This is usually not enough.
+ * This is usually not enough. You're better off making a text abstraction.
  */
 export function setText(text: string, r = getCurrentRoot()) {
     if (r.hasRealChildren === true) throw new Error("But think about the children! (Don't overwrite them with text)");
@@ -747,13 +652,10 @@ function __onUIRootDomRemove(r: UIRoot) {
     }
 }
 
-// NOTE: If this is being called before we've rendered any components here, it should be ok.
-// if it's being called during a render, then that is typically an incorrect usage - the domAppender's index may or may not be incorrect now, because
+// NOTE: If this is being called at the end of a render, or before we've rendered any components here, it should be ok.
+// If it's being called during a render, then that is typically an incorrect usage - the domAppender's index may or may not be incorrect now, because
 // we will have removed HTML elements out from underneath it. You'll need to ensure that this isn't happening in your use case.
-export function __removeAllDomElementsFromUiRoot(
-    r: UIRoot,
-    removeLevel: RemovedLevel,
-) {
+export function __removeAllDomElementsFromUiRoot(r: UIRoot, removeLevel: RemovedLevel) {
     // Don't call this method twice at the same remove level
     if (r.removeLevel < removeLevel) {
         r.removeLevel = removeLevel;
@@ -797,7 +699,6 @@ export function addDestructor(r: UIRoot, destructor: () => void) {
     r.destructors.push(destructor);
 }
 
-
 export type ListRenderer = {
     readonly t: typeof ITEM_LIST_RENDERER;
     readonly uiRoot: UIRoot;
@@ -831,38 +732,59 @@ export type RenderFn<T extends ValidElement = ValidElement> = (r: UIRoot<T>) => 
 export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElement> = (r: UIRoot<T>, ...args: A) => void;
 
 /**
- * Allows you to render a variable number of UI roots at a particular point in your component.
- * UI Roots that aren't rendered in subsequent renders get removed from the dom when you `end()` a list.
- *
- * See {@link imNextListRoot} for more info.
- * See the {@link UIRoot} docs for more info on what a 'UIRoot' even is, what it's limitations are, and how to effectively (re)-use them.
- *
- * Normal usage:
- * ```ts
- * imList();
- * for (let i = 0; i < n; i++) {
- *      nextRoot(); {
- *          RenderComponent();
- *      } end();
- * }
- * end();
- * ```
- *
- * Keyed:
+ * Opens a list rendering context under the current UI Root. 
+ * This allows you to render a variable number of UI roots at a particular point in your component.
+ * But each root, once rendered to, can't render anything else:
  *
  * ```ts
- * imList();
- * for (const item of items) {
- *      nextRoot(item.id); {
- *          RenderComponent();
- *      } end();
+ * imBeginList(); 
+ * for (const val of values) {
+ *      imNextListRoot();
+ *      imRenderComponent(val);
  * }
- * imEnd();
+ * imEndList()
  * ```
  *
- * @param cached - if true, doesn't remove things from the DOM. 
+ * If zero things are rendered to a particular UI root in a render pass, that root
+ * will be detatched from the DOM (or optionally destroyed). 
+ * This allows us to do conditional rendering:
+ * ```ts
+ * imBeginlist()
+ * if (imNextListRoot() && blah) {
+ *      // render your component here.
+ * } 
+ * if (imNextListRoot() && blah) {
+ *      // render your next component here.b
+ * }
+ * if (imNextListRoot() && blah) {
+ *      // render your next component here.b
+ * }
+ * imEndList()
+ * ```
+ * As long as each call to `imNextListRoot()` always happens in the same order and no calls get skipped,
+ * every callsite will resolve to the same immediate mode state each time, so this always works.
+ * Here's a case where it won't work:
+ * 
+ * ``` ts
+ * imBeginList();
+ * if (imNextListRoot() && blah){}
+ * else if (imNextListRoot() && blah2){}
+ * if (imNextListRoot() && blah3) {
+ *      // if blah was true the first render pass, and false in the second,
+ *      // the framework has no way of knowing that the state for this if-statement
+ *      // is not the same as the previous - all it can see is that this was the 
+ *      // second call to `imNextListRoot()`. 
+ * }
+ * ```
+ *
+ * Also note that {@link imNextListRoot} can be passed a key, to avoid such errors.
+ *
+ * Also, I have found that the patterns that emerge from doing conditional rendering in this
+ * way don't lend themselves to ease of pattern recognition and refactoring.
+ * This is why I've added {@link imFor}, {@link imIf}, {@link imSwitch} et al, so I never use 
+ * imBeginList directly in practice. But it does help to know how they are all the same think under the hood.
  */
-export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DOM): ListRenderer {
+export function imBeginList(removeLevel: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DOM): ListRenderer {
     const core = imCore;
     if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
 
@@ -887,14 +809,13 @@ export function imBeginList(cached: ListRenderer["cacheRemoveLevel"] = REMOVE_LE
         core.numCacheMisses++;
     }
 
-    result.cacheRemoveLevel = cached;
+    result.cacheRemoveLevel = removeLevel;
     __beginListRenderer(result);
 
     core.itemsRendered++;
 
     return result;
 }
-
 
 const cssb = newCssBuilder("im-dom-utils--debug");
 const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
@@ -934,39 +855,17 @@ function getNextItemSlotIdx(r: UIRoot): number {
 
 /**
  * Helpers to make conditional rendering with the list easier to type and read.
+ * See {@link imBeginList} for more info on how it works.
  *
  * ```ts
- *  if (imIf() && cond1) {
- *      imComponent1();
- *  } else if (imElseIf() && cond2) {
- *      imComponent2();
- *  } else {
- *      imElse()
- *      imComponent3();
- *  } imEndIf();
- * ```
- *
- * Everythig this method does can also be done using {@link imBeginList}, {@link imEndList} and {@link imNextListRoot},
- * but you have to type more, and I feel that code doesn't evolve correctly with 
- * that approach. For example, the following code is valid:
- *
- * ```ts
- *  imList();
- *  if (nextSlot() && cond0) {
- *      imComponent0();
- *  }   
- *  // We don't need an imEndList() and imBeginList() here, so we won't add it.
- *  // However, this has the consequence that the if-statement above is always grouped with
- *  // the one below, sometimes unnecessarily, making it harder to spot potential refactorings.
- *  if (nextSlot() && cond1) {
- *      imComponent1();
- *  } else if (nextSlot() && cond2) {
- *      imComponent2();
- *  } else {
- *      nextSlot();
- *      imComponent3();
- *  }
- *  imEndList();
+ * if (imIf() && c1) { 
+ *      // component 1 
+ * } else if (imElseIf() && c2) { 
+ *      //component 2
+ * } else { 
+ *      imElse(); 
+ *      // component 3
+ * } imEndIf();
  * ```
  */
 export function imIf() {
@@ -1088,13 +987,28 @@ export function imEndTry() {
 export type ValidKey = string | number | Function | object | unknown;
 
 /**
- * Read {@link imBeginList}'s doc first for context and examples.
+ * This method appends a UI root to an open list-rendering context.
+ * Read {@link imBeginList}'s doc and related helpers for info on what that is.
  *
  * You can optionally specify a {@link key}.
- * If a key is present, the same UIRoot that was rendered for that particular key will be re-used. Make sure
- *      to not reuse the same key twice.
+ * If a key is present, the same UIRoot that was rendered for that particular key will be re-used. 
+ *      Make sure to not reuse the same key twice. Doing so will throw an error.
  *
- * If no key is present, the same UIRoot that was rendered for the nth call of nextListSlot() without a key will be re-used.
+ *      I figured I would rather throw an error and make you fix the specific problem, than bother with all the subtle as well as
+ *      not-so-subtle bugs that can start occuring or be made much worse by trying to 'gracefully handle' this scenario.
+ *
+ * If no key is present, the same UIRoot that was rendered for the nth call of {@link imNextListRoot} without a key will be re-used.
+ * 
+ * NOTE: Keyed list renderers and non-keyed list renderers are stored in two completely seperate containers. So calling imNextList(5)
+ *      will _not_ just give you the 5th root you got from the keyless call.
+ * NOTE: Keys do not need to just be strings or numbers. They can be any object reference that has a stable reference.
+ *
+ * ```ts
+ * imFor(); for (const item of items) {
+ *      imNextListRoot(item);
+ *      // render item here
+ * } imEndFor();
+ * ```
  *
  * When to use a key:
  *  - You need to render a different type of component per key. See {@link imSwitch}.
@@ -1143,7 +1057,7 @@ export function imNextListRoot(key?: ValidKey) {
          * If that is not the case, a more common cause is that you are mutating collections while iterating them.
          * By moving an element you've already iterated over down in the list such that you will iterate it again,
          * you've requested this key a second time, and are now rendering it.
-         * Here's a potential way to avoid doing this:
+         * Here's a potential way to temporarliy avoid doing this:
          *
          * function Component() {
          *      let deferredAction: DeferredAction;
@@ -1301,37 +1215,12 @@ function imStateInternal<T>(supplier: () => T, inline: boolean, r: UIRoot = getC
  * }
  *
  * ```
- *
- * Do note that if you're deeply nesting contexts like you would in React, your code is not optimal.
- * ```
- * // The React(tm) way:
- * function imApp() {
- *      imBeginContext(newStateA); { 
- *          imBeginContext(newStateB); { 
- *              imBeginContext(newStateC); {
- *
- *              ...
- * }
- *
- * // Better: 
- * function allTheContexts() {
- *      return { 
- *          a: newStateA(),
- *          b: newStateB(),
- *          c: newStateC(),
- *      };
- * }
- *
- * function imApp() {
- *      imBeginContext(allTheContexts); { 
- *
- * }
- * ```
  * 
  * NOTE: I added this API because I kept thinking of cool usecases for this.
  * however, every time I have reached for it in practice, I have regretted it.
- * There was often a far simpler and straightforward way to accomplish the same thing.
+ * There was often a far simpler, straightforward and type-safer way to accomplish the same thing.
  * You may find the same to be true as well.
+ * I'm keeping it around just in case, but if I don't use it once in 2025, I'll just be removing it.
  */
 export function imBeginContext<T>(supplier: () => T): T {
     const core = imCore;
@@ -1475,8 +1364,6 @@ export function imBeginRoot<E extends ValidElement = ValidElement>(elementSuppli
 export function imEnd(removeLevel: RemovedLevel = REMOVE_LEVEL_DOM, r: UIRoot = getCurrentRoot()) {
     const notDerived = r.elementSupplier !== null;
     if (notDerived) {
-        finalizeDomRoot(r.domAppender);
-
         // Defer the mouse events upwards, so that parent elements can handle it if they want
         const el = r.root;
         const parent = el.parentNode;
@@ -2329,49 +2216,4 @@ export function imIsFirstishRender(): boolean {
 // TODO: enum for all events
 // TODO: enum for all styles
 // TODO: enum for all DOM node types
-
-
-
-
-
-
-type UIRootSOA<E extends ValidElement = ValidElement> = {
-    readonly t: typeof ITEM_UI_ROOT;
-
-    readonly root: E;
-    readonly domAppender: DomAppender<E>;
-    // If there was no supplier, then this root is attached to the same DOM element as another UI root that does have a supplier.
-    readonly elementSupplier: (() => ValidElement) | null;
-
-    readonly destructors: (() => void)[];
-
-    // TODO: use an SOA representation here. Can reduce 1 indirection I'm pretty sure.
-    readonly items: UIRootItem[];
-
-    itemsIdx: number;
-    lastItemIdx: number;
-
-    hasRealChildren:    boolean; // can we add text to this element ?
-    completedOneRender: boolean; // have we completed at least one render without erroring?
-    parentRoot: UIRoot<ValidElement> | null;
-    parentListRenderer: ListRenderer | null;
-
-    removeLevel: RemovedLevel; // an indication of an ancenstor's remove level.
-    isInConditionalPathway: boolean;
-    // true for the first frame where this UI root is in the current code path.
-    // you'll need this to correctly handle on-focus interactions.
-    startedConditionallyRendering: boolean; 
-    debug: boolean; // debug flag
-
-    // We need to memoize on the last text - otherwise, we literally can't even select the text.
-    lastText: string;
-};
-
-
-
-
-
-
-
-
 
