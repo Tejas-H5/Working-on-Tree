@@ -4,7 +4,6 @@ import {
     imInit,
     imIsFirstishRender,
     imMemo,
-    imMemoMany,
     imRef,
     imState,
     isExcessEventRender,
@@ -80,12 +79,13 @@ export function imOpacity(val: number) {
     }
 }
 
-function newPaddingState(): {
+type PaddingState = {
     left: number, leftType: SizeUnits,
     right: number, rightType: SizeUnits, 
     top: number, topType: SizeUnits,
     bottom: number, bottomType: SizeUnits, 
-} {
+};
+function newPaddingState(): PaddingState {
     return { 
         left: 0, leftType: NA,
         right: 0, rightType: NA,
@@ -191,7 +191,9 @@ export function imFlex(val = 1) {
 }
 
 export function imGap(val = 0, units: SizeUnits) {
-    if (imMemoMany(val, units)) {
+    const valChanged = imMemo(val);
+    const unitsChanged = imMemo(units);
+    if (valChanged !== 0 || unitsChanged !== 0) {
         setStyle("gap", getSize(val, units));
     }
 }
@@ -236,22 +238,26 @@ export function imScrollOverflow(vScroll = true, hScroll = false) {
     }
 }
 
+
 export function imFixed(
-    top: number | null,
-    left: number | null,
-    bottom: number | null,
-    right: number | null,
+    top: number, topType: SizeUnits,
+    left: number, leftType: SizeUnits,
+    bottom: number, bottomType: SizeUnits,
+    right: number, rightType: SizeUnits,
 ) {
     if (imIsFirstishRender()) {
         setClass(cn.fixed);
     }
+
+    const val = imState(newPaddingState);
     
-    if (imMemoMany(top, bottom, left, right)) {
-        setStyle("top", top === null ? "" : top + "px");
-        setStyle("left", left === null ? "" : left + "px");
-        setStyle("bottom", bottom === null ? "" : bottom + "px");
-        setStyle("right", right === null ? "" : right + "px");
-    } 
+    applyOffsets(
+        val,
+        left, leftType,
+        right, rightType, 
+        top, topType,
+        bottom, bottomType, 
+    ); 
 }
 
 export function imAbsolute(
@@ -265,11 +271,23 @@ export function imAbsolute(
     }
 
     const val = imState(newPaddingState);
-
-    if (isExcessEventRender()) {
-        return;
-    }
     
+    applyOffsets(
+        val,
+        left, leftType,
+        right, rightType, 
+        top, topType,
+        bottom, bottomType, 
+    );
+}
+
+function applyOffsets(
+    val: PaddingState,
+    left: number, leftType: SizeUnits,
+    right: number, rightType: SizeUnits, 
+    top: number, topType: SizeUnits,
+    bottom: number, bottomType: SizeUnits, 
+) {
     if (val.left !== left || val.leftType !== leftType) {
         val.left = left; val.leftType = leftType;
         setStyle("left", getSize(left, leftType));

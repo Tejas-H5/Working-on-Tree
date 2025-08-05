@@ -1757,6 +1757,10 @@ function newMemoState(): { last: unknown } {
 // else, return true and allow the rendering code to do this for you, and cache the new offsets
 // in imEndMemo. Looks great right? Ended up with all sorts of stale state bugs so I deleted it.
 // It's just not worth it ever, imo.
+//
+// I also previously had imMemoMany(), imMemoArray() and imMemoObjectVals, but these are a slipperly slope
+// to imMemoDeep() which I definately don't want to ever implement. Also I was basically never using them. So I 
+// have deleted them.
 export function imMemo(val: unknown): ImMemoResult {
     const r = getCurrentRoot();
     const ref = imState(newMemoState, false, r);
@@ -1793,56 +1797,6 @@ export type ImMemoResult
     | typeof MEMO_CHANGED 
     | typeof MEMO_FIRST_RENDER
     | typeof MEMO_FIRST_RENDER_CONDITIONAL;
-
-// TODO: performance benchmark vs imMemo before this becomes the default.
-export function imMemoMany(
-    // NOTE (Dev): use `arugments` instead - I'm told that arguments is faster than using `val`
-    // TODO: various benchmarks - immemo, immemomany (args vs arguments)
-    ...args: unknown[]
-): ImMemoResult {
-    const arr = imArray();
-
-    if (arguments.length === 0) {
-        return MEMO_NOT_CHANGED;
-    }
-
-    const changedResult = arr.length === 0 ? MEMO_FIRST_RENDER : MEMO_CHANGED;
-    let result: ImMemoResult = MEMO_NOT_CHANGED;
-
-    if (arguments.length !== arr.length) {
-        result = changedResult;
-        arr.length = arguments.length;
-    }
-
-    for (let i = 0; i < arguments.length; i++) {
-        if (arr[i] !== arguments[i]) {
-            result = changedResult;
-            arr[i] = arguments[i];
-        }
-    }
-
-    return result;
-}
-
-export function imMemoObjectVals(obj: Record<string, unknown>): boolean {
-    const arr = imArray();
-
-    let changed = false;
-    let i = 0;
-    for (const k in obj) {
-        const val = obj[k];
-        if (i === arr.length) {
-            arr.push(val);
-            changed = true;
-        } else if (arr[i] !== val) {
-            arr[i] = val;
-            changed = true;
-        }
-        i++;
-    }
-
-    return changed;
-}
 
 export function disableIm() {
     imCore.imDisabled = true;

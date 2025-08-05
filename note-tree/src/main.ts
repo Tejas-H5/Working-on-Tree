@@ -78,7 +78,6 @@ import {
     imInit,
     imIsFirstishRender,
     imMemo,
-    imMemoMany,
     imNextListRoot,
     imRef,
     imState,
@@ -118,6 +117,7 @@ function imMain() {
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
+    if (imMemo(state)) setTheme(state.currentTheme);
 
     ctx.now = new Date();
 
@@ -184,15 +184,16 @@ function imMain() {
         if (imIf() && !irrecoverableErrorRef.val) {
             handleImKeysInput(ctx);
 
-            if (MEMO_CHANGED === imMemoMany(
-                state._notesMutationCounter,
-                state._activitiesMutationCounter
-            )) {
-                debouncedSave(ctx, state);
-            }
+            let shouldSave = false;
+            if (imMemo(state._notesMutationCounter) === MEMO_CHANGED) shouldSave = true;
+            if (imMemo(state._activitiesMutationCounter) === MEMO_CHANGED) shouldSave = true;
+            if (shouldSave) debouncedSave(ctx, state);
 
             startFpsCounter(fpsCounter); {
-                imBegin(COL); imFixed(0, 0, 0, 0); {
+                imBegin(COL); imFixed(
+                    0, PX, 0, PX,
+                    0, PX, 0, PX,
+                ); {
                     const error = state.criticalSavingError || state._criticalLoadingError;
                     if (imIf() && error) {
                         imBegin(); {
@@ -221,7 +222,7 @@ function imMain() {
                                 imAsciiIcon(getIcon(state.currentTheme), 4.5);
 
                                 if (elementHasMousePress()) {
-                                    setTheme(state.currentTheme === "Dark" ? "Light" : "Dark");
+                                    state.currentTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                     debouncedSave(ctx, state);
                                 }
                             } imEnd();
@@ -491,18 +492,18 @@ function imMain() {
                 }
 
                 // Only one text area can be focued at a time in the entire document.
-                if (ctx.textAreaToFocus) {
+                // imMemo here, because we still want to select text with the mouse.
+                // Not ideal for a real app, but preventing it makes it not feel like a real website.
+                if (imMemo(ctx.textAreaToFocus) && ctx.textAreaToFocus) {
                     const textArea = ctx.textAreaToFocus.root;
-                    if (document.activeElement !== textArea) {
-                        textArea.focus();
-                        ctx.textAreaToFocus = null;
-                        if (ctx.focusWithAllSelected) {
-                            textArea.selectionStart = 0;
-                            textArea.selectionEnd = textArea.value.length;
-                            ctx.focusWithAllSelected = false;
-                        }
+                    textArea.focus();
+                    if (ctx.focusWithAllSelected) {
+                        textArea.selectionStart = 0;
+                        textArea.selectionEnd = textArea.value.length;
+                        ctx.focusWithAllSelected = false;
                     }
                 }
+                ctx.textAreaToFocus = null;
 
                 // discoverable commands (at the very end).
                 updateDiscoverableCommands(ctx.discoverableCommands);
@@ -540,7 +541,6 @@ function imCommandDescription(key: string, action: string) {
 loadState(() => {
     console.log("State: ", state);
     initImDomUtils(imMain);
-    setTheme(state.currentTheme);
 })
 
 // Using a custom styling solution

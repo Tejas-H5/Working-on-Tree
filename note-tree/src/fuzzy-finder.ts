@@ -40,7 +40,6 @@ import {
     imIf,
     imIsFirstishRender,
     imMemo,
-    imMemoMany,
     imNextListRoot,
     imOn,
     imState,
@@ -352,9 +351,10 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
         finderState.scope = SCOPE_EVERTHING;
     }
 
-    const queryChanged = imMemoMany(finderState.query, finderState.scope);
+    const queryChanged = imMemo(finderState.query);
+    const scopeChanged = imMemo(finderState.scope);
     let t0 = 0;
-    if (queryChanged) {
+    if (queryChanged || scopeChanged) {
         t0 = performance.now();
         s.timeTakenMs = 0; // prob doesn't make a difference
         recomputeTraversal(ctx, s);
@@ -504,7 +504,7 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
         } imEnd();
     } imEnd();
 
-    if (queryChanged) {
+    if (queryChanged || scopeChanged) {
         s.timeTakenMs = performance.now() - t0;
     }
 }

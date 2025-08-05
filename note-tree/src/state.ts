@@ -254,7 +254,7 @@ export type Activity = {
 // bro uses git? no way dude.
 const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
 
-function getDoneNoteSuffix(note: Note): string | undefined {
+function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
     for (const suffix of doneSuffixes) {
         if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
             return suffix;
@@ -271,7 +271,7 @@ export function isDoneNote(note: Note) {
 
 // @deprecated. Just call getDoneNoteSuffix.
 export function isDoneNoteWithExtraInfoDepracatadXd(note: Note): boolean {
-    const prefix = getDoneNoteSuffix(note);
+    const prefix = getDoneNotePrefixOrSuffix(note);
     if (!prefix) {
         return false;
     }
@@ -812,7 +812,7 @@ export function recomputeNoteStatusRecursively(
         {
             const lastId = note.childIds[note.childIds.length - 1];
             const lastNote = getNote(state, lastId);
-            if (getDoneNoteSuffix(lastNote.data)) {
+            if (getDoneNotePrefixOrSuffix(lastNote.data)) {
                 status = STATUS_DONE;
             }
         }
@@ -831,7 +831,7 @@ export function recomputeNoteStatusRecursively(
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
             } else {
-                const doneSuffix = getDoneNoteSuffix(child.data);
+                const doneSuffix = getDoneNotePrefixOrSuffix(child.data);
                 if (doneSuffix || foundDoneNoteUnderThisParent) {
                     child.data._status = STATUS_DONE;
                     foundDoneNoteUnderThisParent = true;
