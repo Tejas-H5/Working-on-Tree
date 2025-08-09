@@ -63,9 +63,7 @@ import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import {
-    elementHasMousePress,
     getDeltaTimeSeconds,
-    HORIZONTAL,
     imCatch,
     imElse,
     imEnd,
@@ -84,14 +82,18 @@ import {
     imSwitch,
     imTry,
     initImDomUtils,
-    isEditingTextSomewhereInDocument,
     MEMO_CHANGED,
     newBoolean,
     newNumber,
+} from "src/utils/im-utils-core";
+import {
+    elementHasMousePress,
+    HORIZONTAL,
+    isEditingTextSomewhereInDocument,
     setStyle,
     setText,
     VERTICAL
-} from "./utils/im-dom-utils";
+} from "src/utils/im-utils-dom";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 
@@ -109,7 +111,6 @@ function getIcon(theme: AppTheme) {
     if (theme === "Dark")  return ASCII_MOON_STARS;
     return ASCII_MOON_STARS;
 }
-
 
 function imMain() {
     const fpsCounter = imState(newFpsCounterState);

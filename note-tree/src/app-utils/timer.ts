@@ -1,4 +1,4 @@
-import { imState, getTimeSeconds } from "src/utils/im-dom-utils";
+import { imState, getTimeSeconds } from "src/utils/im-utils-core";
 
 export type TimerState = {
     t0: number;

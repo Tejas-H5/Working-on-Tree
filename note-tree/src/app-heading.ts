@@ -1,10 +1,7 @@
 import { imPadding, NA, PX } from "./components/core/layout";
 import { newH1 } from "./components/core/new-dom-nodes";
-import {
-    imBeginRoot,
-    imIsFirstishRender,
-    setStyle
-} from "./utils/im-dom-utils";
+import { imBeginRoot, imIsFirstishRender} from "./utils/im-utils-core";
+import { setStyle } from "./utils/im-utils-dom";
 
 
 export function imBeginAppHeading() {

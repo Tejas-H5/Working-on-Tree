@@ -1,7 +1,8 @@
 import { cssVarsApp } from "./app-styling";
 import { AsciiIconData } from "./assets/icons";
 import { imBegin } from "./components/core/layout";
-import { imEnd, imIsFirstishRender, imMemo, setStyle, setText } from "./utils/im-dom-utils";
+import { imEnd, imIsFirstishRender, imMemo } from "./utils/im-utils-core";
+import { setStyle, setText } from "./utils/im-utils-dom";
 
 export function imAsciiIcon(icon: AsciiIconData, sizePx: number) {
     imBegin(); {

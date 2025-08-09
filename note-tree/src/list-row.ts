@@ -7,13 +7,8 @@ import {
     PX,
     ROW
 } from "./components/core/layout";
-import {
-    imEnd,
-    imIsFirstishRender,
-    imMemo,
-    setStyle
-} from "./utils/im-dom-utils";
-
+import { imEnd, imIsFirstishRender, imMemo } from "./utils/im-utils-core";
+import { setStyle } from "./utils/im-utils-dom";
 
 type RowStatusInstance = number & { __rowStatus: void; };
 

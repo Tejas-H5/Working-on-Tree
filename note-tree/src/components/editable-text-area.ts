@@ -1,18 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
-import {
-    imBeginRoot,
-    imEnd,
-    imInit,
-    imMemo,
-    imMemoMany,
-    imIsFirstishRender,
-    setAttr,
-    setClass,
-    setInputValue,
-    setStyle,
-    setText,
-    UIRoot
-} from "src/utils/im-dom-utils";
+import { imBeginRoot, imEnd, imInit, imMemo, imIsFirstishRender, UIRoot } from "src/utils/im-utils-core";
+import { setAttr, setClass, setInputValue, setStyle, setText, } from "src/utils/im-utils-dom";
 import { imBegin, imInitClasses, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 

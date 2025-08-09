@@ -1,5 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { imBeginRoot, imEnd, imMemo, imIsFirstishRender, setAttr, setClass } from "src/utils/im-dom-utils";
+import { imBeginRoot, imEnd, imMemo, imIsFirstishRender, } from "src/utils/im-utils-core";
+import { setAttr, setClass } from "src/utils/im-utils-dom"
 import { cssVars } from "./core/stylesheets";
 
 function newInput() {

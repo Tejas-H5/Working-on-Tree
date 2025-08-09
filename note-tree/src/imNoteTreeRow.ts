@@ -7,7 +7,8 @@ import { imListRowCellStyle } from "./list-row";
 import { NavigableListState, imBeginNavListRow, imEndNavListRow } from "./navigable-list";
 import { NoteTreeViewState } from "./note-tree-view";
 import { TreeNote, getNote, state, STATUS_IN_PROGRESS, idIsRoot, idIsNil, getNumSiblings, noteStatusToString, isNoteCollapsed, setNoteText } from "./state";
-import { setClass, imFor, imNextListRoot, imIf, imIsFirstishRender, setStyle, imEnd, imEndIf, imEndFor, imMemo, setText, imBeginSpan, imOn, imElse } from "./utils/im-dom-utils";
+import { imFor, imNextListRoot, imIf, imIsFirstishRender, imEnd, imEndIf, imEndFor, imMemo, imElse } from "./utils/im-utils-core";
+import { setClass, setStyle, setText, imBeginSpan, imOn } from "./utils/im-utils-dom";
 
 export function imNoteTreeRow(
     ctx: GlobalContext,

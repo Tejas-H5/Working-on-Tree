@@ -76,27 +76,8 @@ import {
 import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
-import {
-    END,
-    getElementExtentNormalized,
-    HORIZONTAL,
-    imBeginSpan,
-    imElse,
-    imEnd,
-    imEndFor,
-    imEndIf,
-    imFor,
-    imIf,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    imOn,
-    setClass,
-    setStyle,
-    setText,
-    START,
-    VERTICAL
-} from "./utils/im-dom-utils";
+import { imElse, imEnd, imEndFor, imEndIf, imFor, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
+import { END, getElementExtentNormalized, HORIZONTAL, imBeginSpan, imOn, setClass, setStyle, setText, START, VERTICAL } from "./utils/im-utils-dom";
 import * as tree from "./utils/int-tree";
 
 export type NoteTreeViewState = {

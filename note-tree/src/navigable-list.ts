@@ -4,7 +4,8 @@ import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand,
 import { imBeginListRow, imEndListRow } from "./list-row";
 import { getWrappedIdx } from "./utils/array-utils";
 import { assert } from "./utils/assert";
-import { imBeginList, imEnd, imEndList, imNextListRoot, imState, isEditingTextSomewhereInDocument, ValidKey } from "./utils/im-dom-utils";
+import { imBeginList, imEnd, imEndList, imNextListRoot, imState, ValidKey } from "./utils/im-utils-core";
+import { isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
 
 
 // TODO: maybe there should be a keyboard module instead?

@@ -5,7 +5,8 @@ import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
 import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
-import { getImKeys, isEditingTextSomewhereInDocument, UIRoot } from "./utils/im-dom-utils";
+import { UIRoot } from "./utils/im-utils-core";
+import { getImKeys, isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 

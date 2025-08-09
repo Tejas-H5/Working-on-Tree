@@ -63,30 +63,9 @@ import {
 } from "./state";
 import { imEditableTime } from "./time-input";
 import { boundsCheck, get } from "./utils/array-utils";
-import {
-    clampDate,
-    cloneDate,
-    floorDateLocalTime,
-    formatDate,
-    formatDuration,
-    formatTime,
-    isSameDate
-} from "./utils/datetime";
-import {
-    HORIZONTAL,
-    imBeginSpan,
-    imElse,
-    imEnd,
-    imEndIf,
-    imIf,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    imOn,
-    setStyle,
-    setText,
-    VERTICAL
-} from "./utils/im-dom-utils";
+import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
+import { imElse, imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "src/utils/im-utils-core";
+import { imOn, HORIZONTAL, setStyle, setText, VERTICAL } from "src/utils/im-utils-dom"
 import { imStr } from "./components/core/text";
 
 const FOCUS_ACTIVITIES_LIST = 0;

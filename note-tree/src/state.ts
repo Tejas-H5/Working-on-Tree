@@ -21,11 +21,9 @@ import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { asNoteTreeGlobalState } from "./schema";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { setCssVars } from "./utils/cssb";
 import { fuzzyFind } from "./utils/fuzzyfind";
-import { isEditingTextSomewhereInDocument } from "./utils/im-dom-utils";
+import { isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { newS } from "./components/core/text";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;

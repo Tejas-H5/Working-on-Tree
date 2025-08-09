@@ -40,10 +40,8 @@ import {
     imSwitch,
     newBoolean,
     newNumber,
-    setStyle,
-    setText
-} from "./utils/im-dom-utils";
-
+} from "./utils/im-utils-core";
+import { setStyle, setText } from "./utils/im-utils-dom";
 
 const REQUIRED_PRESSES = 5;
 

@@ -26,18 +26,8 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import {
-    HORIZONTAL,
-    imEnd,
-    imEndIf,
-    imIf,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    imState,
-    setStyle,
-    setText
-} from "./utils/im-dom-utils";
+import { imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
+import { HORIZONTAL, setStyle, setText } from "./utils/im-utils-dom";
 
 
 export type NoteTraversalViewState = {

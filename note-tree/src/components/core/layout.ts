@@ -1,17 +1,5 @@
-import {
-    imBeginDiv,
-    imBeginRoot,
-    imInit,
-    imIsFirstishRender,
-    imMemo,
-    imRef,
-    imState,
-    isExcessEventRender,
-    newDiv,
-    pushAttr,
-    setClass,
-    setStyle
-} from 'src/utils/im-dom-utils.ts';
+import { imBeginRoot, imInit, imIsFirstishRender, imMemo, imRef, imState, isExcessEventRender } from 'src/utils/im-utils-core.ts';
+import { imBeginDiv, newDiv, pushAttr, setClass, setStyle } from 'src/utils/im-utils-dom';
 import { cn } from "./stylesheets.ts";
 
 // It occurs to me that I can actually just make my own fully custom layout system that significantly minimizes

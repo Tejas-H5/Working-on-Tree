@@ -1,16 +1,5 @@
-import {
-    getDeltaTimeSeconds,
-    elementHasMousePress,
-    imEnd,
-    setText,
-    setStyle,
-    imMemo,
-    isExcessEventRender,
-    imIsFirstishRender,
-    imBeginDiv,
-    imBeginSpan,
-    getImCore
-} from 'src/utils/im-dom-utils';
+import { getDeltaTimeSeconds, imEnd, imMemo, isExcessEventRender, imIsFirstishRender, getImCore } from 'src/utils/im-utils-core';
+import { elementHasMousePress, setText, setStyle, imBeginDiv, imBeginSpan } from "src/utils/im-utils-dom";
 import { cssVars } from './core/stylesheets';
 
 export type FpsCounterState = {

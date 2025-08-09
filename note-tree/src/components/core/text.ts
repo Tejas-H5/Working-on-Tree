@@ -1,4 +1,5 @@
-import { imBeginRoot, imBeginSpan, imEnd, imMemo, setTextSafetyRemoved } from "src/utils/im-dom-utils";
+import { imBeginRoot, imEnd, imMemo, } from "src/utils/im-utils-core";
+import { imBeginSpan, setTextSafetyRemoved } from "src/utils/im-utils-dom";
 
 interface Stringifyable {
     toString(): string;

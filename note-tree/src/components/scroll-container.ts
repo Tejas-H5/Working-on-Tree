@@ -1,9 +1,6 @@
 import { COL, imBegin, imFlex, imScrollOverflow, ROW } from "./core/layout";
-import {
-    getDeltaTimeSeconds,
-    getScrollVH,
-    UIRoot
-} from "src/utils/im-dom-utils";
+import { getDeltaTimeSeconds, UIRoot } from "src/utils/im-utils-core";
+import { getScrollVH } from "src/utils/im-utils-dom";
 
 
 // NOTE: if all we need is idx, let's just inline it.

@@ -1,7 +1,8 @@
 import { cssVarsApp } from "src/app-styling";
 import { imBegin, imSize, NA, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { HORIZONTAL, imEnd, imMemo, imIsFirstishRender, setClass, setStyle, VERTICAL } from "src/utils/im-dom-utils";
+import { imEnd, imMemo, imIsFirstishRender } from "src/utils/im-utils-core";
+import { setClass, setStyle, VERTICAL, HORIZONTAL } from "src/utils/im-utils-dom";
 
 const cssb = newCssBuilder();
 const cnHLine = cssb.cn("hline", [

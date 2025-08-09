@@ -10,12 +10,8 @@ import {
     parseTimeInput,
     roundToNearestMinutes
 } from "./utils/datetime";
-import {
-    imOn,
-    imState,
-    setInputValue,
-    UIRoot
-} from "./utils/im-dom-utils";
+import { imState, UIRoot } from "./utils/im-utils-core";
+import { imOn, setInputValue } from "./utils/im-utils-dom"
 
 type TimeInputStateEditEvent = {
     timeInput?: Date | null;

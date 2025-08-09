@@ -41,12 +41,14 @@ import {
     imIsFirstishRender,
     imMemo,
     imNextListRoot,
-    imOn,
     imState,
+} from "./utils/im-utils-core";
+import {
+    imOn,
     setClass,
     setStyle,
     setText
-} from "./utils/im-dom-utils";
+} from "src/utils/im-utils-dom";
 
 
 const SCOPE_EVERTHING = 0;

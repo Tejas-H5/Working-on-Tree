@@ -21,174 +21,19 @@
  * Framework code conevtions:
  * - prefer not using early returns ever. Methods are more easily inlined this way, apparently
  * - prefer using if (x === true) instead of if (x). This appears to be better in performance.
+ *
+ * TODO:
+ * - Use typeId + state
+ * - Decouple framework from DOM
+ * - Far less yapping
  */
 
+// Purely for debug
 import { newCssBuilder } from "./cssb";
 
-///////// 
-// Various seemingly random/arbitrary functions that actually end up being very useful
-
-/** Sets an input's value while retaining it's selection */
-export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
-    if (
-        // performance speedup, and required to be able to select text
-        el.value !== text
-    ) {
-        const { selectionStart, selectionEnd } = el;
-
-        el.value = text;
-
-        el.selectionStart = selectionStart;
-        el.selectionEnd = selectionEnd;
-    }
-}
-
-export function isEditingTextSomewhereInDocument(): boolean {
-    const type = document.activeElement?.nodeName;
-    if (type) {
-        return stringsAreEqual2Versions(type, "textarea", "TEXTAREA") ||
-            stringsAreEqual2Versions(type, "input", "INPUT");
-    }
-    return false;
-}
-
-function stringsAreEqual2Versions(val: string, lowercase: string, uppercase: string) {
-    let result = true;
-
-    if (val.length !== lowercase.length) {
-        result = false;
-    } else {
-        for (let i = 0; i < lowercase.length; i++) {
-            if (val[i] !== lowercase[i] && val[i] !== uppercase[i]) {
-                result = false;
-                break;
-            }
-        }
-    }
-
-    return result;
-}
-
-
-// Flags vastly reduces the need for boolean flags, and look nicer in code compared to  booleans. They also don't allocate memory like args objects
-export const HORIZONTAL = 1 << 1;
-export const VERTICAL   = 1 << 2;
-export const START      = 1 << 3;
-export const END        = 1 << 4;
-
-/**
- * Get the amount you will need to scroll along the horizontal and vertical axes to get the element into view
- */
-export function getScrollVH(
-    scrollParent: HTMLElement,
-    scrollTo: HTMLElement,
-    verticalOffset: number | null = null,
-    horizontalOffset: number | null = null,
-) {
-    let scrollLeft = scrollParent.scrollLeft;
-    let scrollTop = scrollParent.scrollTop;
-
-    if (horizontalOffset !== null) {
-        const scrollOffset = horizontalOffset * scrollParent.offsetWidth;
-        const elementWidthOffset = horizontalOffset * scrollTo.getBoundingClientRect().width;
-
-        // offsetLeft is relative to the document, not the scroll parent. lmao
-        const scrollToElOffsetLeft = scrollTo.offsetLeft - scrollParent.offsetLeft;
-
-        scrollLeft = scrollToElOffsetLeft - scrollOffset + elementWidthOffset;
-    }
-
-    if (verticalOffset !== null) {
-        // NOTE: just a copy paste from above
-        
-        const scrollOffset = verticalOffset * scrollParent.offsetHeight;
-        const elementHeightOffset = verticalOffset * scrollTo.getBoundingClientRect().height;
-
-        // offsetTop is relative to the document, not the scroll parent. lmao
-        const scrollToElOffsetTop = scrollTo.offsetTop - scrollParent.offsetTop;
-
-        scrollTop = scrollToElOffsetTop - scrollOffset + elementHeightOffset;
-    }
-
-    return { scrollTop, scrollLeft };
-}
-
-/**
- * Scrolls {@link scrollParent} to bring scrollTo into view.
- * {@link scrollToRelativeOffset} specifies where to to scroll to. 0 = bring it to the top of the scroll container, 1 = bring it to the bottom
- */
-export function scrollIntoViewVH(
-    scrollParent: HTMLElement,
-    scrollTo: HTMLElement,
-    verticalOffset: number | null = null,
-    horizontalOffset: number | null = null,
-) {
-    const { scrollLeft, scrollTop } = getScrollVH(
-        scrollParent,
-        scrollTo,
-        verticalOffset,
-        horizontalOffset
-    );
-
-    scrollParent.scrollLeft = scrollLeft;
-    scrollParent.scrollTop = scrollTop;
-}
-
-export function scrollIntoViewRect(
-    scrollParent: HTMLElement,
-    scrollTo: HTMLElement,
-    x0: number, y0: number, 
-    x1: number, y1: number
-) {
-    let scrollH: number | null = null;
-    let scrollV: number | null = null;
-
-    if (getElementExtentNormalized(scrollParent, scrollTo, VERTICAL | START) < y0) {
-        scrollV = y0;
-    } else if (getElementExtentNormalized(scrollParent, scrollTo, VERTICAL | END) > y1) {
-        scrollV = y1
-    }
-
-    if (getElementExtentNormalized(scrollParent, scrollTo, HORIZONTAL | START) < x0) {
-        scrollH = x0;
-    } else if (getElementExtentNormalized(scrollParent, scrollTo, HORIZONTAL | END) > x1) {
-        scrollH = x1;
-    }
-
-    scrollIntoViewVH(scrollParent, scrollTo, scrollV, scrollH);
-}
-
-// Useful for scrolling.
-// numbers < 0 indicate offscreen in the negative direction, and > 1 in the positive. kind-of - just hte top or bottom edge, not whole thing
-export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: HTMLElement, flags = VERTICAL | START) {
-    let result;
-
-    if ((flags & VERTICAL) !== 0) {
-        const scrollOffset = scrollTo.offsetTop - scrollParent.scrollTop - scrollParent.offsetTop;
-
-        if (flags & END) {
-            result = (scrollOffset + scrollTo.getBoundingClientRect().height) / scrollParent.offsetHeight;
-        } else {
-            result = scrollOffset / scrollParent.offsetHeight;
-        }
-    } else {
-        // NOTE: This is just a copy-paste from above. 
-        // I would paste a vim-macro here, but it causes all sorts of linting errors.
-
-        const scrollOffset = scrollTo.offsetLeft - scrollParent.scrollLeft - scrollParent.offsetLeft;
-
-        if ((flags & END) !== 0) {
-            result = (scrollOffset + scrollTo.getBoundingClientRect().width) / scrollParent.offsetWidth;
-        } else {
-            result = scrollOffset / scrollParent.offsetWidth;
-        }
-    }
-
-    return result;
-}
-
-///////// 
-// The immediate-mode rendering API
+// TODO: remove/invert dependency
+import { appendToDomRoot, DomAppender, ImKeyboardState, ImMouseState, resetKeyboardState, resetMouseState, setClass, setClickedElement } from "./im-utils-dom";
+function hasDomDependency() { /** This code as a dependency on DOM */ };
 
 function renderStub() {}
 
@@ -198,7 +43,6 @@ export type ImCore = {
     appRoot:       UIRoot;
 
     currentStack:    (UIRoot | ListRenderer)[];
-    currentContexts: StateItem[];
 
     // Only one of these is defined at a time.
     currentRoot:         UIRoot | undefined;
@@ -219,6 +63,7 @@ export type ImCore = {
     isRendering: boolean;
     _isExcessEventRender: boolean;
 
+    // TODO: move to im-utils-dom
     globalEventHandlers: {
         mousedown:  (e: MouseEvent) => void;
         mousemove:  (e: MouseEvent) => void;
@@ -239,19 +84,23 @@ export type ImCore = {
     numCacheMisses: number;
 };
 
+export type ValidElement = HTMLElement | SVGElement;
+
+export type UIRootItem = UIRoot | ListRenderer | StateItem;
+
 // Not defining them this early causes lexical whatever javascript errors
 const ITEM_LIST_RENDERER = 2;
 const ITEM_UI_ROOT = 1;
 const ITEM_STATE = 3;
 
 export const REMOVE_LEVEL_NONE = 1;
-export const REMOVE_LEVEL_DOM = 2;
-export const REMOVE_LEVEL_DESTROY = 3;
+export const REMOVE_LEVEL_DETATCHED = 2;
+export const REMOVE_LEVEL_DESTROYED = 3;
 
 export type RemovedLevel 
     = typeof REMOVE_LEVEL_NONE
-    | typeof REMOVE_LEVEL_DOM   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
-    | typeof REMOVE_LEVEL_DESTROY;
+    | typeof REMOVE_LEVEL_DETATCHED   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
+    | typeof REMOVE_LEVEL_DESTROYED;
 
 /** Don't forget to initialize this core with {@link initImDomUtils} */
 export function newImCore(root: HTMLElement = document.body): ImCore {
@@ -290,7 +139,6 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         appRoot: newUiRoot(() => root),
 
         currentStack: [],
-        currentContexts: [],
         currentRoot: undefined,
         currentListRenderer: undefined,
 
@@ -318,8 +166,7 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
         // stored, so we can dispose them later if needed.
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
-                const { mouse } = core;
-                setClickedElement(core, e.target);
+                setClickedElement(core.mouse, e.target);
                 mouse.hasMouseEvent = true;
                 if (e.button === 0) {
                     mouse.leftMouseButton = true;
@@ -373,8 +220,8 @@ export function newImCore(root: HTMLElement = document.body): ImCore {
                 rerenderImCore(core, core.lastTime, true);
             },
             blur: () => {
-                resetMouseState(core, true);
-                resetKeyboardState(core);
+                resetMouseState(core.mouse, true);
+                resetKeyboardState(core.keyboard);
                 core.keyboard.blur = true;
                 rerenderImCore(core, core.lastTime, true);
             }
@@ -408,33 +255,6 @@ const defaultCore = newImCore();
 // Contains ALL the state. In an atypical usecase, there may be multiple cores that must switch between each other.
 let imCore = defaultCore;
 
-export type ValidElement = HTMLElement | SVGElement;
-export type StyleObject<U extends ValidElement> = (U extends HTMLElement ? keyof HTMLElement["style"] : keyof SVGElement["style"]);
-
-export type StateItem<T = unknown>  = {
-    t: typeof ITEM_STATE;
-    v: T;
-    supplier: () => unknown;
-};
-
-export type UIRootItem = UIRoot | ListRenderer | StateItem;
-
-export type DomAppender<E extends ValidElement = ValidElement> = {
-    root: E;
-    idx: number;
-};
-
-export function appendToDomRoot(domAppender: DomAppender, child: ValidElement) {
-    const i = ++domAppender.idx;
-    const root = domAppender.root;
-
-    const children = root.children;
-    if (i === children.length) {
-        root.appendChild(child);
-    } else if (children[i] !== child) {
-        root.insertBefore(child, children[i]);
-    }
-}
 
 /** 
  * This is a node in the immediate-mode tree.
@@ -472,7 +292,8 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     parentListRenderer: ListRenderer | null;
 
     removeLevel: RemovedLevel; // an indication of an ancenstor's remove level.
-    isInConditionalPathway: boolean;
+    // is this root in the conditional pathway? NOTE: this is an internal variable that is only set when certain im-methods are actually rendering under this root and might need it.
+    isInConditionalPathway: boolean; 
     // true for the first frame where this UI root is in the current code path.
     // you'll need this to correctly handle on-focus interactions.
     startedConditionallyRendering: boolean; 
@@ -481,6 +302,39 @@ export type UIRoot<E extends ValidElement = ValidElement> = {
     // We need to memoize on the last text - otherwise, we literally can't even select the text.
     lastText: string;
 };
+
+
+// Can be anything, I'm pretty sure.
+export type ValidKey = string | number | Function | object | unknown;
+
+export type ListRenderer = {
+    readonly t: typeof ITEM_LIST_RENDERER;
+    readonly uiRoot: UIRoot;
+
+    readonly builders: UIRoot[];
+    keys: Map<ValidKey, {
+        root: UIRoot;
+        rendered: boolean;
+    }> | undefined;
+
+    builderIdx: number;
+    current: UIRoot | null;
+
+    // TODO: add LRU cache for REMOVE_LEVEL_DOM. Otherwise we'll just infinitely grow in memory usage.
+    // While not a problem for us yet, it will be eventually.
+    cacheRemoveLevel: typeof REMOVE_LEVEL_DETATCHED   | typeof REMOVE_LEVEL_DESTROYED;
+}
+
+// TODO: use TypeIds
+export type StateItem<T = unknown>  = {
+    t: typeof ITEM_STATE;
+    v: T;
+    supplier: () => unknown;
+};
+
+export type RenderFn<T extends ValidElement = ValidElement> = (r: UIRoot<T>) => void;
+export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElement> = (r: UIRoot<T>, ...args: A) => void;
+
 
 export function newUiRoot<E extends ValidElement>(
     supplier: (() => E) | null,
@@ -508,7 +362,7 @@ export function newUiRoot<E extends ValidElement>(
         lastItemIdx: -1,
         hasRealChildren: false,
 
-        removeLevel: REMOVE_LEVEL_DOM,
+        removeLevel: REMOVE_LEVEL_DETATCHED,
         parentRoot: null,
         isInConditionalPathway: false,
         parentListRenderer: null,
@@ -531,70 +385,12 @@ function __beginUiRoot(r: UIRoot, startDomIdx: number, startItemIdx: number, par
     imCore.currentListRenderer = undefined;
 }
 
-export function setClass(val: string, enabled: boolean | number = true, r = getCurrentRoot()): boolean {
-    if (enabled !== false && enabled !== 0) {
-        r.root.classList.add(val);
-    } else {
-        r.root.classList.remove(val);
-    }
-
-    return !!enabled;
-}
-
-/**
- * NOTE: this method is not ideal - it can only manage a single text node under a DOM element at a time.
- * This is usually not enough. You're better off making a text abstraction.
- */
-export function setText(text: string, r = getCurrentRoot()) {
-    if (r.hasRealChildren === true) throw new Error("But think about the children! (Don't overwrite them with text)");
-    if (r.elementSupplier === null) throw new Error("You probably didn't want to call this on a list root");
-
-    // While this is a performance optimization, we also kinda need to do this - 
-    // otherwise, if we're constantly mutating the text, we can never select it!
-    if (r.lastText !== text) {
-        r.lastText = text;
-        setTextSafetyRemoved(text);
-    }
-}
-
-/**
- * Use this if you are already memoizing the text somehow on your end
- */
-export function setTextSafetyRemoved(text: string, r = getCurrentRoot()) {
-    if (r.root.childNodes.length === 0) {
-        r.root.appendChild(document.createTextNode(text));
-    } else {
-        const textNode = r.root.childNodes[0];
-        textNode.nodeValue = text;
-    }
-}
-
-export function setAttrElement(e: ValidElement, attr: string, val: string | null) {
-    if (val !== null) {
-        e.setAttribute(attr, val);
-    } else {
-        e.removeAttribute(attr);
-    }
-}
-
-export function setAttr(k: string, v: string, r = getCurrentRoot()) {
-    return setAttrElement(r.root, k, v);
-}
-
-export function pushAttr(k: string, v: string, r = getCurrentRoot()) {
-    return setAttrElement(r.root, k, getAttr(k, r) + v);
-}
-
-export function getAttr(k: string, r = getCurrentRoot()) : string {
-    return r.root.getAttribute(k) || "";
-}
-
 // Recursively destroys all UI roots under this one.
 // Should only be called in one place, and never called twice on the same root.
 function __onUIRootDestroy(r: UIRoot) {
     // don't re-traverse this bit.
-    if (r.removeLevel < REMOVE_LEVEL_DESTROY) {
-        r.removeLevel = REMOVE_LEVEL_DESTROY;
+    if (r.removeLevel < REMOVE_LEVEL_DESTROYED) {
+        r.removeLevel = REMOVE_LEVEL_DESTROYED;
 
         for (let i = 0; i < r.items.length; i++) {
             const item = r.items[i];
@@ -666,9 +462,9 @@ export function __removeAllDomElementsFromUiRoot(r: UIRoot, removeLevel: Removed
             const item = r.items[i];
             if (item.t === ITEM_UI_ROOT) {
                 item.domAppender.root.remove();
-                if (removeLevel === REMOVE_LEVEL_DOM) {
+                if (removeLevel === REMOVE_LEVEL_DETATCHED) {
                     __onUIRootDomRemove(item);
-                } else if (removeLevel === REMOVE_LEVEL_DESTROY) {
+                } else if (removeLevel === REMOVE_LEVEL_DESTROYED) {
                     __onUIRootDestroy(item);
                 }
             } else if (item.t === ITEM_LIST_RENDERER) {
@@ -695,26 +491,8 @@ export function __removeAllDomElementsFromUiRoot(r: UIRoot, removeLevel: Removed
 }
 
 export function addDestructor(r: UIRoot, destructor: () => void) {
-    if (!r.destructors) r.destructors = [];
+    if (r.destructors === undefined) r.destructors = [];
     r.destructors.push(destructor);
-}
-
-export type ListRenderer = {
-    readonly t: typeof ITEM_LIST_RENDERER;
-    readonly uiRoot: UIRoot;
-
-    readonly builders: UIRoot[];
-    keys: Map<ValidKey, {
-        root: UIRoot;
-        rendered: boolean;
-    }> | undefined;
-
-    builderIdx: number;
-    current: UIRoot | null;
-
-    // TODO: add LRU cache for REMOVE_LEVEL_DOM. Otherwise we'll just infinitely grow in memory usage.
-    // While not a problem for us yet, it will be eventually.
-    cacheRemoveLevel: typeof REMOVE_LEVEL_DOM   | typeof REMOVE_LEVEL_DESTROY;
 }
 
 function __beginListRenderer(l: ListRenderer) {
@@ -728,8 +506,6 @@ function __beginListRenderer(l: ListRenderer) {
     pushList(l);
 }
 
-export type RenderFn<T extends ValidElement = ValidElement> = (r: UIRoot<T>) => void;
-export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElement> = (r: UIRoot<T>, ...args: A) => void;
 
 /**
  * Opens a list rendering context under the current UI Root. 
@@ -784,14 +560,12 @@ export type RenderFnArgs<A extends unknown[], T extends ValidElement = ValidElem
  * This is why I've added {@link imFor}, {@link imIf}, {@link imSwitch} et al, so I never use 
  * imBeginList directly in practice. But it does help to know how they are all the same think under the hood.
  */
-export function imBeginList(removeLevel: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DOM): ListRenderer {
+export function imBeginList(removeLevel: ListRenderer["cacheRemoveLevel"] = REMOVE_LEVEL_DETATCHED): ListRenderer {
     const core = imCore;
-    if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
-
     const r = getCurrentRoot();
 
     const items = r.items;
-    const idx = getNextItemSlotIdx(r);
+    const idx = getNextItemSlotIdx(r, core);
 
     let result: ListRenderer | undefined; 
     if (idx < items.length) {
@@ -820,7 +594,9 @@ export function imBeginList(removeLevel: ListRenderer["cacheRemoveLevel"] = REMO
 const cssb = newCssBuilder("im-dom-utils--debug");
 const debug1PxSolidRed = cssb.cn("debug1pxSolidRed", [` { border: 1px solid red; }`]);
 
-function getNextItemSlotIdx(r: UIRoot): number {
+function getNextItemSlotIdx(r: UIRoot, core: ImCore): number {
+    if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
+
     if (r.itemsIdx === -1) { 
         if (r.isInConditionalPathway === false) {
             r.isInConditionalPathway = true;
@@ -869,7 +645,7 @@ function getNextItemSlotIdx(r: UIRoot): number {
  * ```
  */
 export function imIf() {
-    imBeginList(REMOVE_LEVEL_DOM);
+    imBeginList(REMOVE_LEVEL_DETATCHED);
     imNextListRoot();
     return true as const;
 }
@@ -898,7 +674,7 @@ export function imIf() {
  * ```
  */
 export function imSwitch(key: ValidKey) {
-    imBeginList(REMOVE_LEVEL_DOM);
+    imBeginList(REMOVE_LEVEL_DETATCHED);
     imNextListRoot(key);
 }
 
@@ -982,9 +758,6 @@ export function imEndTry() {
     enableIm();
     imEndList();
 }
-
-// Can be anything, I'm pretty sure.
-export type ValidKey = string | number | Function | object | unknown;
 
 /**
  * This method appends a UI root to an open list-rendering context.
@@ -1144,6 +917,8 @@ export type DeferredAction = (() => void) | undefined;
  *
  * In which chase, you'll set {@link inline} to true. This can be a bad idea -
  * you will be less likely to catch out-of-order rendering bugs that can corrupt your state.
+ *
+ * // TODO: delete this in favour of typeID + refs
  */
 export function imState<T>(supplier: () => T, inline: boolean = false, r = getCurrentRoot()): T {
     return imStateInternal(supplier, inline, r).v;
@@ -1151,10 +926,8 @@ export function imState<T>(supplier: () => T, inline: boolean = false, r = getCu
 
 function imStateInternal<T>(supplier: () => T, inline: boolean, r: UIRoot = getCurrentRoot()): StateItem<T> {
     const core = imCore;
-    if (core.imDisabled === true) throw new Error("Don't access immediate mode state when immediate mode is disabled");
-
     const items = r.items;
-    const idx = getNextItemSlotIdx(r);
+    const idx = getNextItemSlotIdx(r, core);
 
     let result: StateItem<T>;
     if (idx < items.length) {
@@ -1188,83 +961,6 @@ function imStateInternal<T>(supplier: () => T, inline: boolean, r: UIRoot = getC
 
     return result;
 }
-
-/**
- * This framework's equivelant of React.Context. 
- * It mainly helps reduce noise in certain APIs.
- * It is basically the same as `imState`, but you can access said state later via child components.
- *
- * ```ts
- * const supplier = () => ({ x: 0 });
- *
- * function imMain() {
- *     imBeginContext(supplier); {
- *          imThirdPartyComponent(); {
- *              someComponent();
- *          } imEndThirdPartyComponent();
- *     } imEndContext(supplier);
- *
- *     // If you didn't wrap this in imBeginContext somewhere up the call stack, this will throw. :)
- *     someComponent() 
- * }
- *
- * function someComponent() {
- *      // We didn't need to pass it via args to get it.
- *      const state = imGetContext(supplier);
- *      imBegin(); setText(state.x); imEnd();
- * }
- *
- * ```
- * 
- * NOTE: I added this API because I kept thinking of cool usecases for this.
- * however, every time I have reached for it in practice, I have regretted it.
- * There was often a far simpler, straightforward and type-safer way to accomplish the same thing.
- * You may find the same to be true as well.
- * I'm keeping it around just in case, but if I don't use it once in 2025, I'll just be removing it.
- */
-export function imBeginContext<T>(supplier: () => T): T {
-    const core = imCore;
-    const state = imStateInternal(supplier, false);
-    core.currentContexts.push(state);
-    return state.v;
-}
-
-export function imEndContext<T>(supplier: () => T) {
-    const core = imCore;
-
-    if (core.currentContexts.length === 0) 
-        throw new Error("There were no contexts to pop - this means you've popped more contexts than you've pushed");
-
-    const lastContext = core.currentContexts[core.currentContexts.length - 1];
-    if (lastContext.supplier !== supplier) throw new Error("You may have forgotten to pop another context before this one");
-
-    return (core.currentContexts.pop() as StateItem<T>).v;
-}
-
-
-export function imGetContextOrNull<T>(supplier: () => T): T | null {
-    const core = imCore;
-
-    for (let i = core.currentContexts.length - 1; i >= 0; i--) {
-        const ctx = core.currentContexts[i];
-        if (ctx.supplier === supplier) {
-            return ctx.v as T;
-        }
-    }
-
-    return null;
-}
-
-export function imGetContext<T>(supplier: () => T): T {
-    const ctx = imGetContextOrNull(supplier);
-
-    if (ctx === null) {
-        throw new Error("No context for " + supplier.name + " could be found on the context stack");
-    }
-
-    return ctx;
-}
-
 
 /**
  * Allows you to get the current root without having a reference to it.
@@ -1305,11 +1001,12 @@ export function imUnappendedRoot<E extends ValidElement = ValidElement>(
     elementSupplier: () => E,
     r: UIRoot<ValidElement>
 ): UIRoot<E> {
+    hasDomDependency;
+
     const core = imCore;
-    if (core.imDisabled === true) throw new Error("Immediate mode has beend disabled for this section");
 
     const items = r.items;
-    const idx = getNextItemSlotIdx(r);
+    const idx = getNextItemSlotIdx(r, core);
 
     let result: UIRoot<E> | undefined;
     if (idx < items.length) {
@@ -1346,11 +1043,15 @@ export function imBeginExistingRoot<E extends ValidElement = ValidElement>(
     parent: UIRoot<ValidElement>
 ) {
     parent.hasRealChildren = true;
+
     appendToDomRoot(parent.domAppender, root.domAppender.root);
+
     __beginUiRoot(root, -1, -1, parent);
 }
 
 export function imBeginRoot<E extends ValidElement = ValidElement>(elementSupplier: () => E): UIRoot<E> {
+    hasDomDependency;
+
     const r = getCurrentRoot();
     const result = imUnappendedRoot(elementSupplier, r);
     imBeginExistingRoot(result, r);
@@ -1361,14 +1062,16 @@ export function imBeginRoot<E extends ValidElement = ValidElement>(elementSuppli
  * This method pops any element from the global element stack that we created via {@link imBeginRoot}.
  * This is called `imEnd` instad of `end`, because `end` is a good variable name that we don't want to squat on.
  */
-export function imEnd(removeLevel: RemovedLevel = REMOVE_LEVEL_DOM, r: UIRoot = getCurrentRoot()) {
+export function imEnd(removeLevel: RemovedLevel = REMOVE_LEVEL_DETATCHED, r: UIRoot = getCurrentRoot()) {
+    hasDomDependency;
+
     const notDerived = r.elementSupplier !== null;
     if (notDerived) {
         // Defer the mouse events upwards, so that parent elements can handle it if they want
         const el = r.root;
         const parent = el.parentNode;
 
-        const mouse = getImMouse();
+        const mouse = imCore.mouse;
         if (mouse.clickedElement === el) {
             mouse.clickedElement = parent;
         }
@@ -1389,33 +1092,6 @@ export function imEnd(removeLevel: RemovedLevel = REMOVE_LEVEL_DOM, r: UIRoot = 
     }
 
     if (r.itemsIdx !== -1 && r.itemsIdx !== r.items.length - 1) throw new Error("A different number of immediate mode state entries were pushed this render. You may be doing conditional rendering in a way that is invisible to this framework. See imIf, imElseIf, imElse, imSwitch, imFor, imWhile, imList, imNextListRoot, etc. for some alternatives.");
-}
-
-function newIsOnScreenState() {
-    const r = getCurrentRoot();
-    const self = {
-        isOnScreen: false,
-        observer: new IntersectionObserver((entries) => {
-            for (const entry of entries) {
-                self.isOnScreen = entry.isIntersecting;
-            }
-        })
-    };
-
-    const core = imCore;
-    self.observer.observe(r.root);
-    core.numIntersectionObservers++;
-    addDestructor(r, () => {
-        core.numIntersectionObservers--;
-        self.observer.disconnect()
-    });
-
-    return self;
-}
-
-export function imIsOnScreen() {
-    const isOnScreenRef = imState(newIsOnScreenState);
-    return isOnScreenRef.isOnScreen;
 }
 
 
@@ -1458,7 +1134,7 @@ export function imEndList() {
     for (let i = l.builderIdx; i < l.builders.length; i++) {
         __removeAllDomElementsFromUiRoot(l.builders[i], l.cacheRemoveLevel);
     }
-    if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROY) {
+    if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROYED) {
         l.builders.length = l.builderIdx;
     }
 
@@ -1466,7 +1142,7 @@ export function imEndList() {
         for (const [k, v] of l.keys) {
             if (v.rendered === false) {
                 __removeAllDomElementsFromUiRoot(v.root, l.cacheRemoveLevel);
-                if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROY) {
+                if (l.cacheRemoveLevel === REMOVE_LEVEL_DESTROYED) {
                     l.keys.delete(k);
                 }
             }
@@ -1484,37 +1160,8 @@ function newListRenderer(root: UIRoot): ListRenderer {
         builders: [],
         builderIdx: 0,
         current: null,
-        cacheRemoveLevel: REMOVE_LEVEL_DOM,
+        cacheRemoveLevel: REMOVE_LEVEL_DETATCHED,
     };
-}
-
-export function createSvgElement<E extends SVGElement>(type: string): E {
-    const xmlNamespace = "http://www.w3.org/2000/svg";
-    const svgEl = document.createElementNS(xmlNamespace, type) as E;
-    if (type === "svg" || type === "SVG") {
-        // Took this from https://stackoverflow.com/questions/8215021/create-svg-tag-with-javascript
-        // Not sure if actually needed
-        svgEl.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
-        svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    }
-
-    return svgEl;
-}
-
-export function newDiv() {
-    return document.createElement("div");
-}
-
-export function newSpan() {
-    return document.createElement("span");
-}
-
-export function imBeginDiv(): UIRoot<HTMLDivElement> {
-    return imBeginRoot<HTMLDivElement>(newDiv);
-}
-
-export function imBeginSpan(): UIRoot<HTMLSpanElement> {
-    return imBeginRoot<HTMLSpanElement>(newSpan);
 }
 
 export function abortListAndRewindUiStack(l: ListRenderer) {
@@ -1529,7 +1176,7 @@ export function abortListAndRewindUiStack(l: ListRenderer) {
 
     const r = l.current;
     if (r !== null) {
-        __removeAllDomElementsFromUiRoot(r, REMOVE_LEVEL_DOM);
+        __removeAllDomElementsFromUiRoot(r, REMOVE_LEVEL_DETATCHED);
 
         // need to reset the dom root, since we've just removed elements underneath it
         r.domAppender.idx = -1;
@@ -1589,7 +1236,7 @@ function newMap<K, V>() {
     return new Map<K, V>();
 }
 
-export function imMap<K, V>(): Map<K, V> {
+export function imNewMap<K, V>(): Map<K, V> {
     return imState(newMap<K, V>);
 }
 
@@ -1598,7 +1245,7 @@ function newSet<T>() {
     return new Set<T>();
 }
 
-export function imSet<K>(): Set<K> {
+export function imNewSet<K>(): Set<K> {
     return imState(newSet<K>);
 }
 
@@ -1702,57 +1349,6 @@ export function setImCore(core: ImCore) {
 }
 
 /**
- * Attatch an event handler of your choice to the current UI Root, and 
- * handle the event directly in the render function without lambdas.
- * 
- * This significanlty simplifies the implementation of error boundaries that respond to 
- * errors in arbitrary events.
- * 
- * NOTE: The event type must never change, because the event handler only gets added on the first render.
- * I have found that adding assertion code and even diffing code here has a significant impact on performance,
- * so I've chosen to not add it for now. In the future, I may expose the 
- * event types as integer enums, which should fix this issue. 
- */
-export function imOn<K extends keyof HTMLElementEventMap>(
-    type: K
-): HTMLElementEventMap[K] | null {
-    const eventRef = imRef<HTMLElementEventMap[K]>();
-    const core = imCore;
-
-    if (imInit() === true) {
-        const r = getCurrentRoot();
-
-        const handler = (e: HTMLElementEventMap[K]) => {
-            eventRef.val = e;
-            rerenderImCore(core, core.lastTime, true);
-        }
-        r.root.addEventListener(
-            type, 
-            // @ts-expect-error this thing is fine, actually.
-            handler
-        );
-
-        core.numEventHandlers++;
-
-        addDestructor(r, () => {
-            core.numEventHandlers--;
-
-            r.root.removeEventListener(
-                type,
-                // @ts-expect-error this thing is fine, actually.
-                handler
-            );
-        });
-    }
-
-    if (eventRef.val === null) return null;
-
-    const ev = eventRef.val;
-    eventRef.val = null;
-    return ev;
-}
-
-/**
  * Returns true the first time it's called, and false every other time.
  */
 export function imInit(): boolean {
@@ -1765,42 +1361,6 @@ export function imInit(): boolean {
 
     return false;
 }
-
-export function addClasses(classes: string[]) {
-    for (let i = 0; i < classes.length; i++) {
-        setClass(classes[i]);
-    }
-}
-
-
-export function setStyle<K extends (keyof ValidElement["style"])>(key: K, value: string, r = getCurrentRoot()) {
-    if (r.elementSupplier === null) throw new Error("Setting text on a list root can't be done - it doesn't have an associated DOM element");
-
-    // NOTE: memoization should be done on your end, not mine
-
-    // @ts-expect-error it sure is
-    r.root.style[key] = value;
-}
-
-///////// 
-// Realtime proper immediate-mode events API, with events.
-//
-// I wasn't able to find a good clean solution to the problem
-// of adding and removing events locally, so I'm attempting to
-// go down a second road of rerendering the entire app at 60fps.
-//
-// It would be interesting to see how far this approach scales. (23/03/2025)
-//
-// So far, it's going pretty great! (16/04/2025)
-
-export type KeyPressEvent = {
-    key: string;
-    code: string;
-    shift: boolean;
-    ctrl: boolean;
-    alt: boolean;
-    meta: boolean;
-};
 
 export function getDeltaTimeSeconds(): number {
     return imCore.dtSeconds;
@@ -1860,7 +1420,7 @@ export function initImCore(core: ImCore) {
 
 
 export function uninitImCore(core: ImCore) {
-    if (!core.initialized) {
+    if (core.initialized === false) {
         console.warn("This context has not been initialized yet!");
         return;
     }
@@ -1944,7 +1504,6 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
 
     core.isRendering = true;
     core.currentStack.length = 0;
-    core.currentContexts.length = 0;
     enableIm();
     __beginUiRoot(core.appRoot, -1, -1, null);
 
@@ -1958,8 +1517,8 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
 
     // end frame
  
-    resetKeyboardState(core);
-    resetMouseState(core, false);
+    resetKeyboardState(core.keyboard);
+    resetMouseState(core.mouse, false);
 
     core.mouse.hasMouseEvent = false;
     core.itemsRenderedLastFrame = core.itemsRendered;
@@ -1967,10 +1526,6 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
     core.isRendering = false;
     if (isInsideEvent === true) {
         core._isExcessEventRender = isInsideEvent;
-    }
-
-    if (core.currentContexts.length !== 0) {
-        throw new Error(`You've forgotten to pop some contexts: ${core.currentContexts.map(c => c.supplier.name).join(", ")}`);
     }
 
     if (core.currentStack.length !== 1) {
@@ -1992,205 +1547,6 @@ export function rerenderImCore(core: ImCore, t: number, isInsideEvent: boolean) 
     }
 }
 
-export type ImKeyboardState = {
-    // We need to use this approach instead of a buffered approach like `keysPressed: string[]`, so that a user
-    // may call `preventDefault` on the html event as needed.
-    // NOTE: another idea is to do `keys.keyDown = null` to prevent other handlers in this framework
-    // from knowing about this event.
-    keyDown: KeyboardEvent | null;
-    keyUp: KeyboardEvent | null;
-    blur: boolean;
-};
-
-function resetKeyboardState(core: ImCore) {
-    const keyboard = core.keyboard;
-    keyboard.keyDown = null;
-    keyboard.keyUp = null;
-    keyboard.blur = false;
-}
-
-export type ImMouseState = {
-    lastX: number;
-    lastY: number;
-
-    leftMouseButton: boolean;
-    middleMouseButton: boolean;
-    rightMouseButton: boolean;
-    hasMouseEvent: boolean;
-
-    dX: number;
-    dY: number;
-    X: number;
-    Y: number;
-
-    /**
-     * NOTE: if you want to use this, you'll have to prevent scroll event propagation.
-     * See {@link imPreventScrollEventPropagation}
-     */
-    scrollWheel: number;
-
-    clickedElement: object | null;
-    lastClickedElement: object | null;
-    lastClickedElementOriginal: object | null;
-    hoverElement: object | null;
-    hoverElementOriginal: object | null;
-};
-
-function resetMouseState(core: ImCore, clearPersistedStateAsWell: boolean) {
-    const { mouse } = core;
-    
-    mouse.dX = 0;
-    mouse.dY = 0;
-    mouse.lastX = mouse.X;
-    mouse.lastY = mouse.Y;
-
-    mouse.clickedElement = null;
-    mouse.scrollWheel = 0;
-
-    if (clearPersistedStateAsWell === true) {
-        mouse.leftMouseButton = false;
-        mouse.middleMouseButton = false;
-        mouse.rightMouseButton = false;
-
-        mouse.lastClickedElement = null;
-        mouse.lastClickedElementOriginal = null;
-        mouse.hoverElement = null;
-        mouse.hoverElementOriginal = null;
-    }
-}
-
-export function getImMouse() {
-    return imCore.mouse;
-}
-
-export function getImKeys(): ImKeyboardState {
-    return imCore.keyboard;
-}
-
-
-// I cant fking believe this shit works, lol
-
-/**
- * Mouse press is distinct from mouse-click - A click is what happens when we release the mouse
- * above the same element that we pressed it on. However a press happens immediately on mouse-down.
- * TODO: add elementHasMouseClick
- */
-export function elementHasMousePress() {
-    const mouse = getImMouse();
-    const r = getCurrentRoot();
-    if (mouse.leftMouseButton === true) {
-        return r.root === mouse.clickedElement;
-    }
-    return  false;
-}
-
-export function elementHasMouseDown(
-    // Do we care that this element was initially clicked?
-    // Set to false if you want to detect when an element drags their mouse over this element but 
-    // it didn't initiate the click from this element.
-    hadClick = true
-) {
-    const r = getCurrentRoot();
-
-    if (hadClick === true) {
-        return r.root === imCore.mouse.lastClickedElement;
-    }
-
-    return imCore.mouse.leftMouseButton && elementHasMouseHover();
-}
-
-export function elementHasMouseHover() {
-    const r = getCurrentRoot();
-    return r.root === imCore.mouse.hoverElement;
-}
-
-export function getHoveredElement() {
-    return imCore.mouse.hoverElement;
-}
-
-function setClickedElement(core: ImCore, el: object | null) {
-    const { mouse } = core;
-
-    mouse.clickedElement = el;
-    mouse.lastClickedElement = el;
-    mouse.lastClickedElementOriginal = el;
-}
-
-function newPreventScrollEventPropagationState() {
-    return { 
-        isBlocking: true,
-        scrollY: 0,
-    };
-}
-
-export function imPreventScrollEventPropagation() {
-    const state = imState(newPreventScrollEventPropagationState);
-
-    if (imInit() === true) {
-        const r = getCurrentRoot();
-        const handler = (e: Event) => {
-            if (state.isBlocking === true) {
-                e.preventDefault();
-            }
-        }
-        r.root.addEventListener("wheel", handler);
-        addDestructor(r, () => {
-            r.root.removeEventListener("wheel", handler);
-        });
-    }
-
-    const mouse = getImMouse();
-    if (state.isBlocking === true && elementHasMouseHover() && mouse.scrollWheel !== 0) {
-        state.scrollY += mouse.scrollWheel;
-        mouse.scrollWheel = 0;
-    } else {
-        state.scrollY = 0;
-    }
-
-    return state;
-}
-
-export type SizeState = {
-    width: number;
-    height: number;
-}
-
-function newImGetSizeState(): {
-    size: SizeState;
-    observer: ResizeObserver;
-    resized: boolean;
-} {
-    const r = getCurrentRoot();
-    const core = imCore;
-
-    const self = {
-        size: { width: 0, height: 0, },
-        resized: false,
-        observer: new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                // NOTE: resize-observer cannot track the top, right, left, bottom of a rect. Sad.
-                self.size.width = entry.contentRect.width;
-                self.size.height = entry.contentRect.height;
-                break;
-            }
-
-            rerenderImCore(core, core.lastTime, false);
-        })
-    };
-
-    self.observer.observe(r.root);
-    core.numResizeObservers++;
-    addDestructor(r, () => {
-        core.numResizeObservers--;
-        self.observer.disconnect()
-    });
-
-    return self;
-}
-
-export function imTrackSize() {
-    return imState(newImGetSizeState);
-}
 
 /**
  * This is similar to {@link imInit}, but does not create an im-state entry, which should speed up each render.
@@ -2208,7 +1564,7 @@ export function imTrackSize() {
  * - triggering API requests, initializing a thing. Not ideal to do it multiple times
  */
 export function imIsFirstishRender(): boolean {
-    return !getCurrentRoot().completedOneRender;
+    return getCurrentRoot().completedOneRender === false;
 }
 
 // Doing string comparisons every frame kills performance, if done for every singe DOM node.
@@ -2216,4 +1572,5 @@ export function imIsFirstishRender(): boolean {
 // TODO: enum for all events
 // TODO: enum for all styles
 // TODO: enum for all DOM node types
+
 

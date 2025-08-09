@@ -24,19 +24,8 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import {
-    HORIZONTAL,
-    imBeginRoot,
-    imEnd,
-    imEndIf,
-    imIf,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    setAttr,
-    setStyle,
-    setText
-} from "./utils/im-dom-utils";
+import { imBeginRoot, imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
+import { HORIZONTAL, setAttr, setStyle, setText } from "./utils/im-utils-dom";
 
 type UrlListViewUrl = {
     url: string;
