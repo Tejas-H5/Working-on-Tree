@@ -3,6 +3,7 @@ import {
     getCurrentRoot,
     getImCore,
     imBeginRoot,
+    ImCore,
     imInit,
     imRef,
     imState,
@@ -11,10 +12,188 @@ import {
     ValidElement
 } from "./im-utils-core";
 
+export type DomAppender<E extends ValidElement = ValidElement> = { root: E; idx: number; };
+
+export type KeyPressEvent = {
+    key: string;
+    code: string;
+    shift: boolean;
+    ctrl: boolean;
+    alt: boolean;
+    meta: boolean;
+};
+
+export type SizeState = {
+    width: number;
+    height: number;
+}
+
+export type ImKeyboardState = {
+    // We need to use this approach instead of a buffered approach like `keysPressed: string[]`, so that a user
+    // may call `preventDefault` on the html event as needed.
+    // NOTE: another idea is to do `keys.keyDown = null` to prevent other handlers in this framework
+    // from knowing about this event.
+    keyDown: KeyboardEvent | null;
+    keyUp: KeyboardEvent | null;
+    blur: boolean;
+};
+
+
+export type ImMouseState = {
+    lastX: number;
+    lastY: number;
+
+    leftMouseButton: boolean;
+    middleMouseButton: boolean;
+    rightMouseButton: boolean;
+    hasMouseEvent: boolean;
+
+    dX: number;
+    dY: number;
+    X: number;
+    Y: number;
+
+    /**
+     * NOTE: if you want to use this, you'll have to prevent scroll event propagation.
+     * See {@link imPreventScrollEventPropagation}
+     */
+    scrollWheel: number;
+
+    clickedElement: object | null;
+    lastClickedElement: object | null;
+    lastClickedElementOriginal: object | null;
+    hoverElement: object | null;
+    hoverElementOriginal: object | null;
+};
+
+export type ImGlobalEventSystem = {
+    core: ImCore | null,
+    keyboard: ImKeyboardState;
+    mouse:    ImMouseState;
+    globalEventHandlers: {
+        mousedown:  (e: MouseEvent) => void;
+        mousemove:  (e: MouseEvent) => void;
+        mouseenter: (e: MouseEvent) => void;
+        mouseup:    (e: MouseEvent) => void;
+        wheel:      (e: WheelEvent) => void;
+        keydown:    (e: KeyboardEvent) => void;
+        keyup:      (e: KeyboardEvent) => void;
+        blur:       () => void;
+    };
+}
+
+export function newImGlobalEventSystem(): ImGlobalEventSystem {
+    const keyboard: ImKeyboardState = {
+        keyDown: null,
+        keyUp: null,
+        blur: false,
+    };
+
+    const mouse: ImMouseState = {
+        lastX: 0,
+        lastY: 0,
+
+        leftMouseButton: false,
+        middleMouseButton: false,
+        rightMouseButton: false,
+        hasMouseEvent: false,
+
+        dX: 0,
+        dY: 0,
+        X: 0,
+        Y: 0,
+
+        scrollWheel: 0,
+
+        clickedElement: null,
+        lastClickedElement: null,
+        lastClickedElementOriginal: null,
+        hoverElement: null,
+        hoverElementOriginal: null,
+    };
+
+    const eventSystem: ImGlobalEventSystem = {
+        core: null,
+        keyboard, 
+        mouse,
+        // stored, so we can dispose them later if needed.
+        globalEventHandlers: {
+            mousedown: (e: MouseEvent) => {
+                setClickedElement(mouse, e.target);
+                mouse.hasMouseEvent = true;
+                if (e.button === 0) {
+                    mouse.leftMouseButton = true;
+                } else if (e.button === 1) {
+                    mouse.middleMouseButton = true;
+                } else if (e.button === 2) {
+                    mouse.rightMouseButton = true;
+                }
+            },
+            mousemove: (e: MouseEvent) => {
+                mouse.lastX = mouse.X;
+                mouse.lastY = mouse.Y;
+                mouse.X = e.clientX;
+                mouse.Y = e.clientY;
+                mouse.dX += mouse.X - mouse.lastX;
+                mouse.dY += mouse.Y - mouse.lastY;
+                mouse.hoverElementOriginal = e.target;
+            },
+            mouseenter: (e: MouseEvent) => {
+                mouse.hoverElementOriginal = e.target;
+            },
+            mouseup: (e: MouseEvent) => {
+                if (mouse.hasMouseEvent === true) {
+                    return;
+                }
+                if (e.button === 0) {
+                    mouse.leftMouseButton = false;
+                } else if (e.button === 1) {
+                    mouse.middleMouseButton = false;
+                } else if (e.button === 2) {
+                    mouse.rightMouseButton = false;
+                }
+            },
+            wheel: (e: WheelEvent) => {
+                mouse.scrollWheel += e.deltaX + e.deltaY + e.deltaZ;
+                mouse.hoverElementOriginal = e.target;
+                e.preventDefault();
+            },
+            keydown: (e: KeyboardEvent) => {
+                keyboard.keyDown = e;
+                const core = eventSystem.core;
+                if (core !== null) {
+                    rerenderImCore(core, core.lastTime, true);
+                }
+            },
+            keyup: (e: KeyboardEvent) => {
+                keyboard.keyUp = e;
+                const core = eventSystem.core;
+                if (core !== null) {
+                    rerenderImCore(core, core.lastTime, true);
+                }
+            },
+            blur: () => {
+                resetMouseState(mouse, true);
+                resetKeyboardState(keyboard);
+                keyboard.blur = true;
+                const core = eventSystem.core;
+                if (core !== null) {
+                    rerenderImCore(core, core.lastTime, true);
+                }
+            }
+        },
+    };
+
+    return eventSystem;
+}
+
+
 /** Sets an input's value while retaining it's selection */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
-    if (el.value !== text) {
+    if (
         // performance speedup, and required to be able to select text
+        el.value !== text
+    ) {
         const { selectionStart, selectionEnd } = el;
 
         el.value = text;
@@ -162,10 +341,6 @@ export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: 
 }
 
 
-export type DomAppender<E extends ValidElement = ValidElement> = {
-    root: E;
-    idx: number;
-};
 
 
 export function appendToDomRoot(domAppender: DomAppender, child: ValidElement) {
@@ -285,19 +460,6 @@ export function setStyle<K extends (keyof ValidElement["style"])>(key: K, value:
 ///////// 
 // Realtime immediate-mode events API
 
-export type KeyPressEvent = {
-    key: string;
-    code: string;
-    shift: boolean;
-    ctrl: boolean;
-    alt: boolean;
-    meta: boolean;
-};
-
-export type SizeState = {
-    width: number;
-    height: number;
-}
 
 function newImGetSizeState(): {
     size: SizeState;
@@ -372,8 +534,8 @@ export function imBeginSpan(): UIRoot<HTMLSpanElement> {
  * above the same element that we pressed it on. However a press happens immediately on mouse-down.
  * TODO: add elementHasMouseClick
  */
-export function elementHasMousePress(mouse: ImMouseState = getImCore().mouse) {
-    const r = getCurrentRoot();
+export function elementHasMousePress(r = getCurrentRoot()) {
+    const mouse = getImCore().imEventSystem.mouse;
     if (mouse.leftMouseButton === true) {
         return r.root === mouse.clickedElement;
     }
@@ -381,7 +543,7 @@ export function elementHasMousePress(mouse: ImMouseState = getImCore().mouse) {
 }
 
 export function elementHasMouseDown(
-    mouse: ImMouseState = getImCore().mouse,
+    mouse: ImMouseState,
     // Do we care that this element was initially clicked?
     // Set to false if you want to detect when an element drags their mouse over this element but 
     // it didn't initiate the click from this element.
@@ -396,23 +558,16 @@ export function elementHasMouseDown(
     return mouse.leftMouseButton && elementHasMouseHover(mouse);
 }
 
-export function elementHasMouseHover(
-    mouse: ImMouseState = getImCore().mouse,
-) {
+export function elementHasMouseHover(mouse: ImMouseState) {
     const r = getCurrentRoot();
     return r.root === mouse.hoverElement;
 }
 
-export function getHoveredElement(
-    mouse: ImMouseState = getImCore().mouse,
-) {
+export function getHoveredElement(mouse: ImMouseState) {
     return mouse.hoverElement;
 }
 
-export function setClickedElement(
-    mouse: ImMouseState,
-    el: object | null
-) {
+export function setClickedElement(mouse: ImMouseState, el: object | null) {
     mouse.clickedElement = el;
     mouse.lastClickedElement = el;
     mouse.lastClickedElementOriginal = el;
@@ -423,106 +578,6 @@ function newPreventScrollEventPropagationState() {
         isBlocking: true,
         scrollY: 0,
     };
-}
-
-export function imPreventScrollEventPropagation(mouse: ImMouseState) {
-    const state = imState(newPreventScrollEventPropagationState);
-
-    if (imInit() === true) {
-        const r = getCurrentRoot();
-        const handler = (e: Event) => {
-            if (state.isBlocking === true) {
-                e.preventDefault();
-            }
-        }
-        r.root.addEventListener("wheel", handler);
-        addDestructor(r, () => {
-            r.root.removeEventListener("wheel", handler);
-        });
-    }
-
-    if (state.isBlocking === true && elementHasMouseHover(mouse) && mouse.scrollWheel !== 0) {
-        state.scrollY += mouse.scrollWheel;
-        mouse.scrollWheel = 0;
-    } else {
-        state.scrollY = 0;
-    }
-
-    return state;
-}
-
-
-export type ImKeyboardState = {
-    // We need to use this approach instead of a buffered approach like `keysPressed: string[]`, so that a user
-    // may call `preventDefault` on the html event as needed.
-    // NOTE: another idea is to do `keys.keyDown = null` to prevent other handlers in this framework
-    // from knowing about this event.
-    keyDown: KeyboardEvent | null;
-    keyUp: KeyboardEvent | null;
-    blur: boolean;
-};
-
-export function resetKeyboardState(keyboard: ImKeyboardState) {
-    keyboard.keyDown = null;
-    keyboard.keyUp = null;
-    keyboard.blur = false;
-}
-
-export type ImMouseState = {
-    lastX: number;
-    lastY: number;
-
-    leftMouseButton: boolean;
-    middleMouseButton: boolean;
-    rightMouseButton: boolean;
-    hasMouseEvent: boolean;
-
-    dX: number;
-    dY: number;
-    X: number;
-    Y: number;
-
-    /**
-     * NOTE: if you want to use this, you'll have to prevent scroll event propagation.
-     * See {@link imPreventScrollEventPropagation}
-     */
-    scrollWheel: number;
-
-    clickedElement: object | null;
-    lastClickedElement: object | null;
-    lastClickedElementOriginal: object | null;
-    hoverElement: object | null;
-    hoverElementOriginal: object | null;
-};
-
-export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: boolean) {
-    mouse.dX = 0;
-    mouse.dY = 0;
-    mouse.lastX = mouse.X;
-    mouse.lastY = mouse.Y;
-
-    mouse.clickedElement = null;
-    mouse.scrollWheel = 0;
-
-    if (clearPersistedStateAsWell === true) {
-        mouse.leftMouseButton = false;
-        mouse.middleMouseButton = false;
-        mouse.rightMouseButton = false;
-
-        mouse.lastClickedElement = null;
-        mouse.lastClickedElementOriginal = null;
-        mouse.hoverElement = null;
-        mouse.hoverElementOriginal = null;
-    }
-}
-
-
-export function getImMouse() {
-    return getImCore().mouse;
-}
-
-export function getImKeys() {
-    return getImCore().keyboard;
 }
 
 
@@ -576,3 +631,119 @@ export function imOn<K extends keyof HTMLElementEventMap>(type: K): HTMLElementE
 }
 
 
+export function imPreventScrollEventPropagation(mouse: ImMouseState) {
+    const state = imState(newPreventScrollEventPropagationState);
+
+    if (imInit() === true) {
+        const r = getCurrentRoot();
+        const handler = (e: Event) => {
+            if (state.isBlocking === true) {
+                e.preventDefault();
+            }
+        }
+        r.root.addEventListener("wheel", handler);
+        addDestructor(r, () => {
+            r.root.removeEventListener("wheel", handler);
+        });
+    }
+
+    if (state.isBlocking === true && elementHasMouseHover(mouse) && mouse.scrollWheel !== 0) {
+        state.scrollY += mouse.scrollWheel;
+        mouse.scrollWheel = 0;
+    } else {
+        state.scrollY = 0;
+    }
+
+    return state;
+}
+
+
+export function resetKeyboardState(keyboard: ImKeyboardState) {
+    keyboard.keyDown = null;
+    keyboard.keyUp = null;
+    keyboard.blur = false;
+}
+
+export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: boolean) {
+    mouse.dX = 0;
+    mouse.dY = 0;
+    mouse.lastX = mouse.X;
+    mouse.lastY = mouse.Y;
+
+    mouse.clickedElement = null;
+    mouse.scrollWheel = 0;
+
+    if (clearPersistedStateAsWell === true) {
+        mouse.leftMouseButton = false;
+        mouse.middleMouseButton = false;
+        mouse.rightMouseButton = false;
+
+        mouse.lastClickedElement = null;
+        mouse.lastClickedElementOriginal = null;
+        mouse.hoverElement = null;
+        mouse.hoverElementOriginal = null;
+    }
+}
+
+
+export function getImMouse() {
+    return getImCore().imEventSystem.mouse;
+}
+
+export function getImKeys() {
+    return getImCore().imEventSystem.keyboard;
+}
+
+export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
+    document.addEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.addEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
+    document.addEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
+    document.addEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.addEventListener("wheel", eventSystem.globalEventHandlers.wheel);
+    document.addEventListener("keydown", eventSystem.globalEventHandlers.keydown);
+    document.addEventListener("keyup", eventSystem.globalEventHandlers.keyup);
+    window.addEventListener("blur", eventSystem.globalEventHandlers.blur);
+}
+
+export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
+    document.removeEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.removeEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
+    document.removeEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
+    document.removeEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.removeEventListener("wheel", eventSystem.globalEventHandlers.wheel);
+    document.removeEventListener("keydown", eventSystem.globalEventHandlers.keydown);
+    document.removeEventListener("keyup", eventSystem.globalEventHandlers.keyup);
+    window.removeEventListener("blur", eventSystem.globalEventHandlers.blur);
+}
+
+export function beginProcessingImEvent(eventSystem: ImGlobalEventSystem) {
+    // persistent things need to be reset every frame, for bubling order to remain consistent per render
+    eventSystem.mouse.lastClickedElement = eventSystem.mouse.lastClickedElementOriginal;
+    eventSystem.mouse.hoverElement = eventSystem.mouse.hoverElementOriginal;
+}
+
+export function endProcessingImEvent(eventSystem: ImGlobalEventSystem) {
+    resetKeyboardState(eventSystem.keyboard);
+    resetMouseState(eventSystem.mouse, false);
+    eventSystem.mouse.hasMouseEvent = false;
+}
+
+export function bubbleMouseEvents(r: UIRoot, eventSystem: ImGlobalEventSystem) {
+    const notDerived = r.elementSupplier !== null;
+    if (notDerived) {
+        // Defer the mouse events upwards, so that parent elements can handle it if they want
+        const el = r.root;
+        const parent = el.parentNode;
+
+        const mouse = eventSystem.mouse;
+        if (mouse.clickedElement === el) {
+            mouse.clickedElement = parent;
+        }
+        if (mouse.lastClickedElement === el) {
+            mouse.lastClickedElement = parent;
+        }
+        if (mouse.hoverElement === el) {
+            mouse.hoverElement = parent;
+        }
+    }
+}

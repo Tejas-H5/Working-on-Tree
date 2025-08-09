@@ -118,7 +118,7 @@ function imMain() {
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
-    if (imMemo(state)) setTheme(state.currentTheme);
+    if (imMemo(state.currentTheme)) setTheme(state.currentTheme);
 
     ctx.now = new Date();
 
