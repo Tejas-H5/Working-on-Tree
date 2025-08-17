@@ -1,33 +1,32 @@
 import { activitiesViewTakeBreak, imActivitiesList } from "./activities-list";
-import { imLine } from "./app-components/common";
-import { imBeginAppHeading } from "./app-heading";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
+import { imAppHeading, imAppHeadingEnd, } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { imAsciiIcon } from "./ascii-icon";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import {
+    BLOCK,
     CENTER,
     CH,
     COL,
     imAlign,
-    imBegin,
     imFixed,
     imFlex,
     imGap,
     imJustify,
+    imLayout,
+    imLayoutEnd,
     imSize,
     NA,
     PX,
     RIGHT,
     ROW
 } from "./components/core/layout";
-import { imStr } from "./components/core/text";
 import {
-    imFpsCounterOutputCompact,
-    imFpsCounterOutputVerbose,
     newFpsCounterState,
-    startFpsCounter,
-    stopFpsCounter
+    fpsMarkRenderingStart,
+    fpsMarkRenderingEnd,
 } from "./components/fps-counter";
 import { imFuzzyFinder } from "./fuzzy-finder";
 import {
@@ -62,40 +61,15 @@ import { imUrlViewer } from "./url-viewer";
 import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
-import {
-    getDeltaTimeSeconds,
-    imCatch,
-    imElse,
-    imEnd,
-    imEndFor,
-    imEndIf,
-    imEndSwitch,
-    imEndTry,
-    imFor,
-    imIf,
-    imInit,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    imRef,
-    imState,
-    imSwitch,
-    imTry,
-    initImDomUtils,
-    MEMO_CHANGED,
-    newBoolean,
-    newNumber,
-} from "src/utils/im-utils-core";
-import {
-    elementHasMousePress,
-    HORIZONTAL,
-    isEditingTextSomewhereInDocument,
-    setStyle,
-    setText,
-    VERTICAL
-} from "src/utils/im-utils-dom";
+import { getDeltaTimeSeconds, ImCache, imCacheEntriesAddDestructor, imChanged, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, imSwitch, imSwitchEnd, imTry, imTryCatch, imTryEnd, inlineTypeId, isFirstishRender } from "src/utils/im-core";
+import { elHasMousePress, elSetStyle, imStr } from "src/utils/im-dom";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
+import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+
+
+// TODO:
+// - [ ] Bring back event system
 
 const ERROR_TIMEOUT_TIME = 5000;
 
@@ -112,22 +86,33 @@ function getIcon(theme: AppTheme) {
     return ASCII_MOON_STARS;
 }
 
-function imMain() {
-    const fpsCounter = imState(newFpsCounterState);
-    const ctx = imState(newGlobalContext);
+function imMain(c: ImCache) {
+    let fpsCounter = imGet(c, newFpsCounterState);
+    if (!fpsCounter) fpsCounter = imSet(c, newFpsCounterState());
+
+    fpsMarkRenderingStart(fpsCounter); 
+
+    let ctx = imGet(c, newGlobalContext);
+    if (!ctx) ctx = imSet(c, newGlobalContext());
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
-    if (imMemo(state.currentTheme)) setTheme(state.currentTheme);
+    if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
 
     ctx.now = new Date();
 
-    const errorRef = imRef();
-    const framesSinceError = imState(newNumber);
-    const irrecoverableErrorRef = imState(newBoolean);
+    let errorState; errorState = imGet(c, inlineTypeId(imTry));
+    if (!errorState) {
+        errorState = {
+            error: null as any,
+            framesSinceError: 0,
+            irrecoverableError: null as any,
+        }
+    }
 
-
-    if (imInit()) {
+    if (!imGet(c, inlineTypeId(imGet))) {
+        imSet(c, true);
+        
         // some side-effects
 
         // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
@@ -153,7 +138,7 @@ function imMain() {
         }
 
         // NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
-        function autoInsertBreakIfRequired() {
+        const autoInsertBreakIfRequired = () => {
             // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
             // webpage opens for the first time.
             // It may or may not need to be called more or less often, depending on what we add.
@@ -181,181 +166,175 @@ function imMain() {
         }
     }
 
-    const l = imTry(); try {
-        if (imIf() && !irrecoverableErrorRef.val) {
+    const tryState = imTry(c); try {
+        if (imIf(c) && !errorState.error && !errorState.irrecoverableError) {
             handleImKeysInput(ctx);
 
             let shouldSave = false;
-            if (imMemo(state._notesMutationCounter) === MEMO_CHANGED) shouldSave = true;
-            if (imMemo(state._activitiesMutationCounter) === MEMO_CHANGED) shouldSave = true;
+            if (imChanged(c, state._notesMutationCounter))      shouldSave = true;
+            if (imChanged(c, state._activitiesMutationCounter)) shouldSave = true;
             if (shouldSave) debouncedSave(ctx, state);
 
-            startFpsCounter(fpsCounter); {
-                imBegin(COL); imFixed(
-                    0, PX, 0, PX,
-                    0, PX, 0, PX,
-                ); {
+            {
+                imLayout(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
                     const error = state.criticalSavingError || state._criticalLoadingError;
-                    if (imIf() && error) {
-                        imBegin(); {
-                            if (imIsFirstishRender()) {
-                                setStyle("color", "white");
-                                setStyle("backgroundColor", "red");
+                    if (imIf(c) && error) {
+                        imLayout(c, BLOCK); {
+                            if (isFirstishRender(c)) {
+                                elSetStyle(c, "color", "white");
+                                elSetStyle(c, "backgroundColor", "red");
                             }
 
-                            setText(error);
-                        } imEnd();
-                    } imEndIf();
+                            imStr(c, error);
+                        } imLayoutEnd(c);
+                    } imIfEnd(c);
 
-                    const displayColon = imState(newBoolean);
+                    let displayColon = imGet(c, Boolean);
                     if (imTimerRepeat(1.0)) {
-                        displayColon.val = !displayColon.val;
+                        displayColon = !imSet(c, displayColon);
                     }
 
-                    if (imIf() && ctx.notLockedIn) {
-                        imBegin(ROW); imAlign(); {
-                            imBegin(); imSize(10, PX, 0, NA); imEnd();
-                            imBegin(ROW); imSize(0, NA, 50, PX); imAlign(); imJustify(); {
-                                if (imIsFirstishRender()) {
-                                    setStyle("cursor", "pointer");
+                    if (imIf(c) && ctx.notLockedIn) {
+                        imLayout(c, ROW); imAlign(c); {
+                            imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                            imLayout(c, ROW); imSize(c, 0, NA, 50, PX); imAlign(c); imJustify(c); {
+                                if (isFirstishRender(c)) {
+                                    elSetStyle(c, "cursor", "pointer");
                                 }
 
                                 imAsciiIcon(getIcon(state.currentTheme), 4.5);
 
-                                if (elementHasMousePress()) {
+                                if (elHasMousePress(c)) {
                                     state.currentTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                     debouncedSave(ctx, state);
                                 }
-                            } imEnd();
-                            imBegin(); imSize(10, PX, 0, NA); imEnd();
+                            } imLayoutEnd(c);
+                            imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
 
-                            imLine(VERTICAL);
+                            imLine(c, LINE_VERTICAL);
 
-                            imBegin(ROW); imFlex(); {
-                                imBeginAppHeading(); {
-                                    setText(formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
-                                } imEnd();
-                            } imEnd();
+                            imLayout(c, ROW); imFlex(c); {
+                                imAppHeading(c); {
+                                    imStr(c, formatDateTime(new Date(), displayColon ? ":" : "\xa0", true));
+                                } imAppHeadingEnd(c);
+                            } imLayoutEnd(c);
 
-                            const root = imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                                if (imIsFirstishRender()) {
+                            const root = imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                                if (isFirstishRender(c)) {
                                     // TODO: standardize
-                                    setStyle("fontSize", "20px");
-                                    setStyle("fontWeight", "bold");
+                                    elSetStyle(c, "fontSize", "20px");
+                                    elSetStyle(c, "fontWeight", "bold");
                                 }
 
-                                const tRef = imState(newNumber);
-
-                                if (imIf() && ctx.status.statusTextTimeLeft > 0) {
+                                if (imIf(c) && ctx.status.statusTextTimeLeft > 0) {
                                     ctx.status.statusTextTimeLeft -= getDeltaTimeSeconds();
-                                    tRef.val += getDeltaTimeSeconds();
+
+                                    const statusTextChanged = imMemo(c, ctx.status.statusText);
+
+                                    let t = imGet(c, Math.sin);
+                                    if (t === undefined || statusTextChanged) t = 0;
+                                    t = imSet(c, t + getDeltaTimeSeconds());
 
                                     // bruh
-                                    if (imIf() && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        const sin01 = 0.5 * (1 + Math.sin(5 * tRef.val));
+                                    if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                        const sin01 = 0.5 * (1 + Math.sin(5 * t));
 
-                                        setStyle("opacity", sin01 * 0.7 + 0.3 + "", root);
+                                        elSetStyle(c, "opacity", sin01 * 0.7 + 0.3 + "", root.root);
 
-                                        imBegin(); {
-                                            if (imIsFirstishRender()) {
-                                                setStyle("width", "20px");
-                                                setStyle("height", "20px");
+                                        imLayout(c, BLOCK); {
+                                            if (isFirstishRender(c)) {
+                                                elSetStyle(c, "width", "20px");
+                                                elSetStyle(c, "height", "20px");
                                             }
 
-                                            setStyle("transform", "rotate(" + 5 * tRef.val + "rad)");
-                                            setStyle("backgroundColor", cssVarsApp.fgColor);
-                                        } imEnd();
-                                    } imEndIf();
+                                            elSetStyle(c, "transform", "rotate(" + 5 * t + "rad)");
+                                            elSetStyle(c, "backgroundColor", cssVarsApp.fgColor);
+                                        } imLayoutEnd(c);
+                                    } imIfEnd(c);
 
-                                    imBegin(); imSize(10, PX, 0, NA); imEnd();
+                                    imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                                    imBegin(); setText(ctx.status.statusText); imEnd();
+                                    imLayout(c, BLOCK); imStr(c, ctx.status.statusText); imLayoutEnd(c);
 
-                                    if (imIf() && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        imBegin(); {
-                                            setText(".".repeat(Math.ceil(2 * tRef.val % 3)));
-                                        } imEnd();
-                                    } imEndIf();
+                                    if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                        imLayout(c, BLOCK); {
+                                            imStr(c, ".".repeat(Math.ceil(2 * t % 3)));
+                                        } imLayoutEnd(c);
+                                    } imIfEnd(c);
                                 } else {
-                                    imElse();
+                                    imIfElse(c);
 
-                                    tRef.val = 0; // also, zero animation for status
+                                    const frameMs = Math.round(fpsCounter.frameDuration);
+                                    const renderMs = Math.round(fpsCounter.renderEnd - fpsCounter.renderStart);
+                                    imLayout(c, BLOCK); imStr(c, renderMs + "/" + frameMs + "fps"); imLayoutEnd(c);
+                                } imIfEnd(c);
+                            } imLayoutEnd(c);
 
-                                    imFpsCounterOutputCompact(fpsCounter);
-
-                                } imEndIf();
-                            } imEnd();
-
-                            imBegin(ROW); imFlex(2); imGap(1, CH); imJustify(RIGHT); {
+                            imLayout(c, ROW); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
-                                if (imIsFirstishRender()) {
+                                if (isFirstishRender(c)) {
                                     // TODO: standardize
-                                    setStyle("fontSize", "18px");
-                                    setStyle("fontWeight", "bold");
+                                    elSetStyle(c, "fontSize", "18px");
+                                    elSetStyle(c, "fontWeight", "bold");
                                 }
 
-                                const commands = ctx.discoverableCommands;
-                                imFor(); {
-                                    for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                const commands = ctx.discoverableCommands; {
+                                    imFor(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
                                         const command = commands.stabilized[i];
                                         if (!command.key) continue;
 
-                                        imNextListRoot();
-
-                                        imCommandDescription(command.key.stringRepresentation, command.desc);
-                                    }
+                                        imCommandDescription(c, command.key.stringRepresentation, command.desc);
+                                    } imForEnd(c);
 
                                     const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftAvailable) ||
                                         (ctx.keyboard.ctrlKey.held && commands.ctrlAvailable) ||
                                         (ctx.keyboard.altKey.held && commands.altAvailable)
 
                                     if (!anyFulfilled) {
-                                        imNextListRoot();
                                         if (commands.shiftAvailable) {
-                                            imCommandDescription(ctx.keyboard.shiftKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.shiftKey.stringRepresentation, "Hold");
                                         }
 
-                                        imNextListRoot();
                                         if (commands.ctrlAvailable) {
-                                            imCommandDescription(ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
                                         }
 
-                                        imNextListRoot();
                                         if (commands.altAvailable) {
-                                            imCommandDescription(ctx.keyboard.altKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.altKey.stringRepresentation, "Hold");
                                         }
                                     }
 
                                     commands.shiftAvailable = false;
                                     commands.ctrlAvailable = false;
                                     commands.altAvailable = false;
-                                } imEndFor();
+                                } 
 
-                                imBegin(); imSize(10, PX, 0, NA); imEnd();
-                            } imEnd();
-                        } imEnd();
-                    } imEndIf();
+                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                            } imLayoutEnd(c);
+                        } imLayoutEnd(c);
+                    } imIfEnd(c);
 
-                    imLine(HORIZONTAL, 4);
+                    imLine(c, LINE_HORIZONTAL, 4);
 
-                    if (imIf() && ctx.currentView === ctx.views.settings) {
+                    if (imIf(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(ctx, ctx.views.settings);
                     } else {
-                        imElse();
+                        imIfElse(c);
 
-
-                        imBegin(ROW); imFlex(); {
+                        imLayout(c, ROW); imFlex(c); {
                             // TODO: think about this.
-                            const focusRef = imState(newFocusRef);
+                            let focusRef = imGet(c, newFocusRef);
+                            if (!focusRef) focusRef = imSet(c, newFocusRef());
+
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(focusRef);
 
                             imNoteTreeView(ctx, ctx.views.noteTree);
                             addView(navList, ctx.views.noteTree, "Notes");
 
-                            imLine(VERTICAL, 1);
-                            // imBegin(); {
+                            imLine(c, LINE_VERTICAL, 1);
+                            // imLayout(c, BLOCK); {
                             //     imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                             // } imEnd();
 
@@ -366,32 +345,32 @@ function imMain() {
                                 ctx.leftTab = ctx.views.activities;
                             }
 
-                            if (imIf() && ctx.notLockedIn) {
-                                imBegin(COL); {
-                                    if (imIsFirstishRender()) {
-                                        setStyle("width", "33%");
+                            if (imIf(c) && ctx.notLockedIn) {
+                                imLayout(c, COL); {
+                                    if (isFirstishRender(c)) {
+                                        elSetStyle(c, "width", "33%");
                                     }
 
-                                    imSwitch(ctx.leftTab); switch (ctx.leftTab) {
-                                        case ctx.views.activities: 
-                                            imActivitiesList(ctx, ctx.views.activities); 
+                                    imSwitch(c, ctx.leftTab); switch (ctx.leftTab) {
+                                        case ctx.views.activities: {
+                                            imActivitiesList(ctx, ctx.views.activities);
                                             addView(navList, ctx.views.activities, "Activities");
-                                            break;
-                                        case ctx.views.fastTravel: 
-                                            imNoteTraversal(ctx, ctx.views.fastTravel);  
+                                        } break;
+                                        case ctx.views.fastTravel: {
+                                            imNoteTraversal(ctx, ctx.views.fastTravel);
                                             addView(navList, ctx.views.fastTravel, "Fast travel");
-                                            break;
-                                        case ctx.views.finder:     
-                                            imFuzzyFinder(ctx, ctx.views.finder);        
+                                        } break;
+                                        case ctx.views.finder: {
+                                            imFuzzyFinder(ctx, ctx.views.finder);
                                             addView(navList, ctx.views.finder, "Finder");
-                                            break;
-                                        case ctx.views.urls:       
-                                            imUrlViewer(ctx, ctx.views.urls);            
+                                        } break;
+                                        case ctx.views.urls: {
+                                            imUrlViewer(ctx, ctx.views.urls);
                                             addView(navList, ctx.views.urls, "Url opener");
-                                            break;
-                                    } imEndSwitch();
-                                } imEnd();
-                            } imEndIf();
+                                        } break;
+                                    } imSwitchEnd(c);
+                                } imIfEnd(c);
+                            } imIfEnd(c);
 
                             // navigate list
                             {
@@ -404,14 +383,10 @@ function imMain() {
                                     ctx.currentView = next.focusRef;
                                 }
                             }
-                        } imEnd();
-                    } imEndIf();
-                } imEnd();
-
-                if (imIf() && ctx.notLockedIn) {
-                    imFpsCounterOutputVerbose(fpsCounter);
-                } imEndIf();
-            } stopFpsCounter(fpsCounter);
+                        } imLayoutEnd(c);
+                    } imIfEnd(c);
+                } imLayoutEnd(c);
+            } 
 
 
             // post-process events, etc
@@ -440,7 +415,7 @@ function imMain() {
 
                 // back to the last note when escape pressed
                 {
-                    if (imMemo(ctx.currentView)) {
+                    if (imMemo(c, ctx.currentView)) {
                         const currentNote = getNoteOrUndefined(state, state.currentNoteId);
                         if (currentNote) {
                             ctx.noteBeforeFocus = currentNote;
@@ -495,7 +470,7 @@ function imMain() {
                 // Only one text area can be focued at a time in the entire document.
                 // imMemo here, because we still want to select text with the mouse.
                 // Not ideal for a real app, but preventing it makes it not feel like a real website.
-                if (imMemo(ctx.textAreaToFocus) && ctx.textAreaToFocus) {
+                if (imMemo(c, ctx.textAreaToFocus) && ctx.textAreaToFocus) {
                     const textArea = ctx.textAreaToFocus.root;
                     textArea.focus();
                     if (ctx.focusWithAllSelected) {
@@ -510,38 +485,45 @@ function imMain() {
                 updateDiscoverableCommands(ctx.discoverableCommands);
             }
 
-            framesSinceError.val++;
+            errorState.framesSinceError++;
         } else {
-            imElse();
+            imIfElse(c);
 
-            imBegin(); setText("An error occured in the main render loop. It's irrecoverable, I'm afraid"); imEnd();
-        } imEndIf();
+            // TODO: provide a way to recover from errors that _are_ recoverable
+
+            imLayout(c, BLOCK); imStr(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
+        } imIfEnd(c);
     } catch (e) {
         // unmounts imComponent1 immediately, rewinds the stack back to this list.
-        imCatch(l);
+        imTryCatch(c, tryState, e);
 
         console.error("An error occured while rendering: ", e);
-        errorRef.val = e;
 
-        if (framesSinceError.val !== 0) {
-            framesSinceError.val = 0;
+        errorState.error = e;
+
+        if (errorState.framesSinceError !== 0) {
+            errorState.framesSinceError = 0;
         } else {
-            irrecoverableErrorRef.val = true;
+            errorState.irrecoverableError = true;
+            errorState.error = e;
         }
-    }
-    imEndTry();
+    } imTryEnd(c, tryState);
+
+    fpsMarkRenderingEnd(fpsCounter);
 }
 
-function imCommandDescription(key: string, action: string) {
-    imBegin(COL); imAlign(CENTER); {
-        imBegin(); imStr("["); imStr(key); imStr("]"); imEnd();
-        imBegin(); imStr(action); imEnd();
-    } imEnd();
+function imCommandDescription(c: ImCache, key: string, action: string) {
+    imLayout(c, COL); imAlign(c, CENTER); {
+        imLayout(c, BLOCK); imStr(c, "["); imStr(c, key); imStr(c, "]"); imLayoutEnd(c);
+        imLayout(c, BLOCK); imStr(c, action); imLayoutEnd(c);
+    } imLayoutEnd(c);
 }
+
+const imCache: ImCache = [];
 
 loadState(() => {
     console.log("State: ", state);
-    initImDomUtils(imMain);
+    imMain(imCache);
 })
 
 // Using a custom styling solution
