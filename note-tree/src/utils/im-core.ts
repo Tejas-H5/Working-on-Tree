@@ -46,8 +46,12 @@ export const CACHE_ROOT_ENTRIES = 4;
 export const CACHE_NEEDS_RERENDER = 5;
 export const CACHE_RERENDER_FN = 6;
 export const CACHE_IS_RENDERING = 7;
-export const CACHE_ITEMS_ITERATED = 8;
-export const CACHE_ENTRIES_START = 9;
+export const CACHE_ANIMATE_FN = 8;
+export const CACHE_ANIMATION_ID = 9;
+export const CACHE_ANIMATION_TIME = 10;
+export const CACHE_ANIMATION_DELTA_TIME_SECONDS = 11;
+export const CACHE_ITEMS_ITERATED = 12;
+export const CACHE_ENTRIES_START = 13;
 
 
 // NOTE: this only works if you can somehow re-render your program whenever any error occurs.
@@ -96,10 +100,22 @@ export function inlineTypeId<T = undefined>(fn: Function) {
 // Can be any valid object reference. Or string, but avoid string if you can - string comparisons are slower than object comparisons
 export type ValidKey = string | number | Function | object | boolean | null | unknown;
 
-// NOTE: it is assumed that the rerender function never changes.
+export const USE_EVENT_LOOP = 1 << 0;
+export const USE_ANIMATION_FRAME = 1 << 1;
+
+/**
+ * If you want to avoid requestAnimationFrame, then pass in the {@link USE_EVENT_LOOP} flag instead
+ * of the default {@link USE_ANIMATION_FRAME} flag.
+ *  - You'll need to manually call c[CACHE_RERENDER_FN]() whenever any state anywhere changes.
+ *  - Methods that previously reported a deltaTime will report a constant 0.0333_ instead.
+ *  - I'm not even sure why you would do this, but I've added it just in case.
+ * 
+ * NOTE: it is assumed that the rerender function and the `useEventLoop` parameter never changes.
+ */
 export function imCacheInit(
     c: ImCache,
-    renderFn: (c: ImCache) => void
+    renderFn: (c: ImCache) => void,
+    flags = USE_ANIMATION_FRAME
 ) {
     if (c.length === 0) {
         c.length = CACHE_ENTRIES_START;
@@ -111,15 +127,33 @@ export function imCacheInit(
         c[CACHE_CURRENT_ENTRIES] = c[CACHE_ROOT_ENTRIES];
         c[CACHE_CURRENT_WAITING_FOR_SET] = false;
         c[CACHE_NEEDS_RERENDER] = false;
+        c[CACHE_IS_RENDERING] = false;
+        c[CACHE_ITEMS_ITERATED] = 0;
         c[CACHE_RERENDER_FN] = () => {
             if (c[CACHE_IS_RENDERING] === true) {
                 c[CACHE_NEEDS_RERENDER] = true;
             } else {
                 renderFn(c);
             }
+        };
+        if (flags & USE_EVENT_LOOP) {
+            c[CACHE_ANIMATION_TIME] = 0;
+            c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
+            c[CACHE_ANIMATE_FN] = noOp;
+            c[CACHE_ANIMATION_ID] = null;
+        } else if (flags & USE_ANIMATION_FRAME) {
+            c[CACHE_ANIMATION_TIME] = 0;
+            c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 0;
+            c[CACHE_ANIMATE_FN] = (t: number) => {
+                const lastT = c[CACHE_ANIMATION_TIME];
+                c[CACHE_ANIMATION_TIME] = t;
+                c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = (t - lastT) / 1000.0;
+                renderFn(c);
+            };
+            c[CACHE_ANIMATION_ID] = 0;
+        } else {
+            throw new Error("Invalid flags");
         }
-        c[CACHE_IS_RENDERING] = false;
-        c[CACHE_ITEMS_ITERATED] = 0;
     }
 
     c[CACHE_IDX] = CACHE_ENTRIES_START - 1;
@@ -132,6 +166,8 @@ export function imCacheInit(
 
     return c;
 }
+
+function noOp() {}
 
 export function imCacheInitEnd(c: ImCache) {
     imCacheEntriesPop(c);
@@ -153,9 +189,15 @@ export function imCacheInitEnd(c: ImCache) {
         // Other things need to rerender the cache long after we've done a render. Mainly, DOM UI events - 
         // once we get the event, we trigger a full rerender, and pull the event out of state and use it's result in the process.
         c[CACHE_RERENDER_FN]();
-    }
 
-    c[CACHE_IS_RENDERING] = false;
+        c[CACHE_IS_RENDERING] = false;
+    } else if (c[CACHE_ANIMATE_FN] !== noOp) {
+        // paranoid about starting multiple animations side by side, which kills performance and introduces various bugs.
+        // cancelling the prior animation should do it
+        cancelAnimationFrame(c[CACHE_ANIMATION_ID]);
+        c[CACHE_ANIMATION_ID] = requestAnimationFrame(c[CACHE_ANIMATE_FN]);
+        c[CACHE_IS_RENDERING] = true;
+    }
 }
 
 const INTERNAL_TYPE_NORMAL_BLOCK = 1;
@@ -689,8 +731,6 @@ export function imTryEnd(c: ImCache, tryState: TryState) {
     __imBlockDerivedEnd(c, INTERNAL_TYPE_TRY_BLOCK);
 }
 
-// TODO: implement this!
-console.warn("We haven't implemented getDeltaTimeSeconds properly yet!");
-export function getDeltaTimeSeconds() {
-    return 0.02;
+export function getDeltaTimeSeconds(c: ImCache): number {
+    return c[CACHE_ANIMATION_DELTA_TIME_SECONDS];
 }

@@ -9,60 +9,120 @@ import {
     imSet,
     inlineTypeId,
     imCacheEntriesAddDestructor,
-    CACHE_IS_RENDERING,
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
 export type AppendableElement = (ValidElement | Text);
-export type DomAppender<E extends ValidElement = ValidElement> = {
+export type DomAppender<E extends AppendableElement> = {
     root: E;
     ref: unknown;
     idx: number;
-    children: AppendableElement[];
     lastIdx: number;
-    childrenChanged: boolean;
     manualDom: boolean;
+    // if null, root is a text node. else, it can be appended to.
+    children: (DomAppender<any>[] | null);
+    rendered: boolean;
+    parentIdx: number;
+    childrenChanged: boolean;
 };
 
-export function newDomAppender<E extends ValidElement>(root: E): DomAppender<E> {
+export function newDomAppender<E extends AppendableElement>(root: E, children: (DomAppender<any>[] | null)): DomAppender<E> {
     return {
         root,
         ref: null,
         idx: -1,
-        children: [],
-        lastIdx: -2,
-        childrenChanged: false,
+        children,
+        lastIdx: -1,
         manualDom: false,
+        rendered: false,
+        parentIdx: -1,
+        childrenChanged: false,
     };
+}
+
+export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<any>) {
+    assert(appender.children !== null);
+
+    const idx = ++appender.idx;
+
+    if (idx === appender.children.length) {
+        appender.children.push(child);
+        child.parentIdx = idx;
+
+        appender.childrenChanged = true;
+    } else if (idx < appender.children.length) {
+        if (appender.children[idx] !== child) {
+            if (child.parentIdx === -1) {
+                // Push watever at idx onto end, put child at idx.
+                const a = appender.children[idx];
+                a.parentIdx = appender.children.length
+                appender.children.push(a);
+                appender.children[idx] = child;
+                child.parentIdx = idx;
+            } else {
+                // swap two existing children
+                assert(appender.children[child.parentIdx] === child);
+                appender.children[child.parentIdx] = appender.children[idx];
+                appender.children[child.parentIdx].parentIdx = child.parentIdx;
+                appender.children[idx] = child;
+                appender.children[idx].parentIdx = idx;
+            }
+
+            assert(appender.children[idx].parentIdx === idx);
+            assert(appender.children[child.parentIdx] === child);
+
+            appender.childrenChanged = true;
+        }
+    } else {
+        throw new Error("Unreachable");
+    }
 }
 
 export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
     if (
-        (appender.childrenChanged === true || appender.idx !== appender.lastIdx) &&
-        appender.manualDom === false
-    ) {
-        // TODO: set up a bigger example, so we can see if optimizing htis makes a difference.
-        // NOTE: the framework doesn't need to guess about what was added and removed in a diffing algorithm, it actually KNOWS!
-        // TODO: measure perf impacts.
-        // TODO: consider clear, then replace children.
-        appender.root.replaceChildren(...appender.children.slice(0, appender.idx + 1));
+        appender.children !== null &&
+        (appender.childrenChanged || appender.lastIdx !== appender.idx)
+    )  {
         appender.childrenChanged = false;
+
+        // TODO: optimize
+        for (let i = 0; i <= appender.idx; i++) {
+            const val = appender.children[i];
+
+            const realChildren = appender.root.children;
+            if (i >= realChildren.length) {
+                appender.root.append(val.root);
+            } else {
+                appender.root.insertBefore(val.root, realChildren[i]);
+            }
+        }
+
+        for (let i = appender.idx + 1; i < appender.children.length; i++) {
+            appender.children[i].root.remove();
+        }
+
         appender.lastIdx = appender.idx;
     }
+
+
+    // TODO: by now everthing that wasnt rendered should be after idx. so we jsut remove those. all g. ?
+
+    // if (
+    //     (appender.childrenChanged === true || appender.idx !== appender.lastIdx) &&
+    //     appender.manualDom === false
+    // ) {
+    //     for (let i = 0; i < appender.lastIdx; i++) {
+    //         const child = appender.children[i];
+    //         if (child.rendered === false) {
+    //             child.root.remove();
+    //         }
+    //     }
+    //
+    //     appender.childrenChanged = false;
+    //     appender.lastIdx = appender.idx;
+    // }
 }
 
-export function appendToDomRoot(domAppender: DomAppender, child: AppendableElement) {
-    const i = ++domAppender.idx;
-    if (i < domAppender.children.length) {
-        if (domAppender.children[i] !== child) {
-            domAppender.childrenChanged = true;
-            domAppender.children[i] = child;
-        }
-    } else {
-        domAppender.children.push(child);
-        domAppender.childrenChanged = true;
-    }
-}
 
 
 export function imEl<K extends keyof HTMLElementTagNameMap>(
@@ -75,11 +135,11 @@ export function imEl<K extends keyof HTMLElementTagNameMap>(
     let childAppender: DomAppender<HTMLElementTagNameMap[K]> | undefined = imGet(c, newDomAppender);
     if (childAppender === undefined) {
         const element = document.createElement(r.val);
-        childAppender = imSet(c, newDomAppender(element));
+        childAppender = imSet(c, newDomAppender(element, []));
         childAppender.ref = r;
     }
 
-    appendToDomRoot(appender, childAppender.root);
+    appendToDomRoot(appender, childAppender);
 
     // NOTE: we don't necessarily need to make this a block.
     // we can push and pop this element from our own internal stack as we iterate, 
@@ -104,7 +164,7 @@ export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap>) {
 export function imDomRoot(c: ImCache, root: ValidElement) {
     let appender = imGet(c, newDomAppender);
     if (appender === undefined) {
-        appender = imSet(c, newDomAppender(root));
+        appender = imSet(c, newDomAppender(root, []));
         appender.ref = root;
     }
 
@@ -129,20 +189,20 @@ interface Stringifyable {
 }
 
 export function imStr(c: ImCache, value: Stringifyable): Text {
-    let textNode; textNode = imGet(c, imStr);
-    if (textNode === undefined) textNode = imSet(c, document.createTextNode(""));
+    let textNodeLeafAppender; textNodeLeafAppender = imGet(c, inlineTypeId(imStr));
+    if (textNodeLeafAppender === undefined) textNodeLeafAppender = imSet(c, newDomAppender(document.createTextNode(""), null));
 
     // The user can't select this text node if we're constantly setting it, so it's behind a cache
     let lastValue = imGet(c, inlineTypeId(document.createTextNode));
     if (lastValue !== value) {
         imSet(c, value);
-        textNode.nodeValue = value.toString();
+        textNodeLeafAppender.root.nodeValue = value.toString();
     }
 
     const domAppender = getEntriesParent(c, newDomAppender);
-    appendToDomRoot(domAppender, textNode);
+    appendToDomRoot(domAppender, textNodeLeafAppender);
 
-    return textNode;
+    return textNodeLeafAppender.root;
 }
 
 export let stylesSet = 0;
@@ -158,6 +218,11 @@ export function elSetStyle<K extends (keyof ValidElement["style"])>(
     // @ts-expect-error its fine tho
     root.style[key] = value;
     stylesSet++;
+}
+
+export function elSetTextSafetyRemoved(c: ImCache, val: string) {
+    let el = elGet(c);
+    el.textContent = val;
 }
 
 
@@ -245,7 +310,6 @@ export function imOn<K extends keyof HTMLElementEventMap>(
 
         state.eventType = type;
         el.addEventListener(state.eventType.val, state.eventListener as EventListener);
-        console.log("bruh");
     }
 
     return result;

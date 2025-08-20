@@ -218,7 +218,7 @@ export function imBeginNavListRow(
 
     if (itemSelected && list !== null) {
         assert(!!list.scrollContainer);
-        scrollToItem(list.scrollContainer, root);
+        scrollToItem(c, list.scrollContainer, root);
     }
 
     // imEndListRow();

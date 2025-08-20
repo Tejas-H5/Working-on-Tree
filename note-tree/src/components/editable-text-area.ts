@@ -1,7 +1,7 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { setInputValue } from "src/utils/dom-utils";
 import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
+import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, elSetTextSafetyRemoved, imEl, imElEnd, imStr } from "src/utils/im-dom";
 import { BLOCK, imLayout, imLayoutEnd, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
@@ -99,22 +99,15 @@ export function imBeginTextArea(c: ImCache, {
             imLayout(c, INLINE); {
                 const placeholderChanged = imMemo(c, placeholder);
                 const valueChanged = imMemo(c, value);
-                let text; text = imGet(c, inlineTypeId(imStr));
-                if (text === undefined || placeholderChanged || valueChanged) {
+                if (placeholderChanged || valueChanged) {
                     if (!value) {
-                        text = placeholder;
+                        elSetTextSafetyRemoved(c, placeholder);
                         elSetStyle(c, "color", cssVars.fg2);
                     } else {
-                        text = value;
+                        elSetTextSafetyRemoved(c, value);
                         elSetStyle(c, "color", cssVars.fg);
                     }
-
-                    imSet(c, text);
-
-                    console.log("text changed:", text);
                 }
-
-                imStr(c, text);
             } imLayoutEnd(c);
 
             // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
@@ -122,9 +115,8 @@ export function imBeginTextArea(c: ImCache, {
                 if (isFirstishRender(c)) {
                     elSetStyle(c, "color", "transparent");
                     elSetStyle(c, "userSelect", "none");
+                    elSetTextSafetyRemoved(c, ".");
                 }
-
-                imStr(c, ".");
             } imLayoutEnd(c);
 
             textArea = imEl(c, EL_TEXTAREA).root; {

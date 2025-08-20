@@ -394,7 +394,7 @@ const menus: MenuItem[] = [
                         if (timer === undefined || focusChanged) {
                             timer = imSet(c, 0);
                         }
-                        timer = imSet(c, timer + getDeltaTimeSeconds());
+                        timer = imSet(c, timer + getDeltaTimeSeconds(c));
 
                         imLayout(c, BLOCK); {
                             if (isFirstishRender(c)) {

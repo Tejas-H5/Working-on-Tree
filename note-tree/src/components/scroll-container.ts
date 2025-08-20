@@ -43,7 +43,7 @@ export function imBeginScrollContainer(
 
 // NOTE: it's up to you to only ever call this on one item at a time
 // TODO: move this into ScrollContainer, make this a side-effect of ending the container
-export function scrollToItem(l: ScrollContainer, root: HTMLElement) {
+export function scrollToItem(c: ImCache, l: ScrollContainer, root: HTMLElement) {
     const scrollParent = l.root;
     if (!scrollParent)  return;
     if (!l.isScrolling) return;
@@ -63,7 +63,7 @@ export function scrollToItem(l: ScrollContainer, root: HTMLElement) {
         l.isScrolling = false;
     } else {
         if (l.smoothScroll) {
-            scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds());
+            scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds(c));
         } else {
             scrollParent.scrollTop = scrollTop;
         }

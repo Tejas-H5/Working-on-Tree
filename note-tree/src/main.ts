@@ -232,13 +232,13 @@ function imMainInner(c: ImCache) {
                                 }
 
                                 if (imIf(c) && ctx.status.statusTextTimeLeft > 0) {
-                                    ctx.status.statusTextTimeLeft -= getDeltaTimeSeconds();
+                                    ctx.status.statusTextTimeLeft -= getDeltaTimeSeconds(c);
 
                                     const statusTextChanged = imMemo(c, ctx.status.statusText);
 
                                     let t = imGet(c, Math.sin);
                                     if (t === undefined || statusTextChanged) t = 0;
-                                    t = imSet(c, t + getDeltaTimeSeconds());
+                                    t = imSet(c, t + getDeltaTimeSeconds(c));
 
                                     // bruh
                                     if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
@@ -269,9 +269,31 @@ function imMainInner(c: ImCache) {
                                 } else {
                                     imIfElse(c);
 
-                                    const frameMs = Math.round(fpsCounter.frameDuration);
-                                    const renderMs = Math.round(fpsCounter.renderEnd - fpsCounter.renderStart);
-                                    imLayout(c, BLOCK); imStr(c, renderMs + "/" + frameMs + "fps"); imLayoutEnd(c);
+                                    const RINGBUFFER_SIZE = 20;
+                                    let arr; arr = imGet(c, inlineTypeId(Array));
+                                    if (!arr) arr = imSet(c, {
+                                        frameMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
+                                        idx1: 0,
+                                        renderMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
+                                        idx2: 0,
+                                    });
+
+                                    arr.frameMsRingbuffer[arr.idx1] = fpsCounter.frameMs;
+                                    arr.idx1 = (arr.idx1 + 1) % arr.frameMsRingbuffer.length;
+
+                                    arr.renderMsRingbuffer[arr.idx2] = fpsCounter.renderMs;
+                                    arr.idx2 = (arr.idx2 + 1) % arr.renderMsRingbuffer.length;
+
+                                    let renderMs = 0;
+                                    let frameMs = 0;
+                                    for (let i = 0; i < arr.renderMsRingbuffer.length; i++) {
+                                        renderMs += arr.renderMsRingbuffer[i];
+                                        frameMs += arr.frameMsRingbuffer[i];
+                                    }
+                                    renderMs /= arr.frameMsRingbuffer.length;
+                                    frameMs /= arr.frameMsRingbuffer.length;
+
+                                    imLayout(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 
@@ -522,9 +544,6 @@ function imMainInner(c: ImCache) {
 
 
 const imCache: ImCache = [];
-function rerender() {
-    imMain(imCache);
-}
 
 function imMain(c: ImCache) {
     imCacheInit(c, imMain); {
@@ -543,7 +562,7 @@ function imCommandDescription(c: ImCache, key: string, action: string) {
 
 loadState(() => {
     console.log("State: ", state);
-    rerender();
+    imMain(imCache);
 })
 
 // Using a custom styling solution

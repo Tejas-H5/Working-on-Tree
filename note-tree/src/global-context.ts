@@ -542,8 +542,6 @@ console.log({
 
 let saveTimeout = 0;
 export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState, { debounced } = { debounced: false }) {
-    return;
-
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 
