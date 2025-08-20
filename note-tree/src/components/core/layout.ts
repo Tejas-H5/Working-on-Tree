@@ -1,6 +1,6 @@
-import { imBeginRoot, imInit, imIsFirstishRender, imMemo, imRef, imState, isExcessEventRender } from 'src/utils/im-utils-core.ts';
-import { imBeginDiv, newDiv, pushAttr, setClass, setStyle } from 'src/utils/im-utils-dom';
-import { cn } from "./stylesheets.ts";
+import { ImCache, imChanged, imGet, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
+import { EL_DIV, elSetClass, elSetStyle, imEl, imElEnd } from 'src/utils/im-dom';
+import { cn } from "./stylesheets";
 
 // It occurs to me that I can actually just make my own fully custom layout system that significantly minimizes
 // number of DOM nodes required to get things done.
@@ -36,94 +36,102 @@ function getSize(num: number, units: SizeUnits) {
     return units === NA ? "" : num + getUnits(units);
 }
 
-function newSizeState(): { width: number; height: number; wType: number; hType: number; } {
-    return { width: 0, height: 0, wType: 0, hType: 0 };
-}
-
-export function imSize(
+type SizeState = {
     width: number, wType: SizeUnits,
     height: number, hType: SizeUnits, 
-) {
-    const val = imState(newSizeState);
+};
 
-    if (val.width !== width || val.wType !== wType) {
-        val.width = width;
-        val.wType = wType;
-        setStyle("minWidth", getSize(width, wType));
-        setStyle("maxWidth", getSize(width, wType));
+export function imSize(
+    c: ImCache,
+    width: number, wType: SizeUnits,
+    height: number, hType: SizeUnits, 
+): SizeState {
+    let size = imGet(c, imSize);
+    if (size === undefined) {
+        size = imSet(c, { width: 0, wType: NA, height: 0, hType: NA });
     }
 
-    if (val.height !== height || val.hType !== hType) {
-        val.height = height;
-        val.hType = hType;
-        setStyle("minHeight", getSize(height, hType));
-        setStyle("maxHeight", getSize(height, hType));
+    if (size.width !== width || size.wType !== wType) {
+        size.width = width;
+        size.wType = wType;
+        elSetStyle(c, "minWidth", getSize(width, wType));
+        elSetStyle(c, "maxWidth", getSize(width, wType));
     }
+
+    if (size.height !== height || size.hType !== hType) {
+        size.height = height;
+        size.hType = hType;
+        elSetStyle(c, "minHeight", getSize(height, hType));
+        elSetStyle(c, "maxHeight", getSize(height, hType));
+    }
+
+    return size;
 }
 
-export function imOpacity(val: number) {
-    if (imMemo(val)) {
-        setStyle("opacity", "" + val);
+export function imOpacity(c: ImCache, val: number) {
+    let lastVal = imGet(c, inlineTypeId(imOpacity));
+    if (lastVal !== val) {
+        imSet(c, val);
+        elSetStyle(c, "opacity", "" + val);
     }
 }
 
 type PaddingState = {
-    left: number, leftType: SizeUnits,
-    right: number, rightType: SizeUnits, 
-    top: number, topType: SizeUnits,
+    left: number,   leftType: SizeUnits,
+    right: number,  rightType: SizeUnits, 
+    top: number,    topType: SizeUnits,
     bottom: number, bottomType: SizeUnits, 
 };
+
 function newPaddingState(): PaddingState {
-    return { 
+    return {
         left: 0, leftType: NA,
         right: 0, rightType: NA,
         top: 0, topType: NA,
         bottom: 0, bottomType: NA,
-    };
+    }
 }
 
 export function imPadding(
-    left: number, leftType: SizeUnits,
-    right: number, rightType: SizeUnits, 
-    top: number, topType: SizeUnits,
+    c: ImCache,
+    left: number,   leftType: SizeUnits,
+    right: number,  rightType: SizeUnits, 
+    top: number,    topType: SizeUnits,
     bottom: number, bottomType: SizeUnits, 
 ) {
-    const val = imState(newPaddingState);
-
-    if (isExcessEventRender()) {
-        return;
-    }
+    let val = imGet(c, newPaddingState);
+    if (val === undefined) val = imSet(c, newPaddingState());
 
     if (val.left !== left || val.leftType !== leftType) {
         val.left = left; val.leftType = leftType;
-        setStyle("paddingLeft", getSize(left, leftType));
+        elSetStyle(c, "paddingLeft", getSize(left, leftType));
     }
 
     if (val.right !== right || val.rightType !== rightType) {
         val.right = right; val.rightType = rightType;
-        setStyle("paddingRight", getSize(right, rightType));
+        elSetStyle(c, "paddingRight", getSize(right, rightType));
     }
 
     if (val.top !== top || val.topType !== topType) {
         val.top = top; val.topType = topType;
-        setStyle("paddingTop", getSize(top, topType));
+        elSetStyle(c, "paddingTop", getSize(top, topType));
     }
 
     if (val.bottom !== bottom || val.bottomType !== bottomType) {
         val.bottom = bottom; val.bottomType = bottomType;
-        setStyle("paddingBottom", getSize(bottom, bottomType));
+        elSetStyle(c, "paddingBottom", getSize(bottom, bottomType));
     }
 }
 
-export function imRelative() {
-    if (imIsFirstishRender()) {
-        setClass(cn.relative);
+export function imRelative(c: ImCache) {
+    if (isFirstishRender(c)) {
+        elSetClass(c, cn.relative);
     }
 }
 
-export function imBg(colour: string) {
-    if (imMemo(colour)) {
-        setStyle("backgroundColor", colour);
+export function imBg(c: ImCache, colour: string) {
+    if (imChanged(c, colour)) {
+        elSetStyle(c, "backgroundColor", colour);
     }
 }
 
@@ -151,38 +159,47 @@ type DisplayType =
     typeof TABLE_ROW |
     typeof TABLE_CELL;
 
-
-export function imBegin(type: DisplayType = BLOCK, supplier = newDiv) {
-    const root = imBeginRoot(supplier);
-    if (imMemo(type)) {
-        setClass(cn.inlineBlock, type === INLINE_BLOCK);
-        setClass(cn.inline, type === INLINE);
-        setClass(cn.row, type === ROW);
-        setClass(cn.rowReverse, type === ROW_REVERSE);
-        setClass(cn.col, type === COL);
-        setClass(cn.colReverse, type === COL_REVERSE);
-        setClass(cn.table, type === TABLE);
-        setClass(cn.tableRow, type === TABLE_ROW);
-        setClass(cn.tableCell, type === TABLE_CELL);
+export function imLayout(c: ImCache, type: DisplayType) {
+    const root = imEl(c, EL_DIV);
+    if (imChanged(c, type)) {
+        elSetClass(c, cn.inlineBlock, type === INLINE_BLOCK);
+        elSetClass(c, cn.inline, type === INLINE);
+        elSetClass(c, cn.row, type === ROW);
+        elSetClass(c, cn.rowReverse, type === ROW_REVERSE);
+        elSetClass(c, cn.col, type === COL);
+        elSetClass(c, cn.colReverse, type === COL_REVERSE);
+        elSetClass(c, cn.table, type === TABLE);
+        elSetClass(c, cn.tableRow, type === TABLE_ROW);
+        elSetClass(c, cn.tableCell, type === TABLE_CELL);
     }
 
-    return root;
+    return root.root;
 }
 
-export function imFlex(val = 1) {
-    if (imMemo(val)) {
-        setStyle("flex", "" + val);
-        // required to make flex work the way you would think.
-        setStyle("minWidth", "0");
-        setStyle("minHeight", "0");
+export function imNoWrap(c: ImCache) {
+    if (!isFirstishRender(c)) {
+        elSetClass(c, cn.noWrap);
     }
 }
 
-export function imGap(val = 0, units: SizeUnits) {
-    const valChanged = imMemo(val);
-    const unitsChanged = imMemo(units);
-    if (valChanged !== 0 || unitsChanged !== 0) {
-        setStyle("gap", getSize(val, units));
+export function imLayoutEnd(c: ImCache) {
+    imElEnd(c, EL_DIV);
+}
+
+export function imFlex(c: ImCache, ratio = 1) {
+    if (imChanged(c, ratio)) {
+        elSetStyle(c, "flex", "" + ratio);
+        // required to make flex work the way I had thought it already worked
+        elSetStyle(c, "minWidth", "0");
+        elSetStyle(c, "minHeight", "0");
+    }
+}
+
+export function imGap(c: ImCache, val = 0, units: SizeUnits) {
+    const valChanged = imChanged(c, val);
+    const unitsChanged = imChanged(c, units);
+    if (valChanged || unitsChanged) {
+        elSetStyle(c, "gap", getSize(val, units));
     }
 }
 
@@ -204,166 +221,128 @@ function getAlignment(alignment: number) {
     return "";
 }
 
-export function imAlign(alignment = CENTER) {
-    if (imMemo(alignment)) {
-        setStyle("alignItems", getAlignment(alignment));
+export function imAlign(c: ImCache, alignment = CENTER) {
+    if (imChanged(c, alignment)) {
+        elSetStyle(c, "alignItems", getAlignment(alignment));
     }
 }
 
-export function imJustify(alignment = CENTER) {
-    if (imMemo(alignment)) {
-        setStyle("justifyContent", getAlignment(alignment));
+export function imJustify(c: ImCache, alignment = CENTER) {
+    if (imChanged(c, alignment)) {
+        elSetStyle(c, "justifyContent", getAlignment(alignment));
     }
 }
 
-export function imScrollOverflow(vScroll = true, hScroll = false) {
-    if (imMemo(vScroll)) {
-        setClass(cn.overflowYAuto, vScroll);
+export function imScrollOverflow(c: ImCache, vScroll = true, hScroll = false) {
+    if (imChanged(c, vScroll)) {
+        elSetClass(c, cn.overflowYAuto, vScroll);
     }
 
-    if (imMemo(hScroll)) {
-        setClass(cn.overflowXAuto, hScroll);
+    if (imChanged(c, hScroll)) {
+        elSetClass(c, cn.overflowXAuto, hScroll);
     }
 }
 
 
 export function imFixed(
+    c: ImCache,
     top: number, topType: SizeUnits,
     left: number, leftType: SizeUnits,
     bottom: number, bottomType: SizeUnits,
     right: number, rightType: SizeUnits,
 ) {
-    if (imIsFirstishRender()) {
-        setClass(cn.fixed);
+    if (isFirstishRender(c)) {
+        elSetClass(c, cn.fixed);
     }
 
-    const val = imState(newPaddingState);
-    
-    applyOffsets(
-        val,
-        left, leftType,
-        right, rightType, 
+    imOffsets(
+        c,
         top, topType,
-        bottom, bottomType, 
-    ); 
-}
-
-export function imAbsolute(
-    left: number, leftType: SizeUnits,
-    right: number, rightType: SizeUnits, 
-    top: number, topType: SizeUnits,
-    bottom: number, bottomType: SizeUnits, 
-) {
-    if (imIsFirstishRender()) {
-        setClass(cn.absolute);
-    }
-
-    const val = imState(newPaddingState);
-    
-    applyOffsets(
-        val,
         left, leftType,
-        right, rightType, 
-        top, topType,
-        bottom, bottomType, 
+        bottom, bottomType,
+        right, rightType,
     );
 }
 
-function applyOffsets(
-    val: PaddingState,
-    left: number, leftType: SizeUnits,
-    right: number, rightType: SizeUnits, 
+function imOffsets(
+    c: ImCache,
     top: number, topType: SizeUnits,
-    bottom: number, bottomType: SizeUnits, 
+    left: number, leftType: SizeUnits,
+    bottom: number, bottomType: SizeUnits,
+    right: number, rightType: SizeUnits,
 ) {
+    let val = imGet(c, newPaddingState);
+    if (val === undefined) val = imSet(c, newPaddingState());
+
     if (val.left !== left || val.leftType !== leftType) {
         val.left = left; val.leftType = leftType;
-        setStyle("left", getSize(left, leftType));
+        elSetStyle(c, "left", getSize(left, leftType));
     }
 
     if (val.right !== right || val.rightType !== rightType) {
         val.right = right; val.rightType = rightType;
-        setStyle("right", getSize(right, rightType));
+        elSetStyle(c, "right", getSize(right, rightType));
     }
 
     if (val.top !== top || val.topType !== topType) {
         val.top = top; val.topType = topType;
-        setStyle("top", getSize(top, topType));
+        elSetStyle(c, "top", getSize(top, topType));
     }
 
     if (val.bottom !== bottom || val.bottomType !== bottomType) {
         val.bottom = bottom; val.bottomType = bottomType;
-        setStyle("bottom", getSize(bottom, bottomType));
+        elSetStyle(c, "bottom", getSize(bottom, bottomType));
     }
 }
 
-export function imBeginOverflowContainer(noScroll: boolean = false) {
-    const root = imBeginDiv();
 
-    if (imMemo(noScroll)) {
+export function imAbsolute(
+    c: ImCache,
+    left: number, leftType: SizeUnits,
+    right: number, rightType: SizeUnits, 
+    top: number, topType: SizeUnits,
+    bottom: number, bottomType: SizeUnits, 
+) {
+    if (isFirstishRender(c)) {
+        elSetClass(c, cn.absolute);
+    }
+
+    imOffsets(
+        c,
+        top, topType,
+        left, leftType,
+        bottom, bottomType,
+        right, rightType,
+    );
+}
+
+export function imOverflowContainer(c: ImCache, noScroll: boolean = false) {
+    const root = imLayout(c, BLOCK);
+
+    if (imChanged(c, noScroll)) {
         if (noScroll) {
-            setStyle("overflow", "hidden");
-            setClass(cn.overflowYAuto, false);
+            elSetStyle(c, "overflow", "hidden");
+            elSetClass(c, cn.overflowYAuto, false);
         } else {
-            setClass(cn.overflowYAuto, true);
+            elSetClass(c, cn.overflowYAuto, true);
         }
     }
 
     return root;
 }
 
-export function imBeginAspectRatio(w: number, h: number) {
-    const lastAr = imRef();
-    const root = imBegin(); {
-        if (imIsFirstishRender()) {
-            setStyle("width", "auto");
-            setStyle("height", "auto");
-        }
-
-        const ar = w / h;
-        if (lastAr.val !== ar) {
-            lastAr.val = ar;
-            setStyle("aspectRatio", w + " / " + h);
-        }
-    };
-
-    return root;
+export function imOverflowContainerEnd(c: ImCache) {
+    imLayoutEnd(c);
 }
 
-export function setInset(amount: string) {
-    if (amount) {
-        setClass(cn.borderBox);
-        setStyle("padding", amount);
-    } else {
-        setClass(cn.borderBox, false);
-        setStyle("padding", "");
+export function imAspectRatio(c: ImCache, w: number, h: number) {
+    if (isFirstishRender(c)) {
+        elSetStyle(c, "width", "auto");
+        elSetStyle(c, "height", "auto");
+    }
+
+    const ar = w / h;
+    if (imChanged(c, ar)) {
+        elSetStyle(c, "aspectRatio", w + " / " + h);
     }
 }
-
-/** 
- * Try to make sure you aren't allocating memory when you create {@link val};
- */
-export function imInitStyles(val: string) {
-    if (imInit()) {
-        pushAttr("style", val);
-        return true;
-    }
-    return false;
-}
-
-/** 
- * Try to make sure you aren't passing in an actual array here.
- * Otherwise, you'll just be creating garbage every frame.
- */
-export function imInitClasses(..._val: string[]) {
-    if (imIsFirstishRender()) {
-        for (let i = 0; i < arguments.length; i++) {
-            setClass(arguments[i]);
-        }
-    }
-}
-
-export function imDebug() {
-    imInitClasses(cn.debug1pxSolidRed);
-}
-

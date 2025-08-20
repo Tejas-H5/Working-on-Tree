@@ -22,8 +22,8 @@ import { GraphData, newGraphData } from "./legacy-app-components/interactive-gra
 import { asNoteTreeGlobalState } from "./schema";
 import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
 import { fuzzyFind } from "./utils/fuzzyfind";
-import { isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 
 const SAVE_DEBOUNCE = 1500;
 const ERROR_TIMEOUT_TIME = 5000;

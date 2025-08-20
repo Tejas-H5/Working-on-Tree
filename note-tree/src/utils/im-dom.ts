@@ -1,5 +1,16 @@
 import { assert } from "src/utils/assert";
-import { CACHE_NEEDS_RERENDER, CACHE_RERENDER_FN, imBlock, imBlockEnd, ImCache, imGet, getEntriesParent, imSet, inlineTypeId } from "./im-core";
+import {
+    CACHE_RERENDER_FN,
+    imBlock,
+    imBlockEnd,
+    ImCache,
+    imGet,
+    getEntriesParent,
+    imSet,
+    inlineTypeId,
+    imCacheEntriesAddDestructor,
+    CACHE_IS_RENDERING,
+} from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
 export type AppendableElement = (ValidElement | Text);
@@ -70,6 +81,11 @@ export function imEl<K extends keyof HTMLElementTagNameMap>(
 
     appendToDomRoot(appender, childAppender.root);
 
+    // NOTE: we don't necessarily need to make this a block.
+    // we can push and pop this element from our own internal stack as we iterate, 
+    // but we can keep the entries themselves flat.
+    // THis requires we have some way to access a global context dedicated to the dom appender though.
+    // or, TODO: the framework can provide this mechanism, and we can just hook into that.
     imBlock(c, newDomAppender, childAppender);
 
     childAppender.idx = -1;
@@ -137,10 +153,10 @@ export function elSetStyle<K extends (keyof ValidElement["style"])>(
     c: ImCache,
     key: K,
     value: string,
-    root: ValidElement = elGet(c),
+    root = elGet(c),
 ) {
-    const domAppender = getEntriesParent(c, newDomAppender);
-    domAppender.root.style[key] = value;
+    // @ts-expect-error its fine tho
+    root.style[key] = value;
     stylesSet++;
 }
 
@@ -198,10 +214,12 @@ export function imOn<K extends keyof HTMLElementEventMap>(
     let state; state = imGet(c, inlineTypeId(imOn));
     if (!state) {
         const val: {
+            el: ValidElement;
             eventType: KeyRef<keyof HTMLElementEventMap> | null;
             eventValue: Event | null;
             eventListener: (e: HTMLElementEventMap[K]) => void;
         } = {
+            el: elGet(c),
             eventType: null,
             eventValue: null,
             eventListener: (e: HTMLElementEventMap[K]) => {
@@ -227,15 +245,349 @@ export function imOn<K extends keyof HTMLElementEventMap>(
 
         state.eventType = type;
         el.addEventListener(state.eventType.val, state.eventListener as EventListener);
+        console.log("bruh");
     }
 
     return result;
 }
 
 
-export function elHasMousePress(c: ImCache): boolean {
-    throw new Error("TODO: implement");
-    return false;
+export function elHasMouseDown(c: ImCache, ev: ImGlobalEventSystem): boolean {
+    const el = elGet(c);
+    return elEventSetHas(el, ev.mouse.mouseDownElements)
+}
+
+export function elHasMouseClick(c: ImCache, ev: ImGlobalEventSystem): boolean {
+    const el = elGet(c);
+    return elEventSetHas(el, ev.mouse.mouseClickedElements)
+}
+
+export function elHasMouseOver(c: ImCache, ev: ImGlobalEventSystem): boolean {
+    const el = elGet(c);
+    return elEventSetHas(el, ev.mouse.mouseOverElements)
+}
+
+function elEventSetHas(el: ValidElement, set: Set<ValidElement>) {
+    const result = set.has(el);
+    set.delete(el);
+    return result;
+}
+
+export type SizeState = {
+    width: number;
+    height: number;
+}
+
+export type ImKeyboardState = {
+    // We need to use this approach instead of a buffered approach like `keysPressed: string[]`, so that a user
+    // may call `preventDefault` on the html event as needed.
+    // NOTE: another idea is to do `keys.keyDown = null` to prevent other handlers in this framework
+    // from knowing about this event.
+    keyDown: KeyboardEvent | null;
+    keyUp: KeyboardEvent | null;
+    blur: boolean;
+};
+
+
+export type ImMouseState = {
+    lastX: number;
+    lastY: number;
+
+    leftMouseButton: boolean;
+    middleMouseButton: boolean;
+    rightMouseButton: boolean;
+    hasMouseEvent: boolean;
+
+    dX: number;
+    dY: number;
+    X: number;
+    Y: number;
+
+    /**
+     * NOTE: if you want to use this, you'll have to prevent scroll event propagation.
+     * See {@link imPreventScrollEventPropagation}
+     */
+    scrollWheel: number;
+
+    mouseDownElements: Set<ValidElement>;
+    mouseClickedElements: Set<ValidElement>;
+    mouseOverElements: Set<ValidElement>;
+    lastMouseOverElement: ValidElement | null;
+};
+
+export type ImGlobalEventSystem = {
+    rerender: () => void;
+    keyboard: ImKeyboardState;
+    mouse:    ImMouseState;
+    globalEventHandlers: {
+        mousedown:  (e: MouseEvent) => void;
+        mousemove:  (e: MouseEvent) => void;
+        mouseenter: (e: MouseEvent) => void;
+        mouseup:    (e: MouseEvent) => void;
+        wheel:      (e: WheelEvent) => void;
+        keydown:    (e: KeyboardEvent) => void;
+        keyup:      (e: KeyboardEvent) => void;
+        blur:       () => void;
+    };
+}
+
+function findParents(el: ValidElement, elements: Set<ValidElement>) {
+    elements.clear();
+    let current: ValidElement | null = el;
+    while (current !== null) {
+        elements.add(current);
+        current = current.parentElement;
+    }
+}
+
+
+export function newImGlobalEventSystem(): ImGlobalEventSystem {
+    const keyboard: ImKeyboardState = {
+        keyDown: null,
+        keyUp: null,
+        blur: false,
+    };
+
+    const mouse: ImMouseState = {
+        lastX: 0,
+        lastY: 0,
+
+        leftMouseButton: false,
+        middleMouseButton: false,
+        rightMouseButton: false,
+        hasMouseEvent: false,
+
+        dX: 0,
+        dY: 0,
+        X: 0,
+        Y: 0,
+
+        scrollWheel: 0,
+
+        mouseDownElements: new Set<ValidElement>(),
+        mouseClickedElements: new Set<ValidElement>(),
+        mouseOverElements: new Set<ValidElement>(),
+        lastMouseOverElement: null,
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+        mouse.lastX = mouse.X;
+        mouse.lastY = mouse.Y;
+        mouse.X = e.clientX;
+        mouse.Y = e.clientY;
+        mouse.dX += mouse.X - mouse.lastX;
+        mouse.dY += mouse.Y - mouse.lastY;
+
+        if (mouse.lastMouseOverElement !== e.target) {
+            mouse.lastMouseOverElement = e.target as ValidElement;
+            findParents(e.target as ValidElement, mouse.mouseOverElements);
+            return true;
+        }
+
+        return false
+    };
+
+    const eventSystem: ImGlobalEventSystem = {
+        // You should set this to your rerender method
+        rerender: () => {},
+        keyboard,
+        mouse,
+        // stored, so we can dispose them later if needed.
+        globalEventHandlers: {
+            mousedown: (e: MouseEvent) => {
+                mouse.hasMouseEvent = true;
+                if (e.button === 0) {
+                    mouse.leftMouseButton = true;
+                } else if (e.button === 1) {
+                    mouse.middleMouseButton = true;
+                } else if (e.button === 2) {
+                    mouse.rightMouseButton = true;
+                }
+                eventSystem.rerender();
+            },
+            mousemove: (e) => {
+                if (handleMouseMove(e)) eventSystem.rerender();
+            },
+            mouseenter: (e) => {
+                if (handleMouseMove(e)) eventSystem.rerender();
+            },
+            mouseup: (e: MouseEvent) => {
+                if (mouse.hasMouseEvent === true) {
+                    return;
+                }
+
+                if (e.button === 0) {
+                    mouse.leftMouseButton = false;
+                } else if (e.button === 1) {
+                    mouse.middleMouseButton = false;
+                } else if (e.button === 2) {
+                    mouse.rightMouseButton = false;
+                }
+
+                eventSystem.rerender();
+            },
+            wheel: (e: WheelEvent) => {
+                mouse.scrollWheel += e.deltaX + e.deltaY + e.deltaZ;
+                e.preventDefault();
+                if (!handleMouseMove(e)) {
+                    // rerender anwyway
+                    eventSystem.rerender();
+                }
+            },
+            keydown: (e: KeyboardEvent) => {
+                keyboard.keyDown = e;
+                eventSystem.rerender();
+            },
+            keyup: (e: KeyboardEvent) => {
+                keyboard.keyUp = e;
+                eventSystem.rerender();
+            },
+            blur: () => {
+                resetMouseState(mouse, true);
+                resetKeyboardState(keyboard);
+                keyboard.blur = true;
+                eventSystem.rerender();
+            }
+        },
+    };
+
+    return eventSystem;
+}
+
+function resetKeyboardState(keyboard: ImKeyboardState) {
+    keyboard.keyDown = null
+    keyboard.keyUp = null
+    keyboard.blur = false;
+}
+
+export function imGlobalEventSystemInit(c: ImCache, eventSystem: ImGlobalEventSystem) {
+    let state = imGet(c, newImGlobalEventSystem);
+    if (state !== eventSystem) {
+        if (state !== undefined) {
+            throw new Error("This code can't handle changing the event system like that yet - we need to remove the last destructor somehow before we can do this.");
+        }
+
+        eventSystem.rerender = c[CACHE_RERENDER_FN];
+        addDocumentAndWindowEventListeners(eventSystem);
+        imCacheEntriesAddDestructor(c, () => removeDocumentAndWindowEventListeners(eventSystem));
+        state = imSet(c, eventSystem);
+    }
+}
+
+export function imGlobalEventSystemEnd(c: ImCache, eventSystem: ImGlobalEventSystem) {
+    endProcessingImEvent(eventSystem);
+}
+
+
+export function imTrackSize(c: ImCache) {
+    let state; state = imGet(c, inlineTypeId(imTrackSize));
+    if (state === undefined) {
+        const root = elGet(c);
+
+        const self = {
+            size: { width: 0, height: 0, },
+            resized: false,
+            observer: new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    // NOTE: resize-observer cannot track the top, right, left, bottom of a rect. Sad.
+                    self.size.width = entry.contentRect.width;
+                    self.size.height = entry.contentRect.height;
+                    break;
+                }
+
+                c[CACHE_RERENDER_FN]();
+            })
+        };
+
+        self.observer.observe(root);
+        imCacheEntriesAddDestructor(c, () => {
+            self.observer.disconnect()
+        });
+
+        state = imSet(c, self);
+    }
+
+    return state;
+
+}
+
+export function endProcessingImEvent(eventSystem: ImGlobalEventSystem) {
+    resetKeyboardState(eventSystem.keyboard);
+    resetMouseState(eventSystem.mouse, false);
+    eventSystem.mouse.hasMouseEvent = false;
+}
+
+function newPreventScrollEventPropagationState() {
+    return { 
+        isBlocking: true,
+        scrollY: 0,
+    };
+}
+
+export function imPreventScrollEventPropagation(c: ImCache, eventSystem: ImGlobalEventSystem) {
+    let state = imGet(c, newPreventScrollEventPropagationState);
+    if (state === undefined) {
+        const val = newPreventScrollEventPropagationState();
+
+        let el = elGet(c);
+        const handler = (e: Event) => {
+            if (val.isBlocking === true) {
+                e.preventDefault();
+            }
+        };
+
+        el.addEventListener("wheel", handler);
+        imCacheEntriesAddDestructor(c, () =>  el.removeEventListener("wheel", handler));
+
+        state = imSet(c, val);
+    }
+
+    const mouse = eventSystem.mouse;
+    if (state.isBlocking === true && elHasMouseOver(c, eventSystem) && mouse.scrollWheel !== 0) {
+        state.scrollY += mouse.scrollWheel;
+        mouse.scrollWheel = 0;
+    } else {
+        state.scrollY = 0;
+    }
+
+    return state;
+}
+
+export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: boolean) {
+    mouse.dX = 0;
+    mouse.dY = 0;
+    mouse.lastX = mouse.X;
+    mouse.lastY = mouse.Y;
+
+    mouse.scrollWheel = 0;
+
+    if (clearPersistedStateAsWell === true) {
+        mouse.leftMouseButton = false;
+        mouse.middleMouseButton = false;
+        mouse.rightMouseButton = false;
+    }
+}
+
+export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
+    document.addEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.addEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
+    document.addEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
+    document.addEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.addEventListener("wheel", eventSystem.globalEventHandlers.wheel);
+    document.addEventListener("keydown", eventSystem.globalEventHandlers.keydown);
+    document.addEventListener("keyup", eventSystem.globalEventHandlers.keyup);
+    window.addEventListener("blur", eventSystem.globalEventHandlers.blur);
+}
+
+export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
+    document.removeEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.removeEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
+    document.removeEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
+    document.removeEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.removeEventListener("wheel", eventSystem.globalEventHandlers.wheel);
+    document.removeEventListener("keydown", eventSystem.globalEventHandlers.keydown);
+    document.removeEventListener("keyup", eventSystem.globalEventHandlers.keyup);
+    window.removeEventListener("blur", eventSystem.globalEventHandlers.blur);
 }
 
 

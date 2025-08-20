@@ -2,23 +2,24 @@ import {
     newScrollContainer,
     ScrollContainer
 } from "src/components/scroll-container";
-import { imLine } from "./app-components/common";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
 import {
+    BLOCK,
     CENTER,
     CH,
     COL,
     imAlign,
-    imBegin,
     imFlex,
     imGap,
-    imInitClasses,
     imJustify,
+    imLayout,
+    imLayoutEnd,
+    imNoWrap,
     INLINE_BLOCK,
     NONE,
     PX,
     ROW
 } from "./components/core/layout";
-import { cn } from "./components/core/stylesheets";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
@@ -41,8 +42,8 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
-    imNavListNextItemSlice,
     ListPosition,
+    navListNextItemSlice,
     newListPosition
 } from "./navigable-list";
 import {
@@ -64,9 +65,9 @@ import {
 import { imEditableTime } from "./time-input";
 import { boundsCheck, get } from "./utils/array-utils";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
-import { imElse, imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "src/utils/im-utils-core";
-import { imOn, HORIZONTAL, setStyle, setText, VERTICAL } from "src/utils/im-utils-dom"
-import { imStr } from "./components/core/text";
+import { CACHE_IDX, ImCache, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
+import { assert } from "./utils/assert";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -468,14 +469,14 @@ function getCurrentFocus(s: ActivitiesViewState) {
     return s.currentFocus;
 }
 
-export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
+export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesViewState) {
     const viewHasFocus = ctx.currentView === s;
 
     s.activities = state.activities;;
 
     s.now = ctx.now;
 
-    const viewHasFocusChanged = imMemo(viewHasFocus);
+    const viewHasFocusChanged = imMemo(c, viewHasFocus);
     if (viewHasFocusChanged) {
         if (!viewHasFocus) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
@@ -483,7 +484,7 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
         }
     }
 
-    if (imMemo(s.currentViewingDate)) {
+    if (imMemo(c, s.currentViewingDate)) {
         s._startActivityIdx = getActivitiesForDateStartIdx(s.activities, s.currentViewingDate, s._startActivityIdx);
     }
 
@@ -500,11 +501,10 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
         handleKeyboardInput(ctx, s);
     }
 
-    imBegin(COL); imFlex(); {
-
-        imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
-            if (imIsFirstishRender()) {
-                setStyle("fontWeight", "bold");
+    imLayout(c, COL); imFlex(c); {
+        imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+            if (isFirstishRender(c)) {
+                elSetStyle(c, "fontWeight", "bold");
             }
 
             let text = "[Shift+B] to take a break";
@@ -516,29 +516,30 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
                 }
             } 
 
-            imStr(text);
+            imStr(c, text);
 
-        } imEnd();
+        } imLayoutEnd(c);
 
         const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
         imBeginListRow(
+            c,
             dateSelectorFocused,
             viewHasFocus && dateSelectorFocused
         ); {
-            if (imIsFirstishRender()) {
-                setStyle("fontWeight", "bold");
+            if (isFirstishRender(c)) {
+                elSetStyle(c, "fontWeight", "bold");
             }
 
-            imBegin(ROW); imFlex(); imListRowCellStyle(); imGap(1, CH); {
-                imBegin(); imFlex(); imEnd();
+            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
+                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
-                if (imIf() && dateSelectorFocused && s._canMoveToPrevDay) {
+                if (imIf(c) && dateSelectorFocused && s._canMoveToPrevDay) {
                     // TODO: buttons
-                    imBegin(); setText("<-"); imEnd();
-                } imEndIf();
+                    imLayout(c, BLOCK); imStr(c, "<-"); imLayoutEnd(c);
+                } imIfEnd(c);
 
-                imBegin(ROW); {
+                imLayout(c, ROW); {
                     let dateText;
                     if (isSameDate(s.currentViewingDate, s.now)) {
                         dateText = " today (" + formatDate(s.currentViewingDate, true) + ")";
@@ -555,25 +556,26 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
                         text = "Activity " + (relIdx + 1) + "/" + numActivities + dateText;
                     }
 
-                    imStr(text);
-                } imEnd();
+                    imStr(c, text);
+                } imLayoutEnd(c);
 
-                if (imIf() && dateSelectorFocused && s._canMoveToNextDay) {
+                if (imIf(c) && dateSelectorFocused && s._canMoveToNextDay) {
                     // TODO: buttons
-                    imBegin(); setText("->"); imEnd();
-                } imEndIf();
+                    imLayout(c, BLOCK); imStr(c, "->"); imLayoutEnd(c);
+                } imIfEnd(c);
 
-                imBegin(); imFlex(); imEnd();
-            } imEnd();
-
-        } imEndListRow();
+                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+            } imLayoutEnd(c);
+        } imEndListRow(c);
 
         imLine(
-            HORIZONTAL, 1,
-            !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
+            c,
+            LINE_HORIZONTAL, 1,
+            !!s.scrollContainer.root && s.scrollContainer.root.scrollTop > 1,
         );
 
         const list = imBeginNavList(
+            c,
             s.scrollContainer,
             s.activityListPositon.idx,
             viewHasFocus && currentFocus === FOCUS_ACTIVITIES_LIST,
@@ -582,116 +584,117 @@ export function imActivitiesList(ctx: GlobalContext, s: ActivitiesViewState) {
             const current = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, current);
 
-            while (imNavListNextItemSlice(
-                list,
-                s.activities, s._startActivityIdx, s._endActivityIdxEx
+            while (navListNextItemSlice(
+                list, 
+                s._startActivityIdx, s._endActivityIdxEx
             )) {
                 const { i, itemSelected } = list;
                 const activity = s.activities[i];
 
-                const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
-                const isEditingTime     = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
+                imKeyed(c, activity); {
+                    const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
+                    const isEditingTime = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
-                let itemHighlighted = itemSelected;
-                if (!itemHighlighted && hlt) {
-                    if (activity.nId) {
-                        const note = getNote(state, activity.nId);
-                        const noteHlt = getHigherLevelTask(state, note);
-                        if (noteHlt === hlt) {
-                            itemHighlighted = true;
+                    let itemHighlighted = itemSelected;
+                    if (!itemHighlighted && hlt) {
+                        if (activity.nId) {
+                            const note = getNote(state, activity.nId);
+                            const noteHlt = getHigherLevelTask(state, note);
+                            if (noteHlt === hlt) {
+                                itemHighlighted = true;
+                            }
                         }
                     }
-                }
 
-                const isBreakActivity = isBreak(activity);
+                    const isBreakActivity = isBreak(activity);
 
-                imBeginNavListRow(list, itemHighlighted); {
-                    imBegin(ROW); imListRowCellStyle(); imGap(10, PX); imFlex(); imAlign(); {
-                        imBegin(INLINE_BLOCK); {
-                            if (imIf() && isEditingTime) {
-                                const lowerBound = get(s.activities, i - 1)?.t;
-                                const upperBound = get(s.activities, i + 1)?.t;
+                    imBeginNavListRow(c, list, itemHighlighted); {
+                        imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
+                            imLayout(c, INLINE_BLOCK); {
+                                if (imIf(c) && isEditingTime) {
+                                    const lowerBound = get(s.activities, i - 1)?.t;
+                                    const upperBound = get(s.activities, i + 1)?.t;
 
-                                const { edit, textArea } = imEditableTime(activity.t, lowerBound ?? null, upperBound);
+                                    const { edit, textArea } = imEditableTime(c, activity.t, lowerBound ?? null, upperBound);
 
-                                if (edit) {
-                                    let newVal: Date | undefined;
-                                    if (edit.timeInput) {
-                                        newVal = edit.timeInput;
-                                    } else if (edit.durationInput) {
-                                        newVal = cloneDate(upperBound ?? null) || new Date();
-                                        newVal.setTime(newVal.getTime() - edit.durationInput);
-                                    }
+                                    if (edit) {
+                                        let newVal: Date | undefined;
+                                        if (edit.timeInput) {
+                                            newVal = edit.timeInput;
+                                        } else if (edit.durationInput) {
+                                            newVal = cloneDate(upperBound ?? null) || new Date();
+                                            newVal.setTime(newVal.getTime() - edit.durationInput);
+                                        }
 
-                                    if (newVal) {
-                                        newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
-                                        activity.t = newVal;
-                                        state._activitiesMutationCounter++;
-                                        ctx.handled = true;
-                                    }
-                                }
-
-                                ctx.textAreaToFocus = textArea;
-                                ctx.focusWithAllSelected = true;
-                            } else {
-                                imElse();
-
-                                imBegin(); setText(formatTime(activity.t)); imInitClasses(cn.noWrap); imEnd();
-                            } imEndIf();
-
-                            const duration = getActivityDurationMs(activity, s.activities[i + 1]);
-                            imBegin(); setText(formatDuration(duration, 2)); imInitClasses(cn.noWrap); imEnd();
-                        } imEnd();
-
-                        imLine(VERTICAL, 1);
-
-                        let text = getActivityText(state, activity);
-                        imBegin(ROW); imAlign(); imJustify(isBreakActivity ? CENTER : NONE); imFlex(); {
-                            if (imMemo(isBreakActivity)) {
-                                setStyle("padding", isBreakActivity ? "40px" : "0");
-                            }
-
-                            const isEditingActivityChanged = imMemo(isEditingActivity);
-                            if (imIf() && !isEditingActivity) {
-                                imBegin(); setText(text); imEnd();
-                            } else {
-                                imElse();
-
-                                const [, textArea] = imBeginTextArea({
-                                    value: activity.breakInfo ?? "",
-                                    placeholder: "Enter break info",
-                                }); {
-                                    const input = imOn("input");
-                                    const change = imOn("change");
-
-                                    if (input || change) {
-                                        activity.breakInfo = textArea.root.value;
-                                        state._activitiesMutationCounter++;
-                                        ctx.handled = true;
-                                    }
-
-                                    if (isEditingActivityChanged) {
-                                        textArea.root.selectionStart = textArea.root.value.length;
-                                        textArea.root.selectionEnd = textArea.root.value.length;
+                                        if (newVal) {
+                                            newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
+                                            activity.t = newVal;
+                                            state._activitiesMutationCounter++;
+                                            ctx.handled = true;
+                                        }
                                     }
 
                                     ctx.textAreaToFocus = textArea;
                                     ctx.focusWithAllSelected = true;
-                                } imEndTextArea();
+                                } else {
+                                    imIfElse(c);
 
-                            } imEndIf();
-                            setText(text);
-                        } imEnd();
-                    } imEnd();
-                } imEndNavListRow();
+                                    imLayout(c, BLOCK); imStr(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
+                                } imIfEnd(c);
+
+                                const duration = getActivityDurationMs(activity, s.activities[i + 1]);
+                                imLayout(c, BLOCK); imStr(c, formatDuration(duration, 2)); imNoWrap(c); imLayoutEnd(c);
+                            } imLayoutEnd(c);
+
+                            imLine(c, LINE_VERTICAL, 1);
+
+                            let text = getActivityText(state, activity);
+                            imLayout(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
+                                if (imMemo(c, isBreakActivity)) {
+                                    elSetStyle(c, "padding", isBreakActivity ? "40px" : "0");
+                                }
+
+                                const isEditingActivityChanged = imMemo(c, isEditingActivity);
+                                if (imIf(c) && !isEditingActivity) {
+                                    imLayout(c, BLOCK); imStr(c, text); imLayoutEnd(c);
+                                } else {
+                                    imIfElse(c);
+
+                                    const [, textArea] = imBeginTextArea(c, {
+                                        value: activity.breakInfo ?? "",
+                                        placeholder: "Enter break info",
+                                    }); {
+                                        const input = imOn(c, EV_INPUT);
+                                        const change = imOn(c, EV_CHANGE);
+
+                                        if (input || change) {
+                                            activity.breakInfo = textArea.value;
+                                            state._activitiesMutationCounter++;
+                                            ctx.handled = true;
+                                        }
+
+                                        if (isEditingActivityChanged) {
+                                            textArea.selectionStart = textArea.value.length;
+                                            textArea.selectionEnd = textArea.value.length;
+                                        }
+
+                                        ctx.textAreaToFocus = textArea;
+                                        ctx.focusWithAllSelected = true;
+                                    } imEndTextArea(c);
+                                } imIfEnd(c);
+                            } imLayoutEnd(c);
+                        } imLayoutEnd(c);
+                    } imEndNavListRow(c);
+                } imKeyedEnd(c);
             } 
 
-            imNextListRoot("footer");
-            if (imIf() && !hasActivities) {
-                imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                    imStr(s.activities.length === 0 ? "No activities yet!" : "No activities today");
-                } imEnd();
-            } imEndIf();
-        } imEndNavList(list);
-    } imEnd();
+            imKeyed(c, "footer"); {
+                if (imIf(c) && !hasActivities) {
+                    imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                        imStr(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");
+                    } imLayoutEnd(c);
+                } imIfEnd(c);
+            } imKeyedEnd(c);
+        } imEndNavList(c, list);
+    } imLayoutEnd(c);
 }

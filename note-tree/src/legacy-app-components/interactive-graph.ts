@@ -1022,8 +1022,8 @@ function GraphEdgeUI(rg: RenderGroup<GraphEdgeUIArgs>) {
             graphArgs.onInput();
         }
 
-        setClass(root, cn.pointerEventsNone, true || graphState.isDragging);
-        setClass(root, "redrag", graphState.currentEdgeDragEdgeId === edge.id);
+        elSetClass(c, (root, cn.pointerEventsNone, true || graphState.isDragging);
+        elSetClass(c, (root, "redrag", graphState.currentEdgeDragEdgeId === edge.id);
 
         setInputValue(labelInput, edge.text);
 
@@ -1124,8 +1124,8 @@ function makeDragRects(setupfn: (dragRect: Insertable<HTMLDivElement>) => void) 
             setStyle(divEl, directions[i + 1] || "top", "0");
             setStyle(divEl, axes[i], outsetWidth + "px");
 
-            setClass(divEl, "src-edge-drag", graphState.currentEdgeDragStartNodeIdx === node.id && !graphState.currentEdgeDragEdgeId);
-            setClass(divEl, "dst-edge-drag", graphState.currentEdgeDragEndNodeIdx === node.id);
+            elSetClass(c, (divEl, "src-edge-drag", graphState.currentEdgeDragStartNodeIdx === node.id && !graphState.currentEdgeDragEdgeId);
+            elSetClass(c, (divEl, "dst-edge-drag", graphState.currentEdgeDragEndNodeIdx === node.id);
         }
     }
 
@@ -1166,7 +1166,7 @@ function RadialContextMenu(rg: RenderGroup<{
 
             setStyle(root, "left", x + "px");
             setStyle(root, "top", y + "px");
-            setClass(root, "inverted", item.toggled);
+            elSetClass(c, (root, "inverted", item.toggled);
         });
 
         root.el.addEventListener("mousedown", (e) => {

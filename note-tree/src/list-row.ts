@@ -1,14 +1,16 @@
 import { cssVarsApp } from "./app-styling";
 import {
-    imBegin,
+    BLOCK,
+    imLayout,
+    imLayoutEnd,
     imPadding,
     imSize,
     NA,
     PX,
     ROW
 } from "./components/core/layout";
-import { imEnd, imIsFirstishRender, imMemo } from "./utils/im-utils-core";
-import { setStyle } from "./utils/im-utils-dom";
+import { ImCache, imMemo, isFirstishRender } from "./utils/im-core";
+import { elSetStyle } from "./utils/im-dom";
 
 type RowStatusInstance = number & { __rowStatus: void; };
 
@@ -36,6 +38,7 @@ function getBg(status: RowStatus): string {
 }
 
 export function imBeginListRow(
+    c: ImCache,
     highlighted: boolean,
     focused: boolean,
     isEditing = false
@@ -51,37 +54,37 @@ export function imBeginListRow(
         }
     }
 
-    const statusChanged = imMemo(status);
-    const root = imBegin(ROW); {
+    const statusChanged = imMemo(c, status);
+    const root = imLayout(c, ROW); {
         if (statusChanged) {
-            setStyle("backgroundColor", getBg(status));
+            elSetStyle(c, "backgroundColor", getBg(status));
         }
 
-        imBegin(); imSize(10, PX, 0, NA); {
+        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); {
             if (statusChanged) {
-                setStyle("backgroundColor",
+                elSetStyle(c, "backgroundColor",
                     status === ROW_FOCUSED ? cssVarsApp.fgColor 
                         : status === ROW_EDITING ? cssVarsApp.bgEditing
                         : ""
                 );
             }
-        } imEnd();
+        } imLayoutEnd(c);
 
-    } // imEnd();
+    } // imLayoutEnd(c);
 
     return root;
 }
 
-export function imEndListRow() {
+export function imEndListRow(c: ImCache) {
     {
-        imBegin(); imSize(10, PX, 0, NA); imEnd();
-    } imEnd();
+        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+    } imLayoutEnd(c);
 }
 
-export function imListRowCellStyle() {
-    if (imIsFirstishRender()) {
-        setStyle("minHeight", "1em");
+export function imListRowCellStyle(c: ImCache) {
+    if (isFirstishRender(c)) {
+        elSetStyle(c, "minHeight", "1em");
     }
-    imPadding(8, PX, 3, PX, 3, PX, 3, PX);
+    imPadding(c, 8, PX, 3, PX, 3, PX, 3, PX);
 }
 

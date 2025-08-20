@@ -33,10 +33,10 @@ function stringsAreEqual2Versions(val: string, lowercase: string, uppercase: str
 
 
 // Flags vastly reduces the need for boolean flags, and look nicer in code compared to  booleans. They also don't allocate memory like args objects
-export const HORIZONTAL = 1 << 1;
-export const VERTICAL   = 1 << 2;
-export const START      = 1 << 3;
-export const END        = 1 << 4;
+export const EXTENT_HORIZONTAL = 1 << 1;
+export const EXTENT_VERTICAL   = 1 << 2;
+export const EXTENT_START      = 1 << 3;
+export const EXTENT_END        = 1 << 4;
 
 /**
  * Get the amount you will need to scroll along the horizontal and vertical axes to get the element into view
@@ -106,15 +106,15 @@ export function scrollIntoViewRect(
     let scrollH: number | null = null;
     let scrollV: number | null = null;
 
-    if (getElementExtentNormalized(scrollParent, scrollTo, VERTICAL | START) < y0) {
+    if (getElementExtentNormalized(scrollParent, scrollTo, EXTENT_VERTICAL | EXTENT_START) < y0) {
         scrollV = y0;
-    } else if (getElementExtentNormalized(scrollParent, scrollTo, VERTICAL | END) > y1) {
+    } else if (getElementExtentNormalized(scrollParent, scrollTo, EXTENT_VERTICAL | EXTENT_END) > y1) {
         scrollV = y1
     }
 
-    if (getElementExtentNormalized(scrollParent, scrollTo, HORIZONTAL | START) < x0) {
+    if (getElementExtentNormalized(scrollParent, scrollTo, EXTENT_HORIZONTAL | EXTENT_START) < x0) {
         scrollH = x0;
-    } else if (getElementExtentNormalized(scrollParent, scrollTo, HORIZONTAL | END) > x1) {
+    } else if (getElementExtentNormalized(scrollParent, scrollTo, EXTENT_HORIZONTAL | EXTENT_END) > x1) {
         scrollH = x1;
     }
 
@@ -123,13 +123,13 @@ export function scrollIntoViewRect(
 
 // Useful for scrolling.
 // numbers < 0 indicate offscreen in the negative direction, and > 1 in the positive. kind-of - just hte top or bottom edge, not whole thing
-export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: HTMLElement, flags = VERTICAL | START) {
+export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: HTMLElement, flags = EXTENT_VERTICAL | EXTENT_START) {
     let result;
 
-    if ((flags & VERTICAL) !== 0) {
+    if ((flags & EXTENT_VERTICAL) !== 0) {
         const scrollOffset = scrollTo.offsetTop - scrollParent.scrollTop - scrollParent.offsetTop;
 
-        if (flags & END) {
+        if (flags & EXTENT_END) {
             result = (scrollOffset + scrollTo.getBoundingClientRect().height) / scrollParent.offsetHeight;
         } else {
             result = scrollOffset / scrollParent.offsetHeight;
@@ -140,7 +140,7 @@ export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: 
 
         const scrollOffset = scrollTo.offsetLeft - scrollParent.scrollLeft - scrollParent.offsetLeft;
 
-        if ((flags & END) !== 0) {
+        if ((flags & EXTENT_END) !== 0) {
             result = (scrollOffset + scrollTo.getBoundingClientRect().width) / scrollParent.offsetWidth;
         } else {
             result = scrollOffset / scrollParent.offsetWidth;

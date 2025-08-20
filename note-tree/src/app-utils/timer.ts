@@ -1,4 +1,4 @@
-import { imState, getTimeSeconds } from "src/utils/im-utils-core";
+import { ImCache, imGet, imSet } from "src/utils/im-core";
 
 export type TimerState = {
     t0: number;
@@ -44,7 +44,9 @@ export function getTimeElapsedSinceRepeat(s: TimerState, t: number) {
 }
 
 // NOTE: There will reach a point where you'll want to put this timer into your state, which should be easy enough
-export function imTimerRepeat(repeatTime: number, enabled = true) {
-    const s = imState(newTimer);
-    return timerRepeat(s, getTimeSeconds(), repeatTime, enabled);
+export function imTimerRepeat(c: ImCache, repeatTime: number, enabled = true) {
+    let s = imGet(c, newTimer);
+    if (!s) s = imSet(c, newTimer());
+    // TODO: proper timer
+    return timerRepeat(s, performance.now() / 1000, repeatTime, enabled);
 }

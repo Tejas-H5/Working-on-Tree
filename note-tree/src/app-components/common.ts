@@ -1,39 +1,43 @@
 import { cssVarsApp } from "src/app-styling";
-import { imBegin, imSize, NA, PERCENT, PX } from "src/components/core/layout";
+import { BLOCK, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { imEnd, imMemo, imIsFirstishRender } from "src/utils/im-utils-core";
-import { setClass, setStyle, VERTICAL, HORIZONTAL } from "src/utils/im-utils-dom";
+import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
+import { elSetClass, elSetStyle } from "src/utils/im-dom";
 
 const cssb = newCssBuilder();
 const cnHLine = cssb.cn("hline", [
     ` { transition: opacity 0.1s linear, height 0.1s linear; }`
 ]);
 
+export const LINE_HORIZONTAL = 1;
+export const LINE_VERTICAL = 2;
+
 export function imLine(
-    type: typeof HORIZONTAL | typeof VERTICAL,
+    c: ImCache,
+    type: typeof LINE_HORIZONTAL | typeof LINE_VERTICAL,
     widthPx: number = 2,
     visible = true
 ) {
     let height = visible ? widthPx : 0;
     let heightUnit = PX;
-    const isH = type === HORIZONTAL;
+    const isH = type === LINE_HORIZONTAL;
 
-    imBegin(); imSize(
+    imLayout(c, BLOCK); imSize(c,
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
-        if (imIsFirstishRender()) {
-            setStyle("backgroundColor", cssVarsApp.fgColor);
-            setClass(cnHLine);
+        if (isFirstishRender(c)) {
+            elSetStyle(c, "backgroundColor", cssVarsApp.fgColor);
+            elSetClass(c, cnHLine);
         }
 
-        if (imMemo(visible)) {
-            setStyle("opacity", "" + (visible ? 1 : 0));
+        if (imMemo(c, visible)) {
+            elSetStyle(c, "opacity", "" + (visible ? 1 : 0));
         }
-    } imEnd();
+    } imLayoutEnd(c);
 }
 
-export function imHLineDivider() {
-    imBegin(); imSize(0, NA, 10, PX); imEnd();
+export function imHLineDivider(c: ImCache) {
+    imLayout(c, BLOCK); imSize(c, 0, NA, 10, PX); imLayoutEnd(c);
 }
 

@@ -1,5 +1,5 @@
-import { imLine } from "./app-components/common";
-import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
+import { imLine, LINE_HORIZONTAL } from "./app-components/common";
+import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
@@ -26,8 +26,8 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import { imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
-import { HORIZONTAL, setStyle, setText } from "./utils/im-utils-dom";
+import { ImCache, imIf, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { elSetStyle, imStr } from "./utils/im-dom";
 
 
 export type NoteTraversalViewState = {
@@ -128,57 +128,57 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
     }
 }
 
-export function imNoteTraversal(ctx: GlobalContext, s: NoteTraversalViewState) {
+export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversalViewState) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
+    if (imMemo(c, state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
 
-    imBegin(COL); imListRowCellStyle(); imAlign(); {
-        if (imIsFirstishRender()) {
-            setStyle("fontWeight", "bold");
+    imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
+        if (isFirstishRender(c)) {
+            elSetStyle(c, "fontWeight", "bold");
         }
 
-        imBegin(); setText("Fast travel"); imEnd();
+        imLayout(c, BLOCK); imStr(c, "Fast travel"); imLayoutEnd(c);
 
-        if (imIf() && s.viewRoot) {
-            imBegin(); setText(s.viewRoot.data.text); imEnd();
-        } imEndIf();
-    } imEnd();
+        if (imIf(c) && s.viewRoot) {
+            imLayout(c, BLOCK); imStr(c, s.viewRoot.data.text); imLayoutEnd(c);
+        } imIfEnd(c);
+    } imLayoutEnd(c);
 
-    imLine(HORIZONTAL, 1);
+    imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
-    const list = imBeginNavList(s.scrollContainer, s.listPosition.idx, viewHasFocus); {
+    const list = imBeginNavList(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
         while (imNavListNextItemArray(list, s.notes)) {
             renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
 
-            imBeginNavListRow(list); {
-                imBegin(); imListRowCellStyle(); {
-                    imBegin(INLINE); {
+            imBeginNavListRow(c, list); {
+                imLayout(c, BLOCK); imListRowCellStyle(c); {
+                    imLayout(c, INLINE); {
                         const canGoIn = note.childIds.length > 0;
-                        if (imMemo(canGoIn)) {
-                            setStyle("fontWeight", canGoIn ? "bold" : "");
+                        if (imMemo(c, canGoIn)) {
+                            elSetStyle(c, "fontWeight", canGoIn ? "bold" : "");
                         }
                         
                         const text = note.data.text;
-                        setText(text); 
-                    } imEnd();
-                } imEnd();
-            } imEndNavListRow();
+                        imStr(c, text); 
+                    } imLayoutEnd(c);
+                } imLayoutEnd(c);
+            } imEndNavListRow(c);
         }
 
-        imNextListRoot("empty");
-        if (imIf() && !renderedAny) {
-            imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                setText("This level has been cleared!");
-            } imEnd();
-        } imEndIf();
-    } imEndNavList(list);
-
+        imKeyed(c, "empty"); {
+            if (imIf(c) && !renderedAny) {
+                imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                    imStr(c, "This level has been cleared!");
+                } imLayoutEnd(c);
+            } imIfEnd(c);
+        } imKeyedEnd(c);
+    } imEndNavList(c, list);
 }
 

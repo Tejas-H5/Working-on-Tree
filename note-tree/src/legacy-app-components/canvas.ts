@@ -872,8 +872,8 @@ export function AsciiCanvas(rg: RenderGroup<AsciiCanvasArgs>) {
             });
 
             const isCurrentTool = getTool(s.canvasState) === tool;
-            setClass(button, cnApp.inverted, !!selected || isCurrentTool);
-            setClass(button, cnApp.unfocusedTextColor, !!disabled);
+            elSetClass(c, (button, cnApp.inverted, !!selected || isCurrentTool);
+            elSetClass(c, (button, cnApp.unfocusedTextColor, !!disabled);
         });
 
         return button;

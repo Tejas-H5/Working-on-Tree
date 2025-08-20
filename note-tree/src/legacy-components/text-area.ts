@@ -46,14 +46,15 @@ type EditableTextAreaConfig = {
     tabStopSize?: number;
 };
 
+
 export function EditableTextArea(
     rg: RenderGroup<EditableTextAreaArgs>, 
     initFn?: (el: Insertable<HTMLTextAreaElement>,
 ) => void) {
     const whenEditing = newTextArea();
-    setClass(whenEditing, cn.allUnset, true);
-    setClass(whenEditing, cn.absoluteFill, true);
-    setClass(whenEditing, cnEditableTextArea, true);
+    elSetClass(c, whenEditing, cn.allUnset, true);
+    elSetClass(c, whenEditing, cn.absoluteFill, true);
+    elSetClass(c, whenEditing, cnEditableTextArea, true);
     setStyle(whenEditing, "backgroundColor", "transparent");
     setStyle(whenEditing, "color", "transparent");
 

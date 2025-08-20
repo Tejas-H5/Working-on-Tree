@@ -1,7 +1,7 @@
-import { imBeginAppHeading, imBold } from "./app-heading";
+import { imAppHeading, imAppHeadingEnd } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
-import { COL, imAlign, imBegin, imFlex, imGap, imJustify, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
-import { imB, imI, imStr } from "./components/core/text";
+import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
+import { imB, imBEnd, imI, imIEnd } from "./components/core/text";
 import { newScrollContainer, } from "./components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, saveCurrentState, SHIFT } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
@@ -23,25 +23,23 @@ import { get } from "./utils/array-utils";
 import { formatDateTime, parseDateSafe } from "./utils/datetime";
 import { downloadTextAsFile, loadFile } from "./utils/file-download";
 import {
-    getCurrentRoot,
     getDeltaTimeSeconds,
-    imElse,
-    imEnd,
-    imEndFor,
-    imEndIf,
-    imEndSwitch,
+    ImCache,
     imFor,
+    imForEnd,
+    imGet,
     imIf,
-    imIsFirstishRender,
+    imIfElse,
+    imIfEnd,
     imMemo,
-    imNextListRoot,
-    imRef,
-    imState,
+    imSet,
     imSwitch,
-    newBoolean,
-    newNumber,
-} from "./utils/im-utils-core";
-import { setStyle, setText } from "./utils/im-utils-dom";
+    imSwitchEnd,
+    imTry,
+    inlineTypeId,
+    isFirstishRender
+} from "./utils/im-core";
+import { EL_B, elSetStyle, imEl, imElEnd, imStr } from "./utils/im-dom";
 
 const REQUIRED_PRESSES = 5;
 
@@ -60,7 +58,7 @@ export function newSettingsViewState(): SettingsViewState {
 type MenuItem =  {
     name: string;
     desc: string;
-    imComponent: (ctx: GlobalContext, s: SettingsViewState, hasFocus: boolean) => void;
+    imComponent: (c: ImCache, ctx: GlobalContext, s: SettingsViewState, hasFocus: boolean) => void;
 }
 
 
@@ -94,31 +92,34 @@ const menus: MenuItem[] = [
     {
         name: "UI",
         desc: "Fine-tune UI interactions",
-        imComponent: (ctx, s) => {
-            imBegin(COL); imFlex(); {
-                imBegin(COL); imFlex(); imAlign(); imJustify(); {
+        imComponent: (c, ctx, s) => {
+            imLayout(c, COL); imFlex(c); {
+                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     // TODO: tab stop, tabs vs spaces, all on multiple lines -> parents on one line -> all on one line except selection
-                    setText("We don't have any UI option yet. Check back again later!");
-                } imEnd();
-            } imEnd();
+                    imStr(c, "We don't have any UI option yet. Check back again later!");
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
         }
     },
     {
         name: "Download JSON",
         desc: "Export your data to a JSON file to import later/elsewhere",
-        imComponent: (ctx, s, hasFocus) => {
-            imBegin(COL); imFlex(); {
+        imComponent: (c, ctx, s, hasFocus) => {
+            imLayout(c, COL); imFlex(c); {
                 // NOTE: Don't want the export view to look similar to the import view. need to avoid action capture.
-                imBegin(COL); imFlex(); imAlign(); imJustify(); {
-                    const errRef = imRef();
+                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+                    let errRef; errRef = imGet(c, inlineTypeId(imTry))
+                    if (!errRef) errRef = imSet(c, { val: null as any });
 
-                    if (imIf() && !errRef.val) {
-                        imBegin(); imBold(); imListRowCellStyle(); setText(state.notes.nodes.length + " notes"); imEnd();
-                        imBegin(); imBold(); imListRowCellStyle();setText(state.activities.length + " activities"); imEnd();
+                    if (imIf(c) && !errRef.val) {
+                        imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
+                        imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
 
-                        imBeginListRow(true, hasFocus, false); {
-                            imBegin(); imBold(); imListRowCellStyle(); setText("Download JSON"); imEnd();
-                        } imEndListRow();
+                        imBeginListRow(c, true, hasFocus, false); {
+                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                imEl(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                            } imLayoutEnd(c);
+                        } imEndListRow(c);
 
                         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Download JSON")) {
                             try {
@@ -132,62 +133,66 @@ const menus: MenuItem[] = [
                             }
                         }
                     } else {
-                        imElse();
+                        imIfElse(c);
 
-                        imBegin(); setText("An error occured: " + errRef.val); imEnd();
+                        imLayout(c, BLOCK); imStr(c, "An error occured: " + errRef.val); imLayoutEnd(c);
 
                         if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Dismiss")) {
                             errRef.val = null;
                         }
-                    } imEndIf();
-                } imEnd();
-            } imEnd();
+                    } imIfEnd(c);
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
         }
     },
     {
         name: "Load from JSON",
         desc: "Import your data from a JSON file you exported",
-        imComponent: (ctx, s, hasFocus) => {
-            imBegin(COL); imFlex(); {
-                imBegin(COL); imFlex(); imAlign(); imJustify(); {
-                    const importModalState = imState(importModal);
+        imComponent: (c, ctx, s, hasFocus) => {
+            imLayout(c, COL); imFlex(c); {
+                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+                    let importModalState = imGet(c, importModal);
+                    if (!importModalState) importModalState = imSet(c, importModal());
 
-                    if (imMemo(hasFocus)) {
+                    if (imMemo(c, hasFocus)) {
                         resetImportModal(importModalState);
                     }
 
                     const loadResult = importModalState.state;
-                    if (imIf() && loadResult) {
-                        const current = imState(newFocusRef);
-                        const navList = imViewsList(current);
+                    if (imIf(c) && loadResult) {
+                        let current = imGet(c, newFocusRef);
+                        if (!current) current = imSet(c, newFocusRef());
+                        const navList = imViewsList(c, current);
 
-                        imBegin(); {
+                        imLayout(c, BLOCK); {
                             const loadedState = loadResult.state;
-                            if (imIf() && loadedState) {
+                            if (imIf(c) && loadedState) {
                                 const lastOnline = parseDateSafe(loadedState.breakAutoInsertLastPolledTime);
 
-                                imBegin(ROW); {
-                                    imB(); imJustify(); imStr("Make sure this looks reasonable before you load the backup"); imEnd(); 
-                                } imEnd();
+                                imLayout(c, ROW); imJustify(c); {
+                                    imB(c); imStr(c, "Make sure this looks reasonable before you load the backup"); imBEnd(c); 
+                                } imLayoutEnd(c);
 
-                                imBegin(); imSize(0, NA, 30, PX); imEnd();
+                                imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
-                                imBegin(); {
-                                    imB(); imStr("Filename: "); imEnd(); imStr(importModalState.filename);
-                                } imEnd();
-                                imBegin(); imB(); imStr("Notes: "); imEnd(); imStr(loadedState.notes.nodes.length); imEnd();
-                                imBegin(); imB(); imStr("Activities: "); imEnd(); imStr(loadedState.activities.length); imEnd();
-                                imBegin(); imB(); imStr("Last Online: "); imEnd(); imStr(!lastOnline ? "No idea" : formatDateTime(lastOnline)); imEnd();
-                                imBegin(); imB(); imStr("Last Theme: "); imEnd(); imStr(loadedState.currentTheme); imEnd();
+                                imLayout(c, BLOCK); {
+                                    imB(c); imStr(c, "Filename: "); imLayoutEnd(c); imStr(c, importModalState.filename); imBEnd(c);
+                                } imLayoutEnd(c);
+                                imLayout(c, BLOCK); imB(c); imStr(c, "Notes: "); imLayoutEnd(c); imStr(c, loadedState.notes.nodes.length); imBEnd(c);
+                                imLayout(c, BLOCK); imB(c); imStr(c, "Activities: "); imLayoutEnd(c); imStr(c, loadedState.activities.length); imBEnd(c);
+                                imLayout(c, BLOCK); imB(c); imStr(c, "Last Online: "); imLayoutEnd(c); imStr(c, !lastOnline ? "No idea" : formatDateTime(lastOnline)); imBEnd(c);
+                                imLayout(c, BLOCK); imB(c); imStr(c, "Last Theme: "); imLayoutEnd(c); imStr(c, loadedState.currentTheme); imBEnd(c);
 
-                                imBegin(); imSize(0, NA, 30, PX); imEnd();
+                                imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
-                                imBegin(ROW); imGap(50, PX); {
+                                imLayout(c, ROW); imGap(c, 50, PX); {
                                     addView(navList, 0, "Accept button"); {
                                         const focused = current.focused === 0;
-                                        imBeginListRow(focused, focused && hasFocus, false); {
-                                            imBegin(); imBold(); imListRowCellStyle(); setText("Accept"); imEnd();
-                                        } imEndListRow();
+                                        imBeginListRow(c, focused, focused && hasFocus, false); {
+                                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                                imB(c); imStr(c, "Accept"); imBEnd(c); 
+                                            } imLayoutEnd(c);
+                                        } imEndListRow(c);
 
                                         if (
                                             focused &&
@@ -204,9 +209,11 @@ const menus: MenuItem[] = [
 
                                     addView(navList, 1, "Reject button"); {
                                         const focused = current.focused === 1;
-                                        imBeginListRow(focused, focused && hasFocus, false); {
-                                            imBegin(); imBold(); imListRowCellStyle(); setText("Reject"); imEnd();
-                                        } imEndListRow();
+                                        imBeginListRow(c, focused, focused && hasFocus, false); {
+                                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                                imB(c); imStr(c, "Reject"); imBEnd(c);
+                                            } imLayoutEnd(c);
+                                        } imEndListRow(c);
 
                                         if (
                                             focused &&
@@ -215,44 +222,47 @@ const menus: MenuItem[] = [
                                             resetImportModal(importModalState);
                                         }
                                     }
-                                } imEnd();
+                                } imLayoutEnd(c);
 
-                                if (imIf() && importModalState.acceptPresses > 0) {
-                                    imBegin(); imB(); imListRowCellStyle(); setText("Your existing data will be wiped and replaced with this new state"); imEnd(); imEnd();
+                                if (imIf(c) && importModalState.acceptPresses > 0) {
+                                    imLayout(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imLayoutEnd(c); imBEnd(c);
 
-                                    imBegin(ROW); imGap(10, PX); imSize(100, PERCENT, 30, PX); imAlign(STRETCH); {
-                                        const countChanged = imMemo(importModalState.acceptPresses);
+                                    imLayout(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
+                                        const countChanged = imMemo(c, importModalState.acceptPresses);
 
                                         const col = "rgb(0, 255, 20)";
 
-                                        imFor(); for (let i = 0; i < REQUIRED_PRESSES; i++) {
-                                            imNextListRoot();
-                                            imBegin(); imFlex(); {
+                                        imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
+                                            imLayout(c, BLOCK); imFlex(c); {
                                                 if (countChanged) {
-                                                    setStyle(
+                                                    elSetStyle(
+                                                        c,
                                                         "backgroundColor",
                                                         importModalState.acceptPresses >= REQUIRED_PRESSES ? col
                                                             : importModalState.acceptPresses > i ? cssVarsApp.fgColor
                                                                 : ""
                                                     );
                                                 }
-                                            } imEnd();
-                                        } imEndFor();
-                                    } imEnd();
-                                } imEndIf();
+                                            } imLayoutEnd(c);
+                                        } imForEnd(c);
+                                    } imLayoutEnd(c);
+                                } imIfEnd(c);
                             } else {
-                                imElse();
+                                imIfElse(c);
 
-                                imBegin(); {
-                                    imBegin(); imB(); imStr("An error occured while loading the file. It cannot be imported."); imEnd(); imEnd();
-                                    imBegin(); imStr(loadResult.error ?? loadResult.criticalError ?? "unknown error"); imEnd();
-                                } imEnd();
+                                imLayout(c, BLOCK); {
+                                    imLayout(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imLayoutEnd(c); imBEnd(c);
+                                    imLayout(c, BLOCK); imStr(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
+                                } imLayoutEnd(c);
 
                                 addView(navList, 0, "Back button"); {
                                     const focused = current.focused === 0;
-                                    imBeginListRow(focused, hasFocus && focused, false); {
-                                        imBegin(); imBold(); imListRowCellStyle(); setText("Back"); imEnd();
-                                    } imEndListRow();
+                                    imBeginListRow(c, focused, hasFocus && focused, false); {
+                                        imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                            imB(c); imStr(c, "Back");  imBEnd(c);
+                                        } imLayoutEnd(c);
+                                    } imEndListRow(c);
+
                                     if (hasFocus && focused) {
                                         if (
                                             hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Back") ||
@@ -262,8 +272,8 @@ const menus: MenuItem[] = [
                                         }
                                     }
                                 }
-                            } imEndIf();
-                        } imEnd();
+                            } imIfEnd(c);
+                        } imLayoutEnd(c);
 
 
                         // navigate the buttons
@@ -283,10 +293,10 @@ const menus: MenuItem[] = [
                             }
                         }
                     } else {
-                        imElse();
+                        imIfElse(c);
 
-                        imBeginListRow(true, hasFocus, false); {
-                            imBegin(); imBold(); imListRowCellStyle(); setText("Import JSON"); imEnd();
+                        imBeginListRow(c, true, hasFocus, false); {
+                            imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
                             if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Import JSON")) {
                                 loadFile((file) => {
                                     if (!file) {
@@ -299,10 +309,10 @@ const menus: MenuItem[] = [
                                     });
                                 });
                             }
-                        } imEndListRow();
-                    } imEndIf();
-                } imEnd();
-            } imEnd();
+                        } imEndListRow(c);
+                    } imIfEnd(c);
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
         }
     },
     // I'm not sure why you would ever want to do this in practice.
@@ -312,98 +322,101 @@ const menus: MenuItem[] = [
     {
         name: "Clear",
         desc: "Clear all your data, and start fresh",
-        imComponent: (ctx, s, hasFocus) => {
-            imBegin(COL); imFlex(); {
-                imBegin(COL); imFlex(); imAlign(); imJustify(); {
-                    imBegin(); imSize(0, NA, 50, PX); imEnd();
+        imComponent: (c, ctx, s, hasFocus) => {
+            imLayout(c, COL); imFlex(c); {
+                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
-                    imBegin(); imListRowCellStyle(); {
-                        imB(); imStr("Be sure to download your JSON"); imI(); imStr(" before "); imEnd(); imStr("you do this."); imEnd();
-                    } imEnd();
+                    imLayout(c, BLOCK); imListRowCellStyle(c); {
+                        imB(c); {
+                            imStr(c, "Be sure to download your JSON"); imI(c); imStr(c, " before "); imIEnd(c); imStr(c, "you do this."); 
+                        } imBEnd(c);
+                    } imLayoutEnd(c);
 
-                    imBegin(); imSize(0, NA, 50, PX); imEnd();
+                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
                     // bruh... 
 
-                    const countRef = imState(newNumber);
-                    const countChanged = imMemo(countRef.val);
-                    const wiped = imState(newBoolean);
+                    const focusChanged = imMemo(c, hasFocus)
+                    let clearDataState; clearDataState = imGet(c, inlineTypeId(imLayoutEnd));
+                    if (!clearDataState || focusChanged) clearDataState = imSet(c, {
+                        count: 0,
+                        wiped: false,
+                    });
 
-                    if (imMemo(hasFocus)) {
-                        countRef.val = 0;
-                        wiped.val = false;
-                    }
+                    const countChanged = imMemo(c, clearDataState.count);
 
-                    imBeginListRow(true, hasFocus, false); {
-                        imBegin(); imBold(); imListRowCellStyle(); {
-                            if (imIsFirstishRender()) {
-                                setStyle("fontSize", "30px");
+                    imBeginListRow(c, true, hasFocus, false); {
+                        imLayout(c, BLOCK); imListRowCellStyle(c); {
+                            if (isFirstishRender(c)) {
+                                elSetStyle(c, "fontSize", "30px");
                             }
 
-                            const col = countRef.val < REQUIRED_PRESSES ? "red" : "white";
-                            setStyle("color", col);
+                            const col = clearDataState.count < REQUIRED_PRESSES ? "red" : "white";
+                            elSetStyle(c, "color", col);
 
-                            imStr("Delete all data"); 
+                            imB(c); {
+                                imStr(c, "Delete all data"); 
+                            } imBEnd(c);
 
-                            imBegin(ROW); imGap(10, PX); imSize(100, PERCENT, 30, PX); imAlign(STRETCH); {
-                                imFor(); for (let i = 0; i < REQUIRED_PRESSES; i++) {
-                                    imNextListRoot();
-                                    imBegin(); imFlex(); { 
+                            imLayout(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
+                                imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
+                                    imLayout(c, BLOCK); imFlex(c); { 
                                         if (countChanged) {
-                                            setStyle(
+                                            elSetStyle(
+                                                c,
                                                 "backgroundColor",
-                                                countRef.val >= REQUIRED_PRESSES ? col
-                                                    : countRef.val > i ? cssVarsApp.fgColor
+                                                clearDataState.count >= REQUIRED_PRESSES ? col
+                                                    : clearDataState.count > i ? cssVarsApp.fgColor
                                                         : ""
                                             );
                                         }
-                                    } imEnd();
-                                } imEndFor();
-                            } imEnd();
-                        } imEnd();
+                                    } imLayoutEnd(c);
+                                } imForEnd(c);
+                            } imLayoutEnd(c);
+                        } imLayoutEnd(c);
 
                         if (hasFocus) {
                             if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Delete all data")) {
-                                countRef.val++;
+                                clearDataState.count++;
                             }
                         }
-                    } imEndListRow();
+                    } imEndListRow(c);
 
-                    imBegin(); imSize(0, NA, 50, PX); imEnd();
+                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
-                    if (imIf() && countRef.val >= REQUIRED_PRESSES) {
+                    if (imIf(c) && clearDataState.count >= REQUIRED_PRESSES) {
                         const REQUIRED_TIME_SECONDS = 1;
 
-                        const timerRef = imState(newNumber);
-                        timerRef.val += getDeltaTimeSeconds();
+                        const focusChanged = imMemo(c, hasFocus);
 
-                        getCurrentRoot().debug = true;
-
-                        if (imMemo(hasFocus)) {
-                            timerRef.val = 0;
+                        let timer = imGet(c, Math.sin);
+                        if (timer === undefined || focusChanged) {
+                            timer = imSet(c, 0);
                         }
+                        timer = imSet(c, timer + getDeltaTimeSeconds());
 
-                        imBegin(); imBold(); {
-
-
-                            if (imIsFirstishRender()) {
-                                setStyle("fontSize", "30px");
-                                setStyle("color", "red");
+                        imLayout(c, BLOCK); {
+                            if (isFirstishRender(c)) {
+                                elSetStyle(c, "fontSize", "30px");
+                                elSetStyle(c, "color", "red");
                             }
 
-                            imStr("SYSTEM WIPE IMMINENT"); 
+                            imB(c); {
+                                imStr(c, "SYSTEM WIPE IMMINENT"); 
+                            } imBEnd(c);
 
-                            imBegin(ROW); imAlign(STRETCH); imSize(100, PERCENT, 30, PX); {
-                                imBegin(); {
-                                    setStyle("width", ((timerRef.val / REQUIRED_TIME_SECONDS) * 100) + "%");
-                                    setStyle("backgroundColor", "red");
-                                } imEnd();
-                            } imEnd();
+                            imLayout(c, ROW); imAlign(c, STRETCH); imSize(c, 100, PERCENT, 30, PX); {
+                                imLayout(c, BLOCK); {
+                                    elSetStyle(c, "width", ((timer / REQUIRED_TIME_SECONDS) * 100) + "%");
+                                    elSetStyle(c, "backgroundColor", "red");
+                                } imLayoutEnd(c);
+                            } imLayoutEnd(c);
 
-                        } imEnd();
+                        } imLayoutEnd(c);
 
-                        if ((timerRef.val / REQUIRED_TIME_SECONDS) > 1 && !wiped.val) {
-                            wiped.val = true;
+                        if ((timer / REQUIRED_TIME_SECONDS) > 1 && !clearDataState.wiped) {
+                            clearDataState.wiped = true;
 
                             resetState();
 
@@ -413,45 +426,50 @@ const menus: MenuItem[] = [
                                 ctx.currentView = ctx.views.noteTree;
                             }, 1000);
                         }
-                    } imEndIf();
-                } imEnd();
-            } imEnd();
+                    } imIfEnd(c);
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
         }
     },
 ];
 
-export function imSettingsView(ctx: GlobalContext, s: SettingsViewState) {
+export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewState) {
     const viewHasFocus = ctx.currentView === s;
-    const vPos = imState(newListPosition);
+    let vPos = imGet(c, newListPosition);
+    if (!vPos) vPos = imSet(c, newListPosition());
 
-    if (imMemo(viewHasFocus) && viewHasFocus) {
+    if (imMemo(c, viewHasFocus) && viewHasFocus) {
         vPos.idx = 0;
         s.mainListHasFocus = false;
     }
 
-    imBegin(COL); imFlex(); {
-        imBegin(COL); imAlign(); imFlex(); {
-            imBegin(ROW); {
-                imBegin(COL); {
-                    if (imIsFirstishRender()) {
-                        setStyle("minWidth", "100px");
+    imLayout(c, COL); imFlex(c); {
+        imLayout(c, COL); imAlign(c); imFlex(c); {
+            imLayout(c, ROW); {
+                imLayout(c, COL); {
+                    if (isFirstishRender(c)) {
+                        elSetStyle(c, "minWidth", "100px");
                     }
 
-                    imBegin(ROW); imListRowCellStyle(); imAlign(); imJustify(); {
-                        imB(); imStr("Settings"); imEnd(); 
-                    } imEnd();
+                    imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+                        imB(c); imStr(c, "Settings"); imBEnd(c); 
+                    } imLayoutEnd(c);
 
-                    const vSc = imState(newScrollContainer);
+                    let vSc = imGet(c, newScrollContainer);
+                    if (!vSc) vSc = imSet(c, newScrollContainer());
+
                     const hasFocus = viewHasFocus && !s.mainListHasFocus;
-                    const hallwayList = imBeginNavList(vSc, vPos.idx, hasFocus, false); {
+                    const hallwayList = imBeginNavList(c, vSc, vPos.idx, hasFocus, false); {
                         while (imNavListNextItemArray(hallwayList, menus)) {
                             const menu = menus[hallwayList.i];
                             if (hallwayList.itemSelected) {
                                 s.selectedMenu = menu;
                             }
-                            imBeginNavListRow(hallwayList); {
-                                imBegin(); imListRowCellStyle(); imBold(); setText(menu.name); imEnd();
-                            } imEndNavListRow();
+                            imBeginNavListRow(c, hallwayList); {
+                                imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                    imB(c); imStr(c, menu.name); imBEnd(c);
+                                } imLayoutEnd(c);
+                            } imEndNavListRow(c);
                         }
 
                         if (hasFocus) {
@@ -470,33 +488,33 @@ export function imSettingsView(ctx: GlobalContext, s: SettingsViewState) {
                                 s.mainListHasFocus = true;
                             }
                         }
-                    } imEndNavList(hallwayList);
-                } imEnd();
+                    } imEndNavList(c, hallwayList);
+                } imLayoutEnd(c);
 
-                imBegin(); imSize(10, PX, 0, NA); imEnd();
+                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                imBegin(COL); imFlex(); {
-                    if (imIsFirstishRender()) {
-                        setStyle("width", "800px");
+                imLayout(c, COL); imFlex(c); {
+                    if (isFirstishRender(c)) {
+                        elSetStyle(c, "width", "800px");
                     }
 
-                    imBegin(ROW); imAlign(); imJustify(); {
-                        imBeginAppHeading(); {
+                    imLayout(c, ROW); imAlign(c); imJustify(c); {
+                        imAppHeading(c); {
                             let text = "Settings";
 
                             if (s.selectedMenu) {
                                 text = s.selectedMenu.desc;
                             }
 
-                            setText(text);
-                        } imEnd();
-                    } imEnd();
+                            imStr(c, text);
+                        } imAppHeadingEnd(c);
+                    } imLayoutEnd(c);
 
                     const mainListHasFocus = viewHasFocus && s.mainListHasFocus;
 
-                    imSwitch(s.selectedMenu); 
-                    if (s.selectedMenu) s.selectedMenu.imComponent(ctx, s, mainListHasFocus);
-                    imEndSwitch();
+                    imSwitch(c, s.selectedMenu); 
+                    if (s.selectedMenu) s.selectedMenu.imComponent(c, ctx, s, mainListHasFocus);
+                    imSwitchEnd(c);
 
                     if (mainListHasFocus) {
                         if (
@@ -507,8 +525,8 @@ export function imSettingsView(ctx: GlobalContext, s: SettingsViewState) {
                             s.mainListHasFocus = false;
                         }
                     }
-                } imEnd();
-            } imEnd();
-        } imEnd();
-    } imEnd();
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
+        } imLayoutEnd(c);
+    } imLayoutEnd(c);
 }

@@ -559,7 +559,7 @@ function ActivityListItem(rg: RenderGroup<{
                 shouldScroll: true,
             });
 
-            setClass(noteLink, cnHoverLink, !!activity.nId);
+            elSetClass(c, (noteLink, cnHoverLink, !!activity.nId);
             noteLink.el.style.paddingLeft = activity.nId ? "0" : "40px";
         }
 
@@ -5493,9 +5493,9 @@ export function App(rg: RenderGroup) {
 
         // Rerender interactive components _after_ recomputing the state above
 
-        setClass(durationsButton, "inverted", state._isShowingDurations);
-        setClass(quicklistButton, "inverted", state.dockedMenu === "quicklist" && state.showDockedMenu);
-        setClass(activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
+        elSetClass(c, (durationsButton, "inverted", state._isShowingDurations);
+        elSetClass(c, (quicklistButton, "inverted", state.dockedMenu === "quicklist" && state.showDockedMenu);
+        elSetClass(c, (activitiesButton, "inverted", state.dockedMenu === "activities" && state.showDockedMenu);
 
         let currentDockedMenu: DockableMenu | null = state.dockedMenu;
 

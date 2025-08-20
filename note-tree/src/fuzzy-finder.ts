@@ -1,5 +1,5 @@
 import { cnApp } from "./app-styling";
-import { COL, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
+import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "./components/core/layout";
 import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
@@ -31,24 +31,8 @@ import {
 } from "./state";
 import { truncate } from "./utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "./utils/fuzzyfind";
-import {
-    imElse,
-    imEnd,
-    imEndFor,
-    imEndIf,
-    imFor,
-    imIf,
-    imIsFirstishRender,
-    imMemo,
-    imNextListRoot,
-    imState,
-} from "./utils/im-utils-core";
-import {
-    imOn,
-    setClass,
-    setStyle,
-    setText
-} from "src/utils/im-utils-dom";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
 
 
 const SCOPE_EVERTHING = 0;
@@ -339,7 +323,7 @@ function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState) {
     setIdx(ctx, s, s.fuzzyFindState.currentIdx);
 }
 
-export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
+export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderViewState) {
     const finderState = s.fuzzyFindState;
     const viewHasFocus = ctx.currentView === s;
 
@@ -348,13 +332,13 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
 
     }
 
-    const viewHasFocusChanged = imMemo(viewHasFocus);
+    const viewHasFocusChanged = imMemo(c, viewHasFocus);
     if (viewHasFocusChanged && viewHasFocus) {
         finderState.scope = SCOPE_EVERTHING;
     }
 
-    const queryChanged = imMemo(finderState.query);
-    const scopeChanged = imMemo(finderState.scope);
+    const queryChanged = imMemo(c, finderState.query);
+    const scopeChanged = imMemo(c, finderState.scope);
     let t0 = 0;
     if (queryChanged || scopeChanged) {
         t0 = performance.now();
@@ -365,27 +349,27 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
     } 
     
     // Both items are focused at the same time !!! LFG
-    imBegin(COL); imFlex(); {
+    imLayout(c, COL); imFlex(c); {
 
-        imBegin(ROW); imListRowCellStyle(); imJustify(); {
-            if (imIsFirstishRender()) {
-                setStyle("fontWeight", "bold");
+        imLayout(c, ROW); imListRowCellStyle(c); imJustify(c); {
+            if (isFirstishRender(c)) {
+                elSetStyle(c, "fontWeight", "bold");
             }
 
             let scope = scopeToString(finderState.scope);
-            setText(`Finder [${scope}]`);
-        } imEnd();
+            imStr(c, `Finder [${scope}]`);
+        } imLayoutEnd(c);
 
-        imBeginListRow(viewHasFocus, viewHasFocus, true); {
-            imBegin(ROW); imFlex(); imListRowCellStyle(); {
-                const [, textArea] = imBeginTextArea({
+        imBeginListRow(c, viewHasFocus, viewHasFocus, true); {
+            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
+                const [, textArea] = imBeginTextArea(c, {
                     value: finderState.query,
                 }); {
-                    const input = imOn("input");
-                    const change = imOn("change");
+                    const input = imOn(c, EV_INPUT);
+                    const change = imOn(c, EV_CHANGE);
 
                     if (input || change) {
-                        finderState.query = textArea.root.value;
+                        finderState.query = textArea.value;
                         ctx.handled = true;
                     }
 
@@ -393,17 +377,18 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
                         ctx.textAreaToFocus = textArea;
                         ctx.focusWithAllSelected = false;
                     }
-                } imEndTextArea();
-            } imEnd();
-        } imEndListRow();
+                } imEndTextArea(c);
+            } imLayoutEnd(c);
+        } imEndListRow(c);
 
-        if (imIf() && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
-            imBegin(ROW); imListRowCellStyle(); {
-                setText(`Found 0 exact matches, fell back to a fuzzy search`);
-            } imEnd();
-        } imEndIf();
+        if (imIf(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
+            imLayout(c, ROW); imListRowCellStyle(c); {
+                imStr(c, `Found 0 exact matches, fell back to a fuzzy search`);
+            } imLayoutEnd(c);
+        } imIfEnd(c);
 
         const list = imBeginNavList(
+            c,
             s.scrollContainer,
             s.fuzzyFindState.currentIdx,
             viewHasFocus
@@ -413,18 +398,19 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
                 const { i } = list;
                 const item = matches[i];
 
-                imBeginNavListRow(list); {
-                    imBegin(); imListRowCellStyle(); {
+                imBeginNavListRow(c, list); {
+                    imLayout(c, BLOCK); imListRowCellStyle(c); {
 
-                        if (imIf() && item.ranges) {
-                            const diffState = imState((): {
+                        if (imIf(c) && item.ranges) {
+                            let diffState; diffState = imGet(c, inlineTypeId(imFuzzyFinder));
+                            if (!diffState) diffState = imSet<{
                                 text: string;
                                 ranges: FuzzyFindRange[]
-                            } => ({
+                            }>(c, {
                                 text: "",
                                 ranges: []
-                            }), true);
-                            if (imMemo(item)) {
+                            });
+                            if (imMemo(c, item)) {
                                 let text = item.note.data.text;
                                 let ranges = item.ranges;
 
@@ -468,10 +454,7 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
                             {
                                 let lastStart = 0;
                                 const { text, ranges } = diffState;
-                                imFor();
-                                for (let i = 0; i < ranges.length; i++) {
-                                    imNextListRoot();
-
+                                imFor(c); for (let i = 0; i < ranges.length; i++) {
                                     const [start, nextLastStart] = ranges[i];
 
                                     const beforeHighlighted = text.substring(lastStart, start);
@@ -479,32 +462,33 @@ export function imFuzzyFinder(ctx: GlobalContext, s: FuzzyFinderViewState) {
 
                                     lastStart = nextLastStart;
 
-                                    imBegin(INLINE); setClass(cnApp.defocusedText); setText(beforeHighlighted); imEnd();
-                                    imBegin(INLINE); setText(highlighted); imEnd();
-                                }
+                                    imLayout(c, INLINE); elSetClass(c, cnApp.defocusedText); imStr(c, beforeHighlighted); imLayoutEnd(c);
+                                    imLayout(c, INLINE); imStr(c, highlighted); imLayoutEnd(c);
+                                } imForEnd(c);
 
-                                imNextListRoot("end")
-                                if (imIf() && lastStart !== text.length) {
-                                    imBegin(INLINE); setClass(cnApp.defocusedText); setText(text.substring(lastStart)); imEnd();
-                                } imEndIf();
-                                imEndFor();
+                                if (imIf(c) && lastStart !== text.length) {
+                                    imLayout(c, INLINE); {
+                                        elSetClass(c, cnApp.defocusedText); 
+                                        imStr(c, text.substring(lastStart)); 
+                                    } imLayoutEnd(c);
+                                } imIfEnd(c);
                             }
                         } else {
-                            imElse();
-                            imBegin(INLINE); setText(truncate(item.note.data.text, 50)); imEnd();
-                        } imEndIf();
-                    } imEnd();
-                } imEndNavListRow();
+                            imIfElse(c);
+                            imLayout(c, INLINE); imStr(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
+                        } imIfEnd(c);
+                    } imLayoutEnd(c);
+                } imEndNavListRow(c);
             }
-        } imEndNavList(list);
+        } imEndNavList(c, list);
 
-        imBegin(ROW); imJustify(); {
+        imLayout(c, ROW); imJustify(c); {
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
-            setText(`Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
-        } imEnd();
-    } imEnd();
+            imStr(c, `Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
+        } imLayoutEnd(c);
+    } imLayoutEnd(c);
 
     if (queryChanged || scopeChanged) {
         s.timeTakenMs = performance.now() - t0;

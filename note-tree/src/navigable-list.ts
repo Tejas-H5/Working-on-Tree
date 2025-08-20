@@ -1,11 +1,11 @@
-import { COL, ROW } from "./components/core/layout";
+import { COL, imLayoutEnd, ROW } from "./components/core/layout";
 import { imBeginScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "./global-context";
 import { imBeginListRow, imEndListRow } from "./list-row";
 import { getWrappedIdx } from "./utils/array-utils";
 import { assert } from "./utils/assert";
-import { imBeginList, imEnd, imEndList, imNextListRoot, imState, ValidKey } from "./utils/im-utils-core";
-import { isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
+import { ImCache, imFor, imForEnd, imGet, imSet, ValidKey } from "./utils/im-core";
+import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 
 
 // TODO: maybe there should be a keyboard module instead?
@@ -15,7 +15,7 @@ export type ListPosition = {
     idx: number;
 };
 
-export function newListPosition() {
+export function newListPosition(): ListPosition {
     return { idx: 0 };
 }
 
@@ -121,8 +121,6 @@ function newNavigabeListState(): NavigableListState {
 export function imNavListNextItem(list: NavigableListState) {
     list.i++;
     list.itemSelected = list.i === list.currentListIdx;
-    
-    imNextListRoot();
 }
 
 export function imNavListNextItemArray<T extends ValidKey>(list: NavigableListState, items: T[]): boolean {
@@ -130,16 +128,11 @@ export function imNavListNextItemArray<T extends ValidKey>(list: NavigableListSt
     list.itemSelected = list.i === list.currentListIdx;
 
     let result = list.i < items.length;
-    if (result) {
-        imNextListRoot(items[list.i]);
-    }
-
     return result;
 }
 
-export function imNavListNextItemSlice<T extends ValidKey>(
+export function navListNextItemSlice(
     list: NavigableListState,
-    items: T[],
     start: number,
     end: number
 ): boolean {
@@ -151,7 +144,6 @@ export function imNavListNextItemSlice<T extends ValidKey>(
 
     let result = list.i < end;
     if (result) {
-        imNextListRoot(items[list.i]);
         list.itemSelected = list.i === list.currentListIdx;
     }
 
@@ -159,13 +151,15 @@ export function imNavListNextItemSlice<T extends ValidKey>(
 }
 // TODO: virtalize when isMassiveAhhList=true;
 export function imBeginNavList(
+    c: ImCache,
     scrollContainer: ScrollContainer,
     listPositionIdx: number,
     viewHasFocus: boolean,
     isEditing: boolean = false,
     row = false,
 ): NavigableListState {
-    const s = imState(newNavigabeListState);
+    let s = imGet(c, newNavigabeListState);
+    if (!s) s = imSet(c, newNavigabeListState());
 
     if (s.currentListIdx !== listPositionIdx) {
         s.currentListIdx = listPositionIdx;
@@ -177,8 +171,8 @@ export function imBeginNavList(
     s.isEditing = isEditing;
     s.i = -1;
 
-    imBeginScrollContainer(s.scrollContainer, row ? ROW : COL); {
-        imBeginList();
+    imBeginScrollContainer(c, s.scrollContainer, row ? ROW : COL); {
+        imFor(c);
 
          /**
           * // user code 
@@ -192,29 +186,31 @@ export function imBeginNavList(
           */
          
 
-        // imEndList();
-    } // imEnd();
+        // imForEnd(c);
+    } // imLayoutEnd(c);
 
     return s;
 }
 
-export function imEndNavList(_list: NavigableListState) {
+export function imEndNavList(c: ImCache, _list: NavigableListState) {
     _list.numItems = _list.i + 1;
 
     {
         {
-        } imEndList();
-    } imEnd();
+        } imForEnd(c);
+    } imLayoutEnd(c);
 }
 
 // might need to render a component outside of a list, and inside of a list. hence list | null
 export function imBeginNavListRow(
+    c: ImCache,
     list: NavigableListState | null,
     highlighted = false
 ) {
     const itemSelected = list ? list.itemSelected : false;
 
     const root = imBeginListRow(
+        c,
         itemSelected || highlighted,
         list ? itemSelected && list.viewHasFocus : false,
         list ? itemSelected && list.isEditing : false,
@@ -233,8 +229,8 @@ export function imBeginNavListRow(
 // Should never accept the list as input. 
 // A list row element may adjust it's behaviour based on the list state, but never do any mutations.
 // It needs to be substitutable for a user component.
-export function imEndNavListRow() {
-    imEndListRow();
+export function imEndNavListRow(c: ImCache) {
+    imEndListRow(c);
 }
 
 export type ViewsList = {
@@ -255,9 +251,12 @@ export function newFocusRef(): FocusRef {
     return { focused: null };
 }
 
-export function imViewsList(focusRef: FocusRef): ViewsList {
-    const s = imState(newViewsList);
+export function imViewsList(c: ImCache, focusRef: FocusRef): ViewsList {
+    let s = imGet(c, newViewsList);
+    if (!s) s = imSet(c, newViewsList());
+
     s.idx = clampedListIdx(s.idx, s.imLength);
+
     assert(s.imLength <= s.views.length);
 
     if (s.imLength > 0) {

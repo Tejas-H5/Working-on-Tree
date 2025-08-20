@@ -1,6 +1,6 @@
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { imLine } from "./app-components/common";
-import { COL, imAlign, imBegin, imFlex, imJustify, INLINE, ROW } from "./components/core/layout";
+import { imLine, LINE_HORIZONTAL } from "./app-components/common";
+import { COL, imAlign, imLayout, imFlex, imJustify, imLayoutEnd, ROW, BLOCK } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
@@ -24,8 +24,8 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import { imBeginRoot, imEnd, imEndIf, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
-import { HORIZONTAL, setAttr, setStyle, setText } from "./utils/im-utils-dom";
+import { ImCache, imIf, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { EL_A, elSetAttr, elSetStyle, imEl, imStr } from "./utils/im-dom";
 
 type UrlListViewUrl = {
     url: string;
@@ -111,56 +111,52 @@ function recomputeUrls(s: UrlListViewState) {
     setIdx(s, wantedIdx);
 }
 
-export function imUrlViewer(ctx: GlobalContext, s: UrlListViewState) {
+export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(state.currentNoteId)) {
+    if (imMemo(c, state.currentNoteId)) {
         recomputeUrls(s);
     }
 
-    imBegin(COL); imListRowCellStyle(); imAlign(); {
-        if (imIsFirstishRender()) {
-            setStyle("fontWeight", "bold");
+    imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
+        if (isFirstishRender(c)) {
+            elSetStyle(c, "fontWeight", "bold");
         }
 
-        imBegin(); setText("Nearby URLs"); imEnd();
-    } imEnd();
+        imLayout(c, BLOCK); imStr(c, "Nearby URLs"); imLayoutEnd(c);
+    } imLayoutEnd(c);
 
-    imLine(HORIZONTAL, 1);
+    imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
-    const list = imBeginNavList(s.scrollContainer, s.listPosition.idx, viewHasFocus); {
+    const list = imBeginNavList(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
         while (imNavListNextItemArray(list, s.urls)) {
             renderedAny = true;
             const { i } = list;
             const url = s.urls[i];
 
-            imBeginNavListRow(list); {
-                imBegin(); imListRowCellStyle(); {
-                    imBeginRoot(newA); {
-                        if (imMemo(url)) {
-                            setAttr("href", url.url);
+            imBeginNavListRow(c, list); {
+                imLayout(c, BLOCK); imListRowCellStyle(c); {
+                    imEl(c, EL_A); {
+                        if (imMemo(c,url)) {
+                            elSetAttr(c,"href", url.url);
                         }
 
-                        imBegin(INLINE); setText(url.url); imEnd();
-                    } imEnd();
-                } imEnd();
-            } imEndNavListRow();
+                        imStr(c, url.url);
+                    } imLayoutEnd(c);
+                } imLayoutEnd(c);
+            } imEndNavListRow(c);
         }
 
-        imNextListRoot("empty");
-        if (imIf() && !renderedAny) {
-            imBegin(ROW); imFlex(); imAlign(); imJustify(); {
-                setText("No URLs found here.");
-            } imEnd();
-        } imEndIf();
-    } imEndNavList(list);
-
-}
-
-function newA() {
-    return document.createElement("a");
+        imKeyed(c, "empty"); {
+            if (imIf(c) && !renderedAny) {
+                imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                    imStr(c, "No URLs found here.");
+                } imLayoutEnd(c);
+            } imIfEnd(c);
+        } imKeyedEnd(c);
+    } imEndNavList(c, list);
 }

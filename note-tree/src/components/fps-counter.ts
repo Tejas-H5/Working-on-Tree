@@ -1,196 +1,24 @@
-import { getDeltaTimeSeconds, imEnd, imMemo, isExcessEventRender, imIsFirstishRender, getImCore } from 'src/utils/im-utils-core';
-import { elementHasMousePress, setText, setStyle, imBeginDiv, imBeginSpan } from "src/utils/im-utils-dom";
-import { cssVars } from './core/stylesheets';
-
 export type FpsCounterState = {
-    t: number;
-    t0: number;
-    frames: number;
-    frameTime: number;
-    screenHz: number;
-
-    timeSpentRendering: number;
-    timeSpentRenderingPerFrame: number;
-    renders: number;
-    renderHz: number;
-
-    // Try to infer the 'baseline' frequency, so we know when we're lagging.
-    baselineFrameMs: number;
-    baselineFrameMsFreq: number;
-    baselineLocked: boolean;
-    nextBaseline: number;
-    nextFreq: number;
-
-    framesMsRounded: number;
-    renderMs:        number;
-    renderMsRounded: number;
+    renderStart: number;
+    renderEnd: number;
+    frameDuration: number;
 }
 
 export function newFpsCounterState(): FpsCounterState {
     return {
-        t: 0,
-        t0: 0,
-        frames: 0,
-        frameTime: 0,
-        screenHz: 0,
-
-        timeSpentRendering: 0,
-        timeSpentRenderingPerFrame: 0,
-        renders: 0,
-        renderHz: 0,
-
-        // Try to infer the 'baseline' frequency, so we know when we're lagging.
-        baselineFrameMs: 100,
-        baselineFrameMsFreq: 0,
-        baselineLocked: false,
-        nextBaseline: 100,
-        nextFreq: 0,
-
-        framesMsRounded: 0,
-        renderMs: 0,
-        renderMsRounded: 0,
-    };
-}
-
-export function startFpsCounter(fps: FpsCounterState) {
-    if (isExcessEventRender()) return;
-
-    fps.t0 = performance.now();
-    const dt = getDeltaTimeSeconds();
-    fps.t += dt;
-    fps.frames++;
-
-
-    fps.framesMsRounded = Math.round(1000 * fps.frameTime);
-    fps.renderMs = 1000 * fps.timeSpentRenderingPerFrame;   // NOTE: Something's gone wrong here.
-    fps.renderMsRounded = Math.round(fps.renderMs);
-
-    // Compute our baseline framerate based on the frames we see.
-    // Lock it down once we've seen the same framerate for long enough.
-    fps.baselineLocked = fps.baselineFrameMsFreq > 240
-    if (!fps.baselineLocked) {
-        if (fps.framesMsRounded === fps.nextBaseline) {
-            if (fps.nextFreq < Number.MAX_SAFE_INTEGER) {
-                fps.nextFreq++;
-            }
-        } else if (fps.framesMsRounded === fps.baselineFrameMs) {
-            if (fps.baselineFrameMsFreq < Number.MAX_SAFE_INTEGER) {
-                fps.baselineFrameMsFreq++;
-            }
-        } else {
-            fps.nextBaseline = fps.framesMsRounded;
-            fps.nextFreq = 1;
-        }
-
-        if (fps.nextFreq > fps.baselineFrameMsFreq) {
-            fps.baselineFrameMs = fps.nextBaseline;
-            fps.baselineFrameMsFreq = fps.nextFreq;
-            fps.nextBaseline = 100;
-            fps.nextFreq = 0;
-        }
+        renderStart: 0,
+        renderEnd: 0,
+        frameDuration: 0,
     }
 }
 
-export function stopFpsCounter(fps: FpsCounterState) {
-    if (isExcessEventRender()) return;
-
-    // render-start     -> Timer start
-    //      rendering code()
-    // render-end       -> timer stop
-    // --- wait for next animation frame ---
-    // this timer intentionally skips all of the time here.
-    // we want to know what our remaining performance budget is, basically
-    // ---
-    // repeat
-
-    fps.timeSpentRendering += (performance.now() - fps.t0);
-    fps.renders++;
-
-    
-    if (fps.t > 1) {
-        fps.frameTime = fps.t / fps.frames;
-        fps.screenHz = Math.round(fps.frames / fps.t);
-        fps.t = 0;
-        fps.frames = 0;
-
-        fps.timeSpentRenderingPerFrame = (fps.timeSpentRendering / 1000) / fps.renders;
-        fps.renderHz = Math.round(fps.renders / (fps.timeSpentRendering / 1000));
-        fps.timeSpentRendering = 0;
-        fps.renders = 0;
-    } 
+// It's a bit complicated and I've forgotten how it works, but it seems to be working so I'll keep it around for now
+export function fpsMarkRenderingStart(fps: FpsCounterState) {
+    const lastRenderStart = fps.renderStart;
+    fps.renderStart = performance.now();
+    fps.frameDuration = fps.renderStart - lastRenderStart;
 }
 
-
-export function imFpsCounterOutputCompact(fps: FpsCounterState) {
-    imBeginDiv(); setText("~" + fps.renderHz + "fps/" + fps.screenHz + "fps"); imEnd();
-}
-
-
-export function imFpsCounterOutputVerbose(fps: FpsCounterState) {
-    const im = getImCore();
-
-    imBeginDiv(); {
-        if (imIsFirstishRender()) {
-            setStyle("position", "absolute");
-            setStyle("bottom", "5px");
-            setStyle("left", "5px");
-            setStyle("padding", "5px");
-            setStyle("backgroundColor", cssVars.bg);
-            setStyle("opacity", "0.5");
-        }
-
-        // r.text(screenHz + "hz screen, " + renderHz + "hz code");
-
-        imBeginDiv(); {
-            setText("base | frame  | code | % use ");
-        } imEnd();
-
-        imBeginDiv(); {
-            imBeginSpan(); {
-                setText(fps.baselineLocked ? (fps.baselineFrameMs + "ms") : "...");
-            } imEnd();
-            imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); {
-                setText(fps.framesMsRounded + "ms ");
-            } imEnd();
-            imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); {
-                const fpsChanged = imMemo(fps.renderMsRounded);
-                if (fpsChanged) {
-                    setStyle("color", fps.renderMsRounded / fps.baselineFrameMs > 0.5 ? "red" : "");
-                }
-                setText(fps.renderMsRounded + "ms");
-            } imEnd();
-            imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); {
-                if (fps.baselineLocked) {
-                    setText("~" + Math.round(100 * fps.renderMs / fps.baselineFrameMs) + "% used");
-                } else {
-                    setText("...");
-                }
-            } imEnd();
-        } imEnd();
-
-        imBeginDiv(); {
-            setText(im.itemsRenderedLastFrame + " IM entries");
-        } imEnd();
-
-        imBeginDiv(); {
-            setText(im.numCacheMisses + " Cache misses");
-        } imEnd();
-
-        imBeginDiv(); {
-            imBeginSpan(); setText(im.numResizeObservers + " ROs"); imEnd();
-            imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); setText(im.numIntersectionObservers + " IOs"); imEnd();
-            imBeginSpan(); setText(" | "); imEnd();
-            imBeginSpan(); setText(im.numEventHandlers + " EHs"); imEnd();
-        } imEnd();
-
-        if (elementHasMousePress()) {
-            fps.baselineFrameMsFreq = 0;
-            im.numCacheMisses = 0;
-        }
-    } imEnd();
-
+export function fpsMarkRenderingEnd(fps: FpsCounterState) {
+    fps.renderEnd = performance.now();
 }

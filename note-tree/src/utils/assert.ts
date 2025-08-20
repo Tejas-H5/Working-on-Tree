@@ -8,7 +8,9 @@ export function assert(value: boolean): asserts value {
     // if (value === true) return;
     // throw new Error("Assertion failed - " + message);
 
-    if (value === false) throw new Error("Assertion failed");
+    if (value === false) {
+        throw new Error("Assertion failed");
+    }
 }
 
 export function mustGetDefined<T>(val: T | undefined, field = "this value"): T {

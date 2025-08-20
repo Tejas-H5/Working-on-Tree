@@ -1,11 +1,11 @@
-import { COL, imBegin, imFlex, imScrollOverflow, ROW } from "./core/layout";
-import { getDeltaTimeSeconds, UIRoot } from "src/utils/im-utils-core";
-import { getScrollVH } from "src/utils/im-utils-dom";
+import { getDeltaTimeSeconds, ImCache } from "src/utils/im-core";
+import { COL, imFlex, imLayout, imScrollOverflow, ROW } from "./core/layout";
+import { getScrollVH } from "src/utils/dom-utils";
 
 
 // NOTE: if all we need is idx, let's just inline it.
 export type ScrollContainer = {
-    root: UIRoot<HTMLElement> | null;
+    root: HTMLElement | null;
     isScrolling:     boolean;
     smoothScroll:    boolean;
 
@@ -31,15 +31,19 @@ export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
     sc.lastScrollTop = -1;
 }
 
-export function imBeginScrollContainer(sc: ScrollContainer, orientation: typeof ROW | typeof COL = COL): UIRoot<HTMLElement> {
-    const scrollParent = imBegin(orientation); imFlex(); imScrollOverflow(orientation === COL, orientation === ROW);
+export function imBeginScrollContainer(
+    c: ImCache,
+    sc: ScrollContainer,
+    orientation: typeof ROW | typeof COL = COL
+): HTMLElement {
+    const scrollParent = imLayout(c, orientation); imFlex(c); imScrollOverflow(c, orientation === COL, orientation === ROW);
     sc.root = scrollParent;
     return scrollParent;
 }
 
 // NOTE: it's up to you to only ever call this on one item at a time
 // TODO: move this into ScrollContainer, make this a side-effect of ending the container
-export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
+export function scrollToItem(l: ScrollContainer, root: HTMLElement) {
     const scrollParent = l.root;
     if (!scrollParent)  return;
     if (!l.isScrolling) return;
@@ -49,19 +53,19 @@ export function scrollToItem(l: ScrollContainer, root: UIRoot<HTMLElement>) {
     }
 
     const { scrollTop } = getScrollVH(
-        scrollParent.root, root.root,
+        scrollParent, root,
         0.5, null
     );
 
-    const currentScrollTop = scrollParent.root.scrollTop;
+    const currentScrollTop = scrollParent.scrollTop;
 
-    if (Math.abs(scrollTop - scrollParent.root.scrollTop) < 0.1) {
+    if (Math.abs(scrollTop - scrollParent.scrollTop) < 0.1) {
         l.isScrolling = false;
     } else {
         if (l.smoothScroll) {
-            scrollParent.root.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds());
+            scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds());
         } else {
-            scrollParent.root.scrollTop = scrollTop;
+            scrollParent.scrollTop = scrollTop;
         }
     }
 

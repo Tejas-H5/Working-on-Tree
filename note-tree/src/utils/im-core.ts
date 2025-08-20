@@ -40,12 +40,14 @@ export const ENTRIES_ITEMS_START = 12;
 export type ImCache = (ImCacheEntries | any)[];
 export const CACHE_IDX = 0;
 export const CACHE_CURRENT_ENTRIES = 1;
-export const CACHE_CONTEXTS = 2;
-export const CACHE_ROOT_ENTRIES = 3;
-export const CACHE_NEEDS_RERENDER = 4;
-export const CACHE_RERENDER_FN = 5;
-export const CACHE_ITEMS_ITERATED = 6;
-export const CACHE_ENTRIES_START = 7;
+export const CACHE_CURRENT_WAITING_FOR_SET = 2;
+export const CACHE_CONTEXTS = 3;
+export const CACHE_ROOT_ENTRIES = 4;
+export const CACHE_NEEDS_RERENDER = 5;
+export const CACHE_RERENDER_FN = 6;
+export const CACHE_IS_RENDERING = 7;
+export const CACHE_ITEMS_ITERATED = 8;
+export const CACHE_ENTRIES_START = 9;
 
 
 // NOTE: this only works if you can somehow re-render your program whenever any error occurs.
@@ -94,7 +96,11 @@ export function inlineTypeId<T = undefined>(fn: Function) {
 // Can be any valid object reference. Or string, but avoid string if you can - string comparisons are slower than object comparisons
 export type ValidKey = string | number | Function | object | boolean | null | unknown;
 
-export function imCache(c: ImCache) {
+// NOTE: it is assumed that the rerender function never changes.
+export function imCacheInit(
+    c: ImCache,
+    renderFn: (c: ImCache) => void
+) {
     if (c.length === 0) {
         c.length = CACHE_ENTRIES_START;
         // starts at -1 and increments onto the current value. So we can keep accessing this idx over and over without doing idx - 1.
@@ -103,20 +109,31 @@ export function imCache(c: ImCache) {
         c[CACHE_CONTEXTS] = [];
         c[CACHE_ROOT_ENTRIES] = [];
         c[CACHE_CURRENT_ENTRIES] = c[CACHE_ROOT_ENTRIES];
+        c[CACHE_CURRENT_WAITING_FOR_SET] = false;
         c[CACHE_NEEDS_RERENDER] = false;
+        c[CACHE_RERENDER_FN] = () => {
+            if (c[CACHE_IS_RENDERING] === true) {
+                c[CACHE_NEEDS_RERENDER] = true;
+            } else {
+                renderFn(c);
+            }
+        }
+        c[CACHE_IS_RENDERING] = false;
         c[CACHE_ITEMS_ITERATED] = 0;
     }
 
     c[CACHE_IDX] = CACHE_ENTRIES_START - 1;
     c[CACHE_NEEDS_RERENDER] = false;
     c[CACHE_ITEMS_ITERATED] = 0;
+    c[CACHE_CURRENT_WAITING_FOR_SET] = false;
+    c[CACHE_IS_RENDERING] = true;
 
-    imCacheEntriesPush(c, c[CACHE_ROOT_ENTRIES], imCache, c, INTERNAL_TYPE_CACHE);
+    imCacheEntriesPush(c, c[CACHE_ROOT_ENTRIES], imCacheInit, c, INTERNAL_TYPE_CACHE);
 
     return c;
 }
 
-export function imCacheEnd(c: ImCache, rerenderFn: () => void) {
+export function imCacheInitEnd(c: ImCache) {
     imCacheEntriesPop(c);
 
     const startIdx = CACHE_ENTRIES_START - 1;
@@ -135,9 +152,10 @@ export function imCacheEnd(c: ImCache, rerenderFn: () => void) {
         c[CACHE_NEEDS_RERENDER] = false;
         // Other things need to rerender the cache long after we've done a render. Mainly, DOM UI events - 
         // once we get the event, we trigger a full rerender, and pull the event out of state and use it's result in the process.
-        c[CACHE_RERENDER_FN] = rerenderFn;
-        rerenderFn();
+        c[CACHE_RERENDER_FN]();
     }
+
+    c[CACHE_IS_RENDERING] = false;
 }
 
 const INTERNAL_TYPE_NORMAL_BLOCK = 1;
@@ -187,11 +205,15 @@ export function imCacheEntriesPush<T>(
 export function imCacheEntriesPop(c: ImCache) {
     const idx = --c[CACHE_IDX];
     c[CACHE_CURRENT_ENTRIES] = c[idx];
+    assert(idx >= CACHE_ENTRIES_START - 1);
 }
 
 export function imGet<T>(c: ImCache, typeId: TypeId<T>): T | undefined {
     const entries = c[CACHE_CURRENT_ENTRIES];
     c[CACHE_ITEMS_ITERATED]++;
+
+    // Make sure you called imSet for the previous state before calling imGet again.
+    assert(!c[CACHE_CURRENT_WAITING_FOR_SET]);
 
     entries[ENTRIES_IDX] += 2;
     const idx = entries[ENTRIES_IDX];
@@ -212,6 +234,7 @@ export function imGet<T>(c: ImCache, typeId: TypeId<T>): T | undefined {
     if (idx === entries.length) {
         entries.push(typeId);
         entries.push(undefined);
+        c[CACHE_CURRENT_WAITING_FOR_SET] = true;
     } else if (idx < entries.length) {
         assert(entries[idx] === typeId);
     } else {
@@ -245,13 +268,14 @@ export function imSet<T>(c: ImCache, val: T): T {
     const entries = c[CACHE_CURRENT_ENTRIES];
     const idx = entries[ENTRIES_IDX];
     entries[idx + 1] = val;
+    c[CACHE_CURRENT_WAITING_FOR_SET] = false;
     return val;
 }
 
 type ListMapBlock = { rendered: boolean; entries: ImCacheEntries; };
 
 
-export function __imBlockKeyed(c: ImCache, key: ValidKey) {
+function __imBlockKeyed(c: ImCache, key: ValidKey) {
     const entries = c[CACHE_CURRENT_ENTRIES];
 
     let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
@@ -293,10 +317,31 @@ export function __imBlockKeyed(c: ImCache, key: ValidKey) {
     imCacheEntriesPush(c, block.entries, parentType, parent, INTERNAL_TYPE_KEYED_BLOCK);
 }
 
-export function imCacheEntriesAddDestructor(entries: ImCacheEntries, destructor: () => void) {
+/**
+ * Allows you to reuse the same component for the same key.
+ * This key is local to the current entry list, and not global to the entire im-cache.
+ *
+ * ```ts
+ * imFor(c); for (const val of list) {
+ *      imKeyed(c, val); { ... } imKeyedEnd(c);
+ * } imForEnd(c);
+ * ```
+ */
+export function imKeyed(c: ImCache, key: ValidKey) {
+    __imBlockKeyed(c, key);
+}
+
+export function imKeyedEnd(c: ImCache) {
+    __imBlockDerivedEnd(c, INTERNAL_TYPE_KEYED_BLOCK);
+}
+
+// You probably don't need a destructor unless you're being forced to add/remove callbacks or 'clean up' something
+export function imCacheEntriesAddDestructor(c: ImCache, destructor: () => void) {
+    const entries = c[CACHE_CURRENT_ENTRIES];
     let destructors = entries[ENTRIES_DESTRUCTORS];
-    if (destructor === undefined) {
-        destructors = entries[ENTRIES_DESTRUCTORS] = [];
+    if (destructors === undefined) {
+        destructors = [];
+        entries[ENTRIES_DESTRUCTORS] = destructors;
     }
 
     destructors.push(destructor);
@@ -461,6 +506,17 @@ export function imIfEnd(c: ImCache) {
     __imBlockArrayEnd(c);
 }
 
+/**
+ * ```ts
+ * imSwitch(c, key) switch (key) {
+ *      case a: { ... } break;
+ *      case b: { ... } break;
+ *      case c: { ... } break;
+ * } imSwitchEnd(c);
+ * ```
+ * NOTE: doesn't work as you would expect when you use fallthrough, so don't use fallthrough with imSwitch.
+ * Use if-else + imIf/imIfElse/imIfEnd instead.
+ */
 export function imSwitch(c: ImCache, key: ValidKey) {
     __imBlockKeyed(c, key);
 }
@@ -612,6 +668,10 @@ export function imTry(c: ImCache): TryState {
 }
 
 export function imTryCatch(c: ImCache, tryState: TryState, err: any) {
+    if (tryState.err != null) {
+        throw new Error("Your error boundary pathway also has an error in it, so we can't recover!");
+    }
+
     c[CACHE_NEEDS_RERENDER] = true;
     tryState.err = err;
     const idx = c.lastIndexOf(tryState.entries);

@@ -4,25 +4,26 @@ import {
     startScrolling
 } from "src/components/scroll-container";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
-import { imLine } from "./app-components/common";
+import { imLine, LINE_HORIZONTAL } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import {
     CH,
     COL,
     EM,
     imAbsolute,
-    imBegin,
+    imLayout,
     imBg,
     imFlex,
     imGap,
-    imInitClasses,
     imOpacity,
     imRelative,
     imSize,
     NA,
     PX,
     ROW,
-    ROW_REVERSE
+    ROW_REVERSE,
+    BLOCK,
+    imLayoutEnd
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
@@ -76,9 +77,10 @@ import {
 import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
-import { imElse, imEnd, imEndFor, imEndIf, imFor, imIf, imIsFirstishRender, imMemo, imNextListRoot } from "./utils/im-utils-core";
-import { END, getElementExtentNormalized, HORIZONTAL, imBeginSpan, imOn, setClass, setStyle, setText, START, VERTICAL } from "./utils/im-utils-dom";
 import * as tree from "./utils/int-tree";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
+import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "./utils/dom-utils";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_CLICK, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -236,10 +238,10 @@ function moveIntoCurrent(
 }
 
 
-export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
+export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewState) {
     const viewFocused = ctx.currentView === s;
 
-    if (imMemo(state.currentNoteId)) {
+    if (imMemo(c, state.currentNoteId)) {
         const note = getCurrentNote(state);
         setNote(s, note);
     } 
@@ -253,33 +255,36 @@ export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
         handleKeyboardInput(ctx, s);
     }
 
-    imBegin(COL); imFlex(); {
-        imBegin(); {
+    imLayout(c, COL); imFlex(c); {
+        imLayout(c, BLOCK); {
             s.numVisible = 0;
-            imFor(); for (const row of s.viewRootParentNotes) {
-                imNextListRoot(row); 
-                imNoteTreeRow(ctx, null, s, row, viewFocused);
-            } imEndFor();
-        } imEnd();
+            imFor(c); for (const row of s.viewRootParentNotes) {
+                imKeyed(c, row); {
+                    imNoteTreeRow(c, ctx, null, s, row, viewFocused);
+                } imKeyedEnd(c);
+            } imForEnd(c);
+        } imLayoutEnd(c);
 
         imLine(
-            HORIZONTAL, 1,
-            !!s.scrollContainer.root && s.scrollContainer.root.root.scrollTop > 1,
+            c,
+            LINE_HORIZONTAL, 1,
+            !!s.scrollContainer.root && s.scrollContainer.root.scrollTop > 1,
         );
 
-        imBegin(); {
-            imFor(); for (const row of s.stickyNotes) {
-                imNextListRoot(row); 
-                imNoteTreeRow(ctx, null, s, row, viewFocused);
-            } imEndFor();
-        } imEnd();
+        imLayout(c, BLOCK); {
+            imFor(c); for (const row of s.stickyNotes) {
+                imKeyed(c, row); {
+                    imNoteTreeRow(c, ctx, null, s, row, viewFocused);
+                } imKeyedEnd(c);
+            } imForEnd(c);
+        } imLayoutEnd(c);
 
-        const list = imBeginNavList(s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
+        const list = imBeginNavList(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
             while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const note = s.childNotes[i];
 
-                const root = imNoteTreeRow(ctx, list, s, note, viewFocused, i, itemSelected);
+                const root = imNoteTreeRow(c, ctx, list, s, note, viewFocused, i, itemSelected);
 
                 // A bit stupid but yeah whatever.
                 if (
@@ -289,12 +294,12 @@ export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
                 ) {
                     if (
                         !s.stickyNotes.includes(note) &&
-                        getElementExtentNormalized(s.scrollContainer.root.root, root.root, VERTICAL | END) < 0
+                        getElementExtentNormalized(s.scrollContainer.root, root, EXTENT_VERTICAL | EXTENT_END) < 0
                     ) {
                         s.stickyNotes.push(note);
                     } else if (
                         s.stickyNotes.includes(note) &&
-                        getElementExtentNormalized(s.scrollContainer.root.root, root.root, VERTICAL | START) > 0
+                        getElementExtentNormalized(s.scrollContainer.root, root, EXTENT_VERTICAL | EXTENT_START) > 0
                     ) {
                         filterInPlace(s.stickyNotes, n => n !== note);
                     }
@@ -302,19 +307,20 @@ export function imNoteTreeView(ctx: GlobalContext, s: NoteTreeViewState) {
             };
 
             // Want to scroll off the bottom a bit
-            imNextListRoot("scrolloff");
-            imBegin(); imSize(0, NA, 500, PX); imEnd();
-        } imEndNavList(list);
+            imKeyed(c, "scrolloff"); {
+                imLayout(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
+            } imKeyedEnd(c);
+        } imEndNavList(c, list);
 
-        imLine(HORIZONTAL, 1);
+        imLine(c, LINE_HORIZONTAL, 1);
 
         const currentNote = getCurrentNote(state);
-        imBegin(ROW); imGap(10, PX); {
-            imBegin(); setText("Created " + formatDateTime(currentNote.data.openedAt)); imEnd();
-            imBegin(); setText("|"); imEnd();
-            imBegin(); setText("Last Edited " + formatDateTime(currentNote.data.editedAt)); imEnd();
-        } imEnd();
-    } imEnd();
+        imLayout(c, ROW); imGap(c, 10, PX); {
+            imLayout(c, BLOCK); imStr(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
+            imLayout(c, BLOCK); imStr(c, "|"); imLayoutEnd(c);
+            imLayout(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
+        } imLayoutEnd(c);
+    } imLayoutEnd(c);
 }
 
 const UNDER = 1;
@@ -436,6 +442,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 }
 
 function imNoteTreeRow(
+    c: ImCache,
     ctx: GlobalContext,
     list: NavigableListState | null,
     s: NoteTreeViewState,
@@ -457,23 +464,19 @@ function imNoteTreeRow(
         }
     }
 
-    const root = imBeginNavListRow(list); {
-        imBegin(ROW); imFlex(); {
-            setClass(cn.preWrap, itemSelected);
+    const root = imBeginNavListRow(c, list); {
+        imLayout(c, ROW); imFlex(c); {
+            elSetClass(c, cn.preWrap, itemSelected);
 
             // The tree visuals
-            imBegin(ROW_REVERSE); {
-                imFor();
-
+            imLayout(c, ROW_REVERSE); {
                 const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
 
                 let it = note;
                 let foundLineInPath = false;
                 let depth = -1;
 
-                while (!idIsNil(it.parentId)) {
-                    imNextListRoot();
-
+                imFor(c); while (!idIsNil(it.parentId)) {
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
                     it = getNote(state, it.parentId);
@@ -509,101 +512,99 @@ function imNoteTreeRow(
 
                     // the tree visuals. It was a lot easier to do these here than in my last framework
                     {
-                        imBegin(); imRelative(); imSize(indent, PX, 0, NA); {
+                        imLayout(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
                             // horizontal line xD
-                            if (imIf() && hasHLine) {
-                                imBegin();
-                                imAbsolute(0, NA, 0, PX, 1, EM, 0, NA);
-                                const isThick = isLineInPath && pathGoesRight;
-                                imSize(
-                                    bulletStart, PX,
-                                    isThick ? largeThicnkess : smallThicnkess, PX,
-                                );
-                                imBg(cssVarsApp.fgColor); {
-                                    if (imIsFirstishRender()) {
-                                        setStyle("transform", "translate(0, -100%)");
+                            if (imIf(c) && hasHLine) {
+                                imLayout(c, BLOCK); imAbsolute(c, 0, NA, 0, PX, 1, EM, 0, NA); {
+                                    if (isFirstishRender(c)) {
+                                        elSetStyle(c, "transform", "translate(0, -100%)");
                                     }
-                                } imEnd();
-                            } imEndIf();
+
+                                    const isThick = isLineInPath && pathGoesRight;
+                                    imSize(
+                                        c,
+                                        bulletStart, PX,
+                                        isThick ? largeThicnkess : smallThicnkess, PX,
+                                    );
+                                    imBg(c, cssVarsApp.fgColor); 
+                                } imLayoutEnd(c);
+                            } imIfEnd(c);
 
                             const canDrawVerticalLine = !isLast || note === itPrev;
 
-                            if (imIf() && canDrawVerticalLine) {
+                            if (imIf(c) && canDrawVerticalLine) {
                                 let midpointLen = 1;
                                 let midpointUnits = EM;
 
                                 // Vertical line part 1. xd. We need a better API
-                                imBegin();
-                                imAbsolute(
-                                    0, NA, bulletStart, PX,
-                                    0, PX, 0, isLast ? NA : PX,
-                                );
-                                imSize(
-                                    isLineInPath ? largeThicnkess : smallThicnkess, PX,
-                                    midpointLen, midpointUnits
-                                );
-                                imBg(cssVarsApp.fgColor); {
-                                } imEnd();
+                                imLayout(c, BLOCK); imAbsolute(c, 0, NA, bulletStart, PX, 0, PX, 0, isLast ? NA : PX); {
+                                    imSize(
+                                        c,
+                                        isLineInPath ? largeThicnkess : smallThicnkess, PX,
+                                        midpointLen, midpointUnits
+                                    );
+                                    imBg(c, cssVarsApp.fgColor); 
+                                } imLayoutEnd(c);
 
                                 // Vertical line part 2.
-                                imBegin();
-                                imAbsolute(
-                                    0, NA, bulletStart, PX,
-                                    midpointLen, midpointUnits, 0, isLast ? NA : PX,
-                                );
-                                const isThick = isLineInPath && !pathGoesRight;
-                                imSize(
-                                    isThick ? largeThicnkess : smallThicnkess, PX,
-                                    0, NA
-                                );
-                                imOpacity(isLast ? 0 : 1);
-                                imBg(cssVarsApp.fgColor); {
-                                } imEnd();
-                            } imEndIf();
-                        } imEnd();
+                                imLayout(c, BLOCK); {
+                                    const isThick = isLineInPath && !pathGoesRight;
+                                    imAbsolute(c, 0, NA, bulletStart, PX, midpointLen, midpointUnits, 0, isLast ? NA : PX); 
+                                    imSize(
+                                        c,
+                                        isThick ? largeThicnkess : smallThicnkess, PX,
+                                        0, NA
+                                    );
+                                    imOpacity(c, isLast ? 0 : 1);
+                                    imBg(c, cssVarsApp.fgColor);
+                                } imLayoutEnd(c);
+                            } imIfEnd(c);
+                        } imLayoutEnd(c);
                     }
-                }
-                imEndFor();
-            } imEnd();
+                } imForEnd(c);
+            } imLayoutEnd(c);
 
-            imBegin(ROW); imFlex(); imListRowCellStyle(); {
-                if (imMemo(note.data._status)) {
-                    setStyle("color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
+            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
+                if (imMemo(c, note.data._status)) {
+                    elSetStyle(c, "color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
                 }
 
-                imBegin(ROW); imFlex(); {
-                    if (imMemo(itemSelected)) {
-                        setClass(cn.preWrap, itemSelected);
-                        setClass(cn.pre, !itemSelected);
-                        setClass(cn.noWrap, !itemSelected);
-                        setClass(cn.overflowHidden, !itemSelected);
+                imLayout(c, ROW); imFlex(c); {
+                    if (imMemo(c, itemSelected)) {
+                        elSetClass(c, cn.preWrap, itemSelected);
+                        elSetClass(c, cn.pre, !itemSelected);
+                        elSetClass(c, cn.noWrap, !itemSelected);
+                        elSetClass(c, cn.overflowHidden, !itemSelected);
                     }
 
-                    imBegin(ROW); {
-                        imInitClasses(cn.noWrap);
-                        imBegin(); setText(noteStatusToString(note.data._status)); imEnd();
-                        if (imIf() && (numInProgress + numDone) > 0) {
-                            imBegin(); imSize(0.5, CH, 0, NA); imEnd();
-                            imBeginSpan(); setText(`(${numDone}/${numInProgress + numDone})`); imEnd();
-                        } imEndIf();
-                        imBegin(); imSize(0.5, CH, 0, NA); imEnd();
-                    } imEnd();
+                    imLayout(c, ROW); {
+                        if (isFirstishRender(c)) {
+                            elSetClass(c, cn.noWrap);
+                        }
+
+                        imLayout(c, BLOCK); imStr(c, noteStatusToString(note.data._status)); imLayoutEnd(c);
+                        if (imIf(c) && (numInProgress + numDone) > 0) {
+                            imLayout(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
+                            imStr(c, `(${numDone}/${numInProgress + numDone})`);
+                        } imIfEnd(c);
+                        imLayout(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
+                    } imLayoutEnd(c);
 
                     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
-                    const isEditingChanged = imMemo(isEditing);
+                    const isEditingChanged = imMemo(c, isEditing);
 
-                    if (imIf() && isEditing) {
-                        const [, textArea] = imBeginTextArea({
+                    if (imIf(c) && isEditing) {
+                        const [, textArea] = imBeginTextArea(c, {
                             value: note.data.text,
                         }); {
-                            const input = imOn("input");
-                            const change = imOn("change");
+                            const input = imOn(c, EV_INPUT);
+                            const change = imOn(c, EV_CHANGE);
 
                             if (input || change) {
                                 let status = s.note.data._status;
                                 let collapseStatus = isNoteCollapsed(s.note);
 
-                                setNoteText(state, s.note, textArea.root.value);
+                                setNoteText(state, s.note, textArea.value);
 
                                 state._notesMutationCounter++;
                                 ctx.handled = true;
@@ -615,38 +616,38 @@ function imNoteTreeRow(
                                 }
                             }
 
-                            const keyDown = imOn("keydown");
+                            const keyDown = imOn(c, EV_KEYDOWN);
                             if (keyDown) {
-                                ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea.root, {})
+                                ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {})
                             }
 
                             if (isEditingChanged) {
-                                textArea.root.selectionStart = textArea.root.value.length;
-                                textArea.root.selectionEnd = textArea.root.value.length;
+                                textArea.selectionStart = textArea.value.length;
+                                textArea.selectionEnd = textArea.value.length;
                             }
 
                             ctx.textAreaToFocus = textArea;
-                        } imEndTextArea();
+                        } imEndTextArea(c);
                     } else {
-                        imElse();
+                        imIfElse(c);
 
-                        imBeginSpan(); {
-                            imBeginSpan(); {
-                                if (imMemo(note.data.text)) {
-                                    let text = note.data.text;
-                                    if (text.length > 150) {
-                                        text = `[${text.length}ch] - ${text}`;
-                                    }
+                        const textChanged = imMemo(c, note.data.text);
+                        let text = imGet(c, String);
+                        if (text === undefined || textChanged) {
+                            let val = note.data.text;
+                            if (val.length > 150) {
+                                val = `[${val.length}ch] - ${text}`;
+                            }
 
-                                    setText(text);
-                                }
-                            } imEnd();
-                        } imEnd();
-                    } imEndIf();
-                } imEnd();
-            } imEnd();
-        } imEnd();
-    } imEndNavListRow();
+                            text = imSet(c, val);
+                        }
+
+                        imStr(c, text);
+                    } imIfEnd(c);
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
+        } imLayoutEnd(c);
+    } imEndNavListRow(c);
 
     return root;
 }

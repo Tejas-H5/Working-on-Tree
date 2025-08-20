@@ -61,8 +61,8 @@ import { imUrlViewer } from "./url-viewer";
 import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
-import { getDeltaTimeSeconds, ImCache, imCacheEntriesAddDestructor, imChanged, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, imSwitch, imSwitchEnd, imTry, imTryCatch, imTryEnd, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { elHasMousePress, elSetStyle, imStr } from "src/utils/im-dom";
+import { getDeltaTimeSeconds, ImCache, imCacheInitEnd as imCacheInitEnd, imCacheInit as imCacheInit, imChanged, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, imSwitch, imSwitchEnd, imTry, imTryCatch, imTryEnd, inlineTypeId, isFirstishRender } from "src/utils/im-core";
+import { elHasMouseDown, elSetStyle, imDomRoot as imDomRoot, imDomRootEnd as imDomRootEnd, imGlobalEventSystemEnd, imGlobalEventSystemInit, imStr } from "src/utils/im-dom";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -86,7 +86,7 @@ function getIcon(theme: AppTheme) {
     return ASCII_MOON_STARS;
 }
 
-function imMain(c: ImCache) {
+function imMainInner(c: ImCache) {
     let fpsCounter = imGet(c, newFpsCounterState);
     if (!fpsCounter) fpsCounter = imSet(c, newFpsCounterState());
 
@@ -94,6 +94,8 @@ function imMain(c: ImCache) {
 
     let ctx = imGet(c, newGlobalContext);
     if (!ctx) ctx = imSet(c, newGlobalContext());
+
+    imGlobalEventSystemInit(c, ctx.ev);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
@@ -103,16 +105,16 @@ function imMain(c: ImCache) {
 
     let errorState; errorState = imGet(c, inlineTypeId(imTry));
     if (!errorState) {
-        errorState = {
+        errorState = imSet(c, {
             error: null as any,
             framesSinceError: 0,
             irrecoverableError: null as any,
-        }
+        })
     }
 
     if (!imGet(c, inlineTypeId(imGet))) {
         imSet(c, true);
-        
+
         // some side-effects
 
         // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
@@ -168,7 +170,7 @@ function imMain(c: ImCache) {
 
     const tryState = imTry(c); try {
         if (imIf(c) && !errorState.error && !errorState.irrecoverableError) {
-            handleImKeysInput(ctx);
+            handleImKeysInput(ctx, ctx.ev);
 
             let shouldSave = false;
             if (imChanged(c, state._notesMutationCounter))      shouldSave = true;
@@ -189,9 +191,11 @@ function imMain(c: ImCache) {
                         } imLayoutEnd(c);
                     } imIfEnd(c);
 
-                    let displayColon = imGet(c, Boolean);
-                    if (imTimerRepeat(1.0)) {
-                        displayColon = !imSet(c, displayColon);
+                    let displayColon; displayColon = imGet(c, inlineTypeId(Boolean));
+                    if (!displayColon) displayColon = imSet(c, { val: false });
+
+                    if (imTimerRepeat(c, 1.0)) {
+                        displayColon.val = !displayColon.val;
                     }
 
                     if (imIf(c) && ctx.notLockedIn) {
@@ -202,9 +206,9 @@ function imMain(c: ImCache) {
                                     elSetStyle(c, "cursor", "pointer");
                                 }
 
-                                imAsciiIcon(getIcon(state.currentTheme), 4.5);
+                                imAsciiIcon(c, getIcon(state.currentTheme), 4.5);
 
-                                if (elHasMousePress(c)) {
+                                if (elHasMouseDown(c, ctx.ev)) {
                                     state.currentTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                     debouncedSave(ctx, state);
                                 }
@@ -216,7 +220,7 @@ function imMain(c: ImCache) {
 
                             imLayout(c, ROW); imFlex(c); {
                                 imAppHeading(c); {
-                                    imStr(c, formatDateTime(new Date(), displayColon ? ":" : "\xa0", true));
+                                    imStr(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
                                 } imAppHeadingEnd(c);
                             } imLayoutEnd(c);
 
@@ -240,7 +244,7 @@ function imMain(c: ImCache) {
                                     if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                         const sin01 = 0.5 * (1 + Math.sin(5 * t));
 
-                                        elSetStyle(c, "opacity", sin01 * 0.7 + 0.3 + "", root.root);
+                                        elSetStyle(c, "opacity", sin01 * 0.7 + 0.3 + "", root);
 
                                         imLayout(c, BLOCK); {
                                             if (isFirstishRender(c)) {
@@ -280,12 +284,13 @@ function imMain(c: ImCache) {
                                 }
 
                                 const commands = ctx.discoverableCommands; {
-                                    imFor(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                    imFor(c);
+                                    for (let i = 0; i < commands.stabilizedIdx; i++) {
                                         const command = commands.stabilized[i];
                                         if (!command.key) continue;
 
                                         imCommandDescription(c, command.key.stringRepresentation, command.desc);
-                                    } imForEnd(c);
+                                    }
 
                                     const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftAvailable) ||
                                         (ctx.keyboard.ctrlKey.held && commands.ctrlAvailable) ||
@@ -308,6 +313,7 @@ function imMain(c: ImCache) {
                                     commands.shiftAvailable = false;
                                     commands.ctrlAvailable = false;
                                     commands.altAvailable = false;
+                                    imForEnd(c);
                                 } 
 
                                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
@@ -318,7 +324,7 @@ function imMain(c: ImCache) {
                     imLine(c, LINE_HORIZONTAL, 4);
 
                     if (imIf(c) && ctx.currentView === ctx.views.settings) {
-                        imSettingsView(ctx, ctx.views.settings);
+                        imSettingsView(c, ctx, ctx.views.settings);
                     } else {
                         imIfElse(c);
 
@@ -328,15 +334,15 @@ function imMain(c: ImCache) {
                             if (!focusRef) focusRef = imSet(c, newFocusRef());
 
                             focusRef.focused = ctx.currentView;
-                            const navList = imViewsList(focusRef);
+                            const navList = imViewsList(c, focusRef);
 
-                            imNoteTreeView(ctx, ctx.views.noteTree);
+                            imNoteTreeView(c, ctx, ctx.views.noteTree);
                             addView(navList, ctx.views.noteTree, "Notes");
 
                             imLine(c, LINE_VERTICAL, 1);
                             // imLayout(c, BLOCK); {
                             //     imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
-                            // } imEnd();
+                            // } imLayoutEnd(c);
 
                             if (ctx.currentView !== ctx.views.noteTree) {
                                 ctx.leftTab = ctx.currentView;
@@ -353,23 +359,23 @@ function imMain(c: ImCache) {
 
                                     imSwitch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
-                                            imActivitiesList(ctx, ctx.views.activities);
+                                            imActivitiesList(c, ctx, ctx.views.activities);
                                             addView(navList, ctx.views.activities, "Activities");
                                         } break;
                                         case ctx.views.fastTravel: {
-                                            imNoteTraversal(ctx, ctx.views.fastTravel);
+                                            imNoteTraversal(c, ctx, ctx.views.fastTravel);
                                             addView(navList, ctx.views.fastTravel, "Fast travel");
                                         } break;
                                         case ctx.views.finder: {
-                                            imFuzzyFinder(ctx, ctx.views.finder);
+                                            imFuzzyFinder(c, ctx, ctx.views.finder);
                                             addView(navList, ctx.views.finder, "Finder");
                                         } break;
                                         case ctx.views.urls: {
-                                            imUrlViewer(ctx, ctx.views.urls);
+                                            imUrlViewer(c, ctx, ctx.views.urls);
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
                                     } imSwitchEnd(c);
-                                } imIfEnd(c);
+                                } imLayoutEnd(c);
                             } imIfEnd(c);
 
                             // navigate list
@@ -464,14 +470,14 @@ function imMain(c: ImCache) {
                 }
 
                 if (ctx.handled) {
-                    preventImKeysDefault();
+                    preventImKeysDefault(ctx.ev);
                 }
 
                 // Only one text area can be focued at a time in the entire document.
                 // imMemo here, because we still want to select text with the mouse.
                 // Not ideal for a real app, but preventing it makes it not feel like a real website.
                 if (imMemo(c, ctx.textAreaToFocus) && ctx.textAreaToFocus) {
-                    const textArea = ctx.textAreaToFocus.root;
+                    const textArea = ctx.textAreaToFocus;
                     textArea.focus();
                     if (ctx.focusWithAllSelected) {
                         textArea.selectionStart = 0;
@@ -509,8 +515,24 @@ function imMain(c: ImCache) {
         }
     } imTryEnd(c, tryState);
 
+    imGlobalEventSystemEnd(c, ctx.ev);
+
     fpsMarkRenderingEnd(fpsCounter);
 }
+
+
+const imCache: ImCache = [];
+function rerender() {
+    imMain(imCache);
+}
+
+function imMain(c: ImCache) {
+    imCacheInit(c, imMain); {
+        imDomRoot(c, document.body); {
+            imMainInner(c);
+        } imDomRootEnd(c, document.body);
+    } imCacheInitEnd(c);
+};
 
 function imCommandDescription(c: ImCache, key: string, action: string) {
     imLayout(c, COL); imAlign(c, CENTER); {
@@ -519,11 +541,9 @@ function imCommandDescription(c: ImCache, key: string, action: string) {
     } imLayoutEnd(c);
 }
 
-const imCache: ImCache = [];
-
 loadState(() => {
     console.log("State: ", state);
-    imMain(imCache);
+    rerender();
 })
 
 // Using a custom styling solution

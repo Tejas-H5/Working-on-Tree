@@ -1,7 +1,8 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { imBeginRoot, imEnd, imInit, imMemo, imIsFirstishRender, UIRoot } from "src/utils/im-utils-core";
-import { setAttr, setClass, setInputValue, setStyle, setText, } from "src/utils/im-utils-dom";
-import { imBegin, imInitClasses, INLINE } from "./core/layout";
+import { setInputValue } from "src/utils/dom-utils";
+import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
+import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
+import { BLOCK, imLayout, imLayoutEnd, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
 export function getLineBeforePos(text: string, pos: number): string {
@@ -62,81 +63,98 @@ export type TextAreaArgs = {
 // My best attempt at making a text input with the layout semantics of a div.
 // NOTE: this text area has a tonne of minor things wrong with it. we should fix them at some point.
 //   - When I have a lot of empty newlines, and then click off, the empty lines go away 'as needed' 
-export function imBeginTextArea({
+export function imBeginTextArea(c: ImCache, {
     value,
     isOneLine,
     placeholder = "",
 }: TextAreaArgs) {
-    let textArea: UIRoot<HTMLTextAreaElement>;
+    let textArea: HTMLTextAreaElement;
 
-    const root = imBegin(); {
-        imInitClasses(cn.flex1, cn.row, cn.h100, cn.overflowYAuto, cnTextAreaRoot);
+    const root = imLayout(c, BLOCK); {
+        if (isFirstishRender(c)) {
+            elSetClass(c, cn.flex1);
+            elSetClass(c, cn.row);
+            elSetClass(c, cn.h100);
+            elSetClass(c, cn.overflowYAuto);
+            elSetClass(c, cnTextAreaRoot);
+        }
 
         // This is now always present.
-        imBegin(); {
-            if (imInit()) {
-                setAttr("class", [cn.handleLongWords, cn.relative, cn.w100, cn.hFitContent].join(" "));
-                setAttr("style", "min-height: 100%");
+        imLayout(c, BLOCK); {
+            if (isFirstishRender(c)) {
+                elSetClass(c, cn.handleLongWords);
+                elSetClass(c, cn.relative);
+                elSetClass(c, cn.w100);
+                elSetClass(c, cn.hFitContent);
+                elSetStyle(c, "minHeight", "100%");
             }
 
-            setClass(cn.preWrap, !isOneLine)
-            setClass(cn.pre, !!isOneLine)
-            setClass(cn.overflowHidden, isOneLine)
-            setClass(cn.noWrap, !!isOneLine);
+            elSetClass(c, cn.preWrap, !isOneLine)
+            elSetClass(c, cn.pre, !!isOneLine)
+            elSetClass(c, cn.overflowHidden, isOneLine)
+            elSetClass(c, cn.noWrap, !!isOneLine);
 
             // This is a facade that gives the text area the illusion of auto-sizing!
             // but it only works if the text doesn't end in whitespace....
-            imBegin(INLINE); {
-                const placeholderChanged = imMemo(placeholder);
-                const valueChanged = imMemo(value);
-                if (placeholderChanged || valueChanged) {
+            imLayout(c, INLINE); {
+                const placeholderChanged = imMemo(c, placeholder);
+                const valueChanged = imMemo(c, value);
+                let text; text = imGet(c, inlineTypeId(imStr));
+                if (text === undefined || placeholderChanged || valueChanged) {
                     if (!value) {
-                        setText(placeholder);
-                        setStyle("color", cssVars.fg2);
+                        text = placeholder;
+                        elSetStyle(c, "color", cssVars.fg2);
                     } else {
-                        setText(value);
-                        setStyle("color", cssVars.fg);
+                        text = value;
+                        elSetStyle(c, "color", cssVars.fg);
                     }
+
+                    imSet(c, text);
+
+                    console.log("text changed:", text);
                 }
-            } imEnd();
+
+                imStr(c, text);
+            } imLayoutEnd(c);
 
             // This full-stop at the end of the text is what prevents the text-area from collapsing in on itself
-            imBegin(INLINE); {
-                if (imIsFirstishRender()) {
-                    setStyle("color", "transparent");
-                    setStyle("userSelect", "none");
-                    setText(".");
-                }
-            } imEnd();
-
-            textArea = imBeginRoot(newTextArea); {
-                if (imInit()) {
-                    setAttr("class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
-                    setAttr("style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
+            imLayout(c, INLINE); {
+                if (isFirstishRender(c)) {
+                    elSetStyle(c, "color", "transparent");
+                    elSetStyle(c, "userSelect", "none");
                 }
 
-                if (imMemo(value)) {
+                imStr(c, ".");
+            } imLayoutEnd(c);
+
+            textArea = imEl(c, EL_TEXTAREA).root; {
+                if (isFirstishRender(c)) {
+                    elSetAttr(c, "class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
+                    elSetAttr(c, "style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
+                }
+
+                if (imMemo(c, value)) {
                     // don't update the value out from under the user implicitly
-                    setInputValue(textArea.root, value);
+                    setInputValue(textArea, value);
                 }
 
-            } // imEnd();
-        } // imEnd();
+            } // imElEnd(c, EL_TEXTAREA);
+        } // imLayoutEnd(c);
 
         // TODO: some way to optionally render other stuff hereYou can now render your own overlays here.
-    } // imEnd();
+    } // imLayoutEnd(c);
 
 
     return [root, textArea] as const;
 }
 
-export function imEndTextArea() {
+export function imEndTextArea(c: ImCache) {
     {
         {
             {
-            } imEnd();
-        } imEnd();
-    } imEnd();
+            } imElEnd(c, EL_TEXTAREA);
+        } imLayoutEnd(c);
+    } imLayoutEnd(c);
 }
 
 

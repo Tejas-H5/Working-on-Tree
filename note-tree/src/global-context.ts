@@ -5,21 +5,23 @@ import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
 import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
-import { UIRoot } from "./utils/im-utils-core";
-import { getImKeys, isEditingTextSomewhereInDocument } from "./utils/im-utils-dom";
+import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 
 const SAVE_DEBOUNCE = 1500;
 
 export type GlobalContext = {
+    ev: ImGlobalEventSystem;
+
     now: Date;
 
     keyboard:          KeyboardState;
     handled:           boolean;
     noteTreeViewState: NoteTreeViewState;
 
-    textAreaToFocus:     UIRoot<HTMLTextAreaElement> | null;
+    textAreaToFocus:     HTMLTextAreaElement | null;
     focusWithAllSelected: boolean;
 
     discoverableCommands: DiscoverableCommands;
@@ -111,6 +113,8 @@ export function newGlobalContext(): GlobalContext {
     const keyboard = newKeyboardState();
 
     return {
+        ev: newImGlobalEventSystem(),
+
         now: new Date(),
 
         keyboard,
@@ -461,12 +465,15 @@ function resetKeyboardState(s: KeyboardState) {
     }
 }
 
-export function handleImKeysInput(ctx: GlobalContext) {
+export function handleImKeysInput(
+    ctx: GlobalContext,
+    eventSystem: ImGlobalEventSystem,
+) {
     const keyboard = ctx.keyboard;
 
     ctx.handled = false;
 
-    const { keyDown, keyUp, blur } = getImKeys();
+    const { keyDown, keyUp, blur } = eventSystem.keyboard;
 
     stepKeyboardState(keyboard);
     if (keyDown) {
@@ -482,8 +489,8 @@ export function handleImKeysInput(ctx: GlobalContext) {
     return keyboard;
 }
 
-export function preventImKeysDefault() {
-    const { keyDown, keyUp } = getImKeys();
+export function preventImKeysDefault(ev: ImGlobalEventSystem) {
+    const { keyDown, keyUp } = ev.keyboard;
     if (keyDown) keyDown.preventDefault();
     if (keyUp)   keyUp.preventDefault();
 }
@@ -535,6 +542,8 @@ console.log({
 
 let saveTimeout = 0;
 export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState, { debounced } = { debounced: false }) {
+    return;
+
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 
