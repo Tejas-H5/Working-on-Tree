@@ -1,9 +1,10 @@
 import { imAppHeading, imAppHeadingEnd } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
-import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
-import { imB, imBEnd, imI, imIEnd } from "./components/core/text";
+import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
+import { cn } from "./components/core/stylesheets";
+import { imB, imBEnd, imI, imIEnd, imS } from "./components/core/text";
 import { newScrollContainer, } from "./components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand, saveCurrentState, SHIFT } from "./global-context";
+import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, SHIFT } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
 import {
     addView,
@@ -13,6 +14,7 @@ import {
     imBeginNavListRow,
     imEndNavList,
     imEndNavListRow,
+    imNavListNextItem,
     imNavListNextItemArray,
     imViewsList,
     newFocusRef,
@@ -39,7 +41,8 @@ import {
     inlineTypeId,
     isFirstishRender
 } from "./utils/im-core";
-import { EL_B, elSetStyle, imEl, imElEnd, imStr } from "./utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "./utils/im-dom";
+import { ROOT_ID } from "./utils/int-tree";
 
 const REQUIRED_PRESSES = 5;
 
@@ -58,7 +61,12 @@ export function newSettingsViewState(): SettingsViewState {
 type MenuItem =  {
     name: string;
     desc: string;
-    imComponent: (c: ImCache, ctx: GlobalContext, s: SettingsViewState, hasFocus: boolean) => void;
+    imComponent: (
+        c: ImCache,
+        ctx: GlobalContext,
+        s: SettingsViewState,
+        hasFocus: boolean
+    ) => void;
 }
 
 
@@ -92,11 +100,90 @@ const menus: MenuItem[] = [
     {
         name: "UI",
         desc: "Fine-tune UI interactions",
-        imComponent: (c, ctx, s) => {
+        imComponent: (c, ctx, s, hasFocus) => {
             imLayout(c, COL); imFlex(c); {
                 imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     // TODO: tab stop, tabs vs spaces, all on multiple lines -> parents on one line -> all on one line except selection
-                    imStr(c, "We don't have any UI option yet. Check back again later!");
+
+                    let vSc = imGet(c, newScrollContainer);
+                    if (!vSc) vSc = imSet(c, newScrollContainer());
+
+                    let vPos = imGet(c, newListPosition);
+                    if (!vPos) vPos = imSet(c, newListPosition());
+
+                    const settings = state.settings;
+
+                    const itemList = imBeginNavList(c, vSc, vPos.idx, hasFocus, false); {
+                        imNavListNextItem(itemList); {
+                            imBeginNavListRow(c, itemList); {
+                                imLayout(c, ROW); imListRowCellStyle(c); {
+                                    imB(c); imStr(c, "Spaces or tabs?"); imBEnd(c);
+
+                                    imLayout(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
+
+                                    // nonEditingNotesOnOneLine: boolean;
+                                    // parentNotesOnOneLine: boolean;
+                                    // tabStopSize: number;
+
+                                    imStr(c, settings.spacesInsteadOfTabs ? "Spaces" : "Tabs");
+
+                                } imLayoutEnd(c);
+                            } imEndNavListRow(c);
+
+                            if (hasFocus && itemList.itemSelected) {
+                                if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Toggle")) {
+                                    settings.spacesInsteadOfTabs = !settings.spacesInsteadOfTabs;
+                                    debouncedSave(ctx, state);
+                                }
+                            }
+                        }
+
+                        imNavListNextItem(itemList); {
+                            let canWiden = hasFocus && settings.tabStopSize < 12;
+                            let canNarrow = hasFocus && settings.tabStopSize > 1;
+
+                            imBeginNavListRow(c, itemList); {
+                                imLayout(c, ROW); imListRowCellStyle(c); {
+                                    if (isFirstishRender(c)) {
+                                        elSetClass(c, cn.preWrap);
+                                    }
+
+                                    imB(c); imStr(c, "Tab width"); imBEnd(c);
+
+                                    imLayout(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
+
+                                    imStr(c, canNarrow ? "< " : "  ");
+                                    imStr(c, settings.tabStopSize);
+                                    imStr(c, " ".repeat(settings.tabStopSize));
+                                    imStr(c, canWiden ? ">" : "|");
+                                } imLayoutEnd(c);
+                            } imEndNavListRow(c);
+
+                            if (hasFocus && itemList.itemSelected) {
+                                if (
+                                    canWiden &&
+                                    hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Wider")
+                                ) {
+                                    settings.tabStopSize++;
+                                    debouncedSave(ctx, state);
+                                }
+
+                                if (
+                                    canNarrow &&
+                                    hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Narrower")
+                                ) {
+                                    settings.tabStopSize--;
+                                    debouncedSave(ctx, state);
+                                }
+                            }
+                        }
+                    } imEndNavList(c, itemList);
+                    if (hasFocus) {
+                        const vListInput = getNavigableListInput(ctx, vPos.idx, 0, itemList.i + 1);
+                        if (vListInput) {
+                            vPos.idx = vListInput.newIdx;
+                        }
+                    }
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
         }

@@ -98,7 +98,7 @@ function imMainInner(c: ImCache) {
     imGlobalEventSystemInit(c, ctx.ev);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
+    if (!ctx.currentView) ctx.currentView = ctx.views.settings;
     if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
 
     ctx.now = new Date();

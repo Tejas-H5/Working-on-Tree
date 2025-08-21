@@ -599,6 +599,10 @@ function imNoteTreeRow(
                             const input = imOn(c, EV_INPUT);
                             const change = imOn(c, EV_CHANGE);
 
+                            if (imMemo(c, state.settings.tabStopSize)) {
+                                elSetStyle(c, "tabSize", "" + state.settings.tabStopSize);
+                            }
+
                             if (input || change) {
                                 let status = s.note.data._status;
                                 let collapseStatus = isNoteCollapsed(s.note);
@@ -617,7 +621,10 @@ function imNoteTreeRow(
 
                             const keyDown = imOn(c, EV_KEYDOWN);
                             if (keyDown) {
-                                ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {})
+                                ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {
+                                    tabStopSize: state.settings.tabStopSize,
+                                    useSpacesInsteadOfTabs: state.settings.spacesInsteadOfTabs,
+                                })
                             }
 
                             if (isEditingChanged) {

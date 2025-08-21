@@ -300,10 +300,10 @@ export function getTabInput(
     const keyboard = ctx.keyboard;
 
     if (prevCommand !== null) {
-        if (hasDiscoverableCommand(ctx, keyboard.tabKey, prevCommand, REPEAT | SHIFT | BYPASS_TEXT_AREA)) return -1;
+        if (hasDiscoverableCommand(ctx, keyboard.tabKey, prevCommand, REPEAT | SHIFT)) return -1;
     }
     if (nextCommand !== null) {
-        if (hasDiscoverableCommand(ctx, keyboard.tabKey, nextCommand, REPEAT | BYPASS_TEXT_AREA)) return 1;
+        if (hasDiscoverableCommand(ctx, keyboard.tabKey, nextCommand, REPEAT)) return 1;
     }
 
     return 0;
