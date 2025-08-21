@@ -290,7 +290,6 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
                 if (
                     s.noteParentNotes.includes(note) &&
                     s.scrollContainer.root
-                    
                 ) {
                     if (
                         !s.stickyNotes.includes(note) &&

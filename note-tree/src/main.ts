@@ -336,7 +336,7 @@ function imMainInner(c: ImCache) {
                                     commands.ctrlAvailable = false;
                                     commands.altAvailable = false;
                                     imForEnd(c);
-                                } 
+                                }
 
                                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
                             } imLayoutEnd(c);

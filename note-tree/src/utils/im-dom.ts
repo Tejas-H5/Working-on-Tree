@@ -53,7 +53,7 @@ export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<a
     } else if (idx < appender.children.length) {
         if (appender.children[idx] !== child) {
             if (child.parentIdx === -1) {
-                // Push watever at idx onto end, put child at idx.
+                // Adding a new item to the list. Push watever was at idx onto the end, put child at idx.
                 const a = appender.children[idx];
                 a.parentIdx = appender.children.length
                 appender.children.push(a);
@@ -92,7 +92,7 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
             const realChildren = appender.root.children;
             if (i >= realChildren.length) {
                 appender.root.append(val.root);
-            } else {
+            } else if (realChildren[i] !== val.root) {
                 appender.root.insertBefore(val.root, realChildren[i]);
             }
         }

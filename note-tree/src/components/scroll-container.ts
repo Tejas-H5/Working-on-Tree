@@ -47,6 +47,7 @@ export function scrollToItem(c: ImCache, l: ScrollContainer, root: HTMLElement) 
     const scrollParent = l.root;
     if (!scrollParent)  return;
     if (!l.isScrolling) return;
+    if (root.parentNode === null) return;
     if (l.lastScrollTopStableFrames > 10) {
         l.isScrolling = false;
         return;
