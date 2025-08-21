@@ -536,6 +536,8 @@ export function imGlobalEventSystemInit(c: ImCache, eventSystem: ImGlobalEventSy
         imCacheEntriesAddDestructor(c, () => removeDocumentAndWindowEventListeners(eventSystem));
         state = imSet(c, eventSystem);
     }
+
+    return state;
 }
 
 export function imGlobalEventSystemEnd(c: ImCache, eventSystem: ImGlobalEventSystem) {

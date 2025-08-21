@@ -127,8 +127,9 @@ export function imCacheInit(
         c[CACHE_CURRENT_ENTRIES] = c[CACHE_ROOT_ENTRIES];
         c[CACHE_CURRENT_WAITING_FOR_SET] = false;
         c[CACHE_NEEDS_RERENDER] = false;
-        c[CACHE_IS_RENDERING] = false;
         c[CACHE_ITEMS_ITERATED] = 0;
+        c[CACHE_IS_RENDERING] = true; 
+
         c[CACHE_RERENDER_FN] = () => {
             if (c[CACHE_IS_RENDERING] === true) {
                 c[CACHE_NEEDS_RERENDER] = true;
@@ -136,6 +137,7 @@ export function imCacheInit(
                 renderFn(c);
             }
         };
+
         if (flags & USE_EVENT_LOOP) {
             c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
@@ -145,6 +147,12 @@ export function imCacheInit(
             c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 0;
             c[CACHE_ANIMATE_FN] = (t: number) => {
+                if (c[CACHE_IS_RENDERING] === true) {
+                    // This will make debugging a lot easier. Otherwise the animation will play while
+                    // we're breakpointed. xD
+                    return;
+                }
+
                 const lastT = c[CACHE_ANIMATION_TIME];
                 c[CACHE_ANIMATION_TIME] = t;
                 c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = (t - lastT) / 1000.0;
@@ -156,11 +164,11 @@ export function imCacheInit(
         }
     }
 
+    c[CACHE_IS_RENDERING] = true; 
     c[CACHE_IDX] = CACHE_ENTRIES_START - 1;
     c[CACHE_NEEDS_RERENDER] = false;
     c[CACHE_ITEMS_ITERATED] = 0;
     c[CACHE_CURRENT_WAITING_FOR_SET] = false;
-    c[CACHE_IS_RENDERING] = true;
 
     imCacheEntriesPush(c, c[CACHE_ROOT_ENTRIES], imCacheInit, c, INTERNAL_TYPE_CACHE);
 
@@ -180,23 +188,23 @@ export function imCacheInitEnd(c: ImCache) {
         throw new Error("You've popped too many thigns off the stack!!!!");
     }
 
+    c[CACHE_IS_RENDERING] = false;
+
     const needsRerender = c[CACHE_NEEDS_RERENDER];
     if (needsRerender === true) {
-        // Some things may occur while we're rendering the framework that require is to immediately rerender
-        // our components to not have a stale UI. Those events will set this flag to true, so that
-        // We can eventually reach here, and do a full rerender.
-        c[CACHE_NEEDS_RERENDER] = false;
         // Other things need to rerender the cache long after we've done a render. Mainly, DOM UI events - 
         // once we get the event, we trigger a full rerender, and pull the event out of state and use it's result in the process.
         c[CACHE_RERENDER_FN]();
 
-        c[CACHE_IS_RENDERING] = false;
+        // Some things may occur while we're rendering the framework that require is to immediately rerender
+        // our components to not have a stale UI. Those events will set this flag to true, so that
+        // We can eventually reach here, and do a full rerender.
+        c[CACHE_NEEDS_RERENDER] = false;
     } else if (c[CACHE_ANIMATE_FN] !== noOp) {
         // paranoid about starting multiple animations side by side, which kills performance and introduces various bugs.
         // cancelling the prior animation should do it
         cancelAnimationFrame(c[CACHE_ANIMATION_ID]);
         c[CACHE_ANIMATION_ID] = requestAnimationFrame(c[CACHE_ANIMATE_FN]);
-        c[CACHE_IS_RENDERING] = true;
     }
 }
 
