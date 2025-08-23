@@ -155,7 +155,7 @@ export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: Tree
                     return;
                 }
 
-                const parent = getNoteOrUndefined(state, n.parentId);
+                const parent = getNoteOrUndefined(state.notes, n.parentId);
                 if (parent && parent.data._shelved) {
                     // If `n` wants to be shelved but its parent is already shelved, 
                     // don't include this in the list of matches
@@ -208,7 +208,7 @@ export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: Tree
     if (idIsRoot(rootNote.id) || !traverseUpwards) {
         dfsPre(state, rootNote, processNote);
     } else {
-        forEachParentNote(state, rootNote, note => forEachChildNote(state, note, processNote));
+        forEachParentNote(state.notes, rootNote, note => forEachChildNote(state, note, processNote));
     }
 
     dstMatches.sort((a, b) => {

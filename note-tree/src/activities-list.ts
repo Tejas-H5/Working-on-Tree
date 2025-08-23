@@ -54,6 +54,7 @@ import {
     getCurrentNote,
     getHigherLevelTask,
     getLastActivity,
+    getLastActivityWithNote,
     getNote,
     isBreak,
     isCurrentlyTakingABreak,
@@ -63,9 +64,9 @@ import {
     state
 } from "./state";
 import { imEditableTime } from "./time-input";
-import { boundsCheck, get } from "./utils/array-utils";
+import { arrayAt, boundsCheck, get } from "./utils/array-utils";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
-import { CACHE_IDX, ImCache, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { ImCache, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
 import { assert } from "./utils/assert";
 
@@ -82,7 +83,12 @@ type EditingStatus
     | typeof EDITING_ACTIVITY
 
 export type ActivitiesViewState = {
+    inputs: {
+        activityFilter: number[] | null;
+    };
+
     activities: Activity[];
+    filteredActivities: Activity[] | null;
 
     viewHasFocus: boolean;
 
@@ -105,7 +111,10 @@ export type ActivitiesViewState = {
 
 export function newActivitiesViewState(): ActivitiesViewState {
     return {
+        inputs: { activityFilter: null, },
+
         activities: [],
+        filteredActivities: [],
 
         viewHasFocus: false,
 
@@ -214,8 +223,11 @@ function moveToNextDay(ctx: GlobalContext, s: ActivitiesViewState) {
     if (hi < s.activities.length - 1) {
         // move to the next day, if notes available
         activitiesViewSetIdx(ctx, s, hi + 1, true);
-    } else if (!isSameDate(s.now, s.currentViewingDate)) {
-        // if no more notes, move to today
+    } else if (
+        !s.filteredActivities &&
+        !isSameDate(s.now, s.currentViewingDate)
+    ) {
+        // if not viewing a filtered subset, and no more notes, move to today
         setCurrentViewingDate(s, s.now);
     }
 }
@@ -316,6 +328,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         // Moving to the date view - down
         if (
             !isSameDate(s.now, s.currentViewingDate) && 
+            s.activityListPositon.idx === s._endActivityIdxEx &&
             hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)
         ) {
             s.currentFocus = FOCUS_DATE_SELECTOR;
@@ -350,7 +363,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 ctx.handled = true;
 
                 if (currentActivity?.nId) {
-                    const note = getNote(state, currentActivity.nId);
+                    const note = getNote(state.notes, currentActivity.nId);
                     const hlt = getHigherLevelTask(state, note);
 
                     let foundIdx = -1;
@@ -363,7 +376,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                     ) {
                         const activity = s.activities[i];
                         if (!activity.nId) continue;
-                        const note = getNote(state, activity.nId);
+                        const note = getNote(state.notes, activity.nId);
                         const noteHlt = getHigherLevelTask(state, note);
                         if (noteHlt === hlt) {
                             foundIdx = i;
@@ -403,7 +416,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     }
 
     if (s.currentFocus === FOCUS_DATE_SELECTOR) {
-        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day", REPEAT)) {
+        if (
+            lo > 0 && 
+            hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day", REPEAT)
+        ) {
             moveToPrevDay(ctx, s);
             const [lo, hi] = getActivityRange(s);
             activitiesViewSetIdx(ctx, s, lo, false);
@@ -416,7 +432,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             moveToNextDay(ctx, s);
         }
 
-        if (lo > 0 && hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day - end", REPEAT)) {
+        if (
+            lo > 0 && 
+            hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day - end", REPEAT)
+        ) {
             moveToPrevDay(ctx, s);
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
         }
@@ -429,11 +448,19 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
         }
 
-        if (s.activities.length > 0 && hasDiscoverableCommand(ctx, keyboard.homeKey, "First day")) {
+        if (
+            s.activities.length > 0 && 
+            !s.filteredActivities &&
+            hasDiscoverableCommand(ctx, keyboard.homeKey, "First day")
+        ) {
             setCurrentViewingDate(s, s.activities[0].t);
         }
 
-        if (s.activities.length > 0 && hasDiscoverableCommand(ctx, keyboard.endKey, "Today")) {
+        if (
+            s.activities.length > 0 && 
+            !s.filteredActivities &&
+            hasDiscoverableCommand(ctx, keyboard.endKey, "Today")
+        ) {
             setCurrentViewingDate(s, s.now);
         }
     }
@@ -472,15 +499,70 @@ function getCurrentFocus(s: ActivitiesViewState) {
 export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesViewState) {
     const viewHasFocus = ctx.currentView === s;
 
-    s.activities = state.activities;;
-
     s.now = ctx.now;
+
+    const filter = s.inputs.activityFilter;
+
+    if (imMemo(c, filter)) {
+        // recompute filtered activities
+
+        if (filter) {
+            filter.sort((a, b) => a - b);
+            s.filteredActivities = [];
+            for (let i = 0; i < filter.length; i++) {
+                const idx = filter[i];
+                const activity = state.activities[idx]; assert(!!activity);
+                s.filteredActivities.push(activity);
+            }
+
+            const current = arrayAt(s.activities, s.activityListPositon.idx);
+            if (current) {
+                const idx = s.filteredActivities.indexOf(current);
+                if (idx !== -1) {
+                    activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
+                }
+            }
+        } else {
+            s.filteredActivities = null;
+        }
+    }
+
+    if (imMemo(c, s.filteredActivities)) {
+        if (s.filteredActivities) {
+            s.activities = s.filteredActivities;
+        } else {
+            s.activities = state.activities;
+        }
+    }
 
     const viewHasFocusChanged = imMemo(c, viewHasFocus);
     if (viewHasFocusChanged) {
         if (!viewHasFocus) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
-            activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
+        }
+    }
+
+    if (imMemo(c, state.currentNoteId) && !viewHasFocus) {
+        // Let's make sure the activity we're lookint at is always the most recent
+        // activity for the current note.
+
+        const idx = s.activityListPositon.idx;
+        if (boundsCheck(s.activities, idx)) {
+            const activity = s.activities[idx];
+            if (activity.nId !== state.currentNoteId) {
+                let newActivityIdx = -1;
+                for (let i = state.activities.length - 1; i >= 0; i--) {
+                    const activity = state.activities[i];
+                    if (activity.nId === state.currentNoteId) {
+                        newActivityIdx = i;
+                        break;
+                    }
+                }
+
+                if (newActivityIdx !== -1) {
+                    activitiesViewSetIdx(ctx, s, newActivityIdx, NOT_IN_RANGE);
+                }
+            }
         }
     }
 
@@ -532,6 +614,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             }
 
             imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
+
                 imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
                 if (imIf(c) && dateSelectorFocused && s._canMoveToPrevDay) {
@@ -557,6 +640,10 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     }
 
                     imStr(c, text);
+
+                    if (imIf(c) && filter) {
+                        imStr(c, `[Filtered, ${filter.length} entries]`);
+                    } imIfEnd(c);
                 } imLayoutEnd(c);
 
                 if (imIf(c) && dateSelectorFocused && s._canMoveToNextDay) {
@@ -566,6 +653,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                 imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
             } imLayoutEnd(c);
+
         } imEndListRow(c);
 
         imLine(
@@ -598,7 +686,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     let itemHighlighted = itemSelected;
                     if (!itemHighlighted && hlt) {
                         if (activity.nId) {
-                            const note = getNote(state, activity.nId);
+                            const note = getNote(state.notes, activity.nId);
                             const noteHlt = getHigherLevelTask(state, note);
                             if (noteHlt === hlt) {
                                 itemHighlighted = true;

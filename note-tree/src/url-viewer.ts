@@ -85,7 +85,7 @@ function recomputeUrls(s: UrlListViewState) {
     // traverse all parents, and 1 level under the parents.
     let notes: TreeNote[] = []; 
     let lastNote = currentNote;
-    forEachParentNote(state, currentNote, note => {
+    forEachParentNote(state.notes, currentNote, note => {
         notes.push(note);
         forEachChildNote(state, note, note => {
             if (note !== lastNote) {

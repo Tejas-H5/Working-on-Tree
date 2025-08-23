@@ -4,7 +4,7 @@ import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
-import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState } from "./state";
+import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState, NoteId } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
@@ -38,6 +38,7 @@ export type GlobalContext = {
     };
     currentView: unknown;
     leftTab: unknown;
+    viewingDurations: boolean;
 
     notLockedIn: boolean;
 
@@ -138,6 +139,7 @@ export function newGlobalContext(): GlobalContext {
         notLockedIn: true,
         currentView: null,
         leftTab: null,
+        viewingDurations: false,
 
         navListPrevious: { view: null, name: "" },
         navListNext: { view: null, name: "" },

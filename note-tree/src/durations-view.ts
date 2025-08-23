@@ -1,9 +1,9 @@
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "./components/core/layout";
+import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "./components/core/layout";
 import { imB, imBEnd } from "./components/core/text";
 import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { GlobalContext } from "./global-context";
-import { getRowStatus, imBeginListRow, imEndListRow, imEndListRowNoPadding, imListCursorBg as imListRowBg, imListCursorColor, imListRowCellStyle } from "./list-row";
+import { getRowStatus, imBeginListRow, imEndListRowNoPadding, imListCursorColor, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
@@ -18,10 +18,10 @@ import {
     Activity,
     getActivityDurationMs,
     getActivityTime,
-    getCurrentNote,
     getHigherLevelTask,
     getNote,
     getNoteTextWithoutPriority,
+    idIsNilOrRoot,
     isBreak,
     NoteId,
     recomputeAllNoteDurations,
@@ -30,10 +30,10 @@ import {
     TreeNote
 } from "./state";
 import { boundsCheck } from "./utils/array-utils";
-import { assert } from "./utils/assert";
-import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDurationAsHours } from "./utils/datetime";
+import { assert, mustGetDefined } from "./utils/assert";
+import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours } from "./utils/datetime";
 import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
-import { elSetStyle, imStr } from "./utils/im-dom";
+import { addDocumentAndWindowEventListeners, elSetStyle, imStr } from "./utils/im-dom";
 
 type TaskBlockInfo = {
     hlt: TreeNote;
@@ -41,7 +41,6 @@ type TaskBlockInfo = {
     slots: {
         time: number;
         activityIndices: number[];
-        noteIds: Set<NoteId>;
     }[];
 };
 
@@ -53,6 +52,8 @@ export type DurationsViewState = {
     tableColPos: ListPosition;
 
     durations: TaskBlockInfo[];
+    activityFilter: number[] | null;
+
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
     hideBreaks: boolean;
@@ -62,7 +63,7 @@ export type DurationsViewState = {
 function getNumDays(s: DurationsViewState) {
     let numDays;
     if (s.scope === "week") {
-        numDays = 7 + 1; // 1 for the total
+        numDays = 7;
     } else {
         numDays = 1;
     }
@@ -79,6 +80,7 @@ export function newDurationsViewState(): DurationsViewState {
         activitiesTo: null,
         hideBreaks: false,
         scope: "week",
+        activityFilter: null,
     };
 }
 
@@ -89,7 +91,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: DurationsViewState) {
     }
 
     const numDays = getNumDays(s);
-    const hNav = getNavigableListInput(ctx, s.tableColPos.idx, -1, numDays, AXIS_HORIZONTAL);
+    const hNav = getNavigableListInput(ctx, s.tableColPos.idx, -1, numDays + 1, AXIS_HORIZONTAL);
     if (hNav) {
         setTableCol(ctx, s, hNav.newIdx);
     }
@@ -102,8 +104,45 @@ function setTableRow(ctx: GlobalContext, s: DurationsViewState, newRow: number) 
 }
 
 function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) {
+    if (!s.activitiesTo || !s.activitiesFrom) {
+        return;
+    }
+
     const numDays = getNumDays(s);
-    s.tableColPos.idx = clampedListIdxRange(newCol, -1, numDays);
+    s.tableColPos.idx = clampedListIdxRange(newCol, -1, numDays + 1);
+
+    let fullRecomputation = false;
+
+    if (s.tableColPos.idx === -1) {
+        addDays(s.activitiesFrom, -1);
+        floorDateToWeekLocalTime(s.activitiesFrom);
+
+        s.activitiesTo = new Date(s.activitiesFrom);
+        addDays(s.activitiesTo, 7);
+
+        s.tableColPos.idx = numDays - 1;
+        fullRecomputation = true;
+    } else if (s.tableColPos.idx === numDays) {
+        const newActivitiesFrom = new Date(s.activitiesFrom);
+        addDays(newActivitiesFrom, 7);
+        if (newActivitiesFrom.getTime() < ctx.now.getTime()) {
+            s.activitiesFrom = newActivitiesFrom;
+
+            s.activitiesTo = new Date(s.activitiesFrom);
+            addDays(s.activitiesTo, 7);
+
+            s.tableColPos.idx = 0;
+            fullRecomputation = true;
+        } else {
+            s.tableColPos.idx = numDays - 1;
+        }
+    } 
+
+    if (fullRecomputation) {
+        recomputeDurations(s);
+    } else { 
+        recomputeActivityFilter(s);
+    }
 }
 
 const NIL_HLT_HEADING = "<No higher level task>";
@@ -127,7 +166,7 @@ function recomputeDurations(s: DurationsViewState) {
             continue;
         } 
 
-        const note = getNote(state, nId);
+        const note = getNote(state.notes, nId);
         const hlt = getHigherLevelTask(state, note);
         if (!hlt) {
             continue;
@@ -144,7 +183,6 @@ function recomputeDurations(s: DurationsViewState) {
                 block.slots.push({
                     time: 0,
                     activityIndices: [],
-                    noteIds: new Set(),
                 });
             }
 
@@ -154,17 +192,12 @@ function recomputeDurations(s: DurationsViewState) {
         const dayOfWeek = getActivityTime(activity).getDay();
 
         if (s.scope === "week") {
-            assert(block.slots.length === 8);
-            block.slots[7].time         += durationMs;
-            block.slots[7].noteIds.add(nId);
-            block.slots[7].activityIndices.push(i);
+            assert(block.slots.length === 7);
             block.slots[dayOfWeek].time += durationMs;
-            block.slots[dayOfWeek].noteIds.add(nId);
             block.slots[dayOfWeek].activityIndices.push(i);
         } else {
             assert(block.slots.length === 1);
             block.slots[0].time += durationMs;
-            block.slots[0].noteIds.add(nId);
             block.slots[0].activityIndices.push(i);
         }
 
@@ -177,11 +210,43 @@ function recomputeDurations(s: DurationsViewState) {
         return bTotal - aTotal;
     });
 
-    recomputeNotesFilter(s);
+    if (s.tableRowPos.idx >= s.durations.length) {
+        s.tableRowPos.idx = 0;
+    }
+    if (s.tableColPos.idx >= getNumDays(s)) {
+        s.tableColPos.idx = 0;
+    }
+
+    recomputeActivityFilter(s);
 }
 
-function recomputeNotesFilter(s: DurationsViewState) {
+// Expensive method, avoid callint it too often!
+function recomputeActivityFilter(s: DurationsViewState) {
+    let rowIdx = s.tableRowPos.idx;
+    let colIdx = s.tableColPos.idx;
 
+    function getFilter(): number[] {
+        if (s.durations.length === 0) return [];
+
+        if (rowIdx !== -1 && colIdx !== -1) {
+            const row = s.durations[rowIdx]; assert(!!row);
+            const cell = row.slots[colIdx]; assert(!!cell);
+            return [...cell.activityIndices];
+        }
+
+        if (rowIdx !== -1) {
+            const row = s.durations[rowIdx]; assert(!!row);
+            return row.slots.flatMap(s => s.activityIndices);
+        }
+
+        if (colIdx !== -1) {
+            return s.durations.flatMap(d => mustGetDefined(d.slots[colIdx].activityIndices));
+        }
+
+        return s.durations.flatMap(d => d.slots.flatMap(s => s.activityIndices));
+    }
+
+    s.activityFilter = getFilter();
 }
 
 export function imDurationsView(
@@ -193,8 +258,6 @@ export function imDurationsView(
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
     }
-
-    let recomputed = false;
 
     if (imMemo(c, viewHasFocus)) {
         if (!s.activitiesTo && !s.activitiesFrom) {
@@ -208,19 +271,9 @@ export function imDurationsView(
         recomputeDurations(s);
         setActivityRangeToThisWeek(state);
         setTableRow(ctx, s, s.tableRowPos.idx);
-
-        recomputed = true;
     }
 
-    imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "fontWeight", "bold");
-        }
-
-        imLayout(c, BLOCK); imStr(c, "Durations"); imLayoutEnd(c);
-    } imLayoutEnd(c);
-
-    imLine(c, LINE_HORIZONTAL, 1);
+    ctx.views.activities.inputs.activityFilter = s.activityFilter;
 
     imLayout(c, COL); imFlex(c); {
         // NOTE: the 'correct' thing to do here is a CSS table. But that doesn't work with
@@ -234,7 +287,7 @@ export function imDurationsView(
         });
 
         if (tableState.recomputedPrevFrame) {
-            tableState.maxWidth = 0;
+            tableState.maxWidth = 50;
         }
 
         const allRowsSelected = s.tableRowPos.idx === -1;
@@ -242,15 +295,19 @@ export function imDurationsView(
         const allSelected = allRowsSelected && allColsSelected;
 
         imBeginListRow(c, allSelected, viewHasFocus && allSelected); {
-            imLayout(c, BLOCK); imFlex(c); {
-                imLayout(c, BLOCK); imSize(c, 0, NA, 7, PX); {
-                    imListCursorColor(
-                        c,
-                        getRowStatus(allSelected, viewHasFocus && allSelected)
-                    );
+            imLayout(c, ROW); imFlex(c); imAlign(c); {
+                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+
+                imLayout(c, BLOCK); {
+                    imB(c); {
+                        imStr(c, "Duration Timesheet - ");
+                        imStr(c, formatDate(s.activitiesFrom, true))
+                        imStr(c, " to ");
+                        imStr(c, formatDate(s.activitiesTo, true))
+                    } imBEnd(c);
                 } imLayoutEnd(c);
 
-                imB(c).root; imListRowCellStyle(c); imStr(c, "High level tasks"); imBEnd(c);
+                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
             } imLayoutEnd(c);
 
             imLine(c, LINE_VERTICAL, 1);
@@ -279,12 +336,10 @@ export function imDurationsView(
                             elSetStyle(c, "width", tableState.lastMaxWidth + "px");
                         }
 
-                        let str = colIdx < DAYS_OF_THE_WEEK_ABBREVIATED.length ?
-                                DAYS_OF_THE_WEEK_ABBREVIATED[colIdx] : "Total";
-
+                        let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
                         const span = imB(c).root; imStr(c, str); imBEnd(c);
                         if (tableState.recomputedPrevFrame) {
-                            tableState.maxWidth = Math.max(tableState.maxWidth, span.getBoundingClientRect().width);
+                            tableState.maxWidth = Math.max(tableState.maxWidth, span.scrollWidth);
                         }
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
@@ -346,7 +401,7 @@ export function imDurationsView(
 
                             const span = imLayout(c, INLINE); {
                                 if (tableState.recomputedPrevFrame) {
-                                    tableState.maxWidth = Math.max(tableState.maxWidth, span.getBoundingClientRect().width);
+                                    tableState.maxWidth = Math.max(tableState.maxWidth, span.scrollWidth);
                                 }
 
                                 imStr(c, formatDurationAsHours(slot.time)); 
@@ -361,7 +416,8 @@ export function imDurationsView(
             }
         } imEndNavList(c, list);
 
-        tableState.recomputedPrevFrame = recomputed;
+
+        tableState.recomputedPrevFrame = !!imMemo(c, s.durations)
         tableState.lastMaxWidth = tableState.maxWidth;
     } imLayoutEnd(c);
 }

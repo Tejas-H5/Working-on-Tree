@@ -1,4 +1,5 @@
 import { assert } from "./assert";
+import { addDocumentAndWindowEventListeners } from "./im-dom";
 import {
     isDigit,
     newParser,
@@ -295,6 +296,8 @@ export function floorDateLocalTime(date: Date) {
     date.setHours(0, 0, 0, 0);
 }
 
+// TODO: check if we need to add more logic to actually snap the date on the day boundary, whatever that is.
+// Ideally it should just work as is.
 export function floorDateToWeekLocalTime(date: Date) {
     floorDateLocalTime(date);
     const dayOfWeek = date.getDay();

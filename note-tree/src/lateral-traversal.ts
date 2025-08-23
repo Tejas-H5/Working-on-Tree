@@ -89,7 +89,7 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
 
     // TODO: sort by date last edited
 
-    const note = getNote(state, noteId);
+    const note = getNote(state.notes, noteId);
     s.viewRoot = getNoteViewRoot(state, note);
 
     const dfs = (note: TreeNote, doThing: boolean) => {
@@ -106,7 +106,7 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
         }
 
         for (const id of note.childIds) {
-            const child = getNote(state, id);
+            const child = getNote(state.notes, id);
             dfs(child, true);
         }
     }

@@ -363,16 +363,18 @@ function imMainInner(c: ImCache) {
                                 imNoteTreeView(c, ctx, ctx.views.noteTree);
                                 addView(navList, ctx.views.noteTree, "Notes");
 
-                                imLine(c, LINE_HORIZONTAL, 1);
+                                if (imIf(c) && ctx.viewingDurations) {
+                                    imLine(c, LINE_HORIZONTAL, 1);
 
-                                imLayout(c, COL); imFlex(c); {
-                                    if (isFirstishRender(c)) {
-                                        elSetStyle(c, "maxHeight", "25%");
-                                    }
+                                    imLayout(c, COL); imFlex(c); {
+                                        if (isFirstishRender(c)) {
+                                            elSetStyle(c, "maxHeight", "33%");
+                                        }
 
-                                    imDurationsView(c, ctx, ctx.views.durations);
-                                    addView(navList, ctx.views.durations, "Durations");
-                                } imLayoutEnd(c);
+                                        imDurationsView(c, ctx, ctx.views.durations);
+                                        addView(navList, ctx.views.durations, "Durations");
+                                    } imLayoutEnd(c);
+                                } imIfEnd(c);
                             } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL, 1);
@@ -458,10 +460,29 @@ function imMainInner(c: ImCache) {
                     ctx.currentView = ctx.views.finder;
                 }
 
+                // timesheet
+
+                if (
+                    !ctx.viewingDurations && 
+                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Duration timesheet")
+                ) {
+                    ctx.viewingDurations = true;
+                    ctx.currentView = ctx.views.durations;
+                } else if (
+                    ctx.viewingDurations &&
+                    hasDiscoverableCommand(
+                        ctx, ctx.keyboard.escapeKey, "Close timesheet",
+                        ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
+                    )
+                ) {
+                    ctx.viewingDurations = false;
+                    ctx.views.activities.inputs.activityFilter = null;
+                }
+
                 // back to the last note when escape pressed
                 {
                     if (imMemo(c, ctx.currentView)) {
-                        const currentNote = getNoteOrUndefined(state, state.currentNoteId);
+                        const currentNote = getNoteOrUndefined(state.notes, state.currentNoteId);
                         if (currentNote) {
                             ctx.noteBeforeFocus = currentNote;
                         }

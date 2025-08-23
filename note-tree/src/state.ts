@@ -13,7 +13,7 @@ import {
     pad2,
     parseIsoDate
 } from "src/utils/datetime";
-import * as tree from "src/utils/int-tree";
+import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
 import * as oldTree from "src/utils/tree";
@@ -50,9 +50,10 @@ export function setTheme(newTheme: AppTheme) {
 // NOTE: this is just the state for a single note tree.
 // We can only edit 1 tree at a time, basically
 
-export type NoteId = tree.TreeId;
+export type NoteId = itree.TreeId;
 
-export type TreeNote = tree.TreeNode<Note>;
+export type TreeNote = itree.TreeNode<Note>;
+export type TreeNoteTree = itree.TreeStore<Note>;
 
 export type DockableMenu = "activities" | "quicklist";
 export type AppTheme = "Light" | "Dark";
@@ -61,11 +62,11 @@ export type CurrentDateScope = "any" | "week";
 
 // TODO: remove dead state after rewrite
 
-// NOTE: this is just the state for a single note tree.
-// We can only edit 1 tree at a time, basically
+// NOTE: This state is persisted and loaded+migrated between sessions.
+// Do not rename or delete any fields not prefixed with _ without thinking it through.
 export type NoteTreeGlobalState = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
-    notes: tree.TreeStore<Note>;
+    notes: TreeNoteTree;
     _notesMutationCounter: number;
 
     currentNoteId: NoteId;
@@ -223,7 +224,7 @@ export type Note = {
 
 
 export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeNote) {
-    tree.forEachNode(state.notes, (note) => {
+    itree.forEachNode(state.notes, (note) => {
         note.data._isUnderCurrent = false;
     });
 
@@ -282,11 +283,6 @@ export function isTodoNote(note: Note) {
 }
 
 
-export function getTodoNotePriorityId(state: NoteTreeGlobalState, id: NoteId): number {
-    const note = getNote(state, id);
-    return getTodoNotePriority(note.data);
-}
-
 export function getNoteTextWithoutPriority(note: Note): string {
     const priority = getTodoNotePriority(note);
     let idx = priority;
@@ -321,7 +317,7 @@ export function getHltHeader(state: NoteTreeGlobalState, note: TreeNote): string
             const noteText = getNoteTextWithoutPriority(note.data);
             strBuilder.push(noteText);
         }
-        note = getNote(state, note.parentId);
+        note = getNote(state.notes, note.parentId);
     }
 
     return strBuilder.reverse().join(" :: ");
@@ -409,7 +405,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
     const rootNote = defaultNote();
     rootNote.text = "This root node should not be visible. If it is, you've encountered a bug!";
 
-    const notes = tree.newTreeStore<Note>(rootNote);
+    const notes = itree.newTreeStore<Note>(rootNote);
 
     const state: NoteTreeGlobalState = {
         // Only increment this for massive changes! Otherwise, try to keep migrations bacwards compatible
@@ -418,14 +414,14 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         notes,
         _notesMutationCounter: 0,
 
-        currentNoteId: tree.NIL_ID,
+        currentNoteId: itree.NIL_ID,
         dockedMenu: "activities",
         showDockedMenu: false,
         activities: [],
         _activitiesMutationCounter: 0,
 
         _scratchPadCanvasLayers: [],
-        _scratchPadCanvasCurrentNoteIdPendingSave: tree.NIL_ID,
+        _scratchPadCanvasCurrentNoteIdPendingSave: itree.NIL_ID,
 
         mainGraphData: newGraphData(),
         settings: newAppSettings(),
@@ -439,7 +435,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         currentTaskStreamIdx: 0,
 
         textOnArrival: "",
-        textOnArrivalNoteId: tree.NIL_ID,
+        textOnArrivalNoteId: itree.NIL_ID,
 
         workdayConfig: {
             weekdayConfigs: [newWorkdayConfigWeekDay(9, 7.5)],
@@ -454,7 +450,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _criticalLoadingErrorWasOurFault: false,
 
         _currentlyViewingActivityIdx: 0,
-        _currentActivityScopedNoteId: tree.NIL_ID,
+        _currentActivityScopedNoteId: itree.NIL_ID,
         _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesFromIdx: -1,
@@ -465,8 +461,8 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _lastNoteId: undefined,
         _currentDateScope: "week",
         _currentDateScopeWeekDay: -1,
-        _currentFlatNotesRootId: tree.NIL_ID,
-        _currentFlatNotesRootHltId: tree.NIL_ID,
+        _currentFlatNotesRootId: itree.NIL_ID,
+        _currentFlatNotesRootHltId: itree.NIL_ID,
 
         _currentModal: 0,
 
@@ -502,74 +498,7 @@ export function loadStateFromJSON(savedStateJSON: string): LoadStateFromJSONResu
     }
 }
 
-// Legacy method. TODO: put this code where it belongs. 
-// Techinally not needed since my only 2 users (me at home, me at work) have already migrated to the latest version,
-// but would be nice to learn about what it takes to write 100% backwards-compatible software
-function migrateToSchemaMajorVersion2(loadedState: NoteTreeGlobalState, defaultState: NoteTreeGlobalState) {
-    if (loadedState.schemaMajorVersion && loadedState.schemaMajorVersion >= 2) {
-        return;
-    }
 
-    if (!loadedState.notes) {
-        throw new Error("No notes present for us to migrate");
-    }
-
-    // ---- UNSAFE CODE ----
-    // The types on loadedState are not what they seem - we've just loaded it from some JSON, could be literally anything.
-
-    const newIdsMap = new Map<string, tree.TreeId>();
-
-    // let's build a new tree from our old tree
-    {
-        const newNotes = defaultState.notes;
-        const oldNotes: oldTree.TreeStore<Note> = loadedState.notes as unknown as oldTree.TreeStore<Note>;
-
-
-        const dfs = (parent: oldTree.TreeNode<Note>, newParent: tree.TreeNode<Note>) => {
-            for (let i = 0; i < parent.childIds.length; i++) {
-                const childId = parent.childIds[i];
-                const childNote = oldTree.getNode(oldNotes, childId);
-                const data = childNote.data;
-                const oldId = data.id as unknown as string; // NoteID used to be string
-                if (typeof oldId !== "string") {
-                    throw new Error("Expectations of reality have not been met :'(");
-                }
-
-                const newChild = tree.newTreeNode(data);
-                tree.addUnder(newNotes, newParent, newChild);
-                newIdsMap.set(oldId, newChild.id);
-                data.id = newChild.id;
-                dfs(childNote, newChild);
-            }
-        }
-
-        const oldRootNote = oldTree.getNode(oldNotes, oldTree.ROOT_KEY);
-        const newRootNote = tree.getNode(newNotes, 0);
-        dfs(oldRootNote, newRootNote);
-
-        loadedState.notes = newNotes;
-    }
-
-    // update references in global state
-    {
-        loadedState.currentNoteId = newIdsMap.get(
-            loadedState.currentNoteId as unknown as string
-        ) ?? tree.NIL_ID;
-    }
-
-    // update references in the activities
-    {
-        for (const activity of loadedState.activities) {
-            if (activity.nId) {
-                activity.nId = newIdsMap.get(
-                    activity.nId as unknown as string
-                );
-            }
-        }
-    }
-
-    loadedState.schemaMajorVersion = 2;
-}
 export function setStateFromJSON(savedStateJSON: string | Blob, then?: (error: string) => void) {
     if (typeof savedStateJSON !== "string") {
         logTrace("Got a blob, converting to string before using...");
@@ -635,7 +564,7 @@ export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
 export function defaultNote(): Note {
     return {
         // the following is valuable user data
-        id: tree.NIL_ID,
+        id: itree.NIL_ID,
         text: "",
         openedAt: new Date(),
         editedAt: new Date(),
@@ -674,72 +603,7 @@ export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
     return noteIds;
 }
 
-export function recomputeNoteParents(
-    state: NoteTreeGlobalState,
-    flatNotes: TreeNote[],
-    currentNote: TreeNote,
-) {
-    clearArray(flatNotes);
 
-    // Add the parents to the top of the list
-    let note = currentNote;
-    while (!idIsNil(note.parentId)) {
-        flatNotes.push(note);
-        note = getNote(state, note.parentId);
-    }
-
-    flatNotes.reverse();
-}
-
-export function recomputeFlatNotes(
-    state: NoteTreeGlobalState,
-    flatNotes: TreeNote[],
-    viewRoot: TreeNote,
-    currentNote: TreeNote,
-    includeParents = true
-) {
-    clearArray(flatNotes);
-
-    if (includeParents) {
-        recomputeNoteParents(state, flatNotes, viewRoot);
-    }
-
-    const dfs = (note: TreeNote) => {
-        flatNotes.push(note);
-
-        let isVisualLeaf = note.childIds.length === 0;
-
-        if (!isVisualLeaf) {
-            const collapsed = isNoteCollapsed(note);
-            if (collapsed) {
-                isVisualLeaf = true;
-
-                if (collapsed === COLLAPSED_STATUS) {
-                    const currentNoteIsInsideThisOne = 
-                        currentNote !== note && // don't want to see through the current note
-                        parentNoteContains(state, note.id, currentNote);
-                    if (currentNoteIsInsideThisOne) {
-                        isVisualLeaf = false;
-                    }
-                }
-            }
-        }
-
-        if (isVisualLeaf) {
-            return;
-        }
-
-        for (const childId of note.childIds) {
-            const note = getNote(state, childId);
-            dfs(note);
-        }
-    }
-
-    for (const childId of viewRoot.childIds) {
-        const note = getNote(state, childId);
-        dfs(note);
-    }
-}
 
 /**
  * @deprecated - we now serialize and deserialize data directly into the correct type, so this is useless
@@ -786,7 +650,7 @@ export function setNoteText(
     const now = new Date();
     while (!idIsNilOrRoot(current.id)) {
         current.data.editedAt = new Date(now);
-        current = getNote(state, current.parentId)
+        current = getNote(state.notes, current.parentId)
     }
 }
 
@@ -809,7 +673,7 @@ export function recomputeNoteStatusRecursively(
         // if the last note in the list is DONE, then we can default to DONE instead
         {
             const lastId = note.childIds[note.childIds.length - 1];
-            const lastNote = getNote(state, lastId);
+            const lastNote = getNote(state.notes, lastId);
             if (getDoneNotePrefixOrSuffix(lastNote.data)) {
                 status = STATUS_DONE;
             }
@@ -818,7 +682,7 @@ export function recomputeNoteStatusRecursively(
         let foundDoneNoteUnderThisParent = false;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
-            const child = getNote(state, id);
+            const child = getNote(state.notes, id);
 
             if (child.childIds.length > 0) {
                 if (
@@ -860,7 +724,7 @@ export function recomputeNoteStatusRecursively(
 
     if (recomputeParents) {
         if (!idIsNil(note.parentId)) {
-            const parent = getNote(state, note.parentId);
+            const parent = getNote(state.notes, note.parentId);
             recomputeNoteStatusRecursively(state, parent, true, false);
         }
     }
@@ -875,7 +739,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // delete the empty notes
     {
-        tree.forEachNode(state.notes, (n) => {
+        itree.forEachNode(state.notes, (n) => {
             if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
                 deleteNoteIfEmpty(state, n)
             }
@@ -889,7 +753,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
             note.data._depth = depth;
 
             for (let i = 0; i < note.childIds.length; i++) {
-                const c = getNote(state, note.childIds[i]);
+                const c = getNote(state.notes, note.childIds[i]);
                 dfs(c, depth + 1, i, note.childIds.length);
             }
         };
@@ -900,14 +764,14 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute _shelved
     {
-        tree.forEachNode(state.notes, (note) => {
+        itree.forEachNode(state.notes, (note) => {
             note.data._shelved = false;
         });
 
         const shelveSubtree = (note: TreeNote) => {
             for (let i = 0; i < note.childIds.length; i++) {
                 const childId = note.childIds[i];
-                const child = getNote(state, childId);
+                const child = getNote(state.notes, childId);
                 child.data._shelved = true;
                 shelveSubtree(child);
             }
@@ -924,7 +788,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
             for (let i = 0; i < note.childIds.length; i++) {
                 const childId = note.childIds[i];
-                const child = getNote(state, childId);
+                const child = getNote(state.notes, childId);
                 dfs(child);
             }
         }
@@ -933,7 +797,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute _status, do some sorting (OLD)
     if (0) {
-        tree.forEachNode(state.notes, (note) => {
+        itree.forEachNode(state.notes, (note) => {
             note.data._status = STATUS_IN_PROGRESS;
         });
 
@@ -946,7 +810,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
             let hasInProgressNoteWithoutChildren = false;
             for (let i = note.childIds.length - 1; i >= 0; i--) {
                 const childId = note.childIds[i];
-                const child = getNote(state, childId);
+                const child = getNote(state.notes, childId);
                 if (child.childIds.length > 0) {
                     dfs(child);
                     continue;
@@ -973,13 +837,13 @@ export function recomputeState(state: NoteTreeGlobalState) {
             }
 
             const everyChildNoteIsDone = note.childIds.every((id) => {
-                const note = getNote(state, id);
+                const note = getNote(state.notes, id);
                 return note.data._status === STATUS_DONE
                     || note.data._status === STATUS_ASSUMED_DONE;
             });
 
             const lastNote = note.childIds.length === 0 ? undefined :
-                getNote(state, note.childIds[note.childIds.length - 1]);
+                getNote(state.notes, note.childIds[note.childIds.length - 1]);
 
             // Make sure a note can only be closed out if all the notes under it are > 0
             const lastChildNoteIsDoneLeafNote = lastNote && (
@@ -1001,7 +865,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute _isSelected to just be the current note + all parent notes 
     {
-        tree.forEachNode(state.notes, (note) => {
+        itree.forEachNode(state.notes, (note) => {
             note.data._isAboveCurrentNote = false;
         });
 
@@ -1010,13 +874,13 @@ export function recomputeState(state: NoteTreeGlobalState) {
         let note = current;
         while (!idIsNil(note.parentId)) {
             note.data._isAboveCurrentNote = true;
-            note = getNote(state, note.parentId);
+            note = getNote(state.notes, note.parentId);
         }
     }
 
     // recompute the activity list most recent index.
     {
-        tree.forEachNode(state.notes, (note) => {
+        itree.forEachNode(state.notes, (note) => {
             note.data._activityListMostRecentIdx = -1;
         });
 
@@ -1026,7 +890,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
                 continue;
             }
 
-            const note = getNoteOrUndefined(state, noteId);
+            const note = getNoteOrUndefined(state.notes, noteId);
             if (!note) {
                 continue;
             }
@@ -1082,7 +946,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
     {
         state._activitiesToIdx = -1;
         state._activitiesFromIdx = -1;
-        tree.forEachNode(state.notes, (note) => {
+        itree.forEachNode(state.notes, (note) => {
             note.data._durationUnranged = 0;
             note.data._durationUnrangedOpenSince = undefined;
             note.data._durationRanged = 0;
@@ -1093,7 +957,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
         for (let i = 0; i < activities.length; i++) {
             // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
             const a0 = activities[i];
-            const note = getNoteOrUndefined(state, a0.nId);
+            const note = getNoteOrUndefined(state.notes, a0.nId);
             if (!note) {
                 continue;
             }
@@ -1112,7 +976,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
                         parentNote.data._durationUnrangedOpenSince = getActivityTime(a0);
                     }
 
-                    parentNote = getNote(state, parentNote.parentId);
+                    parentNote = getNote(state.notes, parentNote.parentId);
                 }
             }
 
@@ -1135,7 +999,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
                             parentNote.data._durationRangedOpenSince = getActivityTime(a0);
                         }
 
-                        parentNote = getNote(state, parentNote.parentId);
+                        parentNote = getNote(state.notes, parentNote.parentId);
                     }
                 }
             }
@@ -1160,7 +1024,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
                 if (!idIsNil(state._currentActivityScopedNoteId) && (
                     activity.deleted ||
                     !activity.nId ||
-                    !parentNoteContains(state, state._currentActivityScopedNoteId, getNote(state, activity.nId),)
+                    !parentNoteContains(state, state._currentActivityScopedNoteId, getNote(state.notes, activity.nId),)
                 )) {
                     continue;
                 }
@@ -1188,7 +1052,7 @@ export function recomputeState(state: NoteTreeGlobalState) {
         } else {
             let startNote = getCurrentNote(state);
             while (!idIsNilOrRoot(startNote.parentId)) {
-                const nextNote = getNote(state, startNote.parentId);
+                const nextNote = getNote(state.notes, startNote.parentId);
 
                 if (isStoppingPointForNotViewExpansion(state, nextNote)) {
                     break;
@@ -1214,10 +1078,10 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute the task streams every note is in
     {
-        tree.forEachNode(state.notes, n => clearArray(n.data._taskStreams));
+        itree.forEachNode(state.notes, n => clearArray(n.data._taskStreams));
         for (const ts of state.taskStreams) {
             for (const id of ts.noteIds) {
-                const note = getNote(state, id);
+                const note = getNote(state.notes, id);
                 note.data._taskStreams.push(ts);
             }
         }
@@ -1225,9 +1089,9 @@ export function recomputeState(state: NoteTreeGlobalState) {
 
     // recompute which notes are scheduled
     {
-        tree.forEachNode(state.notes, n => n.data._isScheduled = false);
+        itree.forEachNode(state.notes, n => n.data._isScheduled = false);
         for (const id of state.scheduledNoteIds) {
-            const note = getNote(state, id);
+            const note = getNote(state.notes, id);
             note.data._isScheduled = true;
         }
     }
@@ -1241,7 +1105,7 @@ export function recomputeAllNoteDurations(
     state._activitiesToIdx = -1;
     state._activitiesFromIdx = -1;
 
-    tree.forEachNode(state.notes, (note) => {
+    itree.forEachNode(state.notes, (note) => {
         note.data._durationUnranged = 0;
         note.data._durationUnrangedOpenSince = undefined;
         note.data._durationRanged = 0;
@@ -1252,7 +1116,7 @@ export function recomputeAllNoteDurations(
     for (let i = 0; i < activities.length; i++) {
         // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
         const a0 = activities[i];
-        const note = getNoteOrUndefined(state, a0.nId);
+        const note = getNoteOrUndefined(state.notes, a0.nId);
         if (!note) {
             continue;
         }
@@ -1271,7 +1135,7 @@ export function recomputeAllNoteDurations(
                     parentNote.data._durationUnrangedOpenSince = getActivityTime(a0);
                 }
 
-                parentNote = getNote(state, parentNote.parentId);
+                parentNote = getNote(state.notes, parentNote.parentId);
             }
         }
 
@@ -1294,7 +1158,7 @@ export function recomputeAllNoteDurations(
                         parentNote.data._durationRangedOpenSince = getActivityTime(a0);
                     }
 
-                    parentNote = getNote(state, parentNote.parentId);
+                    parentNote = getNote(state.notes, parentNote.parentId);
                 }
             }
         }
@@ -1312,7 +1176,7 @@ export function parentNoteContains(state: NoteTreeGlobalState, parentId: NoteId,
         if (note.id === parentId) {
             return true;
         }
-        note = getNote(state, note.parentId);
+        note = getNote(state.notes, note.parentId);
     }
 
     return false;
@@ -1344,7 +1208,7 @@ export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity:
     }
 
     if (activity.nId) {
-        const text = getNote(state, activity.nId).data.text;
+        const text = getNote(state.notes, activity.nId).data.text;
         if (activity.deleted) {
             return "< used to be under > " + text;
         }
@@ -1374,8 +1238,8 @@ export function createNewNote(state: NoteTreeGlobalState, text: string): TreeNot
     const note = defaultNote();
     note.text = text;
 
-    const newTreeNode = tree.newTreeNode(note);
-    tree.addAsRoot(state.notes, newTreeNode);
+    const newTreeNode = itree.newTreeNode(note);
+    itree.addAsRoot(state.notes, newTreeNode);
     note.id = newTreeNode.id;
 
     pushNoteActivity(state, newTreeNode.id, true);
@@ -1414,11 +1278,11 @@ function canActivityBeReplacedWithNewActivity(state: NoteTreeGlobalState, lastAc
         // A bunch of conditions that make this activity something we don't need to keep around as much
         !lastActivity ||
         !lastActivity.nId ||
-        !hasNote(state, lastActivity.nId) ||
+        !hasNote(state.notes, lastActivity.nId) ||
         lastActivity.deleted ||
         lastActivity.c !== 1 || // activity wasn't created, but edited
         isBreak(lastActivity) ||
-        !getNote(state, lastActivity.nId).data.text.trim()  // empty text
+        !getNote(state.notes, lastActivity.nId).data.text.trim()  // empty text
     ) {
         // The activity is more replaceable, so we extend this time.
         const LONG_DEBOUNCE = 1 * 60 * ONE_SECOND;
@@ -1464,7 +1328,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
             // We can actually restore the text something more sane than the legacy behaviour
             note.data.text = state.textOnArrival;
             state.textOnArrival = "";
-            state.textOnArrivalNoteId = tree.NIL_ID;
+            state.textOnArrivalNoteId = itree.NIL_ID;
         } else {
             // Fallback to legacy behaviour
             note.data.text = "Some note we cant delete because of the x" + note.childIds.length + " notes under it :(";
@@ -1482,7 +1346,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
         return false;
     }
 
-    if (tree.getSizeExcludingRoot(state.notes) <= 1) {
+    if (itree.getSizeExcludingRoot(state.notes) <= 1) {
         // don't delete our only note! (other than the root note)
         return false
     }
@@ -1491,7 +1355,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
     const parentId = note.parentId;
 
     // delete from the ids list, as well as the note database
-    tree.remove(state.notes, note);
+    itree.remove(state.notes, note);
 
     // NOTE: activities should not be deleted from the activities list. they are required, if we want to keep duration info accurate. 
     for (let i = 0; i < state.activities.length; i++) {
@@ -1525,7 +1389,7 @@ export function insertNoteAfterCurrent(state: NoteTreeGlobalState) {
     }
 
     const newNote = createNewNote(state, "");
-    tree.addAfter(state.notes, currentNote, newNote)
+    itree.addAfter(state.notes, currentNote, newNote)
     setCurrentNote(state, newNote.id);
     setIsEditingCurrentNote(state, true);
     return true;
@@ -1540,21 +1404,21 @@ export function insertChildNote(state: NoteTreeGlobalState): TreeNote | null {
     }
 
     const newNote = createNewNote(state, "");
-    tree.addUnder(state.notes, currentNote, newNote);
+    itree.addUnder(state.notes, currentNote, newNote);
     setCurrentNote(state, newNote.id);
     setIsEditingCurrentNote(state, true);
     return newNote;
 }
 
-export function hasNote(state: NoteTreeGlobalState, id: NoteId): boolean {
-    return tree.hasNode(state.notes, id);
+export function hasNote(tree: TreeNoteTree, id: NoteId): boolean {
+    return itree.hasNode(tree, id);
 }
 
-export function getNote(state: NoteTreeGlobalState, id: NoteId) {
-    return tree.getNode(state.notes, id);
+export function getNote(tree: TreeNoteTree, id: NoteId): TreeNote {
+    return itree.getNode(tree, id);
 }
 
-export function idIsNilOrUndefined(id: NoteId | null | undefined): id is typeof tree.NIL_ID | null | undefined {
+export function idIsNilOrUndefined(id: NoteId | null | undefined): id is typeof itree.NIL_ID | null | undefined {
     return id === -1 || id === null || id === undefined;
 }
 
@@ -1562,23 +1426,23 @@ export function idIsNilOrUndefined(id: NoteId | null | undefined): id is typeof 
  * mainly used in parent traversals when we do want to start on the current note. 
  */
 export function idIsNil(id: NoteId): boolean {
-    return id === tree.NIL_ID;
+    return id === itree.NIL_ID;
 }
 
 /** 
  * mainly used in parent traversals when we don't want to start on the current note.
  */
 export function idIsNilOrRoot(id: NoteId): boolean {
-    return id === tree.NIL_ID || id === tree.ROOT_ID;
+    return id === itree.NIL_ID || id === itree.ROOT_ID;
 }
 
 export function idIsRoot(id: NoteId): boolean {
-    return id === tree.ROOT_ID;
+    return id === itree.ROOT_ID;
 }
 
-export function getNoteOrUndefined(state: NoteTreeGlobalState, id: NoteId | null | undefined): TreeNote | undefined {
-    if (!idIsNilOrUndefined(id) && hasNote(state, id)) {
-        return getNote(state, id);
+export function getNoteOrUndefined(tree: TreeNoteTree, id: NoteId | null | undefined): TreeNote | undefined {
+    if (!idIsNilOrUndefined(id) && hasNote(tree, id)) {
+        return getNote(tree, id);
     }
 
     return undefined;
@@ -1586,21 +1450,21 @@ export function getNoteOrUndefined(state: NoteTreeGlobalState, id: NoteId | null
 
 // Guaranteed to get a note - this function will actually make a new note if we don't have any notes.
 export function getCurrentNote(state: NoteTreeGlobalState) {
-    if (!hasNote(state, state.currentNoteId)) {
+    if (!hasNote(state.notes, state.currentNoteId)) {
         // set currentNoteId to the last root note if it hasn't yet been set
 
         const rootChildIds = getRootNote(state).childIds;
         if (rootChildIds.length === 0) {
             // create the first note if we have no notes
             const newNote = createNewNote(state, "First Note");
-            tree.addUnder(state.notes, getRootNote(state), newNote);
+            itree.addUnder(state.notes, getRootNote(state), newNote);
         }
 
         // not using setCurrentNote, because it calls getCurrentNote 
         state.currentNoteId = rootChildIds[rootChildIds.length - 1];
     }
 
-    return getNote(state, state.currentNoteId);
+    return getNote(state.notes, state.currentNoteId);
 }
 
 function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isNewNote: boolean) {
@@ -1655,7 +1519,7 @@ export function getNoteNDownForMovement(state: NoteTreeGlobalState, note: TreeNo
         return undefined;
     }
 
-    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
     const idx = list.indexOf(note.id);
     if (idx < list.length - 1) {
         return list[Math.min(list.length - 1, idx + amount)];
@@ -1669,7 +1533,7 @@ export function getNoteNUpForMovement(state: NoteTreeGlobalState, note: TreeNote
         return undefined;
     }
 
-    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
     let idx = list.indexOf(note.id);
     if (idx === -1) {
         return undefined
@@ -1693,7 +1557,7 @@ export function getNoteNUp(state: NoteTreeGlobalState, note: TreeNote, useSiblin
         return undefined;
     }
 
-    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
     let idx = list.indexOf(note.id);
     if (idx > 0) {
         return list[Math.max(0, idx - amount)];
@@ -1707,7 +1571,7 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
         return undefined;
     }
 
-    const list = useSiblings ? getNote(state, note.parentId).childIds : state._flatNoteIds;
+    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
     const idx = list.indexOf(note.id);
     if (idx < list.length - 1) {
         return list[Math.min(list.length - 1, idx + amount)];
@@ -1717,18 +1581,18 @@ export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSibl
 }
 
 
-export function forEachParentNote(state: NoteTreeGlobalState, start: TreeNote, it: (note: TreeNote) => void) {
+export function forEachParentNote(tree: TreeNoteTree, start: TreeNote, it: (note: TreeNote) => void) {
     let current = start;
     while (!idIsNilOrRoot(current.id)) {
         it(current);
-        current = getNote(state, current.parentId);
+        current = getNote(tree, current.parentId);
     }
 }
 
 export function forEachChildNote(state: NoteTreeGlobalState, note: TreeNote, it: (note: TreeNote) => void) {
     for (let i = 0; i < note.childIds.length; i++) {
         const id = note.childIds[i];
-        const child = getNote(state, id);
+        const child = getNote(state.notes, id);
         it(child);
     }
 }
@@ -1739,7 +1603,7 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
         return;
     }
 
-    const note = getNoteOrUndefined(state, noteId);
+    const note = getNoteOrUndefined(state.notes, noteId);
     if (!note || note === getRootNote(state)) {
         return false;
     }
@@ -1749,7 +1613,7 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
         return;
     }
 
-    if (!tree.hasNode(state.notes, note.id)) {
+    if (!itree.hasNode(state.notes, note.id)) {
         return;
     }
 
@@ -1777,7 +1641,7 @@ function setNoteAsLastSelected(state: NoteTreeGlobalState, note: TreeNote) {
         return;
     }
 
-    const parent = getNote(state, note.parentId);
+    const parent = getNote(state.notes, note.parentId);
     parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
 }
 
@@ -1806,21 +1670,21 @@ export function findNextImportantNote(state: NoteTreeGlobalState, note: TreeNote
         return undefined;
     }
 
-    const siblings = getNote(state, note.parentId).childIds;
+    const siblings = getNote(state.notes, note.parentId).childIds;
     const idx = siblings.indexOf(note.id);
     if (idx === -1) {
         return undefined;
     }
 
     const dir = backwards ? -1 : 1;
-    const nextNote = getNoteOrUndefined(state, siblings[idx + dir]);
+    const nextNote = getNoteOrUndefined(state.notes, siblings[idx + dir]);
     if (!nextNote) {
         return undefined;
     }
 
     const isInProgress = nextNote.data._status === STATUS_IN_PROGRESS;
     for (let i = idx + dir; i + dir >= -1 && i + dir <= siblings.length; i += dir) {
-        const note = getNote(state, siblings[i]);
+        const note = getNote(state.notes, siblings[i]);
         if (
             i <= 0 ||
             i >= siblings.length - 1 ||
@@ -1889,13 +1753,13 @@ export function dfsPre(state: NoteTreeGlobalState, note: TreeNote, fn: (n: TreeN
     fn(note);
 
     for (const id of note.childIds) {
-        const note = getNote(state, id);
+        const note = getNote(state.notes, id);
         dfsPre(state, note, fn);
     }
 }
 
 export function getRootNote(state: NoteTreeGlobalState) {
-    return getNote(state, tree.ROOT_ID);
+    return getNote(state.notes, itree.ROOT_ID);
 }
 
 export function getTimeStr(note: Note) {
@@ -1995,7 +1859,7 @@ export function getParentNoteWithEstimate(state: NoteTreeGlobalState, note: Tree
             return estimateNote;
         }
 
-        estimateNote = getNote(state, estimateNote.parentId);
+        estimateNote = getNote(state.notes, estimateNote.parentId);
     }
 
     return undefined;
@@ -2010,7 +1874,7 @@ export function getNoteChildEstimates(state: NoteTreeGlobalState, note: TreeNote
 
     const dfs = (note: TreeNote) => {
         for (const childId of note.childIds) {
-            const note = getNote(state, childId);
+            const note = getNote(state.notes, childId);
 
             if (
                 note.data._status === STATUS_DONE
@@ -2118,7 +1982,7 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalSta
             continue;
         }
 
-        const activityNote = getNote(state, activity.nId);
+        const activityNote = getNote(state.notes, activity.nId);
         if (activityNote.id !== note.id && parentNoteContains(state, note.id, activityNote)) {
             return i;
         }
@@ -2134,7 +1998,7 @@ export function getMostRecentlyWorkedOnChildActivityNote(state: NoteTreeGlobalSt
     }
 
     const activity = state.activities[idx];
-    return getNoteOrUndefined(state, activity.nId);
+    return getNoteOrUndefined(state.notes, activity.nId);
 }
 
 export function getMostRecentActivityIdx(state: NoteTreeGlobalState, note: TreeNote): number {
@@ -2160,17 +2024,17 @@ export function getLastSelectedNote(state: NoteTreeGlobalState, note: TreeNote):
 
     const selNoteId = note.childIds[idx]
 
-    return getNote(state, selNoteId);
+    return getNote(state.notes, selNoteId);
 }
 
 export function noteParentContainsNotesWithChildren(state: NoteTreeGlobalState, note: TreeNote): boolean {
-    const parent = getNoteOrUndefined(state, note.parentId);
+    const parent = getNoteOrUndefined(state.notes, note.parentId);
     if (!parent) {
         return false;
     }
 
     for (const id of parent.childIds) {
-        const note = getNote(state, id);
+        const note = getNote(state.notes, id);
         if (note.childIds.length > 0) {
             return true;
         }
@@ -2206,7 +2070,7 @@ export function setActivityRangeToThisWeek(state: NoteTreeGlobalState) {
 export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): string | undefined {
     // WARNING: this is a A destructive action that permenantly deletes user data. Take every precaution, and do every check
 
-    if (!hasNote(state, note.id)) {
+    if (!hasNote(state.notes, note.id)) {
         return "Note doesn't exist to delete. It may have already been deleted.";
     }
 
@@ -2222,11 +2086,11 @@ export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): stri
     }
 
     // figure out where to move to if possible
-    const parent = getNote(state, parentId);
+    const parent = getNote(state.notes, parentId);
     const idToMoveTo = parent.id;
 
     // Do the deletion
-    tree.removeSubtree(state.notes, note);
+    itree.removeSubtree(state.notes, note);
 
     for (const activity of state.activities) {
         if (!activity.nId) {
@@ -2234,7 +2098,7 @@ export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): stri
         }
 
         if (
-            !hasNote(state, activity.nId) ||
+            !hasNote(state.notes, activity.nId) ||
             activity.deleted
         ) {
             activity.nId = parentId;
@@ -2293,7 +2157,7 @@ export function findPreviousActiviyIndex(state: NoteTreeGlobalState, nId: NoteId
             continue;
         }
 
-        const aNote = getNote(state, a.nId);
+        const aNote = getNote(state.notes, a.nId);
         if (parentNoteContains(state, nId, aNote)) {
             return i;
         }
@@ -2310,7 +2174,7 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
             continue;
         }
 
-        const aNote = getNote(state, a.nId);
+        const aNote = getNote(state.notes, a.nId);
         if (parentNoteContains(state, nId, aNote)) {
             return i;
         }
@@ -2513,7 +2377,7 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
             break;
         }
 
-        note = getNote(state, note.parentId);
+        note = getNote(state.notes, note.parentId);
     }
 
     return result;
@@ -2521,7 +2385,7 @@ export function getHigherLevelTask(state: NoteTreeGlobalState, note: TreeNote): 
 
 export function getNumSiblings(state: NoteTreeGlobalState, note: TreeNote): number {
     if (idIsNil(note.parentId)) return 0;
-    const parent = getNote(state, note.parentId);
+    const parent = getNote(state.notes, note.parentId);
     return parent.childIds.length;
 }
 
@@ -2532,7 +2396,7 @@ export function isLastNote(state: NoteTreeGlobalState, note: TreeNote) {
 
 export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
     if (!idIsNil(state._currentActivityScopedNoteId)) {
-        state._currentActivityScopedNoteId = tree.NIL_ID;
+        state._currentActivityScopedNoteId = itree.NIL_ID;
     } else {
         state._currentActivityScopedNoteId = state.currentNoteId;
     }
@@ -2550,7 +2414,7 @@ export function getNumParentsInTaskStream(state: NoteTreeGlobalState, stream: Ta
     let count = 0;
     let parentNote = note;
     while (!idIsNilOrRoot(parentNote.parentId)) {
-        parentNote = getNote(state, parentNote.parentId);
+        parentNote = getNote(state.notes, parentNote.parentId);
 
         if (isNoteInTaskStream(stream, parentNote)) {
             count += 1;
@@ -2683,7 +2547,7 @@ export function recomputeViewAllTaskStreamsState(
                         break;
                     }
 
-                    parentNote = getNote(globalState, parentNote.parentId);
+                    parentNote = getNote(globalState.notes, parentNote.parentId);
                 }
                 noteWithStreams = parentNote;
             }
@@ -2778,7 +2642,7 @@ export function recomputeViewTaskStreamState(
                 // add just the in-progress notes 
                 const dfs = (note: TreeNote, depth: number) => {
                     for (const id of note.childIds) {
-                        const note = getNote(globalState, id);
+                        const note = getNote(globalState.notes, id);
                         if (note.data._status !== STATUS_IN_PROGRESS) {
                             continue;
                         }
@@ -2796,7 +2660,7 @@ export function recomputeViewTaskStreamState(
                         dfs(note, depth + 1);
                     }
                 }
-                dfs(getNote(globalState, id), 0);
+                dfs(getNote(globalState.notes, id), 0);
             }
         }
 
@@ -2809,7 +2673,7 @@ export function recomputeViewTaskStreamState(
                 const newDepths: number[] = [];
 
                 for (let i = 0; i < current.inProgressIds.length; i++) {
-                    const note = getNote(globalState, current.inProgressIds[i]);
+                    const note = getNote(globalState.notes, current.inProgressIds[i]);
 
                     const result = fuzzyFind(note.data.text, state.currentQuery, { limit: 1, allowableMistakes: 1 });
                     if (result.ranges.length === 0) {
@@ -2864,7 +2728,7 @@ export function applyPendingScratchpadWrites(state: NoteTreeGlobalState) {
         return;
     }
 
-    const scratchpadNote = getNoteOrUndefined(state, state._scratchPadCanvasCurrentNoteIdPendingSave);
+    const scratchpadNote = getNoteOrUndefined(state.notes, state._scratchPadCanvasCurrentNoteIdPendingSave);
     if (!scratchpadNote) {
         return;
     }
@@ -2873,7 +2737,7 @@ export function applyPendingScratchpadWrites(state: NoteTreeGlobalState) {
     scratchpadNote.data.text = text;
 
     // we don't need to update the text every time - just when we've actually written to it
-    state._scratchPadCanvasCurrentNoteIdPendingSave = tree.NIL_ID;
+    state._scratchPadCanvasCurrentNoteIdPendingSave = itree.NIL_ID;
 }
 
 export type TaskCompletion = {
@@ -3070,7 +2934,7 @@ export function predictTaskCompletions(
 
     for (let i = 0; i < noteIds.length; i++) {
         const id = noteIds[i];
-        const note = getNote(state, id);
+        const note = getNote(state.notes, id);
 
         let estimate = getNoteEstimate(note);
         if (estimate === -1) {

@@ -88,7 +88,7 @@ export function asNoteTreeGlobalState(val: unknown) {
                 const editedAt = note.data.openedAt;
                 while (!idIsNilOrRoot(current.id)) {
                     current.data.editedAt = new Date(editedAt);
-                    current = getNote(state, current.parentId);
+                    current = getNote(state.notes, current.parentId);
                 }
             }
         }

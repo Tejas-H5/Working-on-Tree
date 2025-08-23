@@ -7,23 +7,23 @@ import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 import { imLine, LINE_HORIZONTAL } from "./app-components/common";
 import { cssVarsApp } from "./app-styling";
 import {
+    BLOCK,
     CH,
     COL,
     EM,
     imAbsolute,
-    imLayout,
     imBg,
     imFlex,
     imGap,
+    imLayout,
+    imLayoutEnd,
     imOpacity,
     imRelative,
     imSize,
     NA,
     PX,
     ROW,
-    ROW_REVERSE,
-    BLOCK,
-    imLayoutEnd
+    ROW_REVERSE
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
 import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
@@ -56,6 +56,7 @@ import {
     deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
+    getNoteOrUndefined,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
@@ -64,26 +65,28 @@ import {
     isNoteEmpty,
     noteStatusToString,
     NoteTreeGlobalState,
-    recomputeFlatNotes,
-    recomputeNoteParents,
+    parentNoteContains,
     recomputeNoteStatusRecursively,
     setCurrentNote,
     setIsEditingCurrentNote,
     setNoteText,
     state,
     STATUS_IN_PROGRESS,
-    TreeNote
+    TreeNote,
+    TreeNoteTree
 } from "./state";
 import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
-import * as tree from "./utils/int-tree";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
 import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "./utils/dom-utils";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_CLICK, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
+import * as tree from "./utils/int-tree";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
+    invalidateVisibleNotes: boolean;
+
     note:                TreeNote;
     noteParentNotes:     TreeNote[];
     stickyNotes:         TreeNote[];
@@ -100,7 +103,13 @@ export type NoteTreeViewState = {
 };
 
 // NOTE: recompute status _after_ doing this
-function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
+function setNote(
+    s: NoteTreeViewState,
+    note: TreeNote,
+    invalidate = false
+) {
+    s.invalidateNote = false;
+
     let mutated = false;
     if (invalidate || s.note !== note) {
         if (s.note !== note) {
@@ -109,24 +118,9 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
         }
 
         s.note = note;
-        if (s.scrollContainer) startScrolling(s.scrollContainer, true);
-        recomputeNoteParents(state, s.noteParentNotes, s.note);
-        // if (state.currentNoteId !== note.id) {
-            setCurrentNote(state, note.id);
-        // }
+        setCurrentNote(state, note.id);
 
-        const viewRoot = getNoteViewRoot(state, note);
-        if (s.viewRoot !== viewRoot) {
-            s.viewRoot = viewRoot;
-            s.stickyNotes.length = 0;
-            if (s.scrollContainer) startScrolling(s.scrollContainer, false);
-            recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
-        }
-
-        // flat notes need recompuation when the child changes.
-        recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note, false);
-        s.listPos.idx = s.childNotes.indexOf(note);
-        assert(s.childNotes.length === 0 || s.listPos.idx !== -1);
+        recomputeVisibleNotes(s);
     }
 
     if (invalidate) {
@@ -135,13 +129,99 @@ function setNote(s: NoteTreeViewState, note: TreeNote, invalidate = false) {
     }
 }
 
+function recomputeNoteParents(
+    state: NoteTreeGlobalState,
+    flatNotes: TreeNote[],
+    currentNote: TreeNote,
+) {
+    flatNotes.length = 0;
+
+    // Add the parents to the top of the list.
+    // need the root tree to compute these.
+
+    let note = currentNote;
+    while (!idIsNil(note.parentId)) {
+        flatNotes.push(note);
+        note = getNote(state.notes, note.parentId);
+    }
+
+    flatNotes.reverse();
+}
+
+
+function recomputeFlatNotes(
+    state: NoteTreeGlobalState,
+    flatNotes: TreeNote[],
+    viewRoot: TreeNote,
+    currentNote: TreeNote,
+) {
+    flatNotes.length = 0;
+
+    const dfs = (note: TreeNote) => {
+        flatNotes.push(note);
+
+        let isVisualLeaf = note.childIds.length === 0;
+
+        if (!isVisualLeaf) {
+            const collapsed = isNoteCollapsed(note);
+            if (collapsed) {
+                isVisualLeaf = true;
+
+                if (collapsed === COLLAPSED_STATUS) {
+                    const currentNoteIsInsideThisOne = 
+                        currentNote !== note && // don't want to see through the current note
+                        parentNoteContains(state, note.id, currentNote);
+                    if (currentNoteIsInsideThisOne) {
+                        isVisualLeaf = false;
+                    }
+                }
+            }
+        }
+
+        if (isVisualLeaf) {
+            return;
+        }
+
+        for (const childId of note.childIds) {
+            const note = getNote(state.notes, childId);
+            dfs(note);
+        }
+    }
+
+    for (const childId of viewRoot.childIds) {
+        const note = getNote(state.notes, childId);
+        dfs(note);
+    }
+}
+
+function recomputeVisibleNotes(s: NoteTreeViewState) {
+    s.invalidateVisibleNotes = false;
+
+    if (s.scrollContainer) startScrolling(s.scrollContainer, true);
+
+    recomputeNoteParents(state, s.noteParentNotes, s.note);
+
+    const viewRoot = getNoteViewRoot(state, s.note);
+
+    if (s.viewRoot !== viewRoot) {
+        s.viewRoot = viewRoot;
+        s.stickyNotes.length = 0;
+        if (s.scrollContainer) startScrolling(s.scrollContainer, false);
+        recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
+    }
+
+    // flat notes need recompuation when the child changes.
+    recomputeFlatNotes(state, s.childNotes, s.viewRoot, s.note);
+    s.listPos.idx = s.childNotes.indexOf(s.note);
+}
+
 export function getNoteViewRoot(state: NoteTreeGlobalState, currentNote: TreeNote) {
     let it = currentNote;
     while (!idIsNil(it.parentId)) {
-        it = getNote(state, it.parentId);
+        it = getNote(state.notes, it.parentId);
         const collapsed = isNoteCollapsed(it);
         if (
-            collapsed && 
+            collapsed &&
             collapsed !== COLLAPSED_STATUS  // we want to peek into 'done' notes if that is the current note.
         ) {
             break;
@@ -155,6 +235,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
     const viewRoot = note; // needs to be wrong, so that it can be recomputed
     const s: NoteTreeViewState = {
         invalidateNote: false,
+        invalidateVisibleNotes: false,
         note,
         viewRoot,
         noteParentNotes:     [],
@@ -181,12 +262,12 @@ function moveOutOfCurrent(
 ) {
     if (idIsNilOrRoot(s.note.parentId)) return;
 
-    const parent = getNote(state, s.note.parentId);
+    const parent = getNote(state.notes, s.note.parentId);
 
     if (moveNote) {
         if (!idIsNil(parent.parentId)) {
             // Move this note to after it's parent
-            const parentParent = getNote(state, parent.parentId);
+            const parentParent = getNote(state.notes, parent.parentId);
             const parentIdx = parent.idxInParentList;
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
             setNote(s, s.note, true);
@@ -209,9 +290,9 @@ function moveIntoCurrent(
     if (moveNote) {
         const parentIdx = s.note.idxInParentList;
         if (parentIdx !== 0) {
-            const parent = getNote(state, s.note.parentId);
+            const parent = getNote(state.notes, s.note.parentId);
             const prevNoteId = parent.childIds[parentIdx - 1];
-            const prevNote = getNote(state, prevNoteId);
+            const prevNote = getNote(state.notes, prevNoteId);
             let idxUnderPrev = clampedListIdx(
                 prevNote.data.lastSelectedChildIdx + 1,
                 prevNote.childIds.length
@@ -231,7 +312,7 @@ function moveIntoCurrent(
             }
 
             const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
-            const nextChild = getNote(state, nextChildId);
+            const nextChild = getNote(state.notes, nextChildId);
             setNote(s, nextChild, true);
         }
     }
@@ -241,14 +322,35 @@ function moveIntoCurrent(
 export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewState) {
     const viewFocused = ctx.currentView === s;
 
-    if (imMemo(c, state.currentNoteId)) {
-        const note = getCurrentNote(state);
-        setNote(s, note);
-    } 
+    // invalidate properties as needed
+    {
+        if (imMemo(c, state.currentNoteId)) {
+            s.note = getCurrentNote(state);
+            s.invalidateNote = true;
+        }
 
-    if (s.invalidateNote) {
-        s.invalidateNote = false;
-        setNote(s, s.note, true);
+        /**
+        if (imMemo(c, ctx.noteTreeFilterVersion)) {
+            s.currentFilter = ctx.noteTreeFilter;
+            if (filterExcludes(s.currentFilter, s.note)) {
+                s.note = filterGetFirst(s.currentFilter);
+                s.invalidateNote = true;
+            }
+
+            s.invalidateVisibleNotes = true;
+        }
+        */
+    }
+
+    // recompute invalidated properties in order
+    {
+        if (s.invalidateNote) {
+            setNote(s, s.note, true);
+        }
+
+        if (s.invalidateVisibleNotes) {
+            recomputeVisibleNotes(s);
+        }
     }
 
     if (viewFocused) {
@@ -353,7 +455,7 @@ function moveToLocalidx(
 ) {
     if (idIsNil(s.note.parentId)) return;
     
-    const parent = getNote(state, s.note.parentId);
+    const parent = getNote(state.notes, s.note.parentId);
     idx = clampedListIdx(idx, parent.childIds.length);
     if (!boundsCheck(parent.childIds, idx)) return;
 
@@ -364,7 +466,7 @@ function moveToLocalidx(
         state._notesMutationCounter++;
     } else {
         const childId = parent.childIds[idx];
-        const note = getNote(state, childId);
+        const note = getNote(state.notes, childId);
         setNote(s, note, false);
     }
 }
@@ -373,7 +475,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
     const currentNote = getCurrentNote(state);
-    const parent = getNote(state, currentNote.parentId);
+    const parent = getNote(state.notes, currentNote.parentId);
 
     if (state._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
@@ -455,7 +557,7 @@ function imNoteTreeRow(
     let numInProgress = 0;
     let numDone = 0;
     for (const id of note.childIds) {
-        const note = getNote(state, id);
+        const note = getNote(state.notes, id);
         if (note.data._status === STATUS_IN_PROGRESS) {
             numInProgress++;
         } else {
@@ -480,7 +582,7 @@ function imNoteTreeRow(
                 imFor(c); while (!idIsNil(it.parentId)) {
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
-                    it = getNote(state, it.parentId);
+                    it = getNote(state.notes, it.parentId);
                     depth++;
 
                     // |---->| indent
@@ -592,6 +694,7 @@ function imNoteTreeRow(
                     } imLayoutEnd(c);
 
                     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
+
                     const isEditingChanged = imMemo(c, isEditing);
 
                     if (imIf(c) && isEditing) {
