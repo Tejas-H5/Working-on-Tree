@@ -1,4 +1,5 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
+import { DurationsViewState, newDurationsViewState } from "./durations-view";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
@@ -33,6 +34,7 @@ export type GlobalContext = {
         fastTravel: NoteTraversalViewState;
         finder: FuzzyFinderViewState;
         settings: SettingsViewState;
+        durations: DurationsViewState;
     };
     currentView: unknown;
     leftTab: unknown;
@@ -131,6 +133,7 @@ export function newGlobalContext(): GlobalContext {
             fastTravel: newNoteTraversalViewState(),
             finder: newFuzzyFinderViewState(),
             settings: newSettingsViewState(),
+            durations: newDurationsViewState(),
         },
         notLockedIn: true,
         currentView: null,

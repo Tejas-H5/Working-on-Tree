@@ -49,6 +49,7 @@ export function getNavigableListInput(
     flags = 0
 ): ({ newIdx: number } | null) {
     if (hi <= lo) return null;
+    if (ctx.handled) return null;
 
     const keyboard = ctx.keyboard;
 
@@ -75,13 +76,13 @@ export function getNavigableListInput(
 
     if (newIdx === undefined) return null;
 
+    // lo !== hi so this is all valid
+
     if (flags & AXIS_FLAG_REPEATING) {
         newIdx = lo + getWrappedIdx(newIdx, hi - lo);
     } else {
         newIdx = clampedListIdxRange(newIdx, lo, hi);
     }
-
-    if (newIdx === -1) return null;
 
     ctx.handled = true;
     return { newIdx };

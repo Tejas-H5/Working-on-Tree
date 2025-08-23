@@ -465,7 +465,9 @@ function imNoteTreeRow(
 
     const root = imBeginNavListRow(c, list); {
         imLayout(c, ROW); imFlex(c); {
-            elSetClass(c, cn.preWrap, itemSelected);
+            if (imMemo(c, itemSelected)) {
+                elSetClass(c, cn.preWrap, itemSelected);
+            }
 
             // The tree visuals
             imLayout(c, ROW_REVERSE); {
@@ -642,7 +644,7 @@ function imNoteTreeRow(
                         if (text === undefined || textChanged) {
                             let val = note.data.text;
                             if (val.length > 150) {
-                                val = `[${val.length}ch] - ${text}`;
+                                val = `[${val.length}ch] - ${val}`;
                             }
 
                             text = imSet(c, val);

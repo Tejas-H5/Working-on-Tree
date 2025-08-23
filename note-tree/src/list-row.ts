@@ -9,6 +9,7 @@ import {
     PX,
     ROW
 } from "./components/core/layout";
+import { isSelected } from "./legacy-app-components/canvas-state";
 import { ImCache, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle } from "./utils/im-dom";
 
@@ -37,12 +38,12 @@ function getBg(status: RowStatus): string {
     return "";
 }
 
-export function imBeginListRow(
-    c: ImCache,
+// API is a bit strange but I can't put my finger on it...
+export function getRowStatus(
     highlighted: boolean,
     focused: boolean,
     isEditing = false
-) {
+): RowStatus {
     let status: RowStatus = ROW_EXISTS;
     if (highlighted) {
         status = ROW_SELECTED;
@@ -53,21 +54,21 @@ export function imBeginListRow(
             }
         }
     }
+    return status;
+}
 
-    const statusChanged = imMemo(c, status);
+export function imBeginListRow(
+    c: ImCache,
+    highlighted: boolean,
+    focused: boolean,
+    isEditing = false
+) {
+    const status = getRowStatus(highlighted, focused, isEditing);
     const root = imLayout(c, ROW); {
-        if (statusChanged) {
-            elSetStyle(c, "backgroundColor", getBg(status));
-        }
+        imListCursorBg(c, status);
 
         imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); {
-            if (statusChanged) {
-                elSetStyle(c, "backgroundColor",
-                    status === ROW_FOCUSED ? cssVarsApp.fgColor 
-                        : status === ROW_EDITING ? cssVarsApp.bgEditing
-                        : ""
-                );
-            }
+            imListCursorColor(c, status);
         } imLayoutEnd(c);
 
     } // imLayoutEnd(c);
@@ -75,9 +76,32 @@ export function imBeginListRow(
     return root;
 }
 
+export function imListCursorBg(c: ImCache, status: RowStatus) {
+    const statusChanged = imMemo(c, status);
+    if (statusChanged) {
+        elSetStyle(c, "backgroundColor", getBg(status));
+    }
+}
+
+export function imListCursorColor(c: ImCache, status: RowStatus) {
+    const statusChanged = imMemo(c, status);
+    if (statusChanged) {
+        elSetStyle(c, "backgroundColor",
+            status === ROW_FOCUSED ? cssVarsApp.fgColor
+                : status === ROW_EDITING ? cssVarsApp.bgEditing
+                    : ""
+        );
+    }
+}
+
 export function imEndListRow(c: ImCache) {
     {
         imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+    } imLayoutEnd(c);
+}
+
+export function imEndListRowNoPadding(c: ImCache) {
+    {
     } imLayoutEnd(c);
 }
 

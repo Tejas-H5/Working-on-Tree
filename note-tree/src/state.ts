@@ -1233,6 +1233,73 @@ export function recomputeState(state: NoteTreeGlobalState) {
     }
 }
 
+export function recomputeAllNoteDurations(
+    state: NoteTreeGlobalState,
+    activitiesFrom: Date | null,
+    activitiesTo: Date | null
+) {
+    state._activitiesToIdx = -1;
+    state._activitiesFromIdx = -1;
+
+    tree.forEachNode(state.notes, (note) => {
+        note.data._durationUnranged = 0;
+        note.data._durationUnrangedOpenSince = undefined;
+        note.data._durationRanged = 0;
+        note.data._durationRangedOpenSince = undefined;
+    });
+
+    const activities = state.activities;
+    for (let i = 0; i < activities.length; i++) {
+        // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
+        const a0 = activities[i];
+        const note = getNoteOrUndefined(state, a0.nId);
+        if (!note) {
+            continue;
+        }
+
+        const a1 = activities[i + 1] as Activity | undefined;
+        const duration = getActivityDurationMs(a0, a1);
+
+        const isCurrentActivity = !a1;
+
+        {
+            let parentNote = note;
+            while (!idIsNil(parentNote.parentId)) {
+                if (!isCurrentActivity) {
+                    parentNote.data._durationUnranged += duration;
+                } else {
+                    parentNote.data._durationUnrangedOpenSince = getActivityTime(a0);
+                }
+
+                parentNote = getNote(state, parentNote.parentId);
+            }
+        }
+
+        // TODO: update this to work for activities with start/end times that overlap into the current range
+        if (
+            (!activitiesFrom || activitiesFrom <= getActivityTime(a0)) && 
+            (!activitiesTo || getActivityTime(a1) <= activitiesTo)
+        ) {
+            if (state._activitiesFromIdx === -1) {
+                state._activitiesFromIdx = i;
+            }
+            state._activitiesToIdx = i;
+
+            {
+                let parentNote = note;
+                while (!idIsNil(parentNote.parentId)) {
+                    if (!isCurrentActivity) {
+                        parentNote.data._durationRanged += duration;
+                    } else {
+                        parentNote.data._durationRangedOpenSince = getActivityTime(a0);
+                    }
+
+                    parentNote = getNote(state, parentNote.parentId);
+                }
+            }
+        }
+    }
+}
 
 export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
     return note.data._isAboveCurrentNote ||    // Current note inside this note

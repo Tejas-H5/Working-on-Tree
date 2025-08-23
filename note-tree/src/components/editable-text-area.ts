@@ -89,10 +89,12 @@ export function imBeginTextArea(c: ImCache, {
                 elSetStyle(c, "minHeight", "100%");
             }
 
-            elSetClass(c, cn.preWrap, !isOneLine)
-            elSetClass(c, cn.pre, !!isOneLine)
-            elSetClass(c, cn.overflowHidden, isOneLine)
-            elSetClass(c, cn.noWrap, !!isOneLine);
+            if (imMemo(c, isOneLine)) {
+                elSetClass(c, cn.preWrap, !isOneLine)
+                elSetClass(c, cn.pre, !!isOneLine)
+                elSetClass(c, cn.overflowHidden, isOneLine)
+                elSetClass(c, cn.noWrap, !!isOneLine);
+            }
 
             // This is a facade that gives the text area the illusion of auto-sizing!
             // but it only works if the text doesn't end in whitespace....

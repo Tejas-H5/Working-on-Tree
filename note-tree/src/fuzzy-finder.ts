@@ -462,13 +462,22 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
 
                                     lastStart = nextLastStart;
 
-                                    imLayout(c, INLINE); elSetClass(c, cnApp.defocusedText); imStr(c, beforeHighlighted); imLayoutEnd(c);
+                                    imLayout(c, INLINE); {
+                                        if (isFirstishRender(c)) {
+                                            elSetClass(c, cnApp.defocusedText); 
+                                        }
+
+                                        imStr(c, beforeHighlighted); 
+                                    } imLayoutEnd(c);
                                     imLayout(c, INLINE); imStr(c, highlighted); imLayoutEnd(c);
                                 } imForEnd(c);
 
                                 if (imIf(c) && lastStart !== text.length) {
                                     imLayout(c, INLINE); {
-                                        elSetClass(c, cnApp.defocusedText); 
+                                        if (isFirstishRender(c)) {
+                                            elSetClass(c, cnApp.defocusedText);
+                                        }
+
                                         imStr(c, text.substring(lastStart)); 
                                     } imLayoutEnd(c);
                                 } imIfEnd(c);

@@ -258,7 +258,7 @@ export function imCacheEntriesPop(c: ImCache) {
     assert(idx >= CACHE_ENTRIES_START - 1);
 }
 
-export function imGet<T>(c: ImCache, typeId: TypeId<T>): T | undefined {
+export function imGet<T>(c: ImCache, typeId: TypeId<T>, initialValue: T | undefined = undefined): T | undefined {
     const entries = c[CACHE_CURRENT_ENTRIES];
     c[CACHE_ITEMS_ITERATED]++;
 
@@ -283,7 +283,7 @@ export function imGet<T>(c: ImCache, typeId: TypeId<T>): T | undefined {
 
     if (idx === entries.length) {
         entries.push(typeId);
-        entries.push(undefined);
+        entries.push(initialValue);
         c[CACHE_CURRENT_WAITING_FOR_SET] = true;
     } else if (idx < entries.length) {
         assert(entries[idx] === typeId);
@@ -622,6 +622,8 @@ function __imBlockArrayEnd(c: ImCache) {
     __imBlockDerivedEnd(c, INTERNAL_TYPE_ARRAY_BLOCK);
 }
 
+// This is the initial value, so that anything, even `undefined`, can trigger imMemo
+const IM_MEMO_FIRST_EVER = {};
 
 export const MEMO_NOT_CHANGED = 0;
 /** returned by {@link imMemo} if the value changed */
@@ -671,7 +673,7 @@ export function imMemo(c: ImCache, val: unknown): ImMemoResult {
 
     const entries = c[CACHE_CURRENT_ENTRIES];
 
-    let lastVal = imGet(c, inlineTypeId(imMemo));
+    let lastVal = imGet(c, inlineTypeId(imMemo), IM_MEMO_FIRST_EVER);
     if (lastVal !== val) {
         imSet(c, val);
         result = MEMO_CHANGED;
@@ -682,9 +684,10 @@ export function imMemo(c: ImCache, val: unknown): ImMemoResult {
     return result;
 }
 
+// Like imMemo, but simpler. Won't return true when a component re-enters the conditional pathway.
 export function imChanged(c: ImCache, val: unknown): boolean {
     let result = false;
-    if (imGet(c, imChanged) !== val) {
+    if (imGet(c, imChanged, undefined) !== val) {
         result = true;
         imSet(c, val);
     }

@@ -66,6 +66,7 @@ import { elHasMouseDown, elSetStyle, imDomRoot as imDomRoot, imDomRootEnd as imD
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+import { imDurationsView } from "./durations-view";
 
 
 // TODO:
@@ -98,7 +99,7 @@ function imMainInner(c: ImCache) {
     imGlobalEventSystemInit(c, ctx.ev);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.settings;
+    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
     if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
 
     ctx.now = new Date();
@@ -358,15 +359,31 @@ function imMainInner(c: ImCache) {
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(c, focusRef);
 
-                            imNoteTreeView(c, ctx, ctx.views.noteTree);
-                            addView(navList, ctx.views.noteTree, "Notes");
+                            imLayout(c, COL); imFlex(c); {
+                                imNoteTreeView(c, ctx, ctx.views.noteTree);
+                                addView(navList, ctx.views.noteTree, "Notes");
+
+                                imLine(c, LINE_HORIZONTAL, 1);
+
+                                imLayout(c, COL); imFlex(c); {
+                                    if (isFirstishRender(c)) {
+                                        elSetStyle(c, "maxHeight", "25%");
+                                    }
+
+                                    imDurationsView(c, ctx, ctx.views.durations);
+                                    addView(navList, ctx.views.durations, "Durations");
+                                } imLayoutEnd(c);
+                            } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL, 1);
                             // imLayout(c, BLOCK); {
                             //     imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
                             // } imLayoutEnd(c);
 
-                            if (ctx.currentView !== ctx.views.noteTree) {
+                            if (
+                                ctx.currentView !== ctx.views.noteTree &&
+                                ctx.currentView !== ctx.views.durations
+                            ) {
                                 ctx.leftTab = ctx.currentView;
                                 ctx.notLockedIn = true;
                             } else {
