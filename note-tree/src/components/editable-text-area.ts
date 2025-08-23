@@ -1,8 +1,8 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { setInputValue } from "src/utils/dom-utils";
 import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, elSetTextSafetyRemoved, imEl, imElEnd, imStr } from "src/utils/im-dom";
-import { BLOCK, imLayout, imLayoutEnd, INLINE } from "./core/layout";
+import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, elSetTextSafetyRemoved, imElBlock as imElBlock, imElEnd, imStr } from "src/utils/im-dom";
+import { BLOCK, imLayout as imLayout, imLayoutEnd, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
 export function getLineBeforePos(text: string, pos: number): string {
@@ -63,7 +63,7 @@ export type TextAreaArgs = {
 // My best attempt at making a text input with the layout semantics of a div.
 // NOTE: this text area has a tonne of minor things wrong with it. we should fix them at some point.
 //   - When I have a lot of empty newlines, and then click off, the empty lines go away 'as needed' 
-export function imBeginTextArea(c: ImCache, {
+export function imTextAreaBegin(c: ImCache, {
     value,
     isOneLine,
     placeholder = "",
@@ -121,7 +121,7 @@ export function imBeginTextArea(c: ImCache, {
                 }
             } imLayoutEnd(c);
 
-            textArea = imEl(c, EL_TEXTAREA).root; {
+            textArea = imElBlock(c, EL_TEXTAREA).root; {
                 if (isFirstishRender(c)) {
                     elSetAttr(c, "class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
                     elSetAttr(c, "style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");
@@ -142,7 +142,7 @@ export function imBeginTextArea(c: ImCache, {
     return [root, textArea] as const;
 }
 
-export function imEndTextArea(c: ImCache) {
+export function imTextAreaEnd(c: ImCache) {
     {
         {
             {

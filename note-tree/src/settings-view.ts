@@ -41,7 +41,7 @@ import {
     inlineTypeId,
     isFirstishRender
 } from "./utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "./utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, imElBlock, imElEnd, imStr } from "./utils/im-dom";
 import { ROOT_ID } from "./utils/int-tree";
 
 const REQUIRED_PRESSES = 5;
@@ -204,7 +204,7 @@ const menus: MenuItem[] = [
 
                         imBeginListRow(c, true, hasFocus, false); {
                             imLayout(c, BLOCK); imListRowCellStyle(c); {
-                                imEl(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                                imElBlock(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
                             } imLayoutEnd(c);
                         } imEndListRow(c);
 

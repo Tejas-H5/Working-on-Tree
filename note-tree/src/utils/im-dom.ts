@@ -125,7 +125,7 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
 
 
 
-export function imEl<K extends keyof HTMLElementTagNameMap>(
+export function imElBlock<K extends keyof HTMLElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
 ): DomAppender<HTMLElementTagNameMap[K]> {
@@ -185,6 +185,8 @@ export function imDomRootEnd(c: ImCache, root: ValidElement) {
 
 
 interface Stringifyable {
+    // Allows you to memoize the text on the object reference, and not the literal string itself, as needed.
+    // Also, most objects in JavaScript already implement this.
     toString(): string;
 }
 
@@ -262,8 +264,7 @@ export function elSetAttr(
 
 
 export function elGetAppender(c: ImCache): DomAppender<ValidElement> {
-    const domAppender = getEntriesParent(c, newDomAppender);
-    return domAppender;
+    return getEntriesParent(c, newDomAppender);
 }
 
 export function elGet(c: ImCache) {
@@ -318,20 +319,25 @@ export function imOn<K extends keyof HTMLElementEventMap>(
 
 export function elHasMouseDown(c: ImCache, ev: ImGlobalEventSystem): boolean {
     const el = elGet(c);
-    return elEventSetHas(el, ev.mouse.mouseDownElements)
+    return elIsInSetThisFrame(el, ev.mouse.mouseDownElements)
+}
+
+export function elHasMouseUp(c: ImCache, ev: ImGlobalEventSystem): boolean {
+    const el = elGet(c);
+    return elIsInSetThisFrame(el, ev.mouse.mouseUpElements)
 }
 
 export function elHasMouseClick(c: ImCache, ev: ImGlobalEventSystem): boolean {
     const el = elGet(c);
-    return elEventSetHas(el, ev.mouse.mouseClickedElements)
+    return elIsInSetThisFrame(el, ev.mouse.mouseClickElements)
 }
 
 export function elHasMouseOver(c: ImCache, ev: ImGlobalEventSystem): boolean {
     const el = elGet(c);
-    return elEventSetHas(el, ev.mouse.mouseOverElements)
+    return ev.mouse.mouseOverElements.has(el);
 }
 
-function elEventSetHas(el: ValidElement, set: Set<ValidElement>) {
+function elIsInSetThisFrame(el: ValidElement, set: Set<ValidElement>) {
     const result = set.has(el);
     set.delete(el);
     return result;
@@ -360,7 +366,6 @@ export type ImMouseState = {
     leftMouseButton: boolean;
     middleMouseButton: boolean;
     rightMouseButton: boolean;
-    hasMouseEvent: boolean;
 
     dX: number;
     dY: number;
@@ -374,7 +379,8 @@ export type ImMouseState = {
     scrollWheel: number;
 
     mouseDownElements: Set<ValidElement>;
-    mouseClickedElements: Set<ValidElement>;
+    mouseUpElements: Set<ValidElement>;
+    mouseClickElements: Set<ValidElement>;
     mouseOverElements: Set<ValidElement>;
     lastMouseOverElement: ValidElement | null;
 };
@@ -388,6 +394,7 @@ export type ImGlobalEventSystem = {
         mousemove:  (e: MouseEvent) => void;
         mouseenter: (e: MouseEvent) => void;
         mouseup:    (e: MouseEvent) => void;
+        mouseClick: (e: MouseEvent) => void;
         wheel:      (e: WheelEvent) => void;
         keydown:    (e: KeyboardEvent) => void;
         keyup:      (e: KeyboardEvent) => void;
@@ -419,7 +426,6 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
         leftMouseButton: false,
         middleMouseButton: false,
         rightMouseButton: false,
-        hasMouseEvent: false,
 
         dX: 0,
         dY: 0,
@@ -429,7 +435,8 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
         scrollWheel: 0,
 
         mouseDownElements: new Set<ValidElement>(),
-        mouseClickedElements: new Set<ValidElement>(),
+        mouseUpElements: new Set<ValidElement>(),
+        mouseClickElements: new Set<ValidElement>(),
         mouseOverElements: new Set<ValidElement>(),
         lastMouseOverElement: null,
     };
@@ -459,7 +466,6 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
         // stored, so we can dispose them later if needed.
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
-                mouse.hasMouseEvent = true;
                 if (e.button === 0) {
                     mouse.leftMouseButton = true;
                 } else if (e.button === 1) {
@@ -467,7 +473,21 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
                 } else if (e.button === 2) {
                     mouse.rightMouseButton = true;
                 }
-                eventSystem.rerender();
+
+                findParents(e.target as ValidElement, mouse.mouseDownElements);
+                try {
+                    eventSystem.rerender();
+                } finally {
+                    mouse.mouseDownElements.clear();
+                }
+            },
+            mouseClick: (e) => {
+                findParents(e.target as ValidElement, mouse.mouseClickElements);
+                try {
+                    eventSystem.rerender();
+                } finally {
+                    mouse.mouseClickElements.clear();
+                }
             },
             mousemove: (e) => {
                 if (handleMouseMove(e)) eventSystem.rerender();
@@ -476,16 +496,19 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
                 if (handleMouseMove(e)) eventSystem.rerender();
             },
             mouseup: (e: MouseEvent) => {
-                if (mouse.hasMouseEvent === true) {
-                    return;
-                }
-
                 if (e.button === 0) {
                     mouse.leftMouseButton = false;
                 } else if (e.button === 1) {
                     mouse.middleMouseButton = false;
                 } else if (e.button === 2) {
                     mouse.rightMouseButton = false;
+                }
+
+                findParents(e.target as ValidElement, mouse.mouseUpElements);
+                try {
+                    eventSystem.rerender();
+                } finally {
+                    mouse.mouseUpElements.clear();
                 }
 
                 eventSystem.rerender();

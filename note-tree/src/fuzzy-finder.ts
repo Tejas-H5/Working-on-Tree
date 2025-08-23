@@ -1,6 +1,6 @@
 import { cnApp } from "./app-styling";
 import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "./components/core/layout";
-import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
+import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
 import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
@@ -362,7 +362,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
 
         imBeginListRow(c, viewHasFocus, viewHasFocus, true); {
             imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
-                const [, textArea] = imBeginTextArea(c, {
+                const [, textArea] = imTextAreaBegin(c, {
                     value: finderState.query,
                 }); {
                     const input = imOn(c, EV_INPUT);
@@ -377,7 +377,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                         ctx.textAreaToFocus = textArea;
                         ctx.focusWithAllSelected = false;
                     }
-                } imEndTextArea(c);
+                } imTextAreaEnd(c);
             } imLayoutEnd(c);
         } imEndListRow(c);
 

@@ -1,6 +1,9 @@
 import { ImCache, imChanged, imGet, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
-import { EL_DIV, elSetClass, elSetStyle, imEl, imElEnd } from 'src/utils/im-dom';
-import { cn } from "./stylesheets";
+import { EL_DIV, elSetClass, elSetStyle, imElBlock, imElEnd } from 'src/utils/im-dom';
+import { cn, cssVars } from "./stylesheets";
+import { newCssBuilder } from 'src/utils/cssb';
+
+const cssb = newCssBuilder();
 
 // It occurs to me that I can actually just make my own fully custom layout system that significantly minimizes
 // number of DOM nodes required to get things done.
@@ -160,7 +163,7 @@ type DisplayType =
     typeof TABLE_CELL;
 
 export function imLayout(c: ImCache, type: DisplayType) {
-    const root = imEl(c, EL_DIV);
+    const root = imElBlock(c, EL_DIV);
     if (imChanged(c, type)) {
         elSetClass(c, cn.inlineBlock, type === INLINE_BLOCK);
         elSetClass(c, cn.inline, type === INLINE);
@@ -231,6 +234,18 @@ export function imJustify(c: ImCache, alignment = CENTER) {
     if (imChanged(c, alignment)) {
         elSetStyle(c, "justifyContent", getAlignment(alignment));
     }
+}
+
+const cnButton = (() => {
+    const transiton = `0.1s linear`;
+    return cssb.cn(`button`, [
+        ` { cursor: pointer; background-color: ${cssVars.bg}; color: ${cssVars.fg}; transition: background-color ${transiton}, color ${transiton}; }`,
+        `:hover { background-color: ${cssVars.fg}; color: ${cssVars.bg}; }`
+    ]);
+})();
+
+export function imButton(c: ImCache) {
+    if (isFirstishRender(c)) elSetClass(c, cnButton);
 }
 
 export function imScrollOverflow(c: ImCache, vScroll = true, hScroll = false) {

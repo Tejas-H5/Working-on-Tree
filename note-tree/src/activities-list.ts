@@ -20,7 +20,7 @@ import {
     PX,
     ROW
 } from "./components/core/layout";
-import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
+import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
     getAxisRaw,
@@ -748,7 +748,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                 } else {
                                     imIfElse(c);
 
-                                    const [, textArea] = imBeginTextArea(c, {
+                                    const [, textArea] = imTextAreaBegin(c, {
                                         value: activity.breakInfo ?? "",
                                         placeholder: "Enter break info",
                                     }); {
@@ -768,7 +768,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                                         ctx.textAreaToFocus = textArea;
                                         ctx.focusWithAllSelected = true;
-                                    } imEndTextArea(c);
+                                    } imTextAreaEnd(c);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);

@@ -11,6 +11,8 @@ import {
     CH,
     COL,
     imAlign,
+    imAspectRatio,
+    imButton,
     imFixed,
     imFlex,
     imGap,
@@ -19,9 +21,11 @@ import {
     imLayoutEnd,
     imSize,
     NA,
+    PERCENT,
     PX,
     RIGHT,
-    ROW
+    ROW,
+    STRETCH
 } from "./components/core/layout";
 import {
     newFpsCounterState,
@@ -62,7 +66,7 @@ import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import { getDeltaTimeSeconds, ImCache, imCacheInitEnd as imCacheInitEnd, imCacheInit as imCacheInit, imChanged, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, imSwitch, imSwitchEnd, imTry, imTryCatch, imTryEnd, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { elHasMouseDown, elSetStyle, imDomRoot as imDomRoot, imDomRootEnd as imDomRootEnd, imGlobalEventSystemEnd, imGlobalEventSystemInit, imStr } from "src/utils/im-dom";
+import { elHasMouseDown, elHasMouseOver, elSetStyle, imDomRoot as imDomRoot, imDomRootEnd as imDomRootEnd, imGlobalEventSystemEnd, imGlobalEventSystemInit, imStr } from "src/utils/im-dom";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -200,22 +204,25 @@ function imMainInner(c: ImCache) {
                     }
 
                     if (imIf(c) && ctx.notLockedIn) {
-                        imLayout(c, ROW); imAlign(c); {
-                            imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
-                            imLayout(c, ROW); imSize(c, 0, NA, 50, PX); imAlign(c); imJustify(c); {
-                                if (isFirstishRender(c)) {
-                                    elSetStyle(c, "cursor", "pointer");
+                        imLayout(c, ROW); imAlign(c, CENTER); {
+                            imLayout(c, ROW); imButton(c); imAlign(c); imJustify(c); imSize(c, 0, NA, 100, PERCENT); {
+                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+
+                                const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
+                                let icon = getIcon(state.currentTheme);
+                                if (elHasMouseOver(c, ctx.ev)) {
+                                    icon = getIcon(nextTheme);
                                 }
 
-                                imAsciiIcon(c, getIcon(state.currentTheme), 4.5);
+                                imAsciiIcon(c, icon, 4.5);
 
                                 if (elHasMouseDown(c, ctx.ev)) {
-                                    state.currentTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
+                                    state.currentTheme = nextTheme;
                                     debouncedSave(ctx, state);
                                 }
-                            } imLayoutEnd(c);
-                            imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
+                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                            } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL);
 

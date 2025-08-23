@@ -15,8 +15,9 @@ export function imAsciiIcon(c: ImCache, icon: AsciiIconData, sizePx: number) {
             elSetStyle(c, "textShadow", `1px 1px 0px ${cssVarsApp.fgColor}`);
         }
 
-        imStr(c, icon.data);
         if (imMemo(c, sizePx)) elSetStyle(c, "fontSize", sizePx + "px");
+
+        imStr(c, icon);
     } imLayoutEnd(c);
 
     return icon;

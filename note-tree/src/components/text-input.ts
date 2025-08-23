@@ -1,6 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { cssVars } from "./core/stylesheets";
-import { EL_INPUT, elSetAttr, elSetClass, imEl } from "src/utils/im-dom";
+import { EL_INPUT, elSetAttr, elSetClass, imElBlock } from "src/utils/im-dom";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { imLayoutEnd } from "./core/layout";
 
@@ -35,7 +35,7 @@ export function imBeginTextInput(c: ImCache, {
     value: string;
     placeholder?: string;
 }) {
-    const input = imEl(c, EL_INPUT); {
+    const input = imElBlock(c, EL_INPUT); {
         if (isFirstishRender(c)) {
             elSetClass(c, cnInput);
             elSetAttr(c, "type", "text");

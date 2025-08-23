@@ -26,7 +26,7 @@ import {
     ROW_REVERSE
 } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
-import { doExtraTextAreaInputHandling, imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
+import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
     CTRL,
@@ -698,7 +698,7 @@ function imNoteTreeRow(
                     const isEditingChanged = imMemo(c, isEditing);
 
                     if (imIf(c) && isEditing) {
-                        const [, textArea] = imBeginTextArea(c, {
+                        const [, textArea] = imTextAreaBegin(c, {
                             value: note.data.text,
                         }); {
                             const input = imOn(c, EV_INPUT);
@@ -738,7 +738,7 @@ function imNoteTreeRow(
                             }
 
                             ctx.textAreaToFocus = textArea;
-                        } imEndTextArea(c);
+                        } imTextAreaEnd(c);
                     } else {
                         imIfElse(c);
 

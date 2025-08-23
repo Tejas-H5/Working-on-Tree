@@ -1,5 +1,6 @@
 export type AsciiIconData = {
     data: string;
+    toString(): string;
 };
 
 
@@ -16,6 +17,7 @@ export const ASCII_SUN: AsciiIconData = {
    '   / \`!\` \\   \`
       ;   :   ;     `
     ),
+    toString() { return this.data }
 }
 
 
@@ -32,7 +34,8 @@ export const ASCII_MOON_STARS: AsciiIconData = {
  *    \`':..-'  .
                * .
       `
-    )
+    ),
+    toString() { return this.data }
 }
 
 // I did this one all myself, actually
@@ -47,7 +50,8 @@ export const ASCII_PLUS_ICON: AsciiIconData = {
          ##      
                   
       `
-    )
+    ),
+    toString() { return this.data }
 };
 
 // This one too. Pretty epic, I know
@@ -62,5 +66,6 @@ export const ASCII_MINUS_ICON: AsciiIconData = {
                  
                   
       `
-    )
+    ),
+    toString() { return this.data }
 };

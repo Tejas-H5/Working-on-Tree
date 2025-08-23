@@ -268,7 +268,10 @@ export function imGet<T>(c: ImCache, typeId: TypeId<T>, initialValue: T | undefi
     entries[ENTRIES_IDX] += 2;
     const idx = entries[ENTRIES_IDX];
     if (idx === ENTRIES_ITEMS_START) {
-        // Need to respond to conditional rendering when we render the first item, because rendering 0 items is the signal to not conditionally render.
+        // Rendering 0 items is the signal to remove an immediate-mode block from the conditional pathway.
+        // This means we can't know that an immediate mode block has re-entered the conditional pathway untill 
+        // it has started rendering the first item, which is what this if-block is handling
+
         if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === false) {
             entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = true;
             entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] = true;

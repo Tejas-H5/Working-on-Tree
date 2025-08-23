@@ -611,16 +611,15 @@ export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState,
         });
     };
 
-    if (!debounced) {
-        save();
-        return;
-    }
+    // An expensive operation that would be catastrophic if we called it hundreds of times very quickly.
+    // It's always debounced, by at least some tiny amount.
 
+    const debounceAmount = !debounced ? 10 : SAVE_DEBOUNCE;
     showStatusText(ctx, `Saving`, TASK_IN_PROGRESS, SAVE_DEBOUNCE);
     clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
         save();
-    }, SAVE_DEBOUNCE);
+    }, debounceAmount);
 };
 
 const STATUS_TEXT_PERSIST_TIME = 1;

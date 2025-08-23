@@ -46,7 +46,7 @@ export const darkTheme: AppTheme = {
     bgColor: newColorFromHex("#000"),
     bgColorFocus: newColorFromHex("#333"),
     bgColorFocus2: newColorFromHex("#222"),
-    fgColor: newColorFromHex("#EEE"),
+    fgColor: newColorFromHex("#DDDDDD"),
     unfocusTextColor: newColorFromHex("#707070"),
     focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",

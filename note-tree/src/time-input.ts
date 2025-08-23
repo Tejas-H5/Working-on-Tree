@@ -1,4 +1,4 @@
-import { imBeginTextArea, imEndTextArea } from "./components/editable-text-area";
+import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import { assert } from "./utils/assert";
 import {
     addMinutes,
@@ -57,7 +57,7 @@ export function imEditableTime(
 
     const idx = c[CACHE_IDX];
 
-    [, textArea] = imBeginTextArea(c, {
+    [, textArea] = imTextAreaBegin(c, {
         value: s.text,
         placeholder: "Time",
     }); {
@@ -122,7 +122,7 @@ export function imEditableTime(
                 }
             }
         }
-    } imEndTextArea(c);
+    } imTextAreaEnd(c);
 
     assert(c[CACHE_IDX] === idx);
 

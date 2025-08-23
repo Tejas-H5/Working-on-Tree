@@ -25,7 +25,7 @@ import {
 } from "./state";
 import { get } from "./utils/array-utils";
 import { ImCache, imIf, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
-import { EL_A, elSetAttr, elSetStyle, imEl, imStr } from "./utils/im-dom";
+import { EL_A, elSetAttr, elSetStyle, imElBlock, imStr } from "./utils/im-dom";
 
 type UrlListViewUrl = {
     url: string;
@@ -140,7 +140,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
 
             imBeginNavListRow(c, list); {
                 imLayout(c, BLOCK); imListRowCellStyle(c); {
-                    imEl(c, EL_A); {
+                    imElBlock(c, EL_A); {
                         if (imMemo(c,url)) {
                             elSetAttr(c,"href", url.url);
                         }
