@@ -1,7 +1,7 @@
 import { assert } from "src/utils/assert";
 import {
     CACHE_RERENDER_FN,
-    imBlock,
+    imBlockBegin,
     imBlockEnd,
     ImCache,
     imGet,
@@ -125,7 +125,7 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
 
 
 
-export function imElBlock<K extends keyof HTMLElementTagNameMap>(
+export function imElBegin<K extends keyof HTMLElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
 ): DomAppender<HTMLElementTagNameMap[K]> {
@@ -146,7 +146,7 @@ export function imElBlock<K extends keyof HTMLElementTagNameMap>(
     // but we can keep the entries themselves flat.
     // THis requires we have some way to access a global context dedicated to the dom appender though.
     // or, TODO: the framework can provide this mechanism, and we can just hook into that.
-    imBlock(c, newDomAppender, childAppender);
+    imBlockBegin(c, newDomAppender, childAppender);
 
     childAppender.idx = -1;
 
@@ -161,14 +161,14 @@ export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap>) {
 }
 
 
-export function imDomRoot(c: ImCache, root: ValidElement) {
+export function imDomRootBegin(c: ImCache, root: ValidElement) {
     let appender = imGet(c, newDomAppender);
     if (appender === undefined) {
         appender = imSet(c, newDomAppender(root, []));
         appender.ref = root;
     }
 
-    imBlock(c, newDomAppender, appender);
+    imBlockBegin(c, newDomAppender, appender);
 
     appender.idx = -1;
 
@@ -547,7 +547,7 @@ function resetKeyboardState(keyboard: ImKeyboardState) {
     keyboard.blur = false;
 }
 
-export function imGlobalEventSystemInit(c: ImCache, eventSystem: ImGlobalEventSystem) {
+export function imGlobalEventSystemBegin(c: ImCache, eventSystem: ImGlobalEventSystem) {
     let state = imGet(c, newImGlobalEventSystem);
     if (state !== eventSystem) {
         if (state !== undefined) {
@@ -603,7 +603,6 @@ export function imTrackSize(c: ImCache) {
 export function endProcessingImEvent(eventSystem: ImGlobalEventSystem) {
     resetKeyboardState(eventSystem.keyboard);
     resetMouseState(eventSystem.mouse, false);
-    eventSystem.mouse.hasMouseEvent = false;
 }
 
 function newPreventScrollEventPropagationState() {

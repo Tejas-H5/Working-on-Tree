@@ -79,7 +79,7 @@ import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
 import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "./utils/dom-utils";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
 import * as tree from "./utils/int-tree";
 
@@ -361,7 +361,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         imLayout(c, BLOCK); {
             s.numVisible = 0;
             imFor(c); for (const row of s.viewRootParentNotes) {
-                imKeyed(c, row); {
+                imKeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
                 } imKeyedEnd(c);
             } imForEnd(c);
@@ -375,7 +375,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
         imLayout(c, BLOCK); {
             imFor(c); for (const row of s.stickyNotes) {
-                imKeyed(c, row); {
+                imKeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
                 } imKeyedEnd(c);
             } imForEnd(c);
@@ -408,7 +408,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             };
 
             // Want to scroll off the bottom a bit
-            imKeyed(c, "scrolloff"); {
+            imKeyedBegin(c, "scrolloff"); {
                 imLayout(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
             } imKeyedEnd(c);
         } imEndNavList(c, list);
@@ -703,10 +703,6 @@ function imNoteTreeRow(
                         }); {
                             const input = imOn(c, EV_INPUT);
                             const change = imOn(c, EV_CHANGE);
-
-                            if (imMemo(c, state.settings.tabStopSize)) {
-                                elSetStyle(c, "tabSize", "" + state.settings.tabStopSize);
-                            }
 
                             if (input || change) {
                                 let status = s.note.data._status;

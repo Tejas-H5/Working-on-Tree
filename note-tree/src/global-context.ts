@@ -49,7 +49,8 @@ export type GlobalContext = {
     noteBeforeFocus: TreeNote | null;
 
     status: {
-        statusTextTimeLeft: number;
+        statusTextTimeLeftSeconds: number;
+        statusTextTimeInitialSeconds: number;
         statusText: string;
         statusTextType: typeof TASK_IN_PROGRESS | typeof TASK_DONE | typeof TASK_FAILED;
     };
@@ -150,7 +151,8 @@ export function newGlobalContext(): GlobalContext {
         discoverableCommands: newDiscoverableCommands(),
 
         status: {
-            statusTextTimeLeft: -1,
+            statusTextTimeLeftSeconds: -1,
+            statusTextTimeInitialSeconds: 1,
             statusText: "",
             statusTextType: TASK_IN_PROGRESS,
         }
@@ -631,7 +633,8 @@ function showStatusText(
 ) {
     ctx.status.statusText = text;
     ctx.status.statusTextType = type;
-    ctx.status.statusTextTimeLeft = timeout;
+    ctx.status.statusTextTimeLeftSeconds = timeout / 1000;
+    ctx.status.statusTextTimeInitialSeconds = timeout / 1000;
 }
 
 export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState) {

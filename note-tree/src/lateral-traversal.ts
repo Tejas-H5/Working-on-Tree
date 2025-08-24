@@ -26,7 +26,7 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, imStr } from "./utils/im-dom";
 
 
@@ -172,7 +172,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
             } imEndNavListRow(c);
         }
 
-        imKeyed(c, "empty"); {
+        imKeyedBegin(c, "empty"); {
             if (imIf(c) && !renderedAny) {
                 imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                     imStr(c, "This level has been cleared!");

@@ -1,6 +1,38 @@
+import {
+    getDeltaTimeSeconds,
+    ImCache,
+    imCacheBegin,
+    imCacheEnd,
+    imChanged,
+    imFor,
+    imForEnd,
+    imGet,
+    imIf,
+    imIfElse,
+    imIfEnd,
+    imMemo,
+    imSet,
+    imSwitch,
+    imSwitchEnd,
+    imTry,
+    imTryCatch,
+    imTryEnd,
+    inlineTypeId,
+    isFirstishRender
+} from "src/utils/im-core";
+import {
+    elHasMouseDown,
+    elHasMouseOver,
+    elSetStyle,
+    imDomRootBegin,
+    imDomRootEnd,
+    imGlobalEventSystemEnd,
+    imGlobalEventSystemBegin,
+    imStr
+} from "src/utils/im-dom";
 import { activitiesViewTakeBreak, imActivitiesList } from "./activities-list";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import { imAppHeading, imAppHeadingEnd, } from "./app-heading";
+import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { imAsciiIcon } from "./ascii-icon";
@@ -11,7 +43,6 @@ import {
     CH,
     COL,
     imAlign,
-    imAspectRatio,
     imButton,
     imFixed,
     imFlex,
@@ -24,14 +55,14 @@ import {
     PERCENT,
     PX,
     RIGHT,
-    ROW,
-    STRETCH
+    ROW
 } from "./components/core/layout";
 import {
-    newFpsCounterState,
-    fpsMarkRenderingStart,
     fpsMarkRenderingEnd,
+    fpsMarkRenderingStart,
+    newFpsCounterState,
 } from "./components/fps-counter";
+import { imDurationsView } from "./durations-view";
 import { imFuzzyFinder } from "./fuzzy-finder";
 import {
     BYPASS_TEXT_AREA,
@@ -65,16 +96,9 @@ import { imUrlViewer } from "./url-viewer";
 import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
-import { getDeltaTimeSeconds, ImCache, imCacheInitEnd as imCacheInitEnd, imCacheInit as imCacheInit, imChanged, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, imSwitch, imSwitchEnd, imTry, imTryCatch, imTryEnd, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { elHasMouseDown, elHasMouseOver, elSetStyle, imDomRoot as imDomRoot, imDomRootEnd as imDomRootEnd, imGlobalEventSystemEnd, imGlobalEventSystemInit, imStr } from "src/utils/im-dom";
+import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
-import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { imDurationsView } from "./durations-view";
-
-
-// TODO:
-// - [ ] Bring back event system
 
 const ERROR_TIMEOUT_TIME = 5000;
 
@@ -100,11 +124,16 @@ function imMainInner(c: ImCache) {
     let ctx = imGet(c, newGlobalContext);
     if (!ctx) ctx = imSet(c, newGlobalContext());
 
-    imGlobalEventSystemInit(c, ctx.ev);
+    imGlobalEventSystemBegin(c, ctx.ev);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
     if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
+
+
+    if (imMemo(c, state.settings.tabStopSize)) {
+        elSetStyle(c, "tabSize", "" + state.settings.tabStopSize);
+    }
 
     ctx.now = new Date();
 
@@ -227,7 +256,7 @@ function imMainInner(c: ImCache) {
                             imLine(c, LINE_VERTICAL);
 
                             imLayout(c, ROW); imFlex(c); {
-                                imAppHeading(c); {
+                                imAppHeadingBegin(c); {
                                     imStr(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
                                 } imAppHeadingEnd(c);
                             } imLayoutEnd(c);
@@ -239,9 +268,8 @@ function imMainInner(c: ImCache) {
                                     elSetStyle(c, "fontWeight", "bold");
                                 }
 
-                                if (imIf(c) && ctx.status.statusTextTimeLeft > 0) {
-                                    ctx.status.statusTextTimeLeft -= getDeltaTimeSeconds(c);
-
+                                if (imIf(c) && ctx.status.statusTextTimeLeftSeconds > 0) {
+                                    ctx.status.statusTextTimeLeftSeconds -= getDeltaTimeSeconds(c);
                                     const statusTextChanged = imMemo(c, ctx.status.statusText);
 
                                     let t = imGet(c, Math.sin);
@@ -250,9 +278,8 @@ function imMainInner(c: ImCache) {
 
                                     // bruh
                                     if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        const sin01 = 0.5 * (1 + Math.sin(5 * t));
-
-                                        elSetStyle(c, "opacity", sin01 * 0.7 + 0.3 + "", root);
+                                        const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
+                                        elSetStyle(c, "opacity", "" + opacity, root);
 
                                         imLayout(c, BLOCK); {
                                             if (isFirstishRender(c)) {
@@ -587,15 +614,14 @@ function imMainInner(c: ImCache) {
     fpsMarkRenderingEnd(fpsCounter);
 }
 
+const cGlobal: ImCache = [];
 
-const imCache: ImCache = [];
-
-function imMain(c: ImCache) {
-    imCacheInit(c, imMain); {
-        imDomRoot(c, document.body); {
+function imMainEntry(c: ImCache) {
+    imCacheBegin(c, imMainEntry); {
+        imDomRootBegin(c, document.body); {
             imMainInner(c);
         } imDomRootEnd(c, document.body);
-    } imCacheInitEnd(c);
+    } imCacheEnd(c);
 };
 
 function imCommandDescription(c: ImCache, key: string, action: string) {
@@ -607,8 +633,8 @@ function imCommandDescription(c: ImCache, key: string, action: string) {
 
 loadState(() => {
     console.log("State: ", state);
-    imMain(imCache);
-})
+    imMainEntry(cGlobal);
+});
 
 // Using a custom styling solution
 initCssbStyles();

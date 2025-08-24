@@ -66,7 +66,7 @@ import {
 import { imEditableTime } from "./time-input";
 import { arrayAt, boundsCheck, get } from "./utils/array-utils";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
-import { ImCache, imIf, imIfElse, imIfEnd, imKeyed, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
 import { assert } from "./utils/assert";
 
@@ -679,7 +679,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 const { i, itemSelected } = list;
                 const activity = s.activities[i];
 
-                imKeyed(c, activity); {
+                imKeyedBegin(c, activity); {
                     const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                     const isEditingTime = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
@@ -776,7 +776,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 } imKeyedEnd(c);
             } 
 
-            imKeyed(c, "footer"); {
+            imKeyedBegin(c, "footer"); {
                 if (imIf(c) && !hasActivities) {
                     imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                         imStr(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");

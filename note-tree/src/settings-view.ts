@@ -1,4 +1,4 @@
-import { imAppHeading, imAppHeadingEnd } from "./app-heading";
+import { imAppHeadingBegin, imAppHeadingEnd } from "./app-heading";
 import { cssVarsApp } from "./app-styling";
 import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
 import { cn } from "./components/core/stylesheets";
@@ -41,7 +41,7 @@ import {
     inlineTypeId,
     isFirstishRender
 } from "./utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imElBlock, imElEnd, imStr } from "./utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "./utils/im-dom";
 import { ROOT_ID } from "./utils/int-tree";
 
 const REQUIRED_PRESSES = 5;
@@ -204,7 +204,7 @@ const menus: MenuItem[] = [
 
                         imBeginListRow(c, true, hasFocus, false); {
                             imLayout(c, BLOCK); imListRowCellStyle(c); {
-                                imElBlock(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                                imElBegin(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
                             } imLayoutEnd(c);
                         } imEndListRow(c);
 
@@ -586,7 +586,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                     }
 
                     imLayout(c, ROW); imAlign(c); imJustify(c); {
-                        imAppHeading(c); {
+                        imAppHeadingBegin(c); {
                             let text = "Settings";
 
                             if (s.selectedMenu) {

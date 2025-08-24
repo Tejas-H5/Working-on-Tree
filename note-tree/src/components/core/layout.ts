@@ -1,5 +1,5 @@
 import { ImCache, imChanged, imGet, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
-import { EL_DIV, elSetClass, elSetStyle, imElBlock, imElEnd } from 'src/utils/im-dom';
+import { EL_DIV, elSetClass, elSetStyle, imElBegin, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
 import { newCssBuilder } from 'src/utils/cssb';
 
@@ -163,7 +163,7 @@ type DisplayType =
     typeof TABLE_CELL;
 
 export function imLayout(c: ImCache, type: DisplayType) {
-    const root = imElBlock(c, EL_DIV);
+    const root = imElBegin(c, EL_DIV);
     if (imChanged(c, type)) {
         elSetClass(c, cn.inlineBlock, type === INLINE_BLOCK);
         elSetClass(c, cn.inline, type === INLINE);

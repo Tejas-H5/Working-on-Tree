@@ -1,20 +1,16 @@
 import { assert } from "src/utils/assert";
 
 // Conventions
-//  - All methods that increment the entry index or call methods that do so should be prefixed 'im'
-//      - Methods that don't do this _should not_ be prefixed 'im'
-//      - Some im methods push a new entry list and then pop it, or open/close a scope. The pairs should be named like `imThing` and `imThingEnd`. 
-//      - Some im methods do not push a new list entry. You'll just have to know which one does which, or find out by reading through its source code.
+//  - All methods that call `imGet`, or call some other method that eventually calls `imGet` should be prefixed with 'im'.
+//    This allows developers (and in the future, static analysis tools) to know that this method can't be rendered conditionally, or
+//    out of order, similar to how React hooks work. This is really the only convention I would recommend users of this library to follow.
 //
-// Other:
-// - A bit of a dilemma. Apis like im<Thing><Action> are heirarchical. However APIs like im<Action><Thing> are more memorable.
-//      E.g. imPushLayout instead of imLayoutPush. createBlah or blahCreate. new Class() vs Class::new(). 
-//      I'm going with im<Thing><Action> for consistency and predicatbility, but it may not be ideal in all cases.
-
-
-
-// NOTE: I've got no idea if this is actually faster than just using objects - I'm just trying something out.
-// Migth be shit, and need rewriting to use normal objects, I've got no idea yet.
+//  - imMethods that begin a scope and have a corresponding method to end that scope should be called `im<Name>Begin` and `im<Name>End`. 
+//    You may have some methods that are so frequently used that you can omit `Begin` from the first method's name to save some typing,
+//    and it may even be worth it. I have quite a few of these in im-core and im-dom. 
+//    After wasting a lot of time thinking about a convention that 100% covers all bases, and makes it 
+//    obvious which methods push/pop and also saves as much typing as possible, I wasn't able to find a good solution, 
+//    so I'll leave this decision up to you.
 
 export type ImCacheEntries = any[];
 
@@ -112,7 +108,7 @@ export const USE_ANIMATION_FRAME = 1 << 1;
  * 
  * NOTE: it is assumed that the rerender function and the `useEventLoop` parameter never changes.
  */
-export function imCacheInit(
+export function imCacheBegin(
     c: ImCache,
     renderFn: (c: ImCache) => void,
     flags = USE_ANIMATION_FRAME
@@ -170,15 +166,15 @@ export function imCacheInit(
     c[CACHE_ITEMS_ITERATED] = 0;
     c[CACHE_CURRENT_WAITING_FOR_SET] = false;
 
-    imCacheEntriesPush(c, c[CACHE_ROOT_ENTRIES], imCacheInit, c, INTERNAL_TYPE_CACHE);
+    imCacheEntriesBegin(c, c[CACHE_ROOT_ENTRIES], imCacheBegin, c, INTERNAL_TYPE_CACHE);
 
     return c;
 }
 
 function noOp() {}
 
-export function imCacheInitEnd(c: ImCache) {
-    imCacheEntriesPop(c);
+export function imCacheEnd(c: ImCache) {
+    imCacheEntriesEnd(c);
 
     const startIdx = CACHE_ENTRIES_START - 1;
     if (c[CACHE_IDX] > startIdx) {
@@ -215,7 +211,7 @@ const INTERNAL_TYPE_KEYED_BLOCK = 4;
 const INTERNAL_TYPE_TRY_BLOCK = 5;
 const INTERNAL_TYPE_CACHE = 6;
 
-export function imCacheEntriesPush<T>(
+export function imCacheEntriesBegin<T>(
     c: ImCache,
     entries: ImCacheEntries,
     parentTypeId: TypeId<T>,
@@ -252,7 +248,7 @@ export function imCacheEntriesPush<T>(
     entries[ENTRIES_IDX] = ENTRIES_ITEMS_START - 2;
 }
 
-export function imCacheEntriesPop(c: ImCache) {
+export function imCacheEntriesEnd(c: ImCache) {
     const idx = --c[CACHE_IDX];
     c[CACHE_CURRENT_ENTRIES] = c[idx];
     assert(idx >= CACHE_ENTRIES_START - 1);
@@ -328,7 +324,7 @@ export function imSet<T>(c: ImCache, val: T): T {
 type ListMapBlock = { rendered: boolean; entries: ImCacheEntries; };
 
 
-function __imBlockKeyed(c: ImCache, key: ValidKey) {
+function __imBlockKeyedBegin(c: ImCache, key: ValidKey) {
     const entries = c[CACHE_CURRENT_ENTRIES];
 
     let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
@@ -367,7 +363,7 @@ function __imBlockKeyed(c: ImCache, key: ValidKey) {
 
     const parentType = entries[ENTRIES_PARENT_TYPE];
     const parent = entries[ENTRIES_PARENT_VALUE];
-    imCacheEntriesPush(c, block.entries, parentType, parent, INTERNAL_TYPE_KEYED_BLOCK);
+    imCacheEntriesBegin(c, block.entries, parentType, parent, INTERNAL_TYPE_KEYED_BLOCK);
 }
 
 /**
@@ -380,8 +376,8 @@ function __imBlockKeyed(c: ImCache, key: ValidKey) {
  * } imForEnd(c);
  * ```
  */
-export function imKeyed(c: ImCache, key: ValidKey) {
-    __imBlockKeyed(c, key);
+export function imKeyedBegin(c: ImCache, key: ValidKey) {
+    __imBlockKeyedBegin(c, key);
 }
 
 export function imKeyedEnd(c: ImCache) {
@@ -400,7 +396,7 @@ export function imCacheEntriesAddDestructor(c: ImCache, destructor: () => void) 
     destructors.push(destructor);
 }
 
-export function imCacheEntriesOnRemove(entries: ImCacheEntries) {
+function imCacheEntriesOnRemove(entries: ImCacheEntries) {
     // don't re-traverse these items.
     if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === true) {
         entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
@@ -408,14 +404,14 @@ export function imCacheEntriesOnRemove(entries: ImCacheEntries) {
         for (let i = ENTRIES_ITEMS_START; i < entries.length; i += 2) {
             const t = entries[i];
             const v = entries[i + 1];
-            if (t === imBlock) {
+            if (t === imBlockBegin) {
                 imCacheEntriesOnRemove(v);
             }
         }
     }
 }
 
-export function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
+function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
     // don't re-traverse these items.
     if (entries[ENTRIES_REMOVE_LEVEL] < REMOVE_LEVEL_DESTROYED) {
         entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
@@ -423,7 +419,7 @@ export function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
         for (let i = ENTRIES_ITEMS_START; i < entries.length; i += 2) {
             const t = entries[i];
             const v = entries[i + 1];
-            if (t === imBlock) {
+            if (t === imBlockBegin) {
                 imCacheEntriesOnDestroy(v);
             }
         }
@@ -442,16 +438,16 @@ export function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
     }
 }
 
-export function imBlock<T>(
+export function imBlockBegin<T>(
     c: ImCache,
     parentTypeId: TypeId<T>,
     parent: T,
     internalType: number = INTERNAL_TYPE_NORMAL_BLOCK
 ): ImCacheEntries {
-    let entries; entries = imGet(c, imBlock);
+    let entries; entries = imGet(c, imBlockBegin);
     if (entries === undefined) entries = imSet(c, []);
 
-    imCacheEntriesPush(c, entries, parentTypeId, parent, internalType);
+    imCacheEntriesBegin(c, entries, parentTypeId, parent, internalType);
 
     const map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
     if (map !== undefined) {
@@ -494,15 +490,15 @@ export function imBlockEnd(c: ImCache, internalType: number = INTERNAL_TYPE_NORM
         }
     }
 
-    return imCacheEntriesPop(c);
+    return imCacheEntriesEnd(c);
 }
 
-export function __imBlockDerived(c: ImCache, internalType: number): ImCacheEntries {
+export function __imBlockDerivedBegin(c: ImCache, internalType: number): ImCacheEntries {
     const entries = c[CACHE_CURRENT_ENTRIES];
     const parentType = entries[ENTRIES_PARENT_TYPE];
     const parent = entries[ENTRIES_PARENT_VALUE];
 
-    return imBlock(c, parentType, parent, internalType);
+    return imBlockBegin(c, parentType, parent, internalType);
 }
 
 export function isFirstishRender(c: ImCache): boolean {
@@ -543,14 +539,14 @@ export function __imBlockDerivedEnd(c: ImCache, internalType: number) {
  */
 
 export function imIf(c: ImCache): true {
-    __imBlockArray(c);
-    __imBlockConditional(c);
+    __imBlockArrayBegin(c);
+    __imBlockConditionalBegin(c);
     return true;
 }
 
 export function imIfElse(c: ImCache): true {
     __imBlockConditionalEnd(c);
-    __imBlockConditional(c);
+    __imBlockConditionalBegin(c);
     return true;
 }
 
@@ -571,19 +567,19 @@ export function imIfEnd(c: ImCache) {
  * Use if-else + imIf/imIfElse/imIfEnd instead.
  */
 export function imSwitch(c: ImCache, key: ValidKey) {
-    __imBlockKeyed(c, key);
+    __imBlockKeyedBegin(c, key);
 }
 
 export function imSwitchEnd(c: ImCache) {
     __imBlockDerivedEnd(c, INTERNAL_TYPE_KEYED_BLOCK);
 }
 
-function __imBlockArray(c: ImCache) {
-    __imBlockDerived(c, INTERNAL_TYPE_ARRAY_BLOCK);
+function __imBlockArrayBegin(c: ImCache) {
+    __imBlockDerivedBegin(c, INTERNAL_TYPE_ARRAY_BLOCK);
 }
 
-function __imBlockConditional(c: ImCache) {
-    __imBlockDerived(c, INTERNAL_TYPE_CONDITIONAL_BLOCK);
+function __imBlockConditionalBegin(c: ImCache) {
+    __imBlockDerivedBegin(c, INTERNAL_TYPE_CONDITIONAL_BLOCK);
 }
 
 function __imBlockConditionalEnd(c: ImCache) {
@@ -596,7 +592,7 @@ function __imBlockConditionalEnd(c: ImCache) {
 }
 
 export function imFor(c: ImCache) {
-    __imBlockArray(c);
+    __imBlockArrayBegin(c);
 }
 
 export function imForEnd(c: ImCache) {
@@ -613,7 +609,7 @@ function __imBlockArrayEnd(c: ImCache) {
         for (let i = idx + 2; i <= lastIdx; i += 2) {
             const t = entries[i];
             const v = entries[i + 1];
-            if (t === imBlock) {
+            if (t === imBlockBegin) {
                 imCacheEntriesOnRemove(v);
             }
         }
@@ -705,7 +701,7 @@ export type TryState = {
 };
 
 export function imTry(c: ImCache): TryState {
-    const entries = __imBlockDerived(c, INTERNAL_TYPE_TRY_BLOCK);
+    const entries = __imBlockDerivedBegin(c, INTERNAL_TYPE_TRY_BLOCK);
 
     let tryState = imGet(c, imTry);
     if (tryState === undefined) {
