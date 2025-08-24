@@ -28,7 +28,7 @@ input.${cnInput}:focus, input.${cnInput}:hover {
 
 
 // NOTE: this component is untested, since I mainly use text areas instead due to their extra capability.
-export function imBeginTextInput(c: ImCache, {
+export function imTextInputBegin(c: ImCache, {
     value,
     placeholder = "",
 }: {
@@ -54,7 +54,7 @@ export function imBeginTextInput(c: ImCache, {
     return input;
 }
 
-export function imEndTextInput(c: ImCache) {
+export function imTextInputEnd(c: ImCache) {
     imLayoutEnd(c);
 }
 

@@ -7,10 +7,10 @@ import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd,
     imNavListNextItemArray,
     ListPosition,
     newListPosition
@@ -117,7 +117,8 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, state.currentNoteId)) {
+    const currentNote = getCurrentNote(state);
+    if (imMemo(c, currentNote)) {
         recomputeUrls(s);
     }
 
@@ -132,13 +133,13 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
     imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
-    const list = imBeginNavList(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
+    const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
         while (imNavListNextItemArray(list, s.urls)) {
             renderedAny = true;
             const { i } = list;
             const url = s.urls[i];
 
-            imBeginNavListRow(c, list); {
+            imNavListRowBegin(c, list); {
                 imLayout(c, BLOCK); imListRowCellStyle(c); {
                     imElBegin(c, EL_A); {
                         if (imMemo(c,url)) {
@@ -148,7 +149,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
                         imStr(c, url.url);
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
-            } imEndNavListRow(c);
+            } imNavListRowEnd(c);
         }
 
         imKeyedBegin(c, "empty"); {
@@ -158,5 +159,5 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
                 } imLayoutEnd(c);
             } imIfEnd(c);
         } imKeyedEnd(c);
-    } imEndNavList(c, list);
+    } imNavListEnd(c, list);
 }

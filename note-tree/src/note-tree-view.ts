@@ -30,6 +30,7 @@ import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "./
 import {
     BYPASS_TEXT_AREA,
     CTRL,
+    debouncedSave,
     GlobalContext,
     hasDiscoverableCommand,
     REPEAT,
@@ -41,10 +42,10 @@ import {
 import {
     clampedListIdx,
     getNavigableListInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd,
     imNavListNextItemArray,
     ListPosition,
     NavigableListState,
@@ -63,6 +64,7 @@ import {
     idIsRoot,
     isNoteCollapsed,
     isNoteEmpty,
+    notesMutated,
     noteStatusToString,
     NoteTreeGlobalState,
     parentNoteContains,
@@ -79,7 +81,7 @@ import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { formatDateTime } from "./utils/datetime";
 import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "./utils/dom-utils";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
 import * as tree from "./utils/int-tree";
 
@@ -125,7 +127,6 @@ function setNote(
 
     if (invalidate) {
         recomputeNoteStatusRecursively(state, note);
-        state._notesMutationCounter++;
     }
 }
 
@@ -272,7 +273,7 @@ function moveOutOfCurrent(
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
             setNote(s, s.note, true);
             recomputeNoteStatusRecursively(state, parent);
-            state._notesMutationCounter++;
+            debouncedSave(ctx, state, "Moved a note");
         }
     } else {
         setNote(s, parent, true);
@@ -301,7 +302,7 @@ function moveIntoCurrent(
             prevNote.data.lastSelectedChildIdx = idxUnderPrev;
             setNote(s, s.note, true);
             recomputeNoteStatusRecursively(state, prevNote);
-            state._notesMutationCounter++;
+            notesMutated(state);
         }
     } else {
         const nextRoot = s.childNotes[s.listPos.idx];
@@ -324,7 +325,9 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
     // invalidate properties as needed
     {
-        if (imMemo(c, state.currentNoteId)) {
+        // When we reload our state, the note object reference will change, so we need to memoize on that, not the ID.
+        const currentNote = getCurrentNote(state);
+        if (imMemo(c, currentNote)) {
             s.note = getCurrentNote(state);
             s.invalidateNote = true;
         }
@@ -381,7 +384,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             } imForEnd(c);
         } imLayoutEnd(c);
 
-        const list = imBeginNavList(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
+        const list = imNavListBegin(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
             while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const note = s.childNotes[i];
@@ -411,7 +414,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             imKeyedBegin(c, "scrolloff"); {
                 imLayout(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
             } imKeyedEnd(c);
-        } imEndNavList(c, list);
+        } imNavListEnd(c, list);
 
         imLine(c, LINE_HORIZONTAL, 1);
 
@@ -442,7 +445,6 @@ function addNoteAtCurrent(ctx: GlobalContext, s: NoteTreeViewState, insertType: 
     }
 
     recomputeNoteStatusRecursively(state, newNote);
-    state._notesMutationCounter++;
 
     return newNote;
 }
@@ -463,7 +465,7 @@ function moveToLocalidx(
         tree.insertAt(state.notes, parent, s.note, idx);
         setNote(s, s.note, true);
         recomputeNoteStatusRecursively(state, s.note);
-        state._notesMutationCounter++;
+        notesMutated(state);
     } else {
         const childId = parent.childIds[idx];
         const note = getNote(state.notes, childId);
@@ -565,7 +567,7 @@ function imNoteTreeRow(
         }
     }
 
-    const root = imBeginNavListRow(c, list); {
+    const root = imNavListRowBegin(c, list); {
         imLayout(c, ROW); imFlex(c); {
             if (imMemo(c, itemSelected)) {
                 elSetClass(c, cn.preWrap, itemSelected);
@@ -710,7 +712,6 @@ function imNoteTreeRow(
 
                                 setNoteText(state, s.note, textArea.value);
 
-                                state._notesMutationCounter++;
                                 ctx.handled = true;
                                 if (
                                     status !== s.note.data._status ||
@@ -754,7 +755,7 @@ function imNoteTreeRow(
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
         } imLayoutEnd(c);
-    } imEndNavListRow(c);
+    } imNavListRowEnd(c);
 
     return root;
 }

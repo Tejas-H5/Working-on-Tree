@@ -18,6 +18,11 @@ export type DomAppender<E extends AppendableElement> = {
     ref: unknown;
     idx: number;
     lastIdx: number;
+    // Set this to true manually when you want to manage the DOM children yourself.
+    // Hopefully that isn't all the time. If it is, then the framework isn't doing you too many favours.
+    // Good use case: You have to manage hundreds of thousands of DOM nodes. 
+    // From my experimentation, it is etiher MUCH faster to do this yourself instead of relying on the framework, or about the same,
+    // depending on how the browser has implemented DOM node rendering.
     manualDom: boolean;
     // if null, root is a text node. else, it can be appended to.
     children: (DomAppender<any>[] | null);
@@ -260,6 +265,16 @@ export function elSetAttr(
     }
 
     attrsSet++;
+}
+
+// Nicer API, but generating the attributes dict is expensive. Don't call this every frame!
+export function elSetAttributes(c: ImCache, attrs: Record<string, string | string[]>) {
+    const el = elGet(c);
+    for (const key in attrs) {
+        let val = attrs[key];
+        if (Array.isArray(val)) val = val.join(" ");
+        el.setAttribute(key, val);
+    }
 }
 
 

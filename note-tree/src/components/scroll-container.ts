@@ -31,7 +31,7 @@ export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
     sc.lastScrollTop = -1;
 }
 
-export function imBeginScrollContainer(
+export function imScrollContainerBegin(
     c: ImCache,
     sc: ScrollContainer,
     orientation: typeof ROW | typeof COL = COL

@@ -3,7 +3,6 @@ import {
     ImCache,
     imCacheBegin,
     imCacheEnd,
-    imChanged,
     imFor,
     imForEnd,
     imGet,
@@ -18,7 +17,8 @@ import {
     imTryCatch,
     imTryEnd,
     inlineTypeId,
-    isFirstishRender
+    isFirstishRender,
+    MEMO_CHANGED
 } from "src/utils/im-core";
 import {
     elHasMouseDown,
@@ -50,7 +50,9 @@ import {
     imJustify,
     imLayout,
     imLayoutEnd,
+    imPre,
     imSize,
+    INLINE_BLOCK,
     NA,
     PERCENT,
     PX,
@@ -84,6 +86,7 @@ import {
     AppTheme,
     getActivityTime,
     getLastActivity,
+    getLastSavedTimestampLocalstate,
     getNoteOrUndefined,
     loadState,
     newBreakActivity,
@@ -93,12 +96,12 @@ import {
     state
 } from "./state";
 import { imUrlViewer } from "./url-viewer";
-import { getWrapped } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
+import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 
 const ERROR_TIMEOUT_TIME = 5000;
 
@@ -198,7 +201,7 @@ function imMainInner(c: ImCache) {
             }
 
             state.breakAutoInsertLastPolledTime = getTimestamp(time);
-            debouncedSave(ctx, state);
+            debouncedSave(ctx, state, "Auto-inserted break");
         }
     }
 
@@ -206,10 +209,16 @@ function imMainInner(c: ImCache) {
         if (imIf(c) && !errorState.error && !errorState.irrecoverableError) {
             handleImKeysInput(ctx, ctx.ev);
 
-            let shouldSave = false;
-            if (imChanged(c, state._notesMutationCounter))      shouldSave = true;
-            if (imChanged(c, state._activitiesMutationCounter)) shouldSave = true;
-            if (shouldSave) debouncedSave(ctx, state);
+            if (imMemo(c, state._notesMutationCounter) === MEMO_CHANGED) {
+                if (state._notesMutationCounter !== 0) {
+                    debouncedSave(ctx, state, "ImMain memoizer - notes mutation");
+                }
+            }
+            if (imMemo(c, state._activitiesMutationCounter) === MEMO_CHANGED) {
+                if (state._activitiesMutationCounter !== 0) {
+                    debouncedSave(ctx, state, "ImMain memoizer - activities mutation");
+                }
+            }
 
             {
                 imLayout(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
@@ -247,7 +256,7 @@ function imMainInner(c: ImCache) {
 
                                 if (elHasMouseDown(c, ctx.ev)) {
                                     state.currentTheme = nextTheme;
-                                    debouncedSave(ctx, state);
+                                    debouncedSave(ctx, state, "Theme change");
                                 }
 
                                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
@@ -290,6 +299,10 @@ function imMainInner(c: ImCache) {
                                             elSetStyle(c, "transform", "rotate(" + 5 * t + "rad)");
                                             elSetStyle(c, "backgroundColor", cssVarsApp.fgColor);
                                         } imLayoutEnd(c);
+                                    } else {
+                                        imIfElse(c);
+
+                                        elSetStyle(c, "opacity", "1", root);
                                     } imIfEnd(c);
 
                                     imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
@@ -332,46 +345,45 @@ function imMainInner(c: ImCache) {
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 
-                            imLayout(c, ROW); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
+                            imLayout(c, BLOCK); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
                                 if (isFirstishRender(c)) {
                                     // TODO: standardize
                                     elSetStyle(c, "fontSize", "18px");
                                     elSetStyle(c, "fontWeight", "bold");
+                                    elSetStyle(c, "textAlign", "right");
                                 }
 
                                 const commands = ctx.discoverableCommands; {
-                                    imFor(c);
-                                    for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                    imFor(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
                                         const command = commands.stabilized[i];
                                         if (!command.key) continue;
 
                                         imCommandDescription(c, command.key.stringRepresentation, command.desc);
-                                    }
+                                    } imForEnd(c);
 
                                     const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftAvailable) ||
                                         (ctx.keyboard.ctrlKey.held && commands.ctrlAvailable) ||
                                         (ctx.keyboard.altKey.held && commands.altAvailable)
 
-                                    if (!anyFulfilled) {
-                                        if (commands.shiftAvailable) {
+                                    if (imIf(c) && !anyFulfilled) {
+                                        if (imIf(c) && commands.shiftAvailable) {
                                             imCommandDescription(c, ctx.keyboard.shiftKey.stringRepresentation, "Hold");
-                                        }
+                                        } imIfEnd(c);
 
-                                        if (commands.ctrlAvailable) {
+                                        if (imIf(c) && commands.ctrlAvailable) {
                                             imCommandDescription(c, ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
-                                        }
+                                        } imIfEnd(c);
 
-                                        if (commands.altAvailable) {
+                                        if (imIf(c) && commands.altAvailable) {
                                             imCommandDescription(c, ctx.keyboard.altKey.stringRepresentation, "Hold");
-                                        }
-                                    }
+                                        } imIfEnd(c);
+                                    } imIfEnd(c);
 
                                     commands.shiftAvailable = false;
                                     commands.ctrlAvailable = false;
                                     commands.altAvailable = false;
-                                    imForEnd(c);
-                                }
+                                } 
 
                                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
                             } imLayoutEnd(c);
@@ -455,13 +467,15 @@ function imMainInner(c: ImCache) {
 
                             // navigate list
                             {
-                                const prev = getWrapped(navList.views, navList.idx - 1);
-                                const next = getWrapped(navList.views, navList.idx + 1);
-                                const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
-                                if (tabInput < 0) {
-                                    ctx.currentView = prev.focusRef;
-                                } else if (tabInput > 0) {
-                                    ctx.currentView = next.focusRef;
+                                const prev = arrayAt(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
+                                const next = arrayAt(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
+                                if (prev && next) {
+                                    const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
+                                    if (tabInput < 0) {
+                                        ctx.currentView = prev.focusRef;
+                                    } else if (tabInput > 0) {
+                                        ctx.currentView = next.focusRef;
+                                    }
                                 }
                             }
                         } imLayoutEnd(c);
@@ -481,6 +495,12 @@ function imMainInner(c: ImCache) {
                         CTRL | BYPASS_TEXT_AREA,
                     )) {
                         ctx.notLockedIn = !ctx.notLockedIn;
+                        ctx.currentView = ctx.views.noteTree;
+                        ctx.handled = true;
+                    }
+
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
+                        ctx.notLockedIn = true;
                         ctx.currentView = ctx.views.noteTree;
                         ctx.handled = true;
                     }
@@ -510,8 +530,14 @@ function imMainInner(c: ImCache) {
                     )
                 ) {
                     ctx.viewingDurations = false;
+                    if (ctx.currentView === ctx.views.durations) {
+                        ctx.currentView = ctx.views.noteTree;
+                    }
                     ctx.views.activities.inputs.activityFilter = null;
                 }
+
+                // close locoked-in mode
+                ctx.notLockedIn
 
                 // back to the last note when escape pressed
                 {
@@ -585,6 +611,27 @@ function imMainInner(c: ImCache) {
                 updateDiscoverableCommands(ctx.discoverableCommands);
             }
 
+            // Need to make sure that we aren't overwriting the latest state. 
+            {
+                let mutationState; mutationState = imGet(c, inlineTypeId(getLastSavedTimestampLocalstate));
+                if (!mutationState) mutationState = imSet(c, {
+                    lastSyncTime: getLastSavedTimestampLocalstate(),
+                });
+
+                const val = getLastSavedTimestampLocalstate();
+                if (val !== mutationState.lastSyncTime) {
+                    if (mutationState.lastSyncTime !== null) {
+                        // Another program has just saved the state. we need to reload it.
+                        loadState(() => {
+                            // TODO: showStatusText
+                            console.log("Reloaded the state!");
+                        });
+                    }
+
+                    mutationState.lastSyncTime = val;
+                }
+            }
+
             errorState.framesSinceError++;
         } else {
             imIfElse(c);
@@ -625,9 +672,10 @@ function imMainEntry(c: ImCache) {
 };
 
 function imCommandDescription(c: ImCache, key: string, action: string) {
-    imLayout(c, COL); imAlign(c, CENTER); {
-        imLayout(c, BLOCK); imStr(c, "["); imStr(c, key); imStr(c, "]"); imLayoutEnd(c);
-        imLayout(c, BLOCK); imStr(c, action); imLayoutEnd(c);
+    imLayout(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
+        imStr(c, "["); imStr(c, key); imStr(c, " - ");
+        imStr(c, action);
+        imStr(c, "]");
     } imLayoutEnd(c);
 }
 

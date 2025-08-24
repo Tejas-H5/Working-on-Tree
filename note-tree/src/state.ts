@@ -16,7 +16,6 @@ import {
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
-import * as oldTree from "src/utils/tree";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { asNoteTreeGlobalState } from "./schema";
@@ -24,12 +23,6 @@ import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/arra
 import { fuzzyFind } from "./utils/fuzzyfind";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-
-const SAVE_DEBOUNCE = 1500;
-const ERROR_TIMEOUT_TIME = 5000;
-
-const GITHUB_PAGE = "https://github.com/Tejas-H5/Working-on-Tree";
-const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/new?template=Blank+issue";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -159,6 +152,11 @@ export type NoteTreeGlobalState = {
     _statusText: string;
     _statusTextColor: string;
 };
+
+export function notesMutated(state: NoteTreeGlobalState) {
+    // This is a good place to put a breakpoint
+    state._notesMutationCounter++;
+}
 
 export type TaskStream = {
     name: string;
@@ -644,7 +642,7 @@ export function setNoteText(
 ) {
     note.data.text = text;
     recomputeNoteStatusRecursively(state, note);
-    state._notesMutationCounter++;
+    notesMutated(state);
 
     let current = note;
     const now = new Date();
@@ -1311,6 +1309,7 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
     }
 
     state.activities.push(activity);
+    state._activitiesMutationCounter++;
 }
 
 
@@ -1338,7 +1337,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
         state._statusText = "Can't delete notes with children!";
         state._statusTextColor = "#F00";
 
-        state._notesMutationCounter++;
+        notesMutated(state);
         return true;
     }
 
@@ -1376,7 +1375,7 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
     }
     removeNoteFromNoteIds(state.scheduledNoteIds, note.id);
 
-    state._notesMutationCounter++;
+    notesMutated(state);
     return true;
 }
 
@@ -2244,7 +2243,7 @@ export function loadState(then: (error: string) => void) {
         return;
     }
 
-    if (lastLoadedTime === localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY)) {
+    if (lastLoadedTime === getLastSavedTimestampLocalstate()) {
         logTrace("We're already at the latest version, no need to reload");
         return;
     }
@@ -2252,7 +2251,7 @@ export function loadState(then: (error: string) => void) {
     loading = true;
     const thenInternal = (error: string) => {
         loading = false;
-        lastLoadedTime = localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY) || "";
+        lastLoadedTime = getLastSavedTimestampLocalstate();
         then(error);
     };
 
@@ -2309,6 +2308,10 @@ export function loadState(then: (error: string) => void) {
             setStateFromJSON(savedStateJSONWrapper.value, thenInternal);
         }
     };
+}
+
+export function getLastSavedTimestampLocalstate() {
+    return localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY) || "";
 }
 
 

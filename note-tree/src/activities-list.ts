@@ -23,6 +23,7 @@ import {
 import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
+    debouncedSave,
     getAxisRaw,
     GlobalContext,
     hasDiscoverableCommand,
@@ -30,18 +31,18 @@ import {
     SHIFT
 } from "./global-context";
 import {
-    imBeginListRow,
-    imEndListRow,
+    imListRowBegin,
+    imListRowEnd,
     imListRowCellStyle,
 } from "./list-row";
 import {
     clampedListIdx,
     clampedListIdxRange,
     getNavigableListInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd,
     ListPosition,
     navListNextItemSlice,
     newListPosition
@@ -66,7 +67,7 @@ import {
 import { imEditableTime } from "./time-input";
 import { arrayAt, boundsCheck, get } from "./utils/array-utils";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
-import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
 import { assert } from "./utils/assert";
 
@@ -182,7 +183,7 @@ export function activitiesViewTakeBreak(
     }
     activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
     s.isEditing = EDITING_ACTIVITY;
-    state._notesMutationCounter++;
+    debouncedSave(ctx, state, activitiesViewTakeBreak.name);
 }
 
 function getActivitiesNextDateStartIdx(
@@ -286,6 +287,8 @@ function insertBreakBetweenCurrentAndNext(
     ctx: GlobalContext,
     s: ActivitiesViewState
 ) {
+    if (s.filteredActivities) return;
+
     const idx = s.activityListPositon.idx;
     if (!boundsCheck(s.activities, idx)) return;
 
@@ -299,7 +302,7 @@ function insertBreakBetweenCurrentAndNext(
     const newBreak = newBreakActivity("New break", new Date(midpoint), false);
 
     s.activities.splice(idx + 1, 0, newBreak);
-    state._activitiesMutationCounter++;
+    debouncedSave(ctx, state, "Insert break activities list");
 
     s.isEditing = EDITING_ACTIVITY;;
     activitiesViewSetIdx(ctx, s, idx + 1, IN_RANGE);
@@ -542,7 +545,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         }
     }
 
-    if (imMemo(c, state.currentNoteId) && !viewHasFocus) {
+    const currentNote = getCurrentNote(state);
+    if (imMemo(c, currentNote) && !viewHasFocus) {
         // Let's make sure the activity we're lookint at is always the most recent
         // activity for the current note.
 
@@ -604,7 +608,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
         const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
 
-        imBeginListRow(
+        imListRowBegin(
             c,
             dateSelectorFocused,
             viewHasFocus && dateSelectorFocused
@@ -654,7 +658,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
             } imLayoutEnd(c);
 
-        } imEndListRow(c);
+        } imListRowEnd(c);
 
         imLine(
             c,
@@ -662,7 +666,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             !!s.scrollContainer.root && s.scrollContainer.root.scrollTop > 1,
         );
 
-        const list = imBeginNavList(
+        const list = imNavListBegin(
             c,
             s.scrollContainer,
             s.activityListPositon.idx,
@@ -696,7 +700,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                     const isBreakActivity = isBreak(activity);
 
-                    imBeginNavListRow(c, list, itemHighlighted); {
+                    imNavListRowBegin(c, list, itemHighlighted); {
                         imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
                             imLayout(c, INLINE_BLOCK); {
                                 if (imIf(c) && isEditingTime) {
@@ -717,7 +721,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                         if (newVal) {
                                             newVal = clampDate(newVal, lowerBound ?? null, upperBound ?? null);
                                             activity.t = newVal;
-                                            state._activitiesMutationCounter++;
+                                            debouncedSave(ctx, state, "Activities list time input");
                                             ctx.handled = true;
                                         }
                                     }
@@ -757,7 +761,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                                         if (input || change) {
                                             activity.breakInfo = textArea.value;
-                                            state._activitiesMutationCounter++;
+                                            debouncedSave(ctx, state, "Break info input");
                                             ctx.handled = true;
                                         }
 
@@ -772,7 +776,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
-                    } imEndNavListRow(c);
+                    } imNavListRowEnd(c);
                 } imKeyedEnd(c);
             } 
 
@@ -783,6 +787,6 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     } imLayoutEnd(c);
                 } imIfEnd(c);
             } imKeyedEnd(c);
-        } imEndNavList(c, list);
+        } imNavListEnd(c, list);
     } imLayoutEnd(c);
 }

@@ -1,7 +1,7 @@
 import { COL, imLayoutEnd, ROW } from "./components/core/layout";
-import { imBeginScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
+import { imScrollContainerBegin, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "./global-context";
-import { imBeginListRow, imEndListRow } from "./list-row";
+import { imListRowBegin, imListRowEnd } from "./list-row";
 import { getWrappedIdx } from "./utils/array-utils";
 import { assert } from "./utils/assert";
 import { ImCache, imFor, imForEnd, imGet, imSet, ValidKey } from "./utils/im-core";
@@ -151,7 +151,7 @@ export function navListNextItemSlice(
     return result;
 }
 // TODO: virtalize when isMassiveAhhList=true;
-export function imBeginNavList(
+export function imNavListBegin(
     c: ImCache,
     scrollContainer: ScrollContainer,
     listPositionIdx: number,
@@ -172,7 +172,7 @@ export function imBeginNavList(
     s.isEditing = isEditing;
     s.i = -1;
 
-    imBeginScrollContainer(c, s.scrollContainer, row ? ROW : COL); {
+    imScrollContainerBegin(c, s.scrollContainer, row ? ROW : COL); {
         imFor(c);
 
          /**
@@ -193,7 +193,7 @@ export function imBeginNavList(
     return s;
 }
 
-export function imEndNavList(c: ImCache, _list: NavigableListState) {
+export function imNavListEnd(c: ImCache, _list: NavigableListState) {
     _list.numItems = _list.i + 1;
 
     {
@@ -203,14 +203,14 @@ export function imEndNavList(c: ImCache, _list: NavigableListState) {
 }
 
 // might need to render a component outside of a list, and inside of a list. hence list | null
-export function imBeginNavListRow(
+export function imNavListRowBegin(
     c: ImCache,
     list: NavigableListState | null,
     highlighted = false
 ) {
     const itemSelected = list ? list.itemSelected : false;
 
-    const root = imBeginListRow(
+    const root = imListRowBegin(
         c,
         itemSelected || highlighted,
         list ? itemSelected && list.viewHasFocus : false,
@@ -230,8 +230,8 @@ export function imBeginNavListRow(
 // Should never accept the list as input. 
 // A list row element may adjust it's behaviour based on the list state, but never do any mutations.
 // It needs to be substitutable for a user component.
-export function imEndNavListRow(c: ImCache) {
-    imEndListRow(c);
+export function imNavListRowEnd(c: ImCache) {
+    imListRowEnd(c);
 }
 
 export type ViewsList = {

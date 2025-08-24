@@ -1,11 +1,14 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
+import { CanvasViewState, newCanvasViewState } from "./canvas-view";
 import { DurationsViewState, newDurationsViewState } from "./durations-view";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
+import { newCanvasState } from "./legacy-app-components/canvas-state";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
 import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState, NoteId } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
+import { assert } from "./utils/assert";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
@@ -35,12 +38,15 @@ export type GlobalContext = {
         finder: FuzzyFinderViewState;
         settings: SettingsViewState;
         durations: DurationsViewState;
+        // canvas: CanvasViewState;
     };
     currentView: unknown;
     leftTab: unknown;
     viewingDurations: boolean;
 
     notLockedIn: boolean;
+
+    requestSave: boolean;
 
     navListPrevious: NavigationListLink;
     navListNext: NavigationListLink;
@@ -136,8 +142,12 @@ export function newGlobalContext(): GlobalContext {
             finder: newFuzzyFinderViewState(),
             settings: newSettingsViewState(),
             durations: newDurationsViewState(),
+            // canvas: newCanvasViewState(),
         },
         notLockedIn: true,
+
+        requestSave: false,
+
         currentView: null,
         leftTab: null,
         viewingDurations: false,
@@ -564,7 +574,6 @@ export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState,
         // we were working on in the scratchpad.
         applyPendingScratchpadWrites(thisState);
 
-
         // save current note
         saveState(thisState, (serialized) => {
             // notification
@@ -637,6 +646,8 @@ function showStatusText(
     ctx.status.statusTextTimeInitialSeconds = timeout / 1000;
 }
 
-export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState) {
+export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState, where: string) {
+    assert(!!where);
+    logTrace("Save initiated via " + where);
     saveCurrentState(ctx, state, { debounced: true });
 };

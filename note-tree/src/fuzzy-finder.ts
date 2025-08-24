@@ -3,14 +3,14 @@ import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } fro
 import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
-import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
+import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd,
     imNavListNextItemArray
 } from "./navigable-list";
 import {
@@ -360,7 +360,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             imStr(c, `Finder [${scope}]`);
         } imLayoutEnd(c);
 
-        imBeginListRow(c, viewHasFocus, viewHasFocus, true); {
+        imListRowBegin(c, viewHasFocus, viewHasFocus, true); {
             imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
                 const [, textArea] = imTextAreaBegin(c, {
                     value: finderState.query,
@@ -379,7 +379,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                     }
                 } imTextAreaEnd(c);
             } imLayoutEnd(c);
-        } imEndListRow(c);
+        } imListRowEnd(c);
 
         if (imIf(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
             imLayout(c, ROW); imListRowCellStyle(c); {
@@ -387,7 +387,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             } imLayoutEnd(c);
         } imIfEnd(c);
 
-        const list = imBeginNavList(
+        const list = imNavListBegin(
             c,
             s.scrollContainer,
             s.fuzzyFindState.currentIdx,
@@ -398,7 +398,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                 const { i } = list;
                 const item = matches[i];
 
-                imBeginNavListRow(c, list); {
+                imNavListRowBegin(c, list); {
                     imLayout(c, BLOCK); imListRowCellStyle(c); {
 
                         if (imIf(c) && item.ranges) {
@@ -487,9 +487,9 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                             imLayout(c, INLINE); imStr(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
                         } imIfEnd(c);
                     } imLayoutEnd(c);
-                } imEndNavListRow(c);
+                } imNavListRowEnd(c);
             }
-        } imEndNavList(c, list);
+        } imNavListEnd(c, list);
 
         imLayout(c, ROW); imJustify(c); {
             const numMatches = finderState.matches.length;

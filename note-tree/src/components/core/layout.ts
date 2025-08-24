@@ -1,4 +1,4 @@
-import { ImCache, imChanged, imGet, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
+import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
 import { EL_DIV, elSetClass, elSetStyle, imElBegin, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
 import { newCssBuilder } from 'src/utils/cssb';
@@ -133,7 +133,7 @@ export function imRelative(c: ImCache) {
 }
 
 export function imBg(c: ImCache, colour: string) {
-    if (imChanged(c, colour)) {
+    if (imMemo(c, colour)) {
         elSetStyle(c, "backgroundColor", colour);
     }
 }
@@ -164,7 +164,7 @@ type DisplayType =
 
 export function imLayout(c: ImCache, type: DisplayType) {
     const root = imElBegin(c, EL_DIV);
-    if (imChanged(c, type)) {
+    if (imMemo(c, type)) {
         elSetClass(c, cn.inlineBlock, type === INLINE_BLOCK);
         elSetClass(c, cn.inline, type === INLINE);
         elSetClass(c, cn.row, type === ROW);
@@ -179,6 +179,12 @@ export function imLayout(c: ImCache, type: DisplayType) {
     return root.root;
 }
 
+export function imPre(c: ImCache) {
+    if (!isFirstishRender(c)) {
+        elSetClass(c, cn.pre);
+    }
+}
+
 export function imNoWrap(c: ImCache) {
     if (!isFirstishRender(c)) {
         elSetClass(c, cn.noWrap);
@@ -190,7 +196,7 @@ export function imLayoutEnd(c: ImCache) {
 }
 
 export function imFlex(c: ImCache, ratio = 1) {
-    if (imChanged(c, ratio)) {
+    if (imMemo(c, ratio)) {
         elSetStyle(c, "flex", "" + ratio);
         // required to make flex work the way I had thought it already worked
         elSetStyle(c, "minWidth", "0");
@@ -199,8 +205,8 @@ export function imFlex(c: ImCache, ratio = 1) {
 }
 
 export function imGap(c: ImCache, val = 0, units: SizeUnits) {
-    const valChanged = imChanged(c, val);
-    const unitsChanged = imChanged(c, units);
+    const valChanged = imMemo(c, val);
+    const unitsChanged = imMemo(c, units);
     if (valChanged || unitsChanged) {
         elSetStyle(c, "gap", getSize(val, units));
     }
@@ -225,13 +231,13 @@ function getAlignment(alignment: number) {
 }
 
 export function imAlign(c: ImCache, alignment = CENTER) {
-    if (imChanged(c, alignment)) {
+    if (imMemo(c, alignment)) {
         elSetStyle(c, "alignItems", getAlignment(alignment));
     }
 }
 
 export function imJustify(c: ImCache, alignment = CENTER) {
-    if (imChanged(c, alignment)) {
+    if (imMemo(c, alignment)) {
         elSetStyle(c, "justifyContent", getAlignment(alignment));
     }
 }
@@ -249,11 +255,11 @@ export function imButton(c: ImCache) {
 }
 
 export function imScrollOverflow(c: ImCache, vScroll = true, hScroll = false) {
-    if (imChanged(c, vScroll)) {
+    if (imMemo(c, vScroll)) {
         elSetClass(c, cn.overflowYAuto, vScroll);
     }
 
-    if (imChanged(c, hScroll)) {
+    if (imMemo(c, hScroll)) {
         elSetClass(c, cn.overflowXAuto, hScroll);
     }
 }
@@ -334,7 +340,7 @@ export function imAbsolute(
 export function imOverflowContainer(c: ImCache, noScroll: boolean = false) {
     const root = imLayout(c, BLOCK);
 
-    if (imChanged(c, noScroll)) {
+    if (imMemo(c, noScroll)) {
         if (noScroll) {
             elSetStyle(c, "overflow", "hidden");
             elSetClass(c, cn.overflowYAuto, false);
@@ -357,7 +363,7 @@ export function imAspectRatio(c: ImCache, w: number, h: number) {
     }
 
     const ar = w / h;
-    if (imChanged(c, ar)) {
+    if (imMemo(c, ar)) {
         elSetStyle(c, "aspectRatio", w + " / " + h);
     }
 }

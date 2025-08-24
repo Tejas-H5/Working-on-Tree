@@ -57,7 +57,7 @@ export function getRowStatus(
     return status;
 }
 
-export function imBeginListRow(
+export function imListRowBegin(
     c: ImCache,
     highlighted: boolean,
     focused: boolean,
@@ -94,7 +94,7 @@ export function imListCursorColor(c: ImCache, status: RowStatus) {
     }
 }
 
-export function imEndListRow(c: ImCache) {
+export function imListRowEnd(c: ImCache) {
     {
         imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
     } imLayoutEnd(c);

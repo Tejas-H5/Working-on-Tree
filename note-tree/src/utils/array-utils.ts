@@ -179,9 +179,3 @@ export function getWrappedIdx(i: number, len: number): number {
     }
     return i;
 }
-
-export function getWrapped<T>(arr: T[], i: number): T  {
-    const iWrapped = getWrappedIdx(i, arr.length);
-    if (iWrapped === -1) throw new Error("Array was empty");
-    return arr[iWrapped];
-}

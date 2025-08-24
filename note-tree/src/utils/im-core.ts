@@ -639,8 +639,11 @@ export const MEMO_FIRST_RENDER = 2;
  */
 export const MEMO_FIRST_RENDER_CONDITIONAL = 3;
 
+export const MEMO_FIRST_RENDER_EVER = 4;
+
 export type ImMemoResult
     = typeof MEMO_NOT_CHANGED
+    | typeof MEMO_FIRST_RENDER_EVER
     | typeof MEMO_CHANGED
     | typeof MEMO_FIRST_RENDER_CONDITIONAL;
 
@@ -675,21 +678,15 @@ export function imMemo(c: ImCache, val: unknown): ImMemoResult {
     let lastVal = imGet(c, inlineTypeId(imMemo), IM_MEMO_FIRST_EVER);
     if (lastVal !== val) {
         imSet(c, val);
-        result = MEMO_CHANGED;
+        if (lastVal === IM_MEMO_FIRST_EVER) {
+            result = MEMO_FIRST_RENDER_EVER;
+        } else {
+            result = MEMO_CHANGED;
+        }
     } else if (entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] === true) {
         result = MEMO_FIRST_RENDER_CONDITIONAL;
     }
 
-    return result;
-}
-
-// Like imMemo, but simpler. Won't return true when a component re-enters the conditional pathway.
-export function imChanged(c: ImCache, val: unknown): boolean {
-    let result = false;
-    if (imGet(c, imChanged, undefined) !== val) {
-        result = true;
-        imSet(c, val);
-    }
     return result;
 }
 

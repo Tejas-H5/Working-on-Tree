@@ -6,10 +6,10 @@ import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin as imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd as imNavListRowEnd,
     imNavListNextItemArray,
     ListPosition,
     newListPosition
@@ -26,7 +26,7 @@ import {
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
+import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, imStr } from "./utils/im-dom";
 
 
@@ -151,13 +151,13 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
     imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
-    const list = imBeginNavList(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
+    const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
         while (imNavListNextItemArray(list, s.notes)) {
             renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
 
-            imBeginNavListRow(c, list); {
+            imNavListRowBegin(c, list); {
                 imLayout(c, BLOCK); imListRowCellStyle(c); {
                     imLayout(c, INLINE); {
                         const canGoIn = note.childIds.length > 0;
@@ -169,7 +169,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
                         imStr(c, text); 
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
-            } imEndNavListRow(c);
+            } imNavListRowEnd(c);
         }
 
         imKeyedBegin(c, "empty"); {
@@ -179,6 +179,6 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
                 } imLayoutEnd(c);
             } imIfEnd(c);
         } imKeyedEnd(c);
-    } imEndNavList(c, list);
+    } imNavListEnd(c, list);
 }
 

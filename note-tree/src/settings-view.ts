@@ -5,15 +5,15 @@ import { cn } from "./components/core/stylesheets";
 import { imB, imBEnd, imI, imIEnd, imS } from "./components/core/text";
 import { newScrollContainer, } from "./components/scroll-container";
 import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, SHIFT } from "./global-context";
-import { imBeginListRow, imEndListRow, imListRowCellStyle } from "./list-row";
+import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
 import {
     addView,
     getNavigableListInput,
     getTabInput,
-    imBeginNavList,
-    imBeginNavListRow,
-    imEndNavList,
-    imEndNavListRow,
+    imNavListBegin,
+    imNavListRowBegin,
+    imNavListEnd,
+    imNavListRowEnd,
     imNavListNextItem,
     imNavListNextItemArray,
     imViewsList,
@@ -113,9 +113,9 @@ const menus: MenuItem[] = [
 
                     const settings = state.settings;
 
-                    const itemList = imBeginNavList(c, vSc, vPos.idx, hasFocus, false); {
+                    const itemList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
                         imNavListNextItem(itemList); {
-                            imBeginNavListRow(c, itemList); {
+                            imNavListRowBegin(c, itemList); {
                                 imLayout(c, ROW); imListRowCellStyle(c); {
                                     imB(c); imStr(c, "Spaces or tabs?"); imBEnd(c);
 
@@ -128,12 +128,12 @@ const menus: MenuItem[] = [
                                     imStr(c, settings.spacesInsteadOfTabs ? "Spaces" : "Tabs");
 
                                 } imLayoutEnd(c);
-                            } imEndNavListRow(c);
+                            } imNavListRowEnd(c);
 
                             if (hasFocus && itemList.itemSelected) {
                                 if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Toggle")) {
                                     settings.spacesInsteadOfTabs = !settings.spacesInsteadOfTabs;
-                                    debouncedSave(ctx, state);
+                                    debouncedSave(ctx, state, "Settings");
                                 }
                             }
                         }
@@ -142,7 +142,7 @@ const menus: MenuItem[] = [
                             let canWiden = hasFocus && settings.tabStopSize < 12;
                             let canNarrow = hasFocus && settings.tabStopSize > 1;
 
-                            imBeginNavListRow(c, itemList); {
+                            imNavListRowBegin(c, itemList); {
                                 imLayout(c, ROW); imListRowCellStyle(c); {
                                     if (isFirstishRender(c)) {
                                         elSetClass(c, cn.preWrap);
@@ -157,7 +157,7 @@ const menus: MenuItem[] = [
                                     imStr(c, " ".repeat(settings.tabStopSize));
                                     imStr(c, canWiden ? ">" : "|");
                                 } imLayoutEnd(c);
-                            } imEndNavListRow(c);
+                            } imNavListRowEnd(c);
 
                             if (hasFocus && itemList.itemSelected) {
                                 if (
@@ -165,7 +165,7 @@ const menus: MenuItem[] = [
                                     hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Wider")
                                 ) {
                                     settings.tabStopSize++;
-                                    debouncedSave(ctx, state);
+                                    debouncedSave(ctx, state, "settings");
                                 }
 
                                 if (
@@ -173,11 +173,11 @@ const menus: MenuItem[] = [
                                     hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Narrower")
                                 ) {
                                     settings.tabStopSize--;
-                                    debouncedSave(ctx, state);
+                                    debouncedSave(ctx, state, "settings");
                                 }
                             }
                         }
-                    } imEndNavList(c, itemList);
+                    } imNavListEnd(c, itemList);
                     if (hasFocus) {
                         const vListInput = getNavigableListInput(ctx, vPos.idx, 0, itemList.i + 1);
                         if (vListInput) {
@@ -202,11 +202,11 @@ const menus: MenuItem[] = [
                         imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
                         imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
 
-                        imBeginListRow(c, true, hasFocus, false); {
+                        imListRowBegin(c, true, hasFocus, false); {
                             imLayout(c, BLOCK); imListRowCellStyle(c); {
                                 imElBegin(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
                             } imLayoutEnd(c);
-                        } imEndListRow(c);
+                        } imListRowEnd(c);
 
                         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Download JSON")) {
                             try {
@@ -275,11 +275,11 @@ const menus: MenuItem[] = [
                                 imLayout(c, ROW); imGap(c, 50, PX); {
                                     addView(navList, 0, "Accept button"); {
                                         const focused = current.focused === 0;
-                                        imBeginListRow(c, focused, focused && hasFocus, false); {
+                                        imListRowBegin(c, focused, focused && hasFocus, false); {
                                             imLayout(c, BLOCK); imListRowCellStyle(c); {
                                                 imB(c); imStr(c, "Accept"); imBEnd(c); 
                                             } imLayoutEnd(c);
-                                        } imEndListRow(c);
+                                        } imListRowEnd(c);
 
                                         if (
                                             focused &&
@@ -296,11 +296,11 @@ const menus: MenuItem[] = [
 
                                     addView(navList, 1, "Reject button"); {
                                         const focused = current.focused === 1;
-                                        imBeginListRow(c, focused, focused && hasFocus, false); {
+                                        imListRowBegin(c, focused, focused && hasFocus, false); {
                                             imLayout(c, BLOCK); imListRowCellStyle(c); {
                                                 imB(c); imStr(c, "Reject"); imBEnd(c);
                                             } imLayoutEnd(c);
-                                        } imEndListRow(c);
+                                        } imListRowEnd(c);
 
                                         if (
                                             focused &&
@@ -344,11 +344,11 @@ const menus: MenuItem[] = [
 
                                 addView(navList, 0, "Back button"); {
                                     const focused = current.focused === 0;
-                                    imBeginListRow(c, focused, hasFocus && focused, false); {
+                                    imListRowBegin(c, focused, hasFocus && focused, false); {
                                         imLayout(c, BLOCK); imListRowCellStyle(c); {
                                             imB(c); imStr(c, "Back");  imBEnd(c);
                                         } imLayoutEnd(c);
-                                    } imEndListRow(c);
+                                    } imListRowEnd(c);
 
                                     if (hasFocus && focused) {
                                         if (
@@ -382,7 +382,7 @@ const menus: MenuItem[] = [
                     } else {
                         imIfElse(c);
 
-                        imBeginListRow(c, true, hasFocus, false); {
+                        imListRowBegin(c, true, hasFocus, false); {
                             imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
                             if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Import JSON")) {
                                 loadFile((file) => {
@@ -396,7 +396,7 @@ const menus: MenuItem[] = [
                                     });
                                 });
                             }
-                        } imEndListRow(c);
+                        } imListRowEnd(c);
                     } imIfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
@@ -433,7 +433,7 @@ const menus: MenuItem[] = [
 
                     const countChanged = imMemo(c, clearDataState.count);
 
-                    imBeginListRow(c, true, hasFocus, false); {
+                    imListRowBegin(c, true, hasFocus, false); {
                         imLayout(c, BLOCK); imListRowCellStyle(c); {
                             if (isFirstishRender(c)) {
                                 elSetStyle(c, "fontSize", "30px");
@@ -468,7 +468,7 @@ const menus: MenuItem[] = [
                                 clearDataState.count++;
                             }
                         }
-                    } imEndListRow(c);
+                    } imListRowEnd(c);
 
                     imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
@@ -546,17 +546,17 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                     if (!vSc) vSc = imSet(c, newScrollContainer());
 
                     const hasFocus = viewHasFocus && !s.mainListHasFocus;
-                    const hallwayList = imBeginNavList(c, vSc, vPos.idx, hasFocus, false); {
+                    const hallwayList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
                         while (imNavListNextItemArray(hallwayList, menus)) {
                             const menu = menus[hallwayList.i];
                             if (hallwayList.itemSelected) {
                                 s.selectedMenu = menu;
                             }
-                            imBeginNavListRow(c, hallwayList); {
+                            imNavListRowBegin(c, hallwayList); {
                                 imLayout(c, BLOCK); imListRowCellStyle(c); {
                                     imB(c); imStr(c, menu.name); imBEnd(c);
                                 } imLayoutEnd(c);
-                            } imEndNavListRow(c);
+                            } imNavListRowEnd(c);
                         }
 
                         if (hasFocus) {
@@ -575,7 +575,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                                 s.mainListHasFocus = true;
                             }
                         }
-                    } imEndNavList(c, hallwayList);
+                    } imNavListEnd(c, hallwayList);
                 } imLayoutEnd(c);
 
                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);

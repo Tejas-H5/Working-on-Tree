@@ -3,13 +3,13 @@ import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, imSize, 
 import { imB, imBEnd } from "./components/core/text";
 import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { GlobalContext } from "./global-context";
-import { getRowStatus, imBeginListRow, imEndListRowNoPadding, imListCursorColor, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
+import { getRowStatus, imListRowBegin, imEndListRowNoPadding, imListCursorColor, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
     getNavigableListInput,
-    imBeginNavList,
-    imEndNavList,
+    imNavListBegin,
+    imNavListEnd,
     imNavListNextItemArray,
     ListPosition,
     newListPosition
@@ -294,7 +294,7 @@ export function imDurationsView(
         const allColsSelected = s.tableColPos.idx === -1;
         const allSelected = allRowsSelected && allColsSelected;
 
-        imBeginListRow(c, allSelected, viewHasFocus && allSelected); {
+        imListRowBegin(c, allSelected, viewHasFocus && allSelected); {
             imLayout(c, ROW); imFlex(c); imAlign(c); {
                 imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
@@ -348,7 +348,7 @@ export function imDurationsView(
 
         imLine(c, LINE_HORIZONTAL, 1);
 
-        const list = imBeginNavList(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); {
+        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); {
             while (imNavListNextItemArray(list, s.durations)) {
                 const { i: rowIdx } = list;
                 const block = s.durations[rowIdx];
@@ -414,7 +414,7 @@ export function imDurationsView(
                     scrollToItem(c, list.scrollContainer, root);
                 }
             }
-        } imEndNavList(c, list);
+        } imNavListEnd(c, list);
 
 
         tableState.recomputedPrevFrame = !!imMemo(c, s.durations)
