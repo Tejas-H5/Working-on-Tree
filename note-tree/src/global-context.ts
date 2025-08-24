@@ -6,7 +6,7 @@ import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-tra
 import { newCanvasState } from "./legacy-app-components/canvas-state";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
-import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState, NoteId } from "./state";
+import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState, NoteId, getNoteOrUndefined, state } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
 import { assert } from "./utils/assert";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -61,6 +61,14 @@ export type GlobalContext = {
         statusTextType: typeof TASK_IN_PROGRESS | typeof TASK_DONE | typeof TASK_FAILED;
     };
 };
+
+export function setCurrentView(ctx: GlobalContext, view: unknown) {
+    ctx.currentView = view;
+    const currentNote = getNoteOrUndefined(state.notes, state.currentNoteId);
+    if (currentNote) {
+        ctx.noteBeforeFocus = currentNote;
+    }
+}
 
 export const TASK_IN_PROGRESS = 0;
 export const TASK_DONE = 1;
@@ -633,7 +641,7 @@ export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState,
     }, debounceAmount);
 };
 
-const STATUS_TEXT_PERSIST_TIME = 1;
+const STATUS_TEXT_PERSIST_TIME = 1000;
 function showStatusText(
     ctx: GlobalContext,
     text: string,

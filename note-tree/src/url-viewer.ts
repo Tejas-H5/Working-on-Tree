@@ -20,12 +20,13 @@ import {
     forEachChildNote,
     forEachParentNote,
     getCurrentNote,
+    setCurrentNote,
     state,
     TreeNote
 } from "./state";
 import { get } from "./utils/array-utils";
 import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
-import { EL_A, elSetAttr, elSetStyle, imElBegin, imStr } from "./utils/im-dom";
+import { EL_A, elSetAttr, elSetStyle, imElBegin, imElEnd, imStr } from "./utils/im-dom";
 
 type UrlListViewUrl = {
     url: string;
@@ -50,7 +51,10 @@ export function newUrlListViewState(): UrlListViewState {
 
 function setIdx(s: UrlListViewState, idx: number) {
     if (s.urls.length === 0) return;
+
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
+    const url = s.urls[s.listPosition.idx];
+    setCurrentNote(state, url.note.id);
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState) {
@@ -86,7 +90,6 @@ function recomputeUrls(s: UrlListViewState) {
     let notes: TreeNote[] = []; 
     let lastNote = currentNote;
     forEachParentNote(state.notes, currentNote, note => {
-        notes.push(note);
         forEachChildNote(state, note, note => {
             if (note !== lastNote) {
                 notes.push(note)
@@ -117,8 +120,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
         handleKeyboardInput(ctx, s);
     }
 
-    const currentNote = getCurrentNote(state);
-    if (imMemo(c, currentNote)) {
+    if (imMemo(c, viewHasFocus)) {
         recomputeUrls(s);
     }
 
@@ -147,7 +149,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
                         }
 
                         imStr(c, url.url);
-                    } imLayoutEnd(c);
+                    } imElEnd(c, EL_A);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);
         }

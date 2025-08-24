@@ -1,7 +1,7 @@
 import { imLine, LINE_HORIZONTAL } from "./app-components/common";
 import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "./components/core/layout";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand, REPEAT } from "./global-context";
+import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "./global-context";
 import { imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -77,7 +77,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
-        ctx.currentView = ctx.views.noteTree;
+        setCurrentView(ctx, ctx.views.noteTree);
     }
 
     // TODO: left/right should move up/down high level tasks

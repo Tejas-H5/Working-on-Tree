@@ -4,7 +4,7 @@ import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, i
 import { cn } from "./components/core/stylesheets";
 import { imB, imBEnd, imI, imIEnd, imS } from "./components/core/text";
 import { newScrollContainer, } from "./components/scroll-container";
-import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, SHIFT } from "./global-context";
+import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, setCurrentView, SHIFT } from "./global-context";
 import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
 import {
     addView,
@@ -289,7 +289,7 @@ const menus: MenuItem[] = [
                                             if (importModalState.acceptPresses >= REQUIRED_PRESSES && !importModalState.imported) {
                                                 setState(loadedState);
                                                 saveCurrentState(ctx, state, { debounced: false });
-                                                ctx.currentView = ctx.views.noteTree;
+                                                setCurrentView(ctx, ctx.views.noteTree);
                                             }
                                         }
                                     }
@@ -507,10 +507,10 @@ const menus: MenuItem[] = [
 
                             resetState();
 
-                            ctx.noteBeforeFocus = null;
+                            setCurrentView(ctx, null);
 
                             setTimeout(() => {
-                                ctx.currentView = ctx.views.noteTree;
+                                setCurrentView(ctx, ctx.views.noteTree);
                             }, 1000);
                         }
                     } imIfEnd(c);

@@ -74,6 +74,7 @@ import {
     hasDiscoverableCommand,
     newGlobalContext,
     preventImKeysDefault,
+    setCurrentView,
     SHIFT,
     TASK_IN_PROGRESS,
     updateDiscoverableCommands
@@ -472,9 +473,9 @@ function imMainInner(c: ImCache) {
                                 if (prev && next) {
                                     const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
                                     if (tabInput < 0) {
-                                        ctx.currentView = prev.focusRef;
+                                        setCurrentView(ctx, prev.focusRef);
                                     } else if (tabInput > 0) {
-                                        ctx.currentView = next.focusRef;
+                                        setCurrentView(ctx, next.focusRef);
                                     }
                                 }
                             }
@@ -495,14 +496,12 @@ function imMainInner(c: ImCache) {
                         CTRL | BYPASS_TEXT_AREA,
                     )) {
                         ctx.notLockedIn = !ctx.notLockedIn;
-                        ctx.currentView = ctx.views.noteTree;
-                        ctx.handled = true;
+                        setCurrentView(ctx, ctx.views.noteTree);
                     }
 
-                    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
+                    if (!ctx.notLockedIn && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
                         ctx.notLockedIn = true;
-                        ctx.currentView = ctx.views.noteTree;
-                        ctx.handled = true;
+                        setCurrentView(ctx, ctx.views.noteTree);
                     }
                 }
 
@@ -511,7 +510,7 @@ function imMainInner(c: ImCache) {
                     ctx.currentView !== ctx.views.finder &&
                     hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)
                 ) {
-                    ctx.currentView = ctx.views.finder;
+                    setCurrentView(ctx, ctx.views.finder);
                 }
 
                 // timesheet
@@ -521,7 +520,7 @@ function imMainInner(c: ImCache) {
                     hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Duration timesheet")
                 ) {
                     ctx.viewingDurations = true;
-                    ctx.currentView = ctx.views.durations;
+                    setCurrentView(ctx, ctx.views.durations);
                 } else if (
                     ctx.viewingDurations &&
                     hasDiscoverableCommand(
@@ -531,7 +530,7 @@ function imMainInner(c: ImCache) {
                 ) {
                     ctx.viewingDurations = false;
                     if (ctx.currentView === ctx.views.durations) {
-                        ctx.currentView = ctx.views.noteTree;
+                        setCurrentView(ctx, ctx.views.noteTree);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
                 }
@@ -541,13 +540,6 @@ function imMainInner(c: ImCache) {
 
                 // back to the last note when escape pressed
                 {
-                    if (imMemo(c, ctx.currentView)) {
-                        const currentNote = getNoteOrUndefined(state.notes, state.currentNoteId);
-                        if (currentNote) {
-                            ctx.noteBeforeFocus = currentNote;
-                        }
-                    }
-
                     if (
                         ctx.currentView !== ctx.views.noteTree &&
                         ctx.noteBeforeFocus &&
@@ -557,7 +549,7 @@ function imMainInner(c: ImCache) {
                         )
                     ) {
                         setCurrentNote(state, ctx.noteBeforeFocus.id);
-                        ctx.currentView = ctx.views.noteTree;
+                        setCurrentView(ctx, ctx.views.noteTree);
                     }
                 }
 
@@ -565,13 +557,13 @@ function imMainInner(c: ImCache) {
                     ctx.currentView !== ctx.views.settings,
                     hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
                 ) {
-                    ctx.currentView = ctx.views.settings;
+                    setCurrentView(ctx, ctx.views.settings);
                 }
 
                 // Take a break from any view.
                 // Also, shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", SHIFT)) {
-                    ctx.currentView = ctx.views.activities;
+                    setCurrentView(ctx, ctx.views.activities);
                     activitiesViewTakeBreak(ctx, ctx.views.activities);
                     ctx.handled = true;
                 }

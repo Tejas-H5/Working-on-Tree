@@ -2,7 +2,7 @@ import { cnApp } from "./app-styling";
 import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "./components/core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, SHIFT } from "./global-context";
+import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "./global-context";
 import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
 import {
     clampedListIdx,
@@ -11,7 +11,9 @@ import {
     imNavListRowBegin,
     imNavListEnd,
     imNavListRowEnd,
-    imNavListNextItemArray
+    imNavListNextItemArray,
+    AXIS_FLAG_BYPASS_TEXT_AREA,
+    AXIS_VERTICAL
 } from "./navigable-list";
 import {
     dfsPre,
@@ -247,14 +249,17 @@ function setIdx(
 function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
     const finderState = s.fuzzyFindState;
     const matches = finderState.matches;
-    const listNavigation = getNavigableListInput(ctx, s.fuzzyFindState.currentIdx, 0, matches.length);
+    const listNavigation = getNavigableListInput(
+        ctx, s.fuzzyFindState.currentIdx, 0, matches.length, 
+        AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA
+    );
 
     if (listNavigation) {
         setIdx(ctx, s, listNavigation.newIdx);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note", BYPASS_TEXT_AREA)) {
-        ctx.currentView = ctx.views.noteTree;
+        setCurrentView(ctx, ctx.views.noteTree);
     }
 
     const nextScope = getNextScope(finderState.scope);

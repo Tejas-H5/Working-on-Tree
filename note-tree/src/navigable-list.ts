@@ -39,6 +39,7 @@ export type AxisType
     | typeof AXIS_HORIZONTAL;
 
 export const AXIS_FLAG_REPEATING = 1 << 0;
+export const AXIS_FLAG_BYPASS_TEXT_AREA = 1 << 1;
 
 // NOTE: only works if called in the animation loop
 export function getNavigableListInput(
@@ -56,14 +57,19 @@ export function getNavigableListInput(
     const oldIdx = idx;
     let newIdx: number | undefined;
 
+    let hdcFlags = REPEAT | ANY_MODIFIERS;
+    if (flags & AXIS_FLAG_BYPASS_TEXT_AREA) {
+        flags |= BYPASS_TEXT_AREA;
+    }
+
     // Arrays are rendered downards most of the time. traversing them by idx means that up goes down and down goes up
     // TODO: make these discoverable in a way that doesn't eat up a lot of space
     if (axis === AXIS_VERTICAL) {
-        if (hasDiscoverableCommand(ctx, keyboard.upKey, "Up", REPEAT | ANY_MODIFIERS))     newIdx = oldIdx - 1;
-        if (hasDiscoverableCommand(ctx, keyboard.downKey, "Down", REPEAT | ANY_MODIFIERS)) newIdx = oldIdx + 1;
+        if (hasDiscoverableCommand(ctx, keyboard.upKey, "Up", hdcFlags))     newIdx = oldIdx - 1;
+        if (hasDiscoverableCommand(ctx, keyboard.downKey, "Down", hdcFlags)) newIdx = oldIdx + 1;
     } else if (axis === AXIS_HORIZONTAL) {
-        if (hasDiscoverableCommand(ctx, keyboard.leftKey,  "Left", REPEAT | ANY_MODIFIERS))   newIdx = oldIdx - 1;
-        if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Right", REPEAT | ANY_MODIFIERS)) newIdx = oldIdx + 1;
+        if (hasDiscoverableCommand(ctx, keyboard.leftKey,  "Left", hdcFlags))  newIdx = oldIdx - 1;
+        if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Right", hdcFlags)) newIdx = oldIdx + 1;
     }
 
     if (keyboard.pageUpKey.pressed) newIdx = oldIdx - 10;

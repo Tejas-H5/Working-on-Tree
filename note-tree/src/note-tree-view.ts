@@ -34,6 +34,7 @@ import {
     GlobalContext,
     hasDiscoverableCommand,
     REPEAT,
+    setCurrentView,
     SHIFT
 } from "./global-context";
 import {
@@ -486,7 +487,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.tKey, "Fast-travel")) {
-        ctx.currentView = ctx.views.fastTravel;
+        setCurrentView(ctx, ctx.views.fastTravel);
     }
 
     if (!state._isEditingFocusedNote) {
@@ -509,12 +510,12 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
                 activitiesViewSetIdx(ctx, ctx.views.activities, idx, NOT_IN_RANGE);
-                ctx.currentView = ctx.views.activities;
+                setCurrentView(ctx, ctx.views.activities);
             }
         }
 
         if (hasDiscoverableCommand(ctx, keyboard.slashKey, "URLs", CTRL)) {
-            ctx.currentView = ctx.views.urls;
+            setCurrentView(ctx, ctx.views.urls);
         }
     }
 
