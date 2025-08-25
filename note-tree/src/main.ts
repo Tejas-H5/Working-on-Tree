@@ -88,7 +88,6 @@ import {
     getActivityTime,
     getLastActivity,
     getLastSavedTimestampLocalstate,
-    getNoteOrUndefined,
     loadState,
     newBreakActivity,
     pushBreakActivity,

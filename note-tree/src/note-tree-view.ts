@@ -58,7 +58,6 @@ import {
     deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
-    getNoteOrUndefined,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
@@ -76,7 +75,6 @@ import {
     state,
     STATUS_IN_PROGRESS,
     TreeNote,
-    TreeNoteTree
 } from "./state";
 import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
 import { assert } from "./utils/assert";
@@ -86,8 +84,11 @@ import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin,
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
 import * as tree from "./utils/int-tree";
 
+const PARTIAL_INVALIDATION = 1;
+const FULL_INVALIDATION = 2;
+
 export type NoteTreeViewState = {
-    invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
+    invalidateNote:      number; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
     invalidateVisibleNotes: boolean;
 
     note:                TreeNote;
@@ -111,7 +112,7 @@ function setNote(
     note: TreeNote,
     invalidate = false
 ) {
-    s.invalidateNote = false;
+    s.invalidateNote = 0;
 
     let mutated = false;
     if (invalidate || s.note !== note) {
@@ -236,7 +237,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
     const note = getCurrentNote(state);
     const viewRoot = note; // needs to be wrong, so that it can be recomputed
     const s: NoteTreeViewState = {
-        invalidateNote: false,
+        invalidateNote: 0,
         invalidateVisibleNotes: false,
         note,
         viewRoot,
@@ -277,7 +278,7 @@ function moveOutOfCurrent(
             debouncedSave(ctx, state, "Moved a note");
         }
     } else {
-        setNote(s, parent, true);
+        setNote(s, parent, false);
     }
 }
 
@@ -315,7 +316,7 @@ function moveIntoCurrent(
 
             const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
             const nextChild = getNote(state.notes, nextChildId);
-            setNote(s, nextChild, true);
+            setNote(s, nextChild, false);
         }
     }
 }
@@ -330,26 +331,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         const currentNote = getCurrentNote(state);
         if (imMemo(c, currentNote)) {
             s.note = getCurrentNote(state);
-            s.invalidateNote = true;
+            s.invalidateNote = PARTIAL_INVALIDATION;
         }
-
-        /**
-        if (imMemo(c, ctx.noteTreeFilterVersion)) {
-            s.currentFilter = ctx.noteTreeFilter;
-            if (filterExcludes(s.currentFilter, s.note)) {
-                s.note = filterGetFirst(s.currentFilter);
-                s.invalidateNote = true;
-            }
-
-            s.invalidateVisibleNotes = true;
-        }
-        */
     }
 
     // recompute invalidated properties in order
     {
         if (s.invalidateNote) {
-            setNote(s, s.note, true);
+            setNote(s, s.note, s.invalidateNote === FULL_INVALIDATION);
         }
 
         if (s.invalidateVisibleNotes) {
@@ -718,7 +707,7 @@ function imNoteTreeRow(
                                     status !== s.note.data._status ||
                                     collapseStatus !== isNoteCollapsed(s.note)
                                 ) {
-                                    s.invalidateNote = true;
+                                    s.invalidateNote = FULL_INVALIDATION;
                                 }
                             }
 

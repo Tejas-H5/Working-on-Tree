@@ -252,7 +252,8 @@ export type Activity = {
 const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
 
 function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
-    for (const suffix of doneSuffixes) {
+    for (let i = 0; i < doneSuffixes.length; i++) {
+        const suffix = doneSuffixes[i];
         if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
             return suffix;
         }
@@ -261,9 +262,9 @@ function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
     return undefined;
 }
 
-// @deprecated. just call getDoneNoteSuffix(note)
-export function isDoneNote(note: Note) {
-    return false;
+function isNoteShelved(note: Note): boolean {
+    return note.text.trimEnd().endsWith("SHELVED") || 
+           note.text.trimStart().startsWith("SHELVED");
 }
 
 // @deprecated. Just call getDoneNoteSuffix.
@@ -374,11 +375,20 @@ export const STATUS_ASSUMED_DONE = 2 as NoteStatusInstance;
  */
 export const STATUS_DONE = 3 as NoteStatusInstance;
 
+/**
+ * This status will shelve a parent note, and ALL it's children recursively. 
+ * Knowing when to stop working on something is just as important as knowing what you're working on.
+ * This status arose from a usecase where I was doing DONE, DONE, DONE, over and over again for all loose ends under a 
+ * higher level task.
+ */
+export const STATUS_SHELVED = 4 as NoteStatusInstance;
+
 export type NoteStatus = 
     typeof STATUS_NOT_COMPUTED |
     typeof STATUS_IN_PROGRESS |
     typeof STATUS_ASSUMED_DONE |
-    typeof STATUS_DONE;
+    typeof STATUS_DONE |
+    typeof STATUS_SHELVED;
 
 export function noteStatusToString(noteStatus: NoteStatus) {
     switch (noteStatus) {
@@ -388,6 +398,8 @@ export function noteStatusToString(noteStatus: NoteStatus) {
             return "[*]";
         case STATUS_DONE:
             return "[x]";
+        case STATUS_SHELVED:
+            return "[-]";
     }
 
     return "??";
@@ -668,33 +680,41 @@ export function recomputeNoteStatusRecursively(
         recomputeParents = true;
     } else if (note.childIds.length > 0) {
         let status = STATUS_IN_PROGRESS;
-        // if the last note in the list is DONE, then we can default to DONE instead
+
+        // if the last note in the list is DONE, then we can default to DONE instead. 
+        // Same for SHELVED.
         {
             const lastId = note.childIds[note.childIds.length - 1];
             const lastNote = getNote(state.notes, lastId);
+
             if (getDoneNotePrefixOrSuffix(lastNote.data)) {
                 status = STATUS_DONE;
+            } else if (isNoteShelved(lastNote.data)) {
+                status = STATUS_SHELVED;
             }
         }
 
         let foundDoneNoteUnderThisParent = false;
+        let foundShelvedNoteUnderThisParent = false;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
             const child = getNote(state.notes, id);
 
             if (child.childIds.length > 0) {
-                if (
-                    recomputeChildren || 
-                    child.data._status === STATUS_NOT_COMPUTED
-                ) {
+                if (foundShelvedNoteUnderThisParent) {
+                    shelveNotesRecursively(state, child);
+                } else if (child.data._status === STATUS_NOT_COMPUTED) {
                     recomputeNoteStatusRecursively(state, child, false, true);
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
             } else {
-                const doneSuffix = getDoneNotePrefixOrSuffix(child.data);
-                if (doneSuffix || foundDoneNoteUnderThisParent) {
+                if (getDoneNotePrefixOrSuffix(child.data) || foundDoneNoteUnderThisParent) {
                     child.data._status = STATUS_DONE;
                     foundDoneNoteUnderThisParent = true;
+                } else if (isNoteShelved(child.data) || foundShelvedNoteUnderThisParent) {
+                    foundShelvedNoteUnderThisParent = true;
+                    recomputeChildren = false;
+                    child.data._status = STATUS_SHELVED;
                 } else if (i === note.childIds.length - 1) {
                     child.data._status = STATUS_IN_PROGRESS;
                 } else {
@@ -706,17 +726,29 @@ export function recomputeNoteStatusRecursively(
                 }
             }
 
-            if (child.data._status !== STATUS_DONE) {
+            if (
+                child.data._status !== STATUS_DONE &&
+                child.data._status !== STATUS_SHELVED
+            ) {
                 status = STATUS_IN_PROGRESS;
             }
         }
 
-        if (note.data._status !== status) {
-            if (note.data._status !== STATUS_NOT_COMPUTED) {
+        const previousStatus = note.data._status;
+        const noteStatusChanged = previousStatus !== status;
+        if (noteStatusChanged) {
+            note.data._status = status;
+
+            // if it isn't computed, we're already computing the parents.
+            if (previousStatus !== STATUS_NOT_COMPUTED) {
                 recomputeParents = true;
             }
 
-            note.data._status = status;
+            if (previousStatus === STATUS_SHELVED) {
+                // Need to recompute all the children recursively, now that this note is no longer shelved.
+                clearNoteStatusRecursively(state, note);
+                recomputeNoteStatusRecursively(state, note, false, true);
+            }
         }
     }
 
@@ -728,370 +760,19 @@ export function recomputeNoteStatusRecursively(
     }
 }
 
-// called just before we render things.
-// It recomputes all state that needs to be recomputed
-// TODO: super inefficient, need to set up a compute graph or something more complicated
-// TODO: deprecate this method once we've reached a point where we don't need to ever call it again.
-export function recomputeState(state: NoteTreeGlobalState) {
-    if (!state) throw new Error("WTF!");
-
-    // delete the empty notes
-    {
-        itree.forEachNode(state.notes, (n) => {
-            if (n.childIds.length === 0 && n.id !== state.currentNoteId) {
-                deleteNoteIfEmpty(state, n)
-            }
-        });
+function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote) {
+    note.data._status = STATUS_SHELVED;
+    for (let i = 0; i < note.childIds.length; i++) {
+        const child = getNote(state.notes, note.childIds[i]);
+        shelveNotesRecursively(state, child);
     }
+}
 
-    // recompute _depth, _parent, _index. Somewhat required for a lot of things after to work.
-    // tbh a lot of these things should just be updated as we are moving the elements around, but I find it easier to write this (shit) code at the moment
-    {
-        const dfs = (note: TreeNote, depth: number, index: number, numSiblings: number) => {
-            note.data._depth = depth;
-
-            for (let i = 0; i < note.childIds.length; i++) {
-                const c = getNote(state.notes, note.childIds[i]);
-                dfs(c, depth + 1, i, note.childIds.length);
-            }
-        };
-
-        dfs(getRootNote(state), -1, 0, 1);
-    }
-
-
-    // recompute _shelved
-    {
-        itree.forEachNode(state.notes, (note) => {
-            note.data._shelved = false;
-        });
-
-        const shelveSubtree = (note: TreeNote) => {
-            for (let i = 0; i < note.childIds.length; i++) {
-                const childId = note.childIds[i];
-                const child = getNote(state.notes, childId);
-                child.data._shelved = true;
-                shelveSubtree(child);
-            }
-        }
-
-        const dfs = (note: TreeNote) => {
-            if (isNoteRequestingShelf(note.data)) {
-                // Don't shelve this root note - if it is still in progress, 
-                // we don't want to forget about it
-                note.data._shelved = true;
-                shelveSubtree(note);
-                return;
-            }
-
-            for (let i = 0; i < note.childIds.length; i++) {
-                const childId = note.childIds[i];
-                const child = getNote(state.notes, childId);
-                dfs(child);
-            }
-        }
-        dfs(getRootNote(state));
-    }
-
-    // recompute _status, do some sorting (OLD)
-    if (0) {
-        itree.forEachNode(state.notes, (note) => {
-            note.data._status = STATUS_IN_PROGRESS;
-        });
-
-        const dfs = (note: TreeNote) => {
-            if (note.childIds.length === 0) {
-                return;
-            }
-
-            let foundDoneNote = false;
-            let hasInProgressNoteWithoutChildren = false;
-            for (let i = note.childIds.length - 1; i >= 0; i--) {
-                const childId = note.childIds[i];
-                const child = getNote(state.notes, childId);
-                if (child.childIds.length > 0) {
-                    dfs(child);
-                    continue;
-                }
-
-                if (isTodoNote(child.data)) {
-                    child.data._status = STATUS_IN_PROGRESS;
-                    hasInProgressNoteWithoutChildren = true;
-                    continue;
-                }
-
-                if (isDoneNote(child.data) || foundDoneNote) {
-                    child.data._status = STATUS_DONE;
-                    foundDoneNote = true;
-                    continue;
-                }
-
-                if (i === note.childIds.length - 1) {
-                    child.data._status = STATUS_IN_PROGRESS;
-                    hasInProgressNoteWithoutChildren = true;
-                } else {
-                    child.data._status = STATUS_ASSUMED_DONE;
-                }
-            }
-
-            const everyChildNoteIsDone = note.childIds.every((id) => {
-                const note = getNote(state.notes, id);
-                return note.data._status === STATUS_DONE
-                    || note.data._status === STATUS_ASSUMED_DONE;
-            });
-
-            const lastNote = note.childIds.length === 0 ? undefined :
-                getNote(state.notes, note.childIds[note.childIds.length - 1]);
-
-            // Make sure a note can only be closed out if all the notes under it are > 0
-            const lastChildNoteIsDoneLeafNote = lastNote && (
-                lastNote.childIds.length === 0 &&
-                isDoneNote(lastNote.data)
-            );
-
-            const isDone = everyChildNoteIsDone && lastChildNoteIsDoneLeafNote;
-            note.data._status = isDone ? STATUS_DONE : STATUS_IN_PROGRESS;
-            note.data._everyChildNoteDone = everyChildNoteIsDone;
-        };
-
-        dfs(getRootNote(state));
-    } else {
-        recomputeNoteStatusRecursively(state, getRootNote(state));
-    }
-
-    // TODO: new status recomputation
-
-    // recompute _isSelected to just be the current note + all parent notes 
-    {
-        itree.forEachNode(state.notes, (note) => {
-            note.data._isAboveCurrentNote = false;
-        });
-
-        const current = getCurrentNote(state);
-
-        let note = current;
-        while (!idIsNil(note.parentId)) {
-            note.data._isAboveCurrentNote = true;
-            note = getNote(state.notes, note.parentId);
-        }
-    }
-
-    // recompute the activity list most recent index.
-    {
-        itree.forEachNode(state.notes, (note) => {
-            note.data._activityListMostRecentIdx = -1;
-        });
-
-        for (let i = state.activities.length - 1; i >= 0; i--) {
-            const noteId = state.activities[i].nId;
-            if (!noteId) {
-                continue;
-            }
-
-            const note = getNoteOrUndefined(state.notes, noteId);
-            if (!note) {
-                continue;
-            }
-
-            if (note.data._activityListMostRecentIdx === -1) {
-                note.data._activityListMostRecentIdx = i;
-            }
-
-            const hlt = getHigherLevelTask(state, note);
-            if (hlt && hlt.data._activityListMostRecentIdx === -1) {
-                hlt.data._activityListMostRecentIdx = i;
-            }
-        }
-    }
-
-    // compute the duration range as needed
-    {
-        // Once we leave the duration view, ensure that activitiesTo resets to today if it doesn't already include today.
-        // Note that this still means we can increase the total time window we are seeing to longer than a day, but 
-        // this reset to today only happens if today isn't in that time range
-        if (
-            !state._isShowingDurations &&
-            !!state._activitiesTo && state._activitiesTo < new Date()
-        ) {
-            setActivityRangeToToday(state);
-        }
-
-        if (state._isShowingDurations) {
-            // if scope is week, make sure we always have a week-long window set,
-            // which also starts at day 0. (in JS land it's sunday. who cares tbh)
-            if (state._currentDateScope === "week") {
-                if (state._activitiesFrom === null) {
-                    state._activitiesFrom = new Date();
-                }
-
-                floorDateToWeekLocalTime(state._activitiesFrom)
-
-                if (state._currentDateScopeWeekDay >= 0) {
-                    // scope the date to the current week day selected within the week
-                    addDays(state._activitiesFrom, state._currentDateScopeWeekDay);
-                    state._activitiesTo = new Date(state._activitiesFrom);
-                    addDays(state._activitiesTo, 1);
-                } else {
-                    // scope the date to the whole week
-                    state._activitiesTo = new Date(state._activitiesFrom);
-                    addDays(state._activitiesTo, 7);
-                }
-            }
-        }
-    }
-
-    // recompute note durations, with and without the range.
-    {
-        state._activitiesToIdx = -1;
-        state._activitiesFromIdx = -1;
-        itree.forEachNode(state.notes, (note) => {
-            note.data._durationUnranged = 0;
-            note.data._durationUnrangedOpenSince = undefined;
-            note.data._durationRanged = 0;
-            note.data._durationRangedOpenSince = undefined;
-        });
-
-        const activities = state.activities;
-        for (let i = 0; i < activities.length; i++) {
-            // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
-            const a0 = activities[i];
-            const note = getNoteOrUndefined(state.notes, a0.nId);
-            if (!note) {
-                continue;
-            }
-
-            const a1 = activities[i + 1] as Activity | undefined;
-            const duration = getActivityDurationMs(a0, a1);
-
-            const isCurrentActivity = !a1;
-
-            {
-                let parentNote = note;
-                while (!idIsNil(parentNote.parentId)) {
-                    if (!isCurrentActivity) {
-                        parentNote.data._durationUnranged += duration;
-                    } else {
-                        parentNote.data._durationUnrangedOpenSince = getActivityTime(a0);
-                    }
-
-                    parentNote = getNote(state.notes, parentNote.parentId);
-                }
-            }
-
-            // TODO: update this to work for activities with start/end times that overlap into the current range
-            if (
-                (!state._activitiesFrom || state._activitiesFrom <= getActivityTime(a0))
-                && (!state._activitiesTo || getActivityTime(a1) <= state._activitiesTo)
-            ) {
-                if (state._activitiesFromIdx === -1) {
-                    state._activitiesFromIdx = i;
-                }
-                state._activitiesToIdx = i;
-
-                {
-                    let parentNote = note;
-                    while (!idIsNil(parentNote.parentId)) {
-                        if (!isCurrentActivity) {
-                            parentNote.data._durationRanged += duration;
-                        } else {
-                            parentNote.data._durationRangedOpenSince = getActivityTime(a0);
-                        }
-
-                        parentNote = getNote(state.notes, parentNote.parentId);
-                    }
-                }
-            }
-        }
-    }
-
-    // recompute the current filtered activities
-    {
-        state._useActivityIndices = false;
-        const hasValidRange = state._activitiesFromIdx !== -1;
-        const useDurations = state._isShowingDurations && hasValidRange;
-        if (useDurations || !idIsNil(state._currentActivityScopedNoteId)) {
-            state._useActivityIndices = true;
-            clearArray(state._activityIndices);
-
-            let start = useDurations ? state._activitiesFromIdx : 0;
-            let end = useDurations ? state._activitiesToIdx : state.activities.length - 1;
-
-            for (let i = start; i >= 0 && i <= end; i++) {
-                const activity = state.activities[i];
-
-                if (!idIsNil(state._currentActivityScopedNoteId) && (
-                    activity.deleted ||
-                    !activity.nId ||
-                    !parentNoteContains(state, state._currentActivityScopedNoteId, getNote(state.notes, activity.nId),)
-                )) {
-                    continue;
-                }
-
-                state._activityIndices.push(i);
-            }
-        }
-    }
-
-
-    // recompute _flatNoteIds and _parentFlatNoteIds (after deleting things)
-    /* {
-        if (!state._flatNoteIds) {
-            state._flatNoteIds = [];
-        }
-
-        if (state._showAllNotes) {
-            state._currentFlatNotesRootId = tree.ROOT_ID;
-            state._currentFlatNotesRootHltId = tree.ROOT_ID;
-
-            clearArray(state._flatNoteIds);
-            tree.forEachNode(state.notes, (note) => {
-                state._flatNoteIds.push(note.id);
-            });
-        } else {
-            let startNote = getCurrentNote(state);
-            while (!idIsNilOrRoot(startNote.parentId)) {
-                const nextNote = getNote(state.notes, startNote.parentId);
-
-                if (isStoppingPointForNotViewExpansion(state, nextNote)) {
-                    break;
-                }
-
-                startNote = nextNote;
-            }
-
-            state._currentFlatNotesRootId = startNote.id;
-            state._currentFlatNotesRootHltId = startNote.parentId;
-
-            recomputeFlatNotes(state, state._flatNoteIds, startNote, true);
-        }
-    } */
-
-    // recompute the stream indexes
-    {
-        for (let i = 0; i < state.taskStreams.length; i++) {
-            const stream = state.taskStreams[i];
-            stream._idx = i;
-        }
-    }
-
-    // recompute the task streams every note is in
-    {
-        itree.forEachNode(state.notes, n => clearArray(n.data._taskStreams));
-        for (const ts of state.taskStreams) {
-            for (const id of ts.noteIds) {
-                const note = getNote(state.notes, id);
-                note.data._taskStreams.push(ts);
-            }
-        }
-    }
-
-    // recompute which notes are scheduled
-    {
-        itree.forEachNode(state.notes, n => n.data._isScheduled = false);
-        for (const id of state.scheduledNoteIds) {
-            const note = getNote(state.notes, id);
-            note.data._isScheduled = true;
-        }
+function clearNoteStatusRecursively(state: NoteTreeGlobalState, note: TreeNote) {
+    note.data._status = STATUS_NOT_COMPUTED;
+    for (let i = 0; i < note.childIds.length; i++) {
+        const child = getNote(state.notes, note.childIds[i]);
+        clearNoteStatusRecursively(state, child);
     }
 }
 
@@ -2065,83 +1746,6 @@ export function setActivityRangeToThisWeek(state: NoteTreeGlobalState) {
     state._activitiesTo = dateTo;
 }
 
-
-export function deleteDoneNote(state: NoteTreeGlobalState, note: TreeNote): string | undefined {
-    // WARNING: this is a A destructive action that permenantly deletes user data. Take every precaution, and do every check
-
-    if (!hasNote(state.notes, note.id)) {
-        return "Note doesn't exist to delete. It may have already been deleted.";
-    }
-
-    recomputeState(state);
-
-    if (note.data._status !== STATUS_DONE) {
-        return "Notes that aren't DONE (i.e all notes under them are DONE) can't be deleted";
-    }
-
-    const parentId = note.parentId;
-    if (idIsNil(parentId)) {
-        return "Note needs a parent to be deleted";
-    }
-
-    // figure out where to move to if possible
-    const parent = getNote(state.notes, parentId);
-    const idToMoveTo = parent.id;
-
-    // Do the deletion
-    itree.removeSubtree(state.notes, note);
-
-    for (const activity of state.activities) {
-        if (!activity.nId) {
-            continue;
-        }
-
-        if (
-            !hasNote(state.notes, activity.nId) ||
-            activity.deleted
-        ) {
-            activity.nId = parentId;
-            activity.deleted = true;
-        }
-    }
-
-
-    // Remove activities that have: same activity behind them, or have an activity that is also deleted behind them
-    for (let i = 1; i < state.activities.length; i++) {
-        const activity = state.activities[i];
-        const lastActivity = state.activities[i - 1];
-        if (lastActivity.nId === activity.nId) {
-            state.activities.splice(i, 1);
-            i--;
-        }
-    }
-
-    // move to another note nearby if possible
-    if (idToMoveTo) {
-        setCurrentNote(state, idToMoveTo);
-        return;
-    }
-
-    // if not, just move move to the last note...
-    const lastActivityIdx = getLastActivityWithNoteIdx(state);
-    if (lastActivityIdx !== -1) {
-        const activity = state.activities[lastActivityIdx];
-        assert(!idIsNilOrUndefined(activity.nId));
-        setCurrentNote(state, activity.nId);
-        return;
-    }
-
-    // If not, move to literally any note..
-    const root = getRootNote(state);
-    const lastId = root.childIds[root.childIds.length - 1];
-    if (lastId) {
-        setCurrentNote(state, lastId);
-        return;
-    }
-
-    // If we implemented deleting right, we simply have no more notes to move to now...
-    setCurrentNote(state, getCurrentNote(state).id);
-}
 
 export function findPreviousActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, idx: number): number {
     const activities = state.activities;
