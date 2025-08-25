@@ -43,6 +43,7 @@ import {
 } from "./utils/im-core";
 import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "./utils/im-dom";
 import { ROOT_ID } from "./utils/int-tree";
+import { VERSION_NUMBER } from "./version-number";
 
 const REQUIRED_PRESSES = 5;
 
@@ -532,11 +533,15 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
 
     imLayout(c, COL); imFlex(c); {
         imLayout(c, COL); imAlign(c); imFlex(c); {
-            imLayout(c, ROW); {
-                imLayout(c, COL); {
+            imLayout(c, ROW); imSize(c, 0, NA, 100, PERCENT); {
+                imLayout(c, COL);  {
                     if (isFirstishRender(c)) {
                         elSetStyle(c, "minWidth", "100px");
                     }
+
+                    imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+                        imB(c); imStr(c, "Note Tree v" + VERSION_NUMBER); imBEnd(c); 
+                    } imLayoutEnd(c);
 
                     imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
                         imB(c); imStr(c, "Settings"); imBEnd(c); 
@@ -576,6 +581,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                             }
                         }
                     } imNavListEnd(c, hallwayList);
+
                 } imLayoutEnd(c);
 
                 imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);

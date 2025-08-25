@@ -6,4 +6,4 @@ export const VERSION_NUMBER = "2.00.00";
 // This is the 'real' version that I made because I actually needed a way to detect whether the current app is
 // an 'older' version or a newer version. I'll be incrementing it each time I deploy a new version. 
 // No joke - I've actually redeployed this many times. HOW
-export const VERSION_NUMBER_MONOTONIC = 219;
+export const VERSION_NUMBER_MONOTONIC = 220;
