@@ -2934,12 +2934,16 @@ function newAppSettings() {
 }
 const doneSuffixes = ["DONE", "MERGED", "DECLINED"];
 function getDoneNotePrefixOrSuffix(note) {
-  for (const suffix of doneSuffixes) {
+  for (let i = 0; i < doneSuffixes.length; i++) {
+    const suffix = doneSuffixes[i];
     if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
       return suffix;
     }
   }
   return void 0;
+}
+function isNoteShelved(note) {
+  return note.text.trimEnd().endsWith("SHELVED") || note.text.trimStart().startsWith("SHELVED");
 }
 function getNoteTextWithoutPriority(note) {
   const priority = getTodoNotePriority(note);
@@ -2978,6 +2982,7 @@ const STATUS_NOT_COMPUTED = 0;
 const STATUS_IN_PROGRESS = 1;
 const STATUS_ASSUMED_DONE = 2;
 const STATUS_DONE = 3;
+const STATUS_SHELVED = 4;
 function noteStatusToString(noteStatus) {
   switch (noteStatus) {
     case STATUS_IN_PROGRESS:
@@ -2986,6 +2991,8 @@ function noteStatusToString(noteStatus) {
       return "[*]";
     case STATUS_DONE:
       return "[x]";
+    case STATUS_SHELVED:
+      return "[-]";
   }
   return "??";
 }
@@ -3139,22 +3146,30 @@ function recomputeNoteStatusRecursively(state2, note, recomputeParents = true, r
       const lastNote = getNote(state2.notes, lastId);
       if (getDoneNotePrefixOrSuffix(lastNote.data)) {
         status = STATUS_DONE;
+      } else if (isNoteShelved(lastNote.data)) {
+        status = STATUS_SHELVED;
       }
     }
     let foundDoneNoteUnderThisParent = false;
+    let foundShelvedNoteUnderThisParent = false;
     for (let i = note.childIds.length - 1; i >= 0; i--) {
       const id = note.childIds[i];
       const child = getNote(state2.notes, id);
       if (child.childIds.length > 0) {
-        if (recomputeChildren || child.data._status === STATUS_NOT_COMPUTED) {
+        if (foundShelvedNoteUnderThisParent) {
+          shelveNotesRecursively(state2, child);
+        } else if (child.data._status === STATUS_NOT_COMPUTED) {
           recomputeNoteStatusRecursively(state2, child, false, true);
           assert(child.data._status !== STATUS_NOT_COMPUTED);
         }
       } else {
-        const doneSuffix = getDoneNotePrefixOrSuffix(child.data);
-        if (doneSuffix || foundDoneNoteUnderThisParent) {
+        if (getDoneNotePrefixOrSuffix(child.data) || foundDoneNoteUnderThisParent) {
           child.data._status = STATUS_DONE;
           foundDoneNoteUnderThisParent = true;
+        } else if (isNoteShelved(child.data) || foundShelvedNoteUnderThisParent) {
+          foundShelvedNoteUnderThisParent = true;
+          recomputeChildren = false;
+          child.data._status = STATUS_SHELVED;
         } else if (i === note.childIds.length - 1) {
           child.data._status = STATUS_IN_PROGRESS;
         } else {
@@ -3165,15 +3180,21 @@ function recomputeNoteStatusRecursively(state2, note, recomputeParents = true, r
           }
         }
       }
-      if (child.data._status !== STATUS_DONE) {
+      if (child.data._status !== STATUS_DONE && child.data._status !== STATUS_SHELVED) {
         status = STATUS_IN_PROGRESS;
       }
     }
-    if (note.data._status !== status) {
-      if (note.data._status !== STATUS_NOT_COMPUTED) {
+    const previousStatus = note.data._status;
+    const noteStatusChanged = previousStatus !== status;
+    if (noteStatusChanged) {
+      note.data._status = status;
+      if (previousStatus !== STATUS_NOT_COMPUTED) {
         recomputeParents = true;
       }
-      note.data._status = status;
+      if (previousStatus === STATUS_SHELVED) {
+        clearNoteStatusRecursively(state2, note);
+        recomputeNoteStatusRecursively(state2, note, false, true);
+      }
     }
   }
   if (recomputeParents) {
@@ -3181,6 +3202,20 @@ function recomputeNoteStatusRecursively(state2, note, recomputeParents = true, r
       const parent = getNote(state2.notes, note.parentId);
       recomputeNoteStatusRecursively(state2, parent, true, false);
     }
+  }
+}
+function shelveNotesRecursively(state2, note) {
+  note.data._status = STATUS_SHELVED;
+  for (let i = 0; i < note.childIds.length; i++) {
+    const child = getNote(state2.notes, note.childIds[i]);
+    shelveNotesRecursively(state2, child);
+  }
+}
+function clearNoteStatusRecursively(state2, note) {
+  note.data._status = STATUS_NOT_COMPUTED;
+  for (let i = 0; i < note.childIds.length; i++) {
+    const child = getNote(state2.notes, note.childIds[i]);
+    clearNoteStatusRecursively(state2, child);
   }
 }
 function recomputeAllNoteDurations(state2, activitiesFrom, activitiesTo) {
@@ -4422,8 +4457,10 @@ function imFuzzyFinder(c, ctx, s) {
     s.timeTakenMs = performance.now() - t0;
   }
 }
+const PARTIAL_INVALIDATION = 1;
+const FULL_INVALIDATION = 2;
 function setNote(s, note, invalidate = false) {
-  s.invalidateNote = false;
+  s.invalidateNote = 0;
   let mutated = false;
   if (invalidate || s.note !== note) {
     if (s.note !== note) {
@@ -4507,7 +4544,7 @@ function newNoteTreeViewState() {
   const note = getCurrentNote(state);
   const viewRoot = note;
   const s = {
-    invalidateNote: false,
+    invalidateNote: 0,
     invalidateVisibleNotes: false,
     note,
     viewRoot,
@@ -4535,7 +4572,7 @@ function moveOutOfCurrent(ctx, s, moveNote) {
       debouncedSave(ctx, state, "Moved a note");
     }
   } else {
-    setNote(s, parent, true);
+    setNote(s, parent, false);
   }
 }
 function moveIntoCurrent(ctx, s, moveNote) {
@@ -4565,7 +4602,7 @@ function moveIntoCurrent(ctx, s, moveNote) {
       }
       const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
       const nextChild = getNote(state.notes, nextChildId);
-      setNote(s, nextChild, true);
+      setNote(s, nextChild, false);
     }
   }
 }
@@ -4575,12 +4612,12 @@ function imNoteTreeView(c, ctx, s) {
     const currentNote = getCurrentNote(state);
     if (imMemo(c, currentNote)) {
       s.note = getCurrentNote(state);
-      s.invalidateNote = true;
+      s.invalidateNote = PARTIAL_INVALIDATION;
     }
   }
   {
     if (s.invalidateNote) {
-      setNote(s, s.note, true);
+      setNote(s, s.note, s.invalidateNote === FULL_INVALIDATION);
     }
     if (s.invalidateVisibleNotes) {
       recomputeVisibleNotes(s);
@@ -4915,7 +4952,7 @@ function imNoteTreeRow(c, ctx, list, s, note, viewFocused, idx = -1, itemSelecte
                 setNoteText(state, s.note, textArea.value);
                 ctx.handled = true;
                 if (status !== s.note.data._status || collapseStatus !== isNoteCollapsed(s.note)) {
-                  s.invalidateNote = true;
+                  s.invalidateNote = FULL_INVALIDATION;
                 }
               }
               const keyDown = imOn(c, EV_KEYDOWN);

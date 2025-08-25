@@ -59,7 +59,7 @@ export function getNavigableListInput(
 
     let hdcFlags = REPEAT | ANY_MODIFIERS;
     if (flags & AXIS_FLAG_BYPASS_TEXT_AREA) {
-        flags |= BYPASS_TEXT_AREA;
+        hdcFlags |= BYPASS_TEXT_AREA;
     }
 
     // Arrays are rendered downards most of the time. traversing them by idx means that up goes down and down goes up

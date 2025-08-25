@@ -84,11 +84,8 @@ import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin,
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
 import * as tree from "./utils/int-tree";
 
-const PARTIAL_INVALIDATION = 1;
-const FULL_INVALIDATION = 2;
-
 export type NoteTreeViewState = {
-    invalidateNote:      number; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
+    invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
     invalidateVisibleNotes: boolean;
 
     note:                TreeNote;
@@ -112,8 +109,6 @@ function setNote(
     note: TreeNote,
     invalidate = false
 ) {
-    s.invalidateNote = 0;
-
     let mutated = false;
     if (invalidate || s.note !== note) {
         if (s.note !== note) {
@@ -237,7 +232,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
     const note = getCurrentNote(state);
     const viewRoot = note; // needs to be wrong, so that it can be recomputed
     const s: NoteTreeViewState = {
-        invalidateNote: 0,
+        invalidateNote: false,
         invalidateVisibleNotes: false,
         note,
         viewRoot,
@@ -330,15 +325,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         // When we reload our state, the note object reference will change, so we need to memoize on that, not the ID.
         const currentNote = getCurrentNote(state);
         if (imMemo(c, currentNote)) {
-            s.note = getCurrentNote(state);
-            s.invalidateNote = PARTIAL_INVALIDATION;
+            setNote(s, currentNote);
         }
     }
 
     // recompute invalidated properties in order
     {
         if (s.invalidateNote) {
-            setNote(s, s.note, s.invalidateNote === FULL_INVALIDATION);
+            setNote(s, s.note, true);
         }
 
         if (s.invalidateVisibleNotes) {
@@ -707,7 +701,7 @@ function imNoteTreeRow(
                                     status !== s.note.data._status ||
                                     collapseStatus !== isNoteCollapsed(s.note)
                                 ) {
-                                    s.invalidateNote = FULL_INVALIDATION;
+                                    s.invalidateNote = true;
                                 }
                             }
 
