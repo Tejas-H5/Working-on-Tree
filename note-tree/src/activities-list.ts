@@ -287,6 +287,7 @@ function insertBreakBetweenCurrentAndNext(
     ctx: GlobalContext,
     s: ActivitiesViewState
 ) {
+    // TODO: make this work when we have filtered activities
     if (s.filteredActivities) return;
 
     const idx = s.activityListPositon.idx;

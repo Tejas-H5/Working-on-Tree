@@ -180,13 +180,13 @@ export function imLayout(c: ImCache, type: DisplayType) {
 }
 
 export function imPre(c: ImCache) {
-    if (!isFirstishRender(c)) {
+    if (isFirstishRender(c)) {
         elSetClass(c, cn.pre);
     }
 }
 
 export function imNoWrap(c: ImCache) {
-    if (!isFirstishRender(c)) {
+    if (isFirstishRender(c)) {
         elSetClass(c, cn.noWrap);
     }
 }
