@@ -99,11 +99,7 @@ import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
-import { VERSION_NUMBER } from "./version-number";
-
-// TODO: expose via UI
-console.log("Note tree v" + VERSION_NUMBER);
-
+import { logTrace } from "./utils/log";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -585,7 +581,7 @@ function imMainInner(c: ImCache) {
                         // Another program has just saved the state. we need to reload it.
                         loadState(() => {
                             // TODO: showStatusText
-                            console.log("Reloaded the state!");
+                            logTrace("Reloaded the state!");
                         });
                     }
 
@@ -641,7 +637,6 @@ function imCommandDescription(c: ImCache, key: string, action: string) {
 }
 
 loadState(() => {
-    console.log("State: ", state);
     imMainEntry(cGlobal);
 });
 

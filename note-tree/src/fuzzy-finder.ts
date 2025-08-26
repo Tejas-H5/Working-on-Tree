@@ -3,32 +3,30 @@ import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } fro
 import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "./global-context";
-import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "./list-row";
 import {
+    AXIS_FLAG_BYPASS_TEXT_AREA,
+    AXIS_VERTICAL,
     clampedListIdx,
     getNavigableListInput,
     imNavListBegin,
-    imNavListRowBegin,
     imNavListEnd,
-    imNavListRowEnd,
     imNavListNextItemArray,
-    AXIS_FLAG_BYPASS_TEXT_AREA,
-    AXIS_VERTICAL
+    imNavListRowBegin,
+    imNavListRowEnd
 } from "./navigable-list";
 import {
     dfsPre,
     forEachChildNote,
     forEachParentNote,
-    getNoteOrUndefined,
     getRootNote,
     idIsNil,
     idIsRoot,
-    isHigherLevelTask,
-    isNoteRequestingShelf,
     NoteTreeGlobalState,
     setCurrentNote,
     state,
     STATUS_IN_PROGRESS,
+    STATUS_SHELVED,
     TreeNote
 } from "./state";
 import { truncate } from "./utils/datetime";
@@ -107,33 +105,7 @@ export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: Tree
     dstMatches.length = 0;
     if (query.length === 0) return;
 
-    const SORT_BY_SCORE = 1;
-    const SORT_BY_RECENCY = 2;
-
-    let sortMethod = SORT_BY_SCORE;
-
-    // this can chain with the other two queries
-    const isShelvedQuery = query.startsWith("||");
-    if (isShelvedQuery) {
-        query = query.substring(2).trim();
-    }
-
-    // Adding a few carve-outs specifically for finding tasks in progress and higher level tasks.
-    // It's too hard to find them in the todo list, so I'm trying other options.
-    const isHltQuery = query.startsWith(">>");
-    const isInProgressQuery = query.startsWith(">") && !isHltQuery;
-
-    if (isHltQuery) {
-        query = query.substring(2).trim();
-    } else if (isInProgressQuery) {
-        query = query.substring(1).trim();
-    }
-
-    if (isHltQuery || isInProgressQuery || isShelvedQuery) {
-        if (query.trim().length === 0) {
-            sortMethod = SORT_BY_RECENCY;
-        }
-    }
+    const fzfOptions = { allowableMistakes: fuzzySearch ? 1 : 0 };
 
     const processNote = (n: TreeNote) => {
         if (idIsNil(n.parentId)) {
@@ -143,65 +115,17 @@ export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: Tree
 
         let text = n.data.text.toLowerCase();
 
-        if (
-            isShelvedQuery ||
-            isHltQuery ||
-            isInProgressQuery
-        ) {
-            if (isShelvedQuery !== isNoteRequestingShelf(n.data)) {
-                return;
+        let results = fuzzyFind(text, query, fzfOptions);
+        if (results.ranges.length > 0) {
+            let score = 0;
+            score = results.score;
+            if (n.data._status === STATUS_IN_PROGRESS) {
+                score *= 2;
             }
-
-            if (isShelvedQuery && isHltQuery) {
-                if (!isNoteRequestingShelf(n.data)) {
-                    return;
-                }
-
-                const parent = getNoteOrUndefined(state.notes, n.parentId);
-                if (parent && parent.data._shelved) {
-                    // If `n` wants to be shelved but its parent is already shelved, 
-                    // don't include this in the list of matches
-                    return;
-                }
-            }
-
-            if (isHltQuery && !isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isInProgressQuery && isHigherLevelTask(n)) {
-                return;
-            }
-
-            if (isHltQuery || isInProgressQuery) {
-                if (n.data._status !== STATUS_IN_PROGRESS) {
-                    return;
-                }
-            }
-        }
-
-        if (sortMethod === SORT_BY_SCORE && query.trim().length > 0) {
-            let results = fuzzyFind(text, query, { allowableMistakes: fuzzySearch ? 1 : 0 });
-            if (results.ranges.length > 0) {
-                let score = 0;
-                score = results.score;
-                if (n.data._status === STATUS_IN_PROGRESS) {
-                    score *= 2;
-                }
-
-                dstMatches.push({
-                    note: n,
-                    ranges: results.ranges,
-                    score,
-                });
-            }
-        } else {
-            // score by recency by default
-            let score = n.data._activityListMostRecentIdx;
 
             dstMatches.push({
                 note: n,
-                ranges: null,
+                ranges: results.ranges,
                 score,
             });
         }
@@ -317,7 +241,7 @@ function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindS
             counts.numFinished++;
         }
 
-        if (match.note.data._shelved) {
+        if (match.note.data._status === STATUS_SHELVED) {
             counts.numShelved++;
         }
     }

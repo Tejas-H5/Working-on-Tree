@@ -1,8 +1,8 @@
 // Utils to serialize and deserialize values to and from JSON.
 // Serilizing is fairly simple. 
-// However, we want the data we deserialize to all have the same optimized 'hidden class' as what you use everywhere else.
-// Getting this wrong will have an adverse effect on all downstream code. This is mainly a javascript problem, and 
-// won't appear in other languages that have RTTI.
+// However, we want the data we deserialize to all have the same optimized 'hidden class' as the normal objects we create within the app.
+// Getting this wrong is supposed to have an adverse effect on all downstream code. This is mainly a javascript problem, and 
+// won't appear in other languages that have RTTI or reflection.
 // We also want the code to be resistant to schema change.
 // For this reason, deserialization is more complicated, but hopefully it's worth it (?).
 // This was the tradeoff between literally serializing every field, or using some library that probably doesn't 

@@ -1,28 +1,18 @@
-import { AsciiCanvasLayer, getLayersString } from "src/legacy-app-components/canvas-state";
 import { assert } from "src/utils/assert";
 import {
-    addDays,
-    floorDateLocalTime,
-    floorDateToWeekLocalTime,
     formatDateTime,
-    formatDuration,
-    ONE_DAY,
     ONE_HOUR,
     ONE_MINUTE,
     ONE_SECOND,
-    pad2,
-    parseIsoDate
+    pad2
 } from "src/utils/datetime";
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
-import { GraphData, newGraphData } from "./legacy-app-components/interactive-graph-state";
 import { asNoteTreeGlobalState } from "./schema";
-import { clampIndexToArrayBounds, clearArray, filterInPlace } from "./utils/array-utils";
-import { fuzzyFind } from "./utils/fuzzyfind";
+import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -48,24 +38,28 @@ export type NoteId = itree.TreeId;
 export type TreeNote = itree.TreeNode<Note>;
 export type TreeNoteTree = itree.TreeStore<Note>;
 
-export type DockableMenu = "activities" | "quicklist";
 export type AppTheme = "Light" | "Dark";
-
-export type CurrentDateScope = "any" | "week";
 
 // TODO: remove dead state after rewrite
 
 // NOTE: This state is persisted and loaded+migrated between sessions.
 // Do not rename or delete any fields not prefixed with _ without thinking it through.
+// 'derived' fields that won't be serialized start with _
 export type NoteTreeGlobalState = {
+    // Schema major versions occur whenever state cannot be autmatically migrated by dropping, renaming, and adding keys.
+    // undefined -> the schema we've had since almost the start
+    // 2 ->         the tree is no longer backed by a Record<string, Node> tree, but by a Node[] tree that can be indexed directly like an array.
+    schemaMajorVersion: number | undefined;
+
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: TreeNoteTree;
     _notesMutationCounter: number;
+    // NOTE: kinda need to be references - some code will toggle between whenether we're using 
+    _isEditingFocusedNote: boolean;
 
     currentNoteId: NoteId;
-    dockedMenu: DockableMenu;
-    showDockedMenu: boolean;
     currentTheme: AppTheme;
+
 
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
     // (at least with the way I'm using it as a drop-in replacement for localStorage.).
@@ -77,77 +71,22 @@ export type NoteTreeGlobalState = {
     activities: Activity[];
     _activitiesMutationCounter: number;
 
-    /** 
-     * A task stream is way to group tasks, and chunk out which ones we're working on at any given time. 
-     * It is a replacement for simply pinning notes - we end up pinning way too many of them.
-     * Streams can be reordered, and notes inside of them can be reordered.
-     * Notes may belong to multiple streams.
-     * Guess what - it actually worked! Literally the first day, saw a massive improvement. 
-     * I'm literally no longer looking for "what was I working on" - it's always quickly available now
-     **/
-    taskStreams: TaskStream[];
-    scheduledNoteIds: NoteId[];
-    /** -1 now refers to the schedule stream */
-    currentTaskStreamIdx: number;
-
     // Want to keep this so that we can refresh the page mid-delete.
     textOnArrivalNoteId: NoteId;
     textOnArrival: string;
 
-    workdayConfig: WorkdayConfig;
-
-    _scratchPadCanvasLayers: AsciiCanvasLayer[];
-    _scratchPadCanvasCurrentNoteIdPendingSave: NoteId;
-
-    mainGraphData: GraphData;
-
     settings: AppSettings;
-    // This might make the program unopenable, so it's a transient setting for now
-    _showAllNotes: boolean;
-
-    // Schema major versions occur whenever state cannot be autmatically migrated by dropping, renaming, and adding keys.
-    // undefined -> the schema we've had since almost the start
-    // 2 ->         the tree is no longer backed by a Record<string, Node> tree, but by a Node[] tree that can be indexed directly like an array.
-    schemaMajorVersion: number | undefined;
-
-    // non-serializable fields start with _
 
     _criticalLoadingError: string;
     // If true, error modals will include additional info on where to report the error.
     // If false, the user can do something about it, and they don't have anything to report.
     _criticalLoadingErrorWasOurFault: boolean;
     
-
-    _currentlyViewingActivityIdx: number;
-    // TODO: doesn't need to be a reference
-    _currentActivityScopedNoteId: NoteId;
-    // NOTE: kinda need to be references - some code will toggle between whenether we're using 
-    // child ids or flat note ids, and it's better if we don't have to recompute a child list each time.
-    _flatNoteIds: NoteId[];
-    _isEditingFocusedNote: boolean;
     _lastStoppedEditingTimestamp: number | null,
-    _isShowingDurations: boolean;
-    _activitiesFrom: Date | null;
     _activitiesFromIdx: number;
-    _activitiesTo: Date | null;
     _activitiesToIdx: number;
-    _useActivityIndices: boolean;
-    _activityIndices: number[];
-    // TODO: doesn't need to be a reference
-    _lastNoteId: NoteId | undefined;
-    _currentDateScope: CurrentDateScope;
-    _currentDateScopeWeekDay: number;
-    // NOTE: this note isn't really the 'flat notes root', it's just one note _before_ the flat note when traversing upwards
-    // TODO: doesn't need to be a reference
-    _currentFlatNotesRootId: NoteId;
-    // TODO: doesn't need to be a reference
-    _currentFlatNotesRootHltId: NoteId;
-
-    // App state
-    _currentModal: number;
 
     // notifications
-
     _showStatusText: boolean;
     _statusText: string;
     _statusTextColor: string;
@@ -156,18 +95,6 @@ export type NoteTreeGlobalState = {
 export function notesMutated(state: NoteTreeGlobalState) {
     // This is a good place to put a breakpoint
     state._notesMutationCounter++;
-}
-
-export type TaskStream = {
-    name: string;
-    noteIds: NoteId[];
-
-    _idx: number;
-};
-
-
-export function newTaskStream(name: string): TaskStream {
-    return { name, noteIds: [], _idx: 0 };
 }
 
 export type AppSettings = {
@@ -197,39 +124,18 @@ export type Note = {
 
     lastSelectedChildIdx: number; // this is now an index into our child array saying which one we sleected last.
 
-    editedAt: Date; // this is when the note or any of it's children was last edited. since it was added later, some notes may not have this field.
-
-
-    // The note's higher level task.
-    _higherLevelTask: TreeNote | undefined;
+    editedAt: Date; // this is when the note or any of it's children was last edited.
 
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
-    _shelved: boolean; // Is this note or any of it's parents shelved?
-    _everyChildNoteDone: boolean;
-    _isAboveCurrentNote: boolean; // this now just means "is this note the current note or an ancestor of the current note?"
-    _isUnderCurrent: boolean; // used to calculate the duration of a specific task. Or as an arbitrary boolean flag for anything really.
     _depth: number; // used to visually indent the notes
     _durationUnranged: number;
     _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
     _durationRanged: number;
+    // TODO: fivure out what this is and document it. I think it has something to do with computing the duration of the most recent note ?
     _durationRangedOpenSince?: Date;
-    _activityListMostRecentIdx: number; // what is our position inside of NoteTreeGlobalState#_todoNoteIds ?
-
-    _taskStreams: TaskStream[];
-    _isScheduled: boolean; 
 };
 
-
-export function recomputeNoteIsUnderFlag(state: NoteTreeGlobalState, note: TreeNote) {
-    itree.forEachNode(state.notes, (note) => {
-        note.data._isUnderCurrent = false;
-    });
-
-    dfsPre(state, note, (note) => {
-        note.data._isUnderCurrent = true;
-    });
-}
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
 // Yeah it isn't the best practice, but it works
@@ -285,11 +191,7 @@ export function isTodoNote(note: Note) {
 export function getNoteTextWithoutPriority(note: Note): string {
     const priority = getTodoNotePriority(note);
     let idx = priority;
-    const shelved = isNoteRequestingShelf(note);
-    if (shelved) {
-        idx += 2;
-    }
-    return (shelved ? "[Shelved] " : "") + note.text.substring(idx).trim();
+    return note.text.substring(idx).trim();
 }
 
 export function getNoteTextTruncated(note: Note): string {
@@ -323,10 +225,6 @@ export function getHltHeader(state: NoteTreeGlobalState, note: TreeNote): string
 }
 
 
-export function isNoteRequestingShelf(note: Note): boolean {
-    return note.text.startsWith("||")
-}
-
 export function getTodoNotePriority(note: Note): number {
     // Keep the priority system simple. 
     // Tasks are are always changing priority, and having too many priorities means they will always be assigned the wrong priority.
@@ -337,9 +235,6 @@ export function getTodoNotePriority(note: Note): number {
 
     let text = note.text;
     let pos = 0;
-    if (isNoteRequestingShelf(note)) {
-        pos += 2;
-    }
     if (text[pos] === " ") {
         pos++;
     }
@@ -425,63 +320,32 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _notesMutationCounter: 0,
 
         currentNoteId: itree.NIL_ID,
-        dockedMenu: "activities",
-        showDockedMenu: false,
         activities: [],
         _activitiesMutationCounter: 0,
 
-        _scratchPadCanvasLayers: [],
-        _scratchPadCanvasCurrentNoteIdPendingSave: itree.NIL_ID,
-
-        mainGraphData: newGraphData(),
         settings: newAppSettings(),
-        _showAllNotes: false,
         currentTheme: "Light",
         criticalSavingError: "",
-
-        taskStreams: [],
-        scheduledNoteIds: [],
-        currentTaskStreamIdx: 0,
 
         textOnArrival: "",
         textOnArrivalNoteId: itree.NIL_ID,
 
-        workdayConfig: {
-            weekdayConfigs: [newWorkdayConfigWeekDay(9, 7.5)],
-            holidays: [],
-        },
-
-        _flatNoteIds: [], // used by the note tree view, can include collapsed subsections
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
 
         // don't set this if our tree is corrupted!
         _criticalLoadingError: "",
         _criticalLoadingErrorWasOurFault: false,
 
-        _currentlyViewingActivityIdx: 0,
-        _currentActivityScopedNoteId: itree.NIL_ID,
         _lastStoppedEditingTimestamp: null,
-        _isShowingDurations: false,
-        _activitiesFrom: null,
-        _activitiesFromIdx: -1,
-        _activitiesTo: null,
-        _activitiesToIdx: -1,
-        _activityIndices: [],
-        _useActivityIndices: false,
-        _lastNoteId: undefined,
-        _currentDateScope: "week",
-        _currentDateScopeWeekDay: -1,
-        _currentFlatNotesRootId: itree.NIL_ID,
-        _currentFlatNotesRootHltId: itree.NIL_ID,
 
-        _currentModal: 0,
+        _activitiesFromIdx: -1,
+        _activitiesToIdx: -1,
+
 
         _showStatusText: false,
         _statusText: "",
         _statusTextColor: "",
     };
-
-    setActivityRangeToToday(state);
 
     return state;
 }
@@ -582,18 +446,10 @@ export function defaultNote(): Note {
 
         // the following are just visual flags which are frequently recomputed
 
-        _higherLevelTask: undefined,
         _status: STATUS_NOT_COMPUTED,
-        _shelved: false,
-        _everyChildNoteDone: false,
-        _isAboveCurrentNote: false,
-        _isUnderCurrent: false,
         _depth: 0,
         _durationUnranged: 0,
         _durationRanged: 0,
-        _activityListMostRecentIdx: 0,
-        _taskStreams: [],
-        _isScheduled: false,
     };
 }
 
@@ -844,11 +700,6 @@ export function recomputeAllNoteDurations(
     }
 }
 
-export function isCurrentNoteOnOrInsideNote(state: NoteTreeGlobalState, note: TreeNote): boolean {
-    return note.data._isAboveCurrentNote ||    // Current note inside this note
-        parentNoteContains(state, state.currentNoteId, note);    // Current note directly above this note
-}
-
 export function parentNoteContains(state: NoteTreeGlobalState, parentId: NoteId, note: TreeNote): boolean {
     // one of the parents is the current note
     while (!idIsNil(note.parentId)) {
@@ -1054,12 +905,6 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
         state.activities.pop();
     }
 
-    // delete this note from streams.
-    for (const stream of state.taskStreams) {
-        removeNoteFromNoteIds(stream.noteIds, note.id);
-    }
-    removeNoteFromNoteIds(state.scheduledNoteIds, note.id);
-
     notesMutated(state);
     return true;
 }
@@ -1198,73 +1043,6 @@ export function isCurrentlyTakingABreak(state: NoteTreeGlobalState): boolean {
     return !!last && isBreak(last);
 }
 
-export function getNoteNDownForMovement(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
-    if (idIsNil(note.parentId)) {
-        return undefined;
-    }
-
-    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
-    const idx = list.indexOf(note.id);
-    if (idx < list.length - 1) {
-        return list[Math.min(list.length - 1, idx + amount)];
-    }
-
-    return undefined;
-}
-
-export function getNoteNUpForMovement(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
-    if (idIsNil(note.parentId)) {
-        return undefined;
-    }
-
-    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
-    let idx = list.indexOf(note.id);
-    if (idx === -1) {
-        return undefined
-    }
-
-    let i = idx;
-    while (i >= 0 && amount > 0) {
-        i--;
-        amount--;
-
-        if (list[i] === state._currentFlatNotesRootHltId) {
-            return list[i + 1];
-        }
-    }
-
-    return list[i];
-}
-
-export function getNoteNUp(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
-    if (idIsNil(note.parentId)) {
-        return undefined;
-    }
-
-    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
-    let idx = list.indexOf(note.id);
-    if (idx > 0) {
-        return list[Math.max(0, idx - amount)];
-    }
-
-    return undefined;
-}
-
-export function getNoteNDown(state: NoteTreeGlobalState, note: TreeNote, useSiblings: boolean, amount = 1): NoteId | undefined {
-    if (idIsNil(note.parentId)) {
-        return undefined;
-    }
-
-    const list = useSiblings ? getNote(state.notes, note.parentId).childIds : state._flatNoteIds;
-    const idx = list.indexOf(note.id);
-    if (idx < list.length - 1) {
-        return list[Math.min(list.length - 1, idx + amount)];
-    }
-
-    return undefined;
-}
-
-
 export function forEachParentNote(tree: TreeNoteTree, start: TreeNote, it: (note: TreeNote) => void) {
     let current = start;
     while (!idIsNilOrRoot(current.id)) {
@@ -1303,7 +1081,6 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
 
     setNoteAsLastSelected(state, note);
 
-    state._lastNoteId = noteIdJumpedFrom;
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
     deleteNoteIfEmpty(state, currentNoteBeforeMove);
@@ -1315,9 +1092,6 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
 export function setCurrentActivityIdxToCurrentNote(state: NoteTreeGlobalState) {
     const note = getCurrentNote(state);
     const idx = getMostRecentActivityIdx(state, note);
-    if (idx !== -1) {
-        state._currentlyViewingActivityIdx = idx;
-    }
 }
 
 function setNoteAsLastSelected(state: NoteTreeGlobalState, note: TreeNote) {
@@ -1587,26 +1361,6 @@ export function getNoteChildEstimates(state: NoteTreeGlobalState, note: TreeNote
     return totalEstimate;
 }
 
-export function getSecondPartOfRow(state: NoteTreeGlobalState, note: TreeNote) {
-    const duration = getNoteDurationWithoutRange(state, note);
-    const durationStr = formatDuration(duration);
-    const secondPart = " " + durationStr;
-    return secondPart;
-}
-
-export function getRowIndentPrefix(_state: NoteTreeGlobalState, note: Note) {
-    return `${getIndentStr(note)} ${noteStatusToString(note._status)}`;
-}
-
-export function getFirstPartOfRow(state: NoteTreeGlobalState, note: TreeNote) {
-    const noteData = note.data;
-    // const dashChar = note.data._isSelected ? ">" : "-"
-    // having ">" in exported text looks ugly, so I've commented this out for now
-    const dashChar = "-";
-
-    return `${getTimeStr(noteData)} | ${getRowIndentPrefix(state, noteData)} ${dashChar} ${noteData.text || " "}`;
-}
-
 export function isEditableBreak(activity: Activity) {
     if (!activity) {
         return false;
@@ -1624,22 +1378,6 @@ export function isEditableBreak(activity: Activity) {
     return true;
 }
 
-
-type AnalyticsSeries = {
-    activityIndices: number[];
-
-    // These values can be computed off the activities in the series
-    duration: number;
-}
-
-export function newAnalyticsSeries(): AnalyticsSeries {
-    return { activityIndices: [], duration: 0 };
-}
-
-export function resetAnalyticsSeries(series: AnalyticsSeries) {
-    clearArray(state._activityIndices);
-    series.duration = 0;
-}
 
 export function isBreak(activity: Activity): boolean {
     return activity.breakInfo !== undefined;
@@ -1732,30 +1470,6 @@ export function noteParentContainsNotesWithChildren(state: NoteTreeGlobalState, 
     return false;
 }
 
-
-export function setActivityRangeToToday(state: NoteTreeGlobalState) {
-    const dateFrom = new Date();
-    const dateTo = new Date();
-    addDays(dateTo, 1);
-    floorDateLocalTime(dateFrom);
-    floorDateLocalTime(dateTo);
-    state._currentDateScope = "any";
-    state._activitiesFrom = dateFrom;
-    state._activitiesTo = dateTo;
-}
-
-export function setActivityRangeToThisWeek(state: NoteTreeGlobalState) {
-    const dateFrom = new Date();
-    floorDateToWeekLocalTime(dateFrom);
-
-    const dateTo = new Date(dateFrom.getTime());
-    addDays(dateTo, 7);
-
-    state._activitiesFrom = dateFrom;
-    state._activitiesTo = dateTo;
-}
-
-
 export function findPreviousActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, idx: number): number {
     const activities = state.activities;
 
@@ -1795,18 +1509,6 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
     return -1;
 }
 
-
-export function shouldScrollToNotes(state: NoteTreeGlobalState): boolean {
-    if (isEditingTextSomewhereInDocument() && !state._isEditingFocusedNote) {
-        return false;
-    }
-
-    if (state._isShowingDurations) {
-        return false;
-    }
-
-    return true;
-}
 
 export function resetState() {
     state = newNoteTreeGlobalState();
@@ -2011,73 +1713,6 @@ export function isLastNote(state: NoteTreeGlobalState, note: TreeNote) {
     return note.idxInParentList === numSiblings - 1;
 }
 
-export function toggleActivityScopedNote(state: NoteTreeGlobalState) {
-    if (!idIsNil(state._currentActivityScopedNoteId)) {
-        state._currentActivityScopedNoteId = itree.NIL_ID;
-    } else {
-        state._currentActivityScopedNoteId = state.currentNoteId;
-    }
-}
-
-export function isNoteInTaskStream(stream: TaskStream, note: TreeNote): boolean {
-    return note.data._taskStreams.includes(stream);
-}
-
-export function indexOfNoteInTaskStream(stream: TaskStream, note: TreeNote): number {
-    return stream.noteIds.indexOf(note.id);
-}
-
-export function getNumParentsInTaskStream(state: NoteTreeGlobalState, stream: TaskStream, note: TreeNote): number {
-    let count = 0;
-    let parentNote = note;
-    while (!idIsNilOrRoot(parentNote.parentId)) {
-        parentNote = getNote(state.notes, parentNote.parentId);
-
-        if (isNoteInTaskStream(stream, parentNote)) {
-            count += 1;
-        }
-    }
-
-    return count;
-}
-
-export function insertNewTaskStreamAt(state: NoteTreeGlobalState, idx: number, name: string) {
-    if (idx < 0) return;
-
-    const stream = newTaskStream(name);
-    state.taskStreams.splice(idx, 0, stream);
-}
-
-export function deleteTaskStream(state: NoteTreeGlobalState, stream: TaskStream) {
-    if (stream.noteIds.length > 0) {
-        console.warn("Some code was trying to delete a task stream that stil contained notes");
-        return;
-    }
-
-    const idx = state.taskStreams.indexOf(stream);
-    if (idx === -1) {
-        return;
-    }
-
-    state.taskStreams.splice(idx, 1);
-}
-
-export function addNoteToTaskStream(stream: TaskStream | null, note: TreeNote): boolean {
-    if (stream) {
-        if (!isNoteInTaskStream(stream, note)) {
-            stream.noteIds.push(note.id);
-            return true;
-        }
-    } else {
-        if (!note.data._isScheduled) {
-            state.scheduledNoteIds.push(note.id);
-            return true;
-        }
-    }
-
-    return false;
-}
-
 export function removeNoteFromNoteIds(noteIds: NoteId[], id: NoteId) {
     filterInPlace(noteIds, nId => nId !== id);
 }
@@ -2106,215 +1741,10 @@ export type ViewAllTaskStreamsState = {
 
 export const MIN_TASK_STREAM_IDX = -1;
 
-export function recomputeViewAllTaskStreamsState(
-    state: ViewAllTaskStreamsState,
-    globalState: NoteTreeGlobalState,
-    init: boolean,
-    currentNote: TreeNote,
-    taskStreams: TaskStream[],
-) {
-    if (init) {
-        state.isRenaming = false;
-        state.scheduleViewState.isEstimating = false;
-        state.scheduleViewState.isEstimatingRemainder = false;
-    }
-
-    // NOTE: this may be expensive...
-    // for now I'm not computing this on init, because we may reorder
-    // the streams, and we'd have to recompute them... 
-    // There may be a simple solution to this, but I can't think right now
-    {
-        state.viewTaskStreamStates.length = taskStreams.length;
-        for (let i = 0; i < state.viewTaskStreamStates.length; i++) {
-            if (!state.viewTaskStreamStates[i]) {
-                state.viewTaskStreamStates[i] = {
-                    isViewingInProgress: false,
-                    taskStream: taskStreams[i], currentStreamNoteIdx: 0, streamNoteDepths: [], inProgressNotes: [],
-                    isFinding: false,
-                    currentQuery: "",
-                };
-            }
-
-            if (init) {
-                state.viewTaskStreamStates[i].isViewingInProgress = false;
-                state.viewTaskStreamStates[i].isFinding = false;
-                state.viewTaskStreamStates[i].currentQuery = "";
-            }
-
-            recomputeViewTaskStreamState(state.viewTaskStreamStates[i], globalState, taskStreams[i], false);
-        }
-    }
-
-    if (init) {
-        state.isViewingCurrentStream = false;
-
-        const scheduleIdx = globalState.scheduledNoteIds.indexOf(currentNote.id);
-        if (scheduleIdx !== -1) {
-            state.isViewingCurrentStream = true;
-            state.scheduleViewState.noteIdx = scheduleIdx;
-            globalState.currentTaskStreamIdx = -1;
-        } else {
-            // we should open this modal to where this current note is, if possible.
-            // Let's find the closest ancestor that is in any task stream:
-            let noteWithStreams: TreeNote | undefined;
-            {
-                let parentNote = currentNote;
-                while (!idIsNil(parentNote.parentId)) {
-                    if (parentNote.data._taskStreams.length > 0) {
-                        break;
-                    }
-
-                    parentNote = getNote(globalState.notes, parentNote.parentId);
-                }
-                noteWithStreams = parentNote;
-            }
-
-            if (noteWithStreams) {
-                for (const taskStream of noteWithStreams.data._taskStreams) {
-                    globalState.currentTaskStreamIdx = taskStream._idx;
-                    state.isViewingCurrentStream = true;
-
-                    // If the current note is in the inProgressIds, let's focus that as well.
-                    const streamViewState = getCurrentTaskStreamState(state, globalState);
-                    if (streamViewState) {
-                        streamViewState.isViewingInProgress = false;
-                        const streamNoteIdx = taskStream.noteIds.indexOf(noteWithStreams.id);
-                        // streamNoteIdx !== -1 because taskStream was taken from noteWithStreams
-                        assert(streamNoteIdx !== -1);
-                        assert(taskStream.noteIds.length === streamViewState.inProgressNotes.length);
-                        const inProgressState = streamViewState.inProgressNotes[streamNoteIdx];
-                        const inProgressIdx = inProgressState.inProgressIds.indexOf(currentNote.id);
-                        if (inProgressIdx !== -1) {
-                            streamViewState.isViewingInProgress = true;
-                            inProgressState.currentInProgressNoteIdx = inProgressIdx;
-                            // we found a stream where we were also in the progress ids. no need to continue looking
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    globalState.currentTaskStreamIdx = clamp(globalState.currentTaskStreamIdx, MIN_TASK_STREAM_IDX, taskStreams.length - 1);
-    state.canDelete = false;
-    state.isCurrentNoteInStream = false;
-
-    const currentTaskStreamState = getCurrentTaskStreamState(state, globalState);
-    const currentStream = currentTaskStreamState?.taskStream;
-    if (currentStream) {
-        state.canDelete = currentStream.noteIds.length === 0;
-        state.isCurrentNoteInStream = isNoteInTaskStream(currentStream, currentNote);
-    }
-}
-
 export function clamp(val: number, min: number, max: number) {
     if (val < min) return min;
     if (val > max) return max;
     return val;
-}
-
-
-export function getCurrentTaskStreamState(state: ViewAllTaskStreamsState, globalState: NoteTreeGlobalState): ViewTaskStreamState | undefined {
-    if (globalState.currentTaskStreamIdx < 0) return undefined;
-    if (globalState.currentTaskStreamIdx >= state.viewTaskStreamStates.length) return undefined;
-    return state.viewTaskStreamStates[globalState.currentTaskStreamIdx];
-}
-
-export function recomputeViewTaskStreamState(
-    state: ViewTaskStreamState,
-    globalState: NoteTreeGlobalState,
-    stream: TaskStream,
-    // TODO: think about using this, if needed
-    _skipExpensiveStuff = false,
-) {
-    state.taskStream = stream;
-
-    state.currentStreamNoteIdx = clampIndexToArrayBounds(state.currentStreamNoteIdx, stream.noteIds);
-
-    // recompute custom note ids and depths.
-    {
-        state.streamNoteDepths.length = stream.noteIds.length;
-        for (let i = 0; i < state.streamNoteDepths.length; i++) {
-            state.streamNoteDepths[i] = 0;
-        }
-
-        state.inProgressNotes.length = stream.noteIds.length;
-        for (let i = 0; i < state.inProgressNotes.length; i++) {
-            if (!state.inProgressNotes[i]) {
-                state.inProgressNotes[i] = {
-                    inProgressIds: [],
-                    inProgressNoteDepths: [],
-                    currentInProgressNoteIdx: 0,
-                };
-            }
-            const current = state.inProgressNotes[i];
-
-            // TODO: there may be a way to make use of different depths here.
-            clearArray(current.inProgressIds);
-            clearArray(current.inProgressNoteDepths);
-
-            const id = stream.noteIds[state.currentStreamNoteIdx];
-            if (!idIsNilOrUndefined(id)) {
-                // add just the in-progress notes 
-                const dfs = (note: TreeNote, depth: number) => {
-                    for (const id of note.childIds) {
-                        const note = getNote(globalState.notes, id);
-                        if (note.data._status !== STATUS_IN_PROGRESS) {
-                            continue;
-                        }
-                        // dont add them twice...
-                        // TODO: debug the performance...
-                        if (stream.noteIds.includes(note.id)) {
-                            continue;
-                        }
-                        if (current.inProgressIds.includes(note.id)) {
-                            continue;
-                        }
-
-                        current.inProgressIds.push(note.id);
-                        current.inProgressNoteDepths.push(depth);
-                        dfs(note, depth + 1);
-                    }
-                }
-                dfs(getNote(globalState.notes, id), 0);
-            }
-        }
-
-        // dont add notes that dont fit the query. (needs to be done after the DFS and not during).
-        if (state.isFinding && state.currentQuery.length > 0) {
-            for (let i = 0; i < state.inProgressNotes.length; i++) {
-                const current = state.inProgressNotes[i];
-
-                const newInProgressIds: NoteId[] = [];
-                const newDepths: number[] = [];
-
-                for (let i = 0; i < current.inProgressIds.length; i++) {
-                    const note = getNote(globalState.notes, current.inProgressIds[i]);
-
-                    const result = fuzzyFind(note.data.text, state.currentQuery, { limit: 1, allowableMistakes: 1 });
-                    if (result.ranges.length === 0) {
-                        continue;
-                    }
-
-                    newInProgressIds.push(note.id);
-                    newDepths.push(current.inProgressNoteDepths[i]);
-                }
-
-                current.inProgressNoteDepths = newDepths;
-                current.inProgressIds = newInProgressIds;
-            }
-        }
-    }
-
-
-    // clamp after the array has been computed
-    {
-        for (let i = 0; i < state.inProgressNotes.length; i++) {
-            const current = state.inProgressNotes[i];
-            current.currentInProgressNoteIdx = clampIndexToArrayBounds(current.currentInProgressNoteIdx, current.inProgressIds);
-        }
-    }
 }
 
 export type InProgressNotesState = {
@@ -2331,7 +1761,6 @@ export function getCurrentInProgressState(state: ViewTaskStreamState): InProgres
 export type ViewTaskStreamState = {
     isViewingInProgress: boolean; // are we viewing the 'in progress' note ids list? (not is the viewing in progress?)
 
-    taskStream: TaskStream;
     currentStreamNoteIdx: number;
     streamNoteDepths: number[];
 
@@ -2339,255 +1768,6 @@ export type ViewTaskStreamState = {
     currentQuery: string;
     isFinding: boolean;
 };
-
-export function applyPendingScratchpadWrites(state: NoteTreeGlobalState) {
-    if (state._scratchPadCanvasLayers.length === 0) {
-        return;
-    }
-
-    const scratchpadNote = getNoteOrUndefined(state.notes, state._scratchPadCanvasCurrentNoteIdPendingSave);
-    if (!scratchpadNote) {
-        return;
-    }
-
-    const text = getLayersString(state._scratchPadCanvasLayers);
-    scratchpadNote.data.text = text;
-
-    // we don't need to update the text every time - just when we've actually written to it
-    state._scratchPadCanvasCurrentNoteIdPendingSave = itree.NIL_ID;
-}
-
-export type TaskCompletion = {
-    remaining: number;
-    taskId: NoteId;
-    date: Date;
-};
-
-export type TaskCompletions = {
-    completions: TaskCompletion[];
-    dayOffset: number;
-    dateFloored: Date;
-};
-
-export type WorkdayConfigWeekDay = {
-    dayStartHour: number;
-    workingHours: number;
-    // index 0 -> sunday
-    weekdayFlags: Boolean7; // Could have been bitflags but no, we had to make it boolean[7]. xD
-};
-
-export function newWorkdayConfigWeekDay(dayStartHour: number = 0, workingHours: number = 0): WorkdayConfigWeekDay {
-    return {
-        dayStartHour,
-        workingHours,
-        weekdayFlags: [false, false, false, false, false, false, false],
-    };
-}
-
-
-export type Boolean7 = [boolean, boolean, boolean, boolean, boolean, boolean, boolean];
-
-export type WorkdayConfigHoliday = {
-    name: string;
-    date: Date;
-}
-
-export function getWorkdayConfigHolidayDate(wh: WorkdayConfigHoliday): Date {
-    if (!wh.date) {
-        const date = parseIsoDate(wh.date);
-        if (!date) {
-            wh.date = new Date(NaN);
-        } else {
-            wh.date = date;
-        }
-    }
-
-    return wh.date;
-}
-
-export type WorkdayConfig = {
-    weekdayConfigs: WorkdayConfigWeekDay[];
-    holidays: WorkdayConfigHoliday[];
-};
-
-
-type WorkdayIterator = {
-    wc: WorkdayConfig;
-    workdayOffset: number;
-    weekday: number;
-    date: Date;
-    timeOfDayNow: number;
-    startOfDay: number;
-    endOfDay: number;
-}
-
-export function hasAnyTimeAtAll(wc: WorkdayConfig): boolean {
-    for (const wd of wc.weekdayConfigs) {
-        if (wd.weekdayFlags.some(f => f)) {
-            if (wd.workingHours > 0) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-const DAYS_IN_LIFETIME = 365 * 200;
-
-function advanceWorkdayIterator(it: WorkdayIterator, ms: number): boolean {
-    let daysSimulated = 0;
-    while (ms > 0) {
-        if (daysSimulated > DAYS_IN_LIFETIME) {
-            break;
-        }
-
-        const config = getTodayConfig(it);
-        if (
-            !config ||
-            config.workingHours === 0 ||
-            !config.weekdayFlags[it.weekday] ||
-            isHoliday(it)
-        ) {
-            it.workdayOffset++;
-            it.weekday = (it.weekday + 1) % 7;
-            addDays(it.date, 1);
-            resetIterator(it);
-            daysSimulated++;
-            continue;
-        }
-
-        const remainingTime = it.endOfDay - it.timeOfDayNow;
-
-        if (ms - remainingTime < 0) {
-            it.timeOfDayNow += ms;
-            ms = 0;
-        } else {
-            ms -= remainingTime;
-            it.workdayOffset++;
-            it.weekday = (it.weekday + 1) % 7;
-            addDays(it.date, 1);
-            resetIterator(it);
-            daysSimulated++;
-            continue;
-        }
-    }
-
-    return true;
-}
-
-function getTodayConfig(it: WorkdayIterator): WorkdayConfigWeekDay | undefined {
-    let config: WorkdayConfigWeekDay | undefined;
-    for (const c of it.wc.weekdayConfigs) {
-        if (c.weekdayFlags[it.weekday]) {
-            config = c;
-            break;
-        }
-    }
-    return config;
-}
-
-function isHoliday(it: WorkdayIterator): boolean {
-    for (const wh of it.wc.holidays) {
-        const date = getWorkdayConfigHolidayDate(wh);
-        if (
-            it.date.getFullYear() === date.getFullYear() && 
-            it.date.getMonth() === date.getMonth() &&
-            it.date.getDate() === date.getDate()
-        ) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function resetIterator(it: WorkdayIterator) {
-    const config = getTodayConfig(it);
-
-    if (!config) {
-        it.startOfDay = 0;
-        it.endOfDay = 0;
-        it.timeOfDayNow = 0;
-    } else {
-        // We actually start this iterator at the current time _now_, and only use the dayStartHour for the following days.
-        if (it.workdayOffset === 0) {
-            const now = new Date();
-            it.startOfDay = now.getHours() * ONE_HOUR + now.getMinutes() * ONE_MINUTE;
-        } else {
-            it.startOfDay = config.dayStartHour * ONE_HOUR;
-        }
-        // Assume we won't pull an all-nighter - limit endOfDay to 24 hrs
-        it.endOfDay = Math.min(ONE_DAY, it.startOfDay + Math.max(config.workingHours, 0) * ONE_HOUR);
-        it.timeOfDayNow = it.startOfDay;
-    }
-}
-
-// NOTE: calling this method will sort the holidays in the workday config
-export function predictTaskCompletions(
-    state: NoteTreeGlobalState, 
-    noteIds: NoteId[], 
-    wc: WorkdayConfig,
-    dst: TaskCompletions[],
-) {
-    dst.length = 0;
-
-    wc.holidays.sort((a, b) => {
-        return getWorkdayConfigHolidayDate(a).getTime() 
-            - getWorkdayConfigHolidayDate(b).getTime();
-    });
-
-    if (!hasAnyTimeAtAll(wc)) {
-        return;
-    }
-
-    const it: WorkdayIterator = { 
-        wc, startOfDay: 0, endOfDay: 0, timeOfDayNow: 0, workdayOffset: 0, 
-        weekday: (new Date()).getDay(),
-        date: new Date(),
-    };
-    floorDateLocalTime(it.date);
-    resetIterator(it);
-
-    for (let i = 0; i < noteIds.length; i++) {
-        const id = noteIds[i];
-        const note = getNote(state.notes, id);
-
-        let estimate = getNoteEstimate(note);
-        if (estimate === -1) {
-            estimate = 0;
-        }
-
-        const duration = getNoteDurationWithoutRange(state, note);
-        const remaining = estimate - duration;
-
-        advanceWorkdayIterator(it, remaining);
-
-        const estimatedCompletion = new Date();
-        floorDateLocalTime(estimatedCompletion);
-        addDays(estimatedCompletion, it.workdayOffset);
-        estimatedCompletion.setMilliseconds(it.timeOfDayNow);
-
-        const completion: TaskCompletion = { taskId: id, date: estimatedCompletion, remaining };
-
-        if (dst.length > 0) {
-            const lastCompletion = dst[dst.length - 1];
-            if (lastCompletion.dayOffset === it.workdayOffset) {
-                lastCompletion.completions.push(completion);
-                continue;
-            }
-        } 
-
-        const dateFloored = new Date(estimatedCompletion);
-        floorDateLocalTime(dateFloored);
-
-        dst.push({
-            dayOffset: it.workdayOffset,
-            dateFloored,
-            completions: [completion]
-        });
-    }
-}
 
 
 // I used to have tabs, but I literally never used then, so I've just removed those components.

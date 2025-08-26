@@ -6,12 +6,10 @@ import {
     asNumber,
     asObject,
     asString,
-    asStringMap,
     asTrue,
     deserializeObject,
     extractKey,
 } from "src/utils/serialization-utils";
-import { GraphData, newGraphEdge, newGraphNode } from "./legacy-app-components/interactive-graph-state";
 import {
     Activity,
     defaultActivity,
@@ -19,16 +17,10 @@ import {
     getNote,
     idIsNilOrRoot,
     newNoteTreeGlobalState,
-    newTaskStream,
-    newWorkdayConfigWeekDay,
     Note,
     NoteId,
     NoteTreeGlobalState,
-    TaskStream,
     TreeNote,
-    WorkdayConfig,
-    WorkdayConfigHoliday,
-    WorkdayConfigWeekDay
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
@@ -127,76 +119,6 @@ export function asNoteTreeGlobalState(val: unknown) {
             throw new Error("BRUH " + i);
         }
     });
-
-    const taskStreamsArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "taskStreams"));
-    if (taskStreamsArr) {
-        state.taskStreams = taskStreamsArr.map(taskStreamVal => {
-            const taskStreamObj = mustGetDefined(asObject(taskStreamVal));
-
-            const name = mustGetDefined(asString(extractKey<TaskStream>(taskStreamObj, "name")));
-            const taskStream = newTaskStream(name);
-
-            taskStream.noteIds =  mustGetDefined(asNoteIds(extractKey<TaskStream>(taskStreamObj, "noteIds")));
-
-            deserializeObject(taskStream, taskStreamObj);
-
-            return taskStream;
-        });
-    }
-
-    const scheduledNoteIds = asNoteIds(extractKey<NoteTreeGlobalState>(stateObj, "scheduledNoteIds"));
-    if (scheduledNoteIds) state.scheduledNoteIds = scheduledNoteIds;
-
-    const workdayConfigObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "workdayConfig"));
-    if (workdayConfigObj) {
-
-        const weekdayConfigsArr = mustGetDefined(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "weekdayConfigs")));
-        state.workdayConfig.weekdayConfigs = weekdayConfigsArr.map(u => {
-            const weekdayConfigObj = mustGetDefined(asObject(u));
-            const weekdayConfig = newWorkdayConfigWeekDay();
-
-            const weekdays = mustGetDefined(asArray(extractKey<WorkdayConfigWeekDay>(weekdayConfigObj, "weekdayFlags")));
-            for (let i = 0; i < weekdayConfig.weekdayFlags.length && i < weekdays.length; i++) {
-                weekdayConfig.weekdayFlags[i] = !!weekdays[i];
-            }
-
-            deserializeObject(weekdayConfig, weekdayConfigObj);
-
-            return weekdayConfig;
-        });
-
-        const holidayConfigsArr = mustGetDefined(asArray(extractKey<WorkdayConfig>(workdayConfigObj, "holidays")));
-        state.workdayConfig.holidays = holidayConfigsArr.map(u => {
-            const holidayConfigObj = mustGetDefined(asObject(u));
-            const holidayConfig: WorkdayConfigHoliday = {
-                name: "",
-                date: new Date(),
-            };
-            deserializeObject(holidayConfig, holidayConfigObj);
-            return holidayConfig;
-        });
-        
-        deserializeObject(state.workdayConfig, workdayConfigObj);
-    }
-
-    const mainGraphDataObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "mainGraphData"));
-    if (mainGraphDataObj) {
-        state.mainGraphData.nodes = mustGetDefined(asStringMap(extractKey<GraphData>(mainGraphDataObj, "nodes"), u => {
-            const nodeObj = mustGetDefined(asObject(u));
-            const node = newGraphNode("", "", 0, 0);
-            deserializeObject(node, nodeObj);
-            return node;
-        }));
-
-        state.mainGraphData.edges = mustGetDefined(asStringMap(extractKey<GraphData>(mainGraphDataObj, "edges"), u => {
-            const edgeObj = mustGetDefined(asObject(u));
-            const edge = newGraphEdge("", "", 0)
-            deserializeObject(edge, edgeObj);
-            return edge;
-        }));
-
-        deserializeObject(state.mainGraphData, mainGraphDataObj);
-    }
 
     deserializeObject(state, stateObj);
 

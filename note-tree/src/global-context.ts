@@ -4,7 +4,7 @@ import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
-import { applyPendingScratchpadWrites, getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
@@ -12,6 +12,7 @@ import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
+import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 const SAVE_DEBOUNCE = 1500;
 
@@ -562,6 +563,8 @@ const GITHUB_PAGE_ISSUES = "https://github.com/Tejas-H5/Working-on-Tree/issues/n
 
 // TODO: expose via UI
 console.log({
+    version: VERSION_NUMBER,
+    versionMonotonic: VERSION_NUMBER_MONOTONIC,
     github_page: GITHUB_PAGE,
     if_you_encounter_bugs: GITHUB_PAGE_ISSUES
 });
@@ -578,10 +581,6 @@ export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState,
             logTrace("The state changed unexpectedly! let's not save...");
             return;
         }
-
-        // We need to apply the current scratch pad state to the current note just before we save, so that we don't lose what
-        // we were working on in the scratchpad.
-        applyPendingScratchpadWrites(thisState);
 
         // save current note
         saveState(thisState, (serialized) => {

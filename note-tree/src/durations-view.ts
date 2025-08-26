@@ -24,7 +24,6 @@ import {
     isBreak,
     NoteId,
     recomputeAllNoteDurations,
-    setActivityRangeToThisWeek,
     state,
     TreeNote
 } from "./state";
@@ -264,8 +263,6 @@ export function imDurationsView(
             addDays(s.activitiesTo, 7);
         }
         recomputeDurations(s);
-
-        setActivityRangeToThisWeek(state);
         setTableRow(ctx, s, s.tableRowPos.idx);
     }
 
