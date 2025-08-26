@@ -65,7 +65,6 @@ export type NoteTreeGlobalState = {
     currentNoteId: NoteId;
     dockedMenu: DockableMenu;
     showDockedMenu: boolean;
-    breakAutoInsertLastPolledTime: string;
     currentTheme: AppTheme;
 
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
@@ -126,6 +125,7 @@ export type NoteTreeGlobalState = {
     // child ids or flat note ids, and it's better if we don't have to recompute a child list each time.
     _flatNoteIds: NoteId[];
     _isEditingFocusedNote: boolean;
+    _lastStoppedEditingTimestamp: number | null,
     _isShowingDurations: boolean;
     _activitiesFrom: Date | null;
     _activitiesFromIdx: number;
@@ -437,7 +437,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         settings: newAppSettings(),
         _showAllNotes: false,
         currentTheme: "Light",
-        breakAutoInsertLastPolledTime: "",
         criticalSavingError: "",
 
         taskStreams: [],
@@ -461,6 +460,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
 
         _currentlyViewingActivityIdx: 0,
         _currentActivityScopedNoteId: itree.NIL_ID,
+        _lastStoppedEditingTimestamp: null,
         _isShowingDurations: false,
         _activitiesFrom: null,
         _activitiesFromIdx: -1,
@@ -1003,6 +1003,10 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
         return false;
     }
 
+    // TODO: delete when we've figured out this bug where
+    // our tree corrupts itself after some arbitrary time :D
+    logTrace("Deleting empty note: ID - " + note.id);
+
     if (note.childIds.length > 0) {
         if (state.textOnArrivalNoteId === note.id && state.textOnArrival) {
             // We can actually restore the text something more sane than the legacy behaviour
@@ -1329,6 +1333,13 @@ export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: b
     state._isEditingFocusedNote = isEditing;
 
     if (isEditing) {
+        if (state._lastStoppedEditingTimestamp) {
+            const timeSinceLastEdited = Date.now() - state._lastStoppedEditingTimestamp;
+            if (timeSinceLastEdited > 1000 * 60 && !isCurrentlyTakingABreak(state)) {
+                pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
+            }
+        }
+
         const currentNote = getCurrentNote(state);
         pushNoteActivity(state, currentNote.id, false);
         setCurrentActivityIdxToCurrentNote(state);
@@ -1338,9 +1349,7 @@ export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: b
         state.textOnArrival = currentNote.data.text;
         state.textOnArrivalNoteId = currentNote.id;
     } else {
-        if (!isCurrentlyTakingABreak(state)) {
-            pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
-        }
+        state._lastStoppedEditingTimestamp = new Date().getTime();
     }
 }
 
@@ -1816,6 +1825,7 @@ export let state = newNoteTreeGlobalState();
 const PROJECT_NAME = "note-tree";
 const LAST_SAVED_TIMESTAMP_KEY = PROJECT_NAME + "-lastSavedTimestamp";
 const LAST_SAVED_VERSION_KEY = PROJECT_NAME + "-lastSavedVersion";
+const LAST_AUTO_INSERTED_BREAK_KEY = PROJECT_NAME + "-lastAutoinsertedBreakTime";
 let lastLoadedTime = "";
 let loading = false;
 
@@ -2612,5 +2622,15 @@ export function loadStateFromBackup(text: string): NoteTreeGlobalState | null {
     }
 
     return null;
+}
+
+
+// no point in saving this in the app state.
+export function getBreakAutoInsertLastPolledTime() {
+    return localStorage.getItem(LAST_AUTO_INSERTED_BREAK_KEY) ?? new Date().toISOString();
+}
+
+export function updateBreakAutoInsertLastPolledTime() {
+    return localStorage.setItem(LAST_AUTO_INSERTED_BREAK_KEY, new Date().toISOString());
 }
 

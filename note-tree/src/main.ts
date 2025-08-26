@@ -26,8 +26,8 @@ import {
     elSetStyle,
     imDomRootBegin,
     imDomRootEnd,
-    imGlobalEventSystemEnd,
     imGlobalEventSystemBegin,
+    imGlobalEventSystemEnd,
     imStr
 } from "src/utils/im-dom";
 import { activitiesViewTakeBreak, imActivitiesList } from "./activities-list";
@@ -67,6 +67,8 @@ import {
 import { imDurationsView } from "./durations-view";
 import { imFuzzyFinder } from "./fuzzy-finder";
 import {
+    AUTO_INSERT_BREAK_CHECK_INTERVAL,
+    autoInsertBreakIfRequired,
     BYPASS_TEXT_AREA,
     CTRL,
     debouncedSave,
@@ -85,31 +87,22 @@ import { imNoteTreeView } from "./note-tree-view";
 import { imSettingsView } from "./settings-view";
 import {
     AppTheme,
-    getActivityTime,
-    getLastActivity,
     getLastSavedTimestampLocalstate,
     loadState,
-    newBreakActivity,
-    pushBreakActivity,
     setCurrentNote,
     setTheme,
     state
 } from "./state";
 import { imUrlViewer } from "./url-viewer";
+import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
-import { formatDateTime, getTimestamp, parseDateSafe } from "./utils/datetime";
+import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { VERSION_NUMBER } from "./version-number";
-import { arrayAt, getWrappedIdx } from "./utils/array-utils";
-
-const ERROR_TIMEOUT_TIME = 5000;
 
 // TODO: expose via UI
 console.log("Note tree v" + VERSION_NUMBER);
-
-// Used by webworker and normal code
-export const CHECK_INTERVAL_MS = 30000 * 10;
 
 
 function getIcon(theme: AppTheme) {
@@ -157,7 +150,7 @@ function imMainInner(c: ImCache) {
         // NOTE: Running this setInterval in a web worker is far more reliable that running it in a normal setInterval, which is frequently 
         // throttled in the browser for many random reasons in my experience. However, web workers seem to only stop when a user closes their computer, or 
         // closes the tab, which is what we want here
-        const worker = newWebWorker([CHECK_INTERVAL_MS], (checkIntervalMs: number) => {
+        const worker = newWebWorker([AUTO_INSERT_BREAK_CHECK_INTERVAL], (checkIntervalMs: number) => {
             let started = false;
             setInterval(() => {
                 postMessage("is-open-check");
@@ -169,40 +162,17 @@ function imMainInner(c: ImCache) {
                 }
             }, checkIntervalMs);
         });
-        worker.onmessage = () => {
-            autoInsertBreakIfRequired();
+        worker.onmessage = (e) => {
+            if (e.data === "is-open-check") {
+                autoInsertBreakIfRequired(state);
+            }
         };
         worker.onerror = (e) => {
             console.error("Webworker error: ", e);
         }
 
-        // NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
-        const autoInsertBreakIfRequired = () => {
-            // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
-            // webpage opens for the first time.
-            // It may or may not need to be called more or less often, depending on what we add.
-
-            // Need to automatically add breaks if we haven't called this method in a while.
-            const time = new Date();
-            const lastCheckTime = parseDateSafe(state.breakAutoInsertLastPolledTime);
-
-            if (
-                !!lastCheckTime &&
-                (time.getTime() - lastCheckTime.getTime()) > CHECK_INTERVAL_MS * 2
-            ) {
-                // If this javascript was running, i.e the computer was open constantly, this code should never run.
-                // So, we can insert a break now, if we aren't already taking one. 
-                // This should solve the problem of me constantly forgetting to add breaks...
-                const lastActivity = getLastActivity(state);
-                const time = !lastActivity ? lastCheckTime.getTime() :
-                    Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
-
-                pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
-            }
-
-            state.breakAutoInsertLastPolledTime = getTimestamp(time);
-            debouncedSave(ctx, state, "Auto-inserted break");
-        }
+        // Need to also run this as soon as we start.
+        autoInsertBreakIfRequired(state);
     }
 
     const tryState = imTry(c); try {

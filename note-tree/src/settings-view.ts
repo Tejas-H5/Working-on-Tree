@@ -20,7 +20,7 @@ import {
     newFocusRef,
     newListPosition
 } from "./navigable-list";
-import { getCurrentStateAsJSON, loadStateFromJSON, LoadStateFromJSONResult, resetState, setState, state } from "./state";
+import { getCurrentStateAsJSON, getLastActivity, loadStateFromJSON, LoadStateFromJSONResult, resetState, setState, state } from "./state";
 import { get } from "./utils/array-utils";
 import { formatDateTime, parseDateSafe } from "./utils/datetime";
 import { downloadTextAsFile, loadFile } from "./utils/file-download";
@@ -255,7 +255,7 @@ const menus: MenuItem[] = [
                         imLayout(c, BLOCK); {
                             const loadedState = loadResult.state;
                             if (imIf(c) && loadedState) {
-                                const lastOnline = parseDateSafe(loadedState.breakAutoInsertLastPolledTime);
+                                const lastOnline = getLastActivity(loadedState)?.t;
 
                                 imLayout(c, ROW); imJustify(c); {
                                     imB(c); imStr(c, "Make sure this looks reasonable before you load the backup"); imBEnd(c); 

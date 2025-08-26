@@ -1,14 +1,13 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
-import { CanvasViewState, newCanvasViewState } from "./canvas-view";
 import { DurationsViewState, newDurationsViewState } from "./durations-view";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
-import { newCanvasState } from "./legacy-app-components/canvas-state";
 import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./settings-view";
-import { applyPendingScratchpadWrites, NoteTreeGlobalState, TreeNote, saveState, NoteId, getNoteOrUndefined, state } from "./state";
+import { applyPendingScratchpadWrites, getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./url-viewer";
 import { assert } from "./utils/assert";
+import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
@@ -320,6 +319,7 @@ type KeyboardState = {
     bKey: KeyState;
     tKey: KeyState;
     fKey: KeyState;
+    hKey: KeyState;
 
     enterKey:  KeyState;
     escapeKey: KeyState;
@@ -385,6 +385,7 @@ function newKeyboardState(): KeyboardState {
         bKey: newKeyState("B", "B", "b"),
         tKey: newKeyState("T", "T", "t"),
         fKey: newKeyState("F", "F", "f"),
+        hKey: newKeyState("H", "H", "h"),
 
         enterKey:  newKeyState("Enter", "Enter"),
         escapeKey: newKeyState("Esc", "Escape"),
@@ -659,3 +660,37 @@ export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState, wh
     logTrace("Save initiated via " + where);
     saveCurrentState(ctx, state, { debounced: true });
 };
+
+
+// Used by webworker and normal code
+export const AUTO_INSERT_BREAK_CHECK_INTERVAL = 5000;
+
+// NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
+export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
+    // This function is run inside of a setInterval that runs every CHECK_INTERVAL_MS, and when the 
+    // webpage opens for the first time.
+    // It may or may not need to be called more or less often, depending on what we add.
+
+    // Need to automatically add breaks if we haven't called this method in a while.
+    const time = new Date();
+    const lastTime = getBreakAutoInsertLastPolledTime();
+    const lastCheckTime = parseDateSafe(lastTime);
+
+    if (
+        !!lastCheckTime &&
+        (time.getTime() - lastCheckTime.getTime()) > AUTO_INSERT_BREAK_CHECK_INTERVAL + 5000
+    ) {
+        // If this javascript was running, i.e the computer was open constantly, this code should never run.
+        // So, we can insert a break now, if we aren't already taking one. 
+        // This should solve the problem of me constantly forgetting to add breaks...
+        const lastActivity = getLastActivity(state);
+        const time = !lastActivity ? lastCheckTime.getTime() :
+            Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
+
+        pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
+    }
+
+    updateBreakAutoInsertLastPolledTime();
+}
+
+
