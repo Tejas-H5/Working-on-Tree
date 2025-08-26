@@ -94,7 +94,7 @@ import {
     state
 } from "./state";
 import { imUrlViewer } from "./url-viewer";
-import { arrayAt, getWrappedIdx } from "./utils/array-utils";
+import { get, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -437,8 +437,8 @@ function imMainInner(c: ImCache) {
 
                             // navigate list
                             {
-                                const prev = arrayAt(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
-                                const next = arrayAt(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
+                                const prev = get(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
+                                const next = get(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
                                 if (prev && next) {
                                     const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
                                     if (tabInput < 0) {

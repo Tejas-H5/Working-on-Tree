@@ -1,9 +1,9 @@
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "./components/core/layout";
+import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "./components/core/layout";
 import { imB, imBEnd } from "./components/core/text";
 import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
 import { GlobalContext } from "./global-context";
-import { getRowStatus, imListRowBegin, imEndListRowNoPadding, imListCursorColor, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
+import { getRowStatus, imEndListRowNoPadding, imListCursorColor, imListRowBegin, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
@@ -21,7 +21,6 @@ import {
     getHigherLevelTask,
     getNote,
     getNoteTextWithoutPriority,
-    idIsNilOrRoot,
     isBreak,
     NoteId,
     recomputeAllNoteDurations,
@@ -29,22 +28,20 @@ import {
     state,
     TreeNote
 } from "./state";
-import { boundsCheck } from "./utils/array-utils";
 import { assert, mustGetDefined } from "./utils/assert";
 import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours } from "./utils/datetime";
 import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
-import { addDocumentAndWindowEventListeners, elSetStyle, imStr } from "./utils/im-dom";
+import { elSetStyle, imStr } from "./utils/im-dom";
 
 type TaskBlockInfo = {
-    hlt: TreeNote;
+    // null means it's a break
+    hlt: TreeNote | null;
     name: string;
     slots: {
         time: number;
         activityIndices: number[];
     }[];
 };
-
-export type CurrentDateScope = "any" | "week";
 
 export type DurationsViewState = {
     scrollContainer: ScrollContainer;
@@ -56,18 +53,10 @@ export type DurationsViewState = {
 
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
-    hideBreaks: boolean;
-    scope: CurrentDateScope;
 };
 
 function getNumDays(s: DurationsViewState) {
-    let numDays;
-    if (s.scope === "week") {
-        numDays = 7;
-    } else {
-        numDays = 1;
-    }
-    return numDays;
+    return 7;
 }
 
 export function newDurationsViewState(): DurationsViewState {
@@ -78,8 +67,6 @@ export function newDurationsViewState(): DurationsViewState {
         durations: [],
         activitiesFrom: null,
         activitiesTo: null,
-        hideBreaks: false,
-        scope: "week",
         activityFilter: null,
     };
 }
@@ -145,39 +132,57 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
     }
 }
 
-const NIL_HLT_HEADING = "<No higher level task>";
-
 function recomputeDurations(s: DurationsViewState) {
     recomputeAllNoteDurations(state, s.activitiesFrom, s.activitiesTo);
 
-    const hltMap = new Map<NoteId | undefined, TaskBlockInfo>();
+    const hltMap = new Map<NoteId | null, TaskBlockInfo>();
 
     for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
         const activity = state.activities[i];
         const nextActivity = state.activities[i + 1] as Activity | undefined;
         const durationMs = getActivityDurationMs(activity, nextActivity);
 
-        if (s.hideBreaks && isBreak(activity)) {
-            continue;
+        let block: TaskBlockInfo | undefined;
+        let newBlock = false;
+
+        if (isBreak(activity)) {
+            block = hltMap.get(null);
+            if (!block) {
+                block = {
+                    hlt: null,
+                    slots: [],
+                    name: "Breaks",
+                };
+                hltMap.set(null, block);
+                newBlock = true;
+            }
+        } else {
+            const nId = activity.nId;
+            if (!nId) {
+                continue;
+            }
+
+            const note = getNote(state.notes, nId);
+            const hlt = getHigherLevelTask(state, note);
+            if (!hlt) {
+                continue;
+            }
+
+            block = hltMap.get(hlt.id);
+            if (!block) {
+                block = {
+                    hlt,
+                    slots: [],
+                    name: getNoteTextWithoutPriority(hlt.data),
+                };
+                newBlock = true;
+                hltMap.set(hlt.id, block);
+            }
         }
 
-        const nId = activity.nId;
-        if (!nId) {
-            continue;
-        } 
+        const dayOfWeek = getActivityTime(activity).getDay();
 
-        const note = getNote(state.notes, nId);
-        const hlt = getHigherLevelTask(state, note);
-        if (!hlt) {
-            continue;
-        }
-
-        let block = hltMap.get(hlt.id);
-        if (!block) {
-            block = { hlt, slots: [], name: "" };
-
-            block.name = getNoteTextWithoutPriority(block.hlt.data);
-
+        if (newBlock) {
             const numDays = getNumDays(s);
             for (let i = 0; i < numDays; i++) {
                 block.slots.push({
@@ -185,23 +190,11 @@ function recomputeDurations(s: DurationsViewState) {
                     activityIndices: [],
                 });
             }
-
-            hltMap.set(hlt.id, block); 
         }
+        assert(block.slots.length === 7);
 
-        const dayOfWeek = getActivityTime(activity).getDay();
-
-        if (s.scope === "week") {
-            assert(block.slots.length === 7);
-            block.slots[dayOfWeek].time += durationMs;
-            block.slots[dayOfWeek].activityIndices.push(i);
-        } else {
-            assert(block.slots.length === 1);
-            block.slots[0].time += durationMs;
-            block.slots[0].activityIndices.push(i);
-        }
-
-        hltMap.set(hlt.id, block);
+        block.slots[dayOfWeek].time += durationMs;
+        block.slots[dayOfWeek].activityIndices.push(i);
     }
 
     s.durations = [...hltMap.values()].sort((a, b) => {
@@ -259,7 +252,10 @@ export function imDurationsView(
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, viewHasFocus)) {
+    const focusChanged = imMemo(c, viewHasFocus);
+    const activitiesChanged = imMemo(c, state._activitiesMutationCounter);
+
+    if (focusChanged || activitiesChanged) {
         if (!s.activitiesTo && !s.activitiesFrom) {
             s.activitiesFrom = new Date();
             floorDateToWeekLocalTime(s.activitiesFrom);
@@ -267,8 +263,8 @@ export function imDurationsView(
             s.activitiesTo = new Date(s.activitiesFrom.getTime());
             addDays(s.activitiesTo, 7);
         }
-
         recomputeDurations(s);
+
         setActivityRangeToThisWeek(state);
         setTableRow(ctx, s, s.tableRowPos.idx);
     }

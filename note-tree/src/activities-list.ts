@@ -65,7 +65,7 @@ import {
     state
 } from "./state";
 import { imEditableTime } from "./time-input";
-import { arrayAt, boundsCheck, get } from "./utils/array-utils";
+import { boundsCheck, get } from "./utils/array-utils";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
 import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
@@ -282,19 +282,34 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
     }
 }
 
+function canInsertBreak(ctx: GlobalContext, s: ActivitiesViewState) {
+    const currentActivity = get(s.activities, s.activityListPositon.idx);
+    if (!currentActivity) return false;
 
-function insertBreakBetweenCurrentAndNext(
+    return true;
+}
+
+function insertBreak(
     ctx: GlobalContext,
     s: ActivitiesViewState
 ) {
     // TODO: make this work when we have filtered activities
-    if (s.filteredActivities) return;
+    if (!canInsertBreak(ctx, s)) return;
 
-    const idx = s.activityListPositon.idx;
-    if (!boundsCheck(s.activities, idx)) return;
+    const filteredListIdx = s.activityListPositon.idx;
+    const activity = get(s.activities, filteredListIdx);
+    if (!activity) {
+        return;
+    }
 
-    const activity = s.activities[idx];
-    const nextActivity = s.activities[idx + 1];
+    const allActivities = state.activities;
+
+    const idx = allActivities.indexOf(activity);
+    if (idx === -1) {
+        return;
+    }
+    
+    const nextActivity = get(allActivities, idx + 1);
 
     const timeA = getActivityTime(activity).getTime();
     const duration = getActivityDurationMs(activity, nextActivity);
@@ -302,11 +317,18 @@ function insertBreakBetweenCurrentAndNext(
 
     const newBreak = newBreakActivity("New break", new Date(midpoint), false);
 
-    s.activities.splice(idx + 1, 0, newBreak);
-    debouncedSave(ctx, state, "Insert break activities list");
+    allActivities.splice(idx + 1, 0, newBreak);
+    state._activitiesMutationCounter++;
+    if (s.activities !== allActivities) {
+        // TODO: figure out a way for state._activitiesMutationCounter to flow down into us.
+        // state._activitiesMutationCounter -> duration view filter changes -> this thing's activities list changes -> 
+        // but it can't work, because we use the index to know what the 'current activity' is. sooo maybe idx not good?
+        s.activities.splice(filteredListIdx + 1, 0, newBreak);
+    }
+    activitiesViewSetIdx(ctx, s, filteredListIdx + 1, false);
 
     s.isEditing = EDITING_ACTIVITY;;
-    activitiesViewSetIdx(ctx, s, idx + 1, IN_RANGE);
+    debouncedSave(ctx, state, "Insert break activities list");
 };
 
 function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
@@ -314,7 +336,6 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
     const [lo, hi] = getActivityRange(s);
     const currentActivity = get(s.activities, s.activityListPositon.idx);
-    const viewingActivities = hasActivitiesToView(s);
 
     if (!hasActivitiesToView(s)) {
         s.currentFocus === FOCUS_DATE_SELECTOR;
@@ -332,7 +353,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
         // Moving to the date view - down
         if (
             !isSameDate(s.now, s.currentViewingDate) && 
-            s.activityListPositon.idx === s._endActivityIdxEx &&
+            s.activityListPositon.idx === s._endActivityIdxEx - 1 &&
             hasDiscoverableCommand(ctx, keyboard.downKey, "Next day", REPEAT)
         ) {
             s.currentFocus = FOCUS_DATE_SELECTOR;
@@ -357,8 +378,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 s.isEditing = EDITING_TIME;
             } 
 
-            if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under", SHIFT)) {
-                insertBreakBetweenCurrentAndNext(ctx, s);
+            if (canInsertBreak(ctx, s) && hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under", SHIFT)) {
+                insertBreak(ctx, s);
             }
 
             // TODO: make axis discoverable
@@ -507,6 +528,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     const filter = s.inputs.activityFilter;
 
+    let currentActivity = get(s.activities, s.activityListPositon.idx);
+
     if (imMemo(c, filter)) {
         // recompute filtered activities
 
@@ -518,14 +541,6 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 const activity = state.activities[idx]; assert(!!activity);
                 s.filteredActivities.push(activity);
             }
-
-            const current = arrayAt(s.activities, s.activityListPositon.idx);
-            if (current) {
-                const idx = s.filteredActivities.indexOf(current);
-                if (idx !== -1) {
-                    activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
-                }
-            }
         } else {
             s.filteredActivities = null;
         }
@@ -536,6 +551,16 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             s.activities = s.filteredActivities;
         } else {
             s.activities = state.activities;
+        }
+
+        if (currentActivity) {
+            const idx = s.activities.indexOf(currentActivity);
+            if (idx !== -1) {
+                activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
+            } else if (s.activities.length > 0) {
+                activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
+                currentActivity = get(s.activities, s.activityListPositon.idx);
+            }
         }
     }
 

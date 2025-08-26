@@ -125,11 +125,6 @@ export function clearArray(arr: unknown[]) {
     arr.length = 0;
 }
 
-// Mainly for correct typing - use it when you know it could be out of bounds
-export function arrayAt<T>(arr: T[], i: number): T | undefined {
-    return arr[i];
-}
-
 export function clampIndexToArrayBounds(i: number, arr: unknown[]): number {
     return clampIndexToBounds(i, arr.length);
 }
