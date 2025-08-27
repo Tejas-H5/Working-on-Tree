@@ -9,7 +9,6 @@ import {
     PX,
     ROW
 } from "./components/core/layout";
-import { isSelected } from "./legacy-app-components/canvas-state";
 import { ImCache, imMemo, isFirstishRender } from "./utils/im-core";
 import { elSetStyle } from "./utils/im-dom";
 

@@ -1,11 +1,5 @@
 import { assert } from "src/utils/assert";
-import {
-    formatDateTime,
-    ONE_HOUR,
-    ONE_MINUTE,
-    ONE_SECOND,
-    pad2
-} from "src/utils/datetime";
+import { formatDateTime, } from "src/utils/datetime";
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
@@ -173,21 +167,6 @@ function isNoteShelved(note: Note): boolean {
            note.text.trimStart().startsWith("SHELVED");
 }
 
-// @deprecated. Just call getDoneNoteSuffix.
-export function isDoneNoteWithExtraInfoDepracatadXd(note: Note): boolean {
-    const prefix = getDoneNotePrefixOrSuffix(note);
-    if (!prefix) {
-        return false;
-    }
-
-    return prefix.length !== note.text.length;
-}
-
-export function isTodoNote(note: Note) {
-    return getTodoNotePriority(note) > 0;
-}
-
-
 export function getNoteTextWithoutPriority(note: Note): string {
     const priority = getTodoNotePriority(note);
     let idx = priority;
@@ -209,21 +188,6 @@ function truncate(str: string, len: number): string {
 export function isHigherLevelTask(note: TreeNote): boolean {
     return getTodoNotePriority(note.data) >= 2;
 }
-
-export function getHltHeader(state: NoteTreeGlobalState, note: TreeNote): string {
-    const strBuilder: string[] = [];
-
-    while (note.parentId !== -1) {
-        if (isHigherLevelTask(note)) {
-            const noteText = getNoteTextWithoutPriority(note.data);
-            strBuilder.push(noteText);
-        }
-        note = getNote(state.notes, note.parentId);
-    }
-
-    return strBuilder.reverse().join(" :: ");
-}
-
 
 export function getTodoNotePriority(note: Note): number {
     // Keep the priority system simple. 
@@ -453,54 +417,12 @@ export function defaultNote(): Note {
     };
 }
 
-export type NoteFilter = null | {
-    status: NoteStatus;
-    not: boolean;
-};
-
-export function getAllNoteIdsInTreeOrder(state: NoteTreeGlobalState): NoteId[] {
-    const noteIds: NoteId[] = [];
-
-    const root = getRootNote(state);
-    dfsPre(state, root, (note) => {
-        noteIds.push(note.id);
-    });
-
-    return noteIds;
-}
-
-
-
-/**
- * @deprecated - we now serialize and deserialize data directly into the correct type, so this is useless
- */
-export function setActivityTime(activity: Activity, t: Date) {
-    activity.t = t;
-}
-
 export function getActivityTime(activity: Activity | undefined) {
     if (!activity) {
         return new Date();
     }
 
-    return activity.t;
-}
-
-export function shouldFilterOutNote(data: Note, filter: NoteFilter): boolean {
-    if (filter === null) {
-        return false;
-    }
-
-    let val = false;
-    if (filter.status) {
-        val = data._status !== filter.status;
-    }
-
-    if (filter.not) {
-        val = !val;
-    }
-
-    return val;
+    return new Date(activity.t);
 }
 
 export function setNoteText(
@@ -731,7 +653,6 @@ export function isNoteCollapsed(note: TreeNote): CollapsedStatus {
     return NOT_COLLAPSED;
 }
 
-
 export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity: Activity): string | undefined {
     if (activity.nId === 0) {
         return "< deleted root note >";
@@ -843,7 +764,6 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
     state.activities.push(activity);
     state._activitiesMutationCounter++;
 }
-
 
 export function isNoteEmpty(note: TreeNote): boolean {
     return note.data.text.length === 0;
@@ -1253,114 +1173,6 @@ export function getNoteDurationWithoutRange(_state: NoteTreeGlobalState, note: T
     return duration;
 }
 
-// NOTE: doesn't detect the 'h'. so it might be inaccurate.
-// You should do getNoteEstimate(note) === -1 instead.
-function hasEstimate(text: string) {
-    return parseNoteEstimate(text)[0] !== -1;
-}
-
-function isNumber(c: string) {
-    return c === "." || ("0" <= c && c <= "9");
-}
-
-function isHms(c: string | undefined) {
-    return c === undefined || c === "h" || c === "m" || c === "s";
-}
-
-export const ESTIMATE_START_PREFIX = "E=";
-export function parseNoteEstimate(text: string): [estimate: number, start: number, end: number] {
-    const start = text.indexOf(ESTIMATE_START_PREFIX);
-    if (start === -1) {
-        return [-1, -1, -1];
-    }
-
-    let totalMs = 0;
-
-    let iLast = start + ESTIMATE_START_PREFIX.length;
-    for (let i = iLast; i <= text.length; i++) {
-        if (isNumber(text[i])) {
-            continue;
-        }
-
-        if (isHms(text[i])) {
-            const numStr = text.substring(iLast, i);
-            iLast = i + 1;
-
-            const num = parseFloat(numStr);
-
-            if (text[i] === "h") {
-                totalMs += num * ONE_HOUR;
-            } else if (text[i] === "m") {
-                totalMs += num * ONE_MINUTE;
-            } else if (text[i] === "s") {
-                totalMs += num * ONE_SECOND;
-            }
-
-            continue;
-        }
-
-        break;
-    }
-
-    return [totalMs, start, iLast + 1];
-}
-
-export function formatDurationAsEstimate(totalMs: number): string {
-    const hours = Math.floor(totalMs / ONE_HOUR);
-    const minutes = Math.floor((totalMs % ONE_HOUR) / ONE_MINUTE);
-    const seconds = Math.floor(((totalMs % ONE_HOUR) % ONE_MINUTE) / ONE_SECOND);
-
-    // Why tf do we support seconds for our estimates. lol. lmao even.
-    return ESTIMATE_START_PREFIX + hours + "h" + pad2(minutes) + "m" + seconds + "s";
-}
-
-export function getParentNoteWithEstimate(state: NoteTreeGlobalState, note: TreeNote): TreeNote | undefined {
-    let estimateNote = note;
-    while (!idIsNil(estimateNote.parentId)) {
-
-        if (hasEstimate(note.data.text)) {
-            return estimateNote;
-        }
-
-        estimateNote = getNote(state.notes, estimateNote.parentId);
-    }
-
-    return undefined;
-}
-
-export function getNoteEstimate(note: TreeNote): number {
-    return parseNoteEstimate(note.data.text)[0];
-}
-
-export function getNoteChildEstimates(state: NoteTreeGlobalState, note: TreeNote): number {
-    let totalEstimate = 0;
-
-    const dfs = (note: TreeNote) => {
-        for (const childId of note.childIds) {
-            const note = getNote(state.notes, childId);
-
-            if (
-                note.data._status === STATUS_DONE
-                || note.data._status === STATUS_ASSUMED_DONE
-            ) {
-                // don't need an estimate, since we know exactly how long it took to complete, actually
-                totalEstimate += getNoteDurationWithoutRange(state, note);
-                continue;
-            }
-
-            if (!hasEstimate(note.data.text)) {
-                dfs(note);
-                continue;
-            }
-
-            totalEstimate += getNoteEstimate(note);
-        }
-    }
-    dfs(note);
-
-    return totalEstimate;
-}
-
 export function isEditableBreak(activity: Activity) {
     if (!activity) {
         return false;
@@ -1508,7 +1320,6 @@ export function findNextActiviyIndex(state: NoteTreeGlobalState, nId: NoteId, id
 
     return -1;
 }
-
 
 export function resetState() {
     state = newNoteTreeGlobalState();
@@ -1717,30 +1528,6 @@ export function removeNoteFromNoteIds(noteIds: NoteId[], id: NoteId) {
     filterInPlace(noteIds, nId => nId !== id);
 }
 
-export type ViewCurrentScheduleState = {
-    noteIdx: number;
-    isEstimating: boolean;
-    isEstimatingRemainder: boolean;
-    remainderText: string;
-    isConfiguringWorkday: boolean;
-    goBack(): void;
-};
-
-export type ViewAllTaskStreamsState = {
-    isRenaming: boolean;
-    canDelete: boolean;
-    isCurrentNoteInStream: boolean;
-    isViewingCurrentStream: boolean;
-
-    // expensive to compute - understandable if we only do this once when the modal appears
-    viewTaskStreamStates: ViewTaskStreamState[];
-
-    scheduleViewState: ViewCurrentScheduleState;
-};
-
-
-export const MIN_TASK_STREAM_IDX = -1;
-
 export function clamp(val: number, min: number, max: number) {
     if (val < min) return min;
     if (val > max) return max;
@@ -1751,22 +1538,6 @@ export type InProgressNotesState = {
     inProgressIds: NoteId[];
     currentInProgressNoteIdx: number;
     inProgressNoteDepths: number[];
-};
-
-export function getCurrentInProgressState(state: ViewTaskStreamState): InProgressNotesState | undefined {
-    return state.inProgressNotes[state.currentStreamNoteIdx];
-}
-
-
-export type ViewTaskStreamState = {
-    isViewingInProgress: boolean; // are we viewing the 'in progress' note ids list? (not is the viewing in progress?)
-
-    currentStreamNoteIdx: number;
-    streamNoteDepths: number[];
-
-    inProgressNotes: InProgressNotesState[];
-    currentQuery: string;
-    isFinding: boolean;
 };
 
 

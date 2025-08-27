@@ -1,25 +1,25 @@
-import { COL, imFlex, imLayout, imLayoutEnd } from "./components/core/layout";
-import { cn, cssVars } from "./components/core/stylesheets";
-import { GlobalContext } from "./global-context";
-import { CanvasState } from "./legacy-app-components/canvas-state";
-import { ImCache, imIf, imIfEnd, isFirstishRender } from "./utils/im-core";
-import { EL_DIV, elSetAttributes, imElBegin } from "./utils/im-dom";
-
-// NOTE: These are updated bindings for a largely legacy component.
-// We'll be rewriting it in vanillaJS ??? not sure.
-export type CanvasViewState = {
-    state: CanvasState | null;
-};
-
-export function newCanvasViewState(): CanvasViewState {
-    return {
-        state: null,
-    };
-}
-
-function handleKeyboardInput(ctx: GlobalContext, s: CanvasViewState) {
-    // TODO: left/right should move up/down high level tasks
-}
+// import { COL, imFlex, imLayout, imLayoutEnd } from "./components/core/layout";
+// import { cn, cssVars } from "./components/core/stylesheets";
+// import { GlobalContext } from "./global-context";
+// import { CanvasState } from "./legacy-app-components/canvas-state";
+// import { ImCache, imIf, imIfEnd, isFirstishRender } from "./utils/im-core";
+// import { EL_DIV, elSetAttributes, imElBegin } from "./utils/im-dom";
+//
+// // NOTE: These are updated bindings for a largely legacy component.
+// // We'll be rewriting it in vanillaJS ??? not sure.
+// export type CanvasViewState = {
+//     state: CanvasState | null;
+// };
+//
+// export function newCanvasViewState(): CanvasViewState {
+//     return {
+//         state: null,
+//     };
+// }
+//
+// function handleKeyboardInput(ctx: GlobalContext, s: CanvasViewState) {
+//     // TODO: left/right should move up/down high level tasks
+// }
 
 
 // export function imCanvasView(c: ImCache, ctx: GlobalContext, s: CanvasViewState) {

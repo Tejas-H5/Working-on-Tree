@@ -1,6 +1,7 @@
 import {
     newScrollContainer,
-    ScrollContainer
+    ScrollContainer,
+    startScrolling
 } from "src/components/scroll-container";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
 import {
@@ -244,6 +245,8 @@ function moveToPrevDay(ctx: GlobalContext, s: ActivitiesViewState) {
 
 export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState, idx: number, notInRange: boolean) {
     if (s.activities.length === 0) return;
+
+    if (s.scrollContainer) startScrolling(s.scrollContainer, true);
 
     const lastIdx = s.activityListPositon.idx;
     let newIdx = idx;

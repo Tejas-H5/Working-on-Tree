@@ -38,7 +38,6 @@ export type GlobalContext = {
         finder: FuzzyFinderViewState;
         settings: SettingsViewState;
         durations: DurationsViewState;
-        // canvas: CanvasViewState;
     };
     currentView: unknown;
     leftTab: unknown;
@@ -150,7 +149,6 @@ export function newGlobalContext(): GlobalContext {
             finder: newFuzzyFinderViewState(),
             settings: newSettingsViewState(),
             durations: newDurationsViewState(),
-            // canvas: newCanvasViewState(),
         },
         notLockedIn: true,
 
