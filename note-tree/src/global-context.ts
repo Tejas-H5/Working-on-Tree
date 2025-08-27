@@ -1,11 +1,11 @@
-import { ActivitiesViewState, newActivitiesViewState } from "./activities-list";
-import { DurationsViewState, newDurationsViewState } from "./durations-view";
-import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./fuzzy-finder";
-import { newNoteTraversalViewState, NoteTraversalViewState } from "./lateral-traversal";
-import { newNoteTreeViewState, NoteTreeViewState } from "./note-tree-view";
-import { newSettingsViewState, SettingsViewState } from "./settings-view";
+import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
+import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
+import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
+import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/lateral-traversal";
+import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
+import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
-import { newUrlListViewState, UrlListViewState } from "./url-viewer";
+import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";

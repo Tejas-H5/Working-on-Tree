@@ -1,6 +1,6 @@
-import { imPadding, NA, PX } from "./components/core/layout";
-import { ImCache, isFirstishRender } from "./utils/im-core";
-import { EL_H1, elSetStyle, imElBegin, imElEnd } from "./utils/im-dom";
+import { imPadding, NA, PX } from "../components/core/layout";
+import { ImCache, isFirstishRender } from "../utils/im-core";
+import { EL_H1, elSetStyle, imElBegin, imElEnd } from "../utils/im-dom";
 
 
 export function imAppHeadingBegin(c: ImCache) {

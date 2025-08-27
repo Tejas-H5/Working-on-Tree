@@ -1,8 +1,8 @@
-import { imLine, LINE_HORIZONTAL } from "./app-components/common";
-import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "./components/core/layout";
-import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "./global-context";
-import { imListRowCellStyle } from "./list-row";
+import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "src/components/core/layout";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
+import { imListRowCellStyle } from "src/app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
@@ -13,7 +13,7 @@ import {
     imNavListNextItemArray,
     ListPosition,
     newListPosition
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
 import { getNoteViewRoot } from "./note-tree-view";
 import {
     getCurrentNote,
@@ -24,10 +24,10 @@ import {
     state,
     STATUS_IN_PROGRESS,
     TreeNote
-} from "./state";
-import { get } from "./utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
-import { elSetStyle, imStr } from "./utils/im-dom";
+} from "src/state";
+import { get } from "src/utils/array-utils";
+import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { elSetStyle, imStr } from "src/utils/im-dom";
 
 
 export type NoteTraversalViewState = {

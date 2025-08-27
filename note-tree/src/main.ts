@@ -30,12 +30,12 @@ import {
     imGlobalEventSystemEnd,
     imStr
 } from "src/utils/im-dom";
-import { activitiesViewTakeBreak, imActivitiesList } from "./activities-list";
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-heading";
+import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/im-line";
+import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
-import { imAsciiIcon } from "./ascii-icon";
+import { imAsciiIcon } from "./app-components/ascii-icon";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import {
     BLOCK,
@@ -64,8 +64,8 @@ import {
     fpsMarkRenderingStart,
     newFpsCounterState,
 } from "./components/fps-counter";
-import { imDurationsView } from "./durations-view";
-import { imFuzzyFinder } from "./fuzzy-finder";
+import { imDurationsView } from "./app-views/durations-view";
+import { imFuzzyFinder } from "./app-views/fuzzy-finder";
 import {
     AUTO_INSERT_BREAK_CHECK_INTERVAL,
     autoInsertBreakIfRequired,
@@ -81,10 +81,10 @@ import {
     TASK_IN_PROGRESS,
     updateDiscoverableCommands
 } from "./global-context";
-import { imNoteTraversal } from "./lateral-traversal";
-import { addView, getTabInput, imViewsList, newFocusRef } from "./navigable-list";
-import { imNoteTreeView } from "./note-tree-view";
-import { imSettingsView } from "./settings-view";
+import { imNoteTraversal } from "./app-views/lateral-traversal";
+import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components/navigable-list";
+import { imNoteTreeView } from "./app-views/note-tree-view";
+import { imSettingsView } from "./app-views/settings-view";
 import {
     AppTheme,
     getLastSavedTimestampLocalstate,
@@ -93,7 +93,7 @@ import {
     setTheme,
     state
 } from "./state";
-import { imUrlViewer } from "./url-viewer";
+import { imUrlViewer } from "./app-views/url-viewer";
 import { get, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";

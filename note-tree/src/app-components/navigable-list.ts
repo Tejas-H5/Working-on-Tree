@@ -1,11 +1,11 @@
-import { COL, imLayoutEnd, ROW } from "./components/core/layout";
-import { imScrollContainerBegin, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
-import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "./global-context";
+import { COL, imLayoutEnd, ROW } from "../components/core/layout";
+import { imScrollContainerBegin, ScrollContainer, scrollToItem, startScrolling } from "../components/scroll-container";
+import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { imListRowBegin, imListRowEnd } from "./list-row";
-import { getWrappedIdx } from "./utils/array-utils";
-import { assert } from "./utils/assert";
-import { ImCache, imFor, imForEnd, imGet, imSet, ValidKey } from "./utils/im-core";
-import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+import { getWrappedIdx } from "../utils/array-utils";
+import { assert } from "../utils/assert";
+import { ImCache, imFor, imForEnd, imGet, imSet, ValidKey } from "../utils/im-core";
+import { isEditingTextSomewhereInDocument } from "../utils/dom-utils";
 
 
 // TODO: maybe there should be a keyboard module instead?

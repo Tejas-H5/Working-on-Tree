@@ -1,9 +1,9 @@
-import { cnApp } from "./app-styling";
-import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "./components/core/layout";
-import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
-import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "./global-context";
-import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "./list-row";
+import { cnApp } from "src/app-styling";
+import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "src/components/core/layout";
+import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "src/global-context";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 import {
     AXIS_FLAG_BYPASS_TEXT_AREA,
     AXIS_VERTICAL,
@@ -14,7 +14,7 @@ import {
     imNavListNextItemArray,
     imNavListRowBegin,
     imNavListRowEnd
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
 import {
     dfsPre,
     forEachChildNote,
@@ -28,11 +28,11 @@ import {
     STATUS_IN_PROGRESS,
     STATUS_SHELVED,
     TreeNote
-} from "./state";
-import { truncate } from "./utils/datetime";
-import { fuzzyFind, FuzzyFindRange } from "./utils/fuzzyfind";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
+} from "src/state";
+import { truncate } from "src/utils/datetime";
+import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
 
 
 const SCOPE_EVERTHING = 0;

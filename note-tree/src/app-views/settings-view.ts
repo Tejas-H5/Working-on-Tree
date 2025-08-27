@@ -1,29 +1,28 @@
-import { imAppHeadingBegin, imAppHeadingEnd } from "./app-heading";
-import { cssVarsApp } from "./app-styling";
-import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, NA, PERCENT, PX, ROW, STRETCH } from "./components/core/layout";
-import { cn } from "./components/core/stylesheets";
-import { imB, imBEnd, imI, imIEnd, imS } from "./components/core/text";
-import { newScrollContainer, } from "./components/scroll-container";
-import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, setCurrentView, SHIFT } from "./global-context";
-import { imListRowBegin, imListRowEnd, imListRowCellStyle } from "./list-row";
+import { imAppHeadingBegin, imAppHeadingEnd } from "src/app-components/app-heading";
 import {
     addView,
     getNavigableListInput,
     getTabInput,
     imNavListBegin,
-    imNavListRowBegin,
     imNavListEnd,
-    imNavListRowEnd,
     imNavListNextItem,
     imNavListNextItemArray,
+    imNavListRowBegin,
+    imNavListRowEnd,
     imViewsList,
     newFocusRef,
     newListPosition
-} from "./navigable-list";
-import { getCurrentStateAsJSON, getLastActivity, loadStateFromJSON, LoadStateFromJSONResult, resetState, setState, state } from "./state";
-import { get } from "./utils/array-utils";
-import { formatDateTime, parseDateSafe } from "./utils/datetime";
-import { downloadTextAsFile, loadFile } from "./utils/file-download";
+} from "src/app-components/navigable-list";
+import { cssVarsApp } from "src/app-styling";
+import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX, ROW, STRETCH } from "src/components/core/layout";
+import { cn } from "src/components/core/stylesheets";
+import { imB, imBEnd, imI, imIEnd } from "src/components/core/text";
+import { newScrollContainer, } from "src/components/scroll-container";
+import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, setCurrentView, SHIFT } from "src/global-context";
+import { getCurrentStateAsJSON, getLastActivity, loadStateFromJSON, LoadStateFromJSONResult, resetState, setState, state } from "src/state";
+import { get } from "src/utils/array-utils";
+import { formatDateTime } from "src/utils/datetime";
+import { downloadTextAsFile, loadFile } from "src/utils/file-download";
 import {
     getDeltaTimeSeconds,
     ImCache,
@@ -40,10 +39,10 @@ import {
     imTry,
     inlineTypeId,
     isFirstishRender
-} from "./utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "./utils/im-dom";
-import { ROOT_ID } from "./utils/int-tree";
-import { VERSION_NUMBER } from "./version-number";
+} from "src/utils/im-core";
+import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
+import { VERSION_NUMBER } from "src/version-number";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 
 const REQUIRED_PRESSES = 5;
 
@@ -101,7 +100,7 @@ const menus: MenuItem[] = [
     {
         name: "UI",
         desc: "Fine-tune UI interactions",
-        imComponent: (c, ctx, s, hasFocus) => {
+        imComponent: (c, ctx, _s, hasFocus) => {
             imLayout(c, COL); imFlex(c); {
                 imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     // TODO: tab stop, tabs vs spaces, all on multiple lines -> parents on one line -> all on one line except selection
@@ -192,7 +191,7 @@ const menus: MenuItem[] = [
     {
         name: "Download JSON",
         desc: "Export your data to a JSON file to import later/elsewhere",
-        imComponent: (c, ctx, s, hasFocus) => {
+        imComponent: (c, ctx, _s, hasFocus) => {
             imLayout(c, COL); imFlex(c); {
                 // NOTE: Don't want the export view to look similar to the import view. need to avoid action capture.
                 imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
@@ -236,7 +235,7 @@ const menus: MenuItem[] = [
     {
         name: "Load from JSON",
         desc: "Import your data from a JSON file you exported",
-        imComponent: (c, ctx, s, hasFocus) => {
+        imComponent: (c, ctx, _s, hasFocus) => {
             imLayout(c, COL); imFlex(c); {
                 imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     let importModalState = imGet(c, importModal);
@@ -410,7 +409,7 @@ const menus: MenuItem[] = [
     {
         name: "Clear",
         desc: "Clear all your data, and start fresh",
-        imComponent: (c, ctx, s, hasFocus) => {
+        imComponent: (c, ctx, _s, hasFocus) => {
             imLayout(c, COL); imFlex(c); {
                 imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);

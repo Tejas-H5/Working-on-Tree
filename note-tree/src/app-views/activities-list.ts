@@ -1,53 +1,22 @@
-import {
-    newScrollContainer,
-    ScrollContainer,
-    startScrolling
-} from "src/components/scroll-container";
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import {
-    BLOCK,
-    CENTER,
-    CH,
-    COL,
-    imAlign,
-    imFlex,
-    imGap,
-    imJustify,
-    imLayout,
-    imLayoutEnd,
-    imNoWrap,
-    INLINE_BLOCK,
-    NONE,
-    PX,
-    ROW
-} from "./components/core/layout";
-import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
-import {
-    BYPASS_TEXT_AREA,
-    debouncedSave,
-    getAxisRaw,
-    GlobalContext,
-    hasDiscoverableCommand,
-    REPEAT,
-    SHIFT
-} from "./global-context";
-import {
-    imListRowBegin,
-    imListRowEnd,
-    imListRowCellStyle,
-} from "./list-row";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/app-components/im-line";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "src/app-components/list-row";
 import {
     clampedListIdx,
     clampedListIdxRange,
     getNavigableListInput,
     imNavListBegin,
-    imNavListRowBegin,
     imNavListEnd,
+    imNavListRowBegin,
     imNavListRowEnd,
     ListPosition,
     navListNextItemSlice,
     newListPosition
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
+import { imEditableTime } from "src/app-components/time-input";
+import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, INLINE_BLOCK, NONE, PX, ROW } from "src/components/core/layout";
+import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
+import { BYPASS_TEXT_AREA, debouncedSave, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
 import {
     Activity,
     getActivityDurationMs,
@@ -56,7 +25,6 @@ import {
     getCurrentNote,
     getHigherLevelTask,
     getLastActivity,
-    getLastActivityWithNote,
     getNote,
     isBreak,
     isCurrentlyTakingABreak,
@@ -64,13 +32,12 @@ import {
     pushBreakActivity,
     setCurrentNote,
     state
-} from "./state";
-import { imEditableTime } from "./time-input";
-import { boundsCheck, get } from "./utils/array-utils";
-import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "./utils/datetime";
-import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
-import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "./utils/im-dom";
-import { assert } from "./utils/assert";
+} from "src/state";
+import { boundsCheck, get } from "src/utils/array-utils";
+import { assert } from "src/utils/assert";
+import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "src/utils/datetime";
+import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -220,7 +187,7 @@ export const IN_RANGE = false;
 export const NOT_IN_RANGE = true;
 
 function moveToNextDay(ctx: GlobalContext, s: ActivitiesViewState) {
-    const [lo, hi] = getActivityRange(s);
+    const [_lo, hi] = getActivityRange(s);
 
     if (hi < s.activities.length - 1) {
         // move to the next day, if notes available
@@ -235,7 +202,7 @@ function moveToNextDay(ctx: GlobalContext, s: ActivitiesViewState) {
 }
 
 function moveToPrevDay(ctx: GlobalContext, s: ActivitiesViewState) {
-    const [lo, hi] = getActivityRange(s);
+    const [lo, _hi] = getActivityRange(s);
 
     if (lo > 0) {
         // move to prev day
@@ -285,7 +252,7 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
     }
 }
 
-function canInsertBreak(ctx: GlobalContext, s: ActivitiesViewState) {
+function canInsertBreak(_ctx: GlobalContext, s: ActivitiesViewState) {
     const currentActivity = get(s.activities, s.activityListPositon.idx);
     if (!currentActivity) return false;
 
@@ -449,7 +416,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             hasDiscoverableCommand(ctx, keyboard.leftKey, "Prev day", REPEAT)
         ) {
             moveToPrevDay(ctx, s);
-            const [lo, hi] = getActivityRange(s);
+            const [lo, _hi] = getActivityRange(s);
             activitiesViewSetIdx(ctx, s, lo, false);
         }
 

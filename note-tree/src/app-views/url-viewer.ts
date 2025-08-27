@@ -1,9 +1,9 @@
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { imLine, LINE_HORIZONTAL } from "./app-components/common";
-import { COL, imAlign, imLayout, imFlex, imJustify, imLayoutEnd, ROW, BLOCK } from "./components/core/layout";
-import { newScrollContainer, ScrollContainer } from "./components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand } from "./global-context";
-import { imListRowCellStyle } from "./list-row";
+import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { COL, imAlign, imLayout, imFlex, imJustify, imLayoutEnd, ROW, BLOCK } from "src/components/core/layout";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
+import { imListRowCellStyle } from "src/app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
@@ -14,7 +14,7 @@ import {
     imNavListNextItemArray,
     ListPosition,
     newListPosition
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
 import {
     dfsPre,
     forEachChildNote,
@@ -23,10 +23,10 @@ import {
     setCurrentNote,
     state,
     TreeNote
-} from "./state";
-import { get } from "./utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "./utils/im-core";
-import { EL_A, elSetAttr, elSetStyle, imElBegin, imElEnd, imStr } from "./utils/im-dom";
+} from "src/state";
+import { get } from "src/utils/array-utils";
+import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { EL_A, elSetAttr, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
 
 type UrlListViewUrl = {
     url: string;

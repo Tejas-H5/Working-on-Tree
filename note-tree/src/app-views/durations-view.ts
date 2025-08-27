@@ -1,9 +1,9 @@
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/common";
-import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "./components/core/layout";
-import { imB, imBEnd } from "./components/core/text";
-import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "./components/scroll-container";
-import { GlobalContext } from "./global-context";
-import { getRowStatus, imEndListRowNoPadding, imListCursorColor, imListRowBegin, imListCursorBg as imListRowBg, imListRowCellStyle } from "./list-row";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/app-components/im-line";
+import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "src/components/core/layout";
+import { imB, imBEnd } from "src/components/core/text";
+import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "src/components/scroll-container";
+import { GlobalContext } from "src/global-context";
+import { getRowStatus, imEndListRowNoPadding, imListCursorColor, imListRowBegin, imListCursorBg as imListRowBg, imListRowCellStyle } from "src/app-components/list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
@@ -13,7 +13,7 @@ import {
     imNavListNextItemArray,
     ListPosition,
     newListPosition
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
 import {
     Activity,
     getActivityDurationMs,
@@ -26,11 +26,11 @@ import {
     recomputeAllNoteDurations,
     state,
     TreeNote
-} from "./state";
-import { assert, mustGetDefined } from "./utils/assert";
-import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours } from "./utils/datetime";
-import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "./utils/im-core";
-import { elSetStyle, imStr } from "./utils/im-dom";
+} from "src/state";
+import { assert, mustGetDefined } from "src/utils/assert";
+import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours } from "src/utils/datetime";
+import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
+import { elSetStyle, imStr } from "src/utils/im-dom";
 
 type TaskBlockInfo = {
     // null means it's a break
@@ -54,7 +54,7 @@ export type DurationsViewState = {
     activitiesTo: Date | null;
 };
 
-function getNumDays(s: DurationsViewState) {
+function getNumDays(_s: DurationsViewState) {
     return 7;
 }
 

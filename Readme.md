@@ -85,3 +85,29 @@ After all, I can just draw on my notebook, or even do similar diagrams with vim 
 There are better ways to implement the same thing, so I'm not going to bother porting it accross. 
 
 
+## File structure
+
+We haven't introduced AI to this codebase yet, but when we do, surely this will be helpful:
+
+```
+note-tree/
+    various_configs_files.blah
+
+    src/
+        main.ts             entrypoint
+        schema.ts           parse/save the current savefile
+        state.ts            functions relating to the current program state
+        global-context.ts   TODO: merge state.ts and global-context.ts
+        app-styling.ts      Self explanatory
+        version-number.ts   Bump this whenever we release a new version or update the schema in a non-compatible way
+
+        app-views/          main.ts and state.ts may be broken up into 'views' that we put into here, either for code reuse or to simplify or organise the code better. Views are tightly coupled to the app. If they aren't, we can just make them an app component or a normal component.
+
+        app-components/     components reused accross this app
+        app-utils/          utils reused accross this app
+        assets/             anything more data than code, including massive constants
+        components/         components copy-pasted accross multiple projects
+        utils/              utils copy-pasted accross multiple projects
+        legacy-components/  TODO (Me): port these, put them into `components/`
+    
+```

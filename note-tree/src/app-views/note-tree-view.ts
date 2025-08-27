@@ -4,8 +4,8 @@ import {
     startScrolling
 } from "src/components/scroll-container";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
-import { imLine, LINE_HORIZONTAL } from "./app-components/common";
-import { cssVarsApp } from "./app-styling";
+import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { cssVarsApp } from "src/app-styling";
 import {
     BLOCK,
     CH,
@@ -24,9 +24,9 @@ import {
     PX,
     ROW,
     ROW_REVERSE
-} from "./components/core/layout";
-import { cn } from "./components/core/stylesheets";
-import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
+} from "src/components/core/layout";
+import { cn } from "src/components/core/stylesheets";
+import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import {
     BYPASS_TEXT_AREA,
     CTRL,
@@ -36,10 +36,10 @@ import {
     REPEAT,
     setCurrentView,
     SHIFT
-} from "./global-context";
+} from "src/global-context";
 import {
     imListRowCellStyle
-} from "./list-row";
+} from "src/app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
@@ -51,7 +51,7 @@ import {
     ListPosition,
     NavigableListState,
     newListPosition
-} from "./navigable-list";
+} from "src/app-components/navigable-list";
 import {
     COLLAPSED_STATUS,
     createNewNote,
@@ -75,14 +75,14 @@ import {
     state,
     STATUS_IN_PROGRESS,
     TreeNote,
-} from "./state";
-import { boundsCheck, filterInPlace, findLastIndex } from "./utils/array-utils";
-import { assert } from "./utils/assert";
-import { formatDateTime } from "./utils/datetime";
-import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "./utils/dom-utils";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "./utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "./utils/im-dom";
-import * as tree from "./utils/int-tree";
+} from "src/state";
+import { boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
+import { assert } from "src/utils/assert";
+import { formatDateTime } from "src/utils/datetime";
+import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
+import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "src/utils/im-dom";
+import * as tree from "src/utils/int-tree";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -278,7 +278,7 @@ function moveOutOfCurrent(
 }
 
 function moveIntoCurrent(
-    ctx: GlobalContext,
+    _ctx: GlobalContext,
     s: NoteTreeViewState,
     moveNote: boolean,
 ) {
@@ -413,7 +413,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
 const UNDER = 1;
 const AFTER = 2;
-function addNoteAtCurrent(ctx: GlobalContext, s: NoteTreeViewState, insertType: typeof UNDER | typeof AFTER): TreeNote {
+function addNoteAtCurrent(_ctx: GlobalContext, s: NoteTreeViewState, insertType: typeof UNDER | typeof AFTER): TreeNote {
     assert(!idIsNil(s.note.parentId)); // Cant insert after the root note
 
     const currentNote = getCurrentNote(state);
@@ -434,7 +434,7 @@ function addNoteAtCurrent(ctx: GlobalContext, s: NoteTreeViewState, insertType: 
 }
 
 function moveToLocalidx(
-    ctx: GlobalContext,
+    _ctx: GlobalContext,
     s: NoteTreeViewState,
     idx: number,
     moveNote: boolean

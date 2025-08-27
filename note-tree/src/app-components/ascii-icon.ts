@@ -1,8 +1,8 @@
-import { cssVarsApp } from "./app-styling";
-import { AsciiIconData } from "./assets/icons";
-import { BLOCK, imLayout, imLayoutEnd } from "./components/core/layout";
-import { ImCache, imMemo, isFirstishRender } from "./utils/im-core";
-import { elSetStyle, imStr } from "./utils/im-dom";
+import { cssVarsApp } from "src/app-styling";
+import { AsciiIconData } from "src/assets/icons";
+import { BLOCK, imLayout, imLayoutEnd } from "src/components/core/layout";
+import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
+import { elSetStyle, imStr } from "src/utils/im-dom";
 
 export function imAsciiIcon(c: ImCache, icon: AsciiIconData, sizePx: number) {
     imLayout(c, BLOCK); {

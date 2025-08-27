@@ -1,16 +1,7 @@
-import { cssVarsApp } from "./app-styling";
-import {
-    BLOCK,
-    imLayout,
-    imLayoutEnd,
-    imPadding,
-    imSize,
-    NA,
-    PX,
-    ROW
-} from "./components/core/layout";
-import { ImCache, imMemo, isFirstishRender } from "./utils/im-core";
-import { elSetStyle } from "./utils/im-dom";
+import { cssVarsApp } from "src/app-styling";
+import { BLOCK, imLayout, imLayoutEnd, imPadding, imSize, NA, PX, ROW } from "src/components/core/layout";
+import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
+import { elSetStyle } from "src/utils/im-dom";
 
 type RowStatusInstance = number & { __rowStatus: void; };
 

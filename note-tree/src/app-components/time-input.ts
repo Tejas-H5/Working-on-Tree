@@ -1,18 +1,9 @@
-import { imTextAreaBegin, imTextAreaEnd } from "./components/editable-text-area";
-import { assert } from "./utils/assert";
-import {
-    addMinutes,
-    clampDate,
-    cloneDate,
-    dateSetLocalTime,
-    formatTimeForInput,
-    parseDurationInput,
-    parseTimeInput,
-    roundToNearestMinutes
-} from "./utils/datetime";
-import { setInputValue } from "./utils/dom-utils";
-import { CACHE_IDX, ImCache, imGet, imSet } from "./utils/im-core";
-import { EV_CHANGE, EV_FOCUS, EV_INPUT, EV_KEYDOWN, imOn } from "./utils/im-dom";
+import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { assert } from "src/utils/assert";
+import { addMinutes, clampDate, cloneDate, dateSetLocalTime, formatTimeForInput, parseDurationInput, parseTimeInput, roundToNearestMinutes } from "src/utils/datetime";
+import { setInputValue } from "src/utils/dom-utils";
+import { CACHE_IDX, ImCache, imGet, imSet } from "src/utils/im-core";
+import { EV_CHANGE, EV_FOCUS, EV_INPUT, EV_KEYDOWN, imOn } from "src/utils/im-dom";
 
 type TimeInputStateEditEvent = {
     timeInput?: Date | null;
