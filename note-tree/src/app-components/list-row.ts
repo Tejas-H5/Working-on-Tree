@@ -99,6 +99,5 @@ export function imListRowCellStyle(c: ImCache) {
     if (isFirstishRender(c)) {
         elSetStyle(c, "minHeight", "1em");
     }
-    imPadding(c, 8, PX, 3, PX, 3, PX, 3, PX);
+    imPadding(c, 3, PX, 8, PX, 3, PX, 3, PX);
 }
-

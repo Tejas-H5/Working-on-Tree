@@ -97,10 +97,10 @@ function newPaddingState(): PaddingState {
 
 export function imPadding(
     c: ImCache,
-    left: number,   leftType: SizeUnits,
-    right: number,  rightType: SizeUnits, 
     top: number,    topType: SizeUnits,
+    right: number,  rightType: SizeUnits, 
     bottom: number, bottomType: SizeUnits, 
+    left: number,   leftType: SizeUnits,
 ) {
     let val = imGet(c, newPaddingState);
     if (val === undefined) val = imSet(c, newPaddingState());
@@ -245,8 +245,9 @@ export function imJustify(c: ImCache, alignment = CENTER) {
 const cnButton = (() => {
     const transiton = `0.1s linear`;
     return cssb.cn(`button`, [
-        ` { cursor: pointer; background-color: ${cssVars.bg}; color: ${cssVars.fg}; transition: background-color ${transiton}, color ${transiton}; }`,
-        `:hover { background-color: ${cssVars.fg}; color: ${cssVars.bg}; }`
+        ` { cursor: pointer; user-select: none; background-color: ${cssVars.bg}; color: ${cssVars.fg}; transition: background-color ${transiton}, color ${transiton}; }`,
+        `:hover { background-color: ${cssVars.fg}; color: ${cssVars.bg}; }`,
+        `:active { background-color: ${cssVars.mg}; color: ${cssVars.fg}; }`,
     ]);
 })();
 
@@ -268,9 +269,9 @@ export function imScrollOverflow(c: ImCache, vScroll = true, hScroll = false) {
 export function imFixed(
     c: ImCache,
     top: number, topType: SizeUnits,
-    left: number, leftType: SizeUnits,
-    bottom: number, bottomType: SizeUnits,
     right: number, rightType: SizeUnits,
+    bottom: number, bottomType: SizeUnits,
+    left: number, leftType: SizeUnits,
 ) {
     if (isFirstishRender(c)) {
         elSetClass(c, cn.fixed);
@@ -279,18 +280,18 @@ export function imFixed(
     imOffsets(
         c,
         top, topType,
-        left, leftType,
-        bottom, bottomType,
         right, rightType,
+        bottom, bottomType,
+        left, leftType,
     );
 }
 
 function imOffsets(
     c: ImCache,
     top: number, topType: SizeUnits,
-    left: number, leftType: SizeUnits,
-    bottom: number, bottomType: SizeUnits,
     right: number, rightType: SizeUnits,
+    bottom: number, bottomType: SizeUnits,
+    left: number, leftType: SizeUnits,
 ) {
     let val = imGet(c, newPaddingState);
     if (val === undefined) val = imSet(c, newPaddingState());
@@ -319,10 +320,10 @@ function imOffsets(
 
 export function imAbsolute(
     c: ImCache,
-    left: number, leftType: SizeUnits,
-    right: number, rightType: SizeUnits, 
     top: number, topType: SizeUnits,
+    right: number, rightType: SizeUnits, 
     bottom: number, bottomType: SizeUnits, 
+    left: number, leftType: SizeUnits,
 ) {
     if (isFirstishRender(c)) {
         elSetClass(c, cn.absolute);
@@ -331,9 +332,9 @@ export function imAbsolute(
     imOffsets(
         c,
         top, topType,
-        left, leftType,
-        bottom, bottomType,
         right, rightType,
+        bottom, bottomType,
+        left, leftType,
     );
 }
 

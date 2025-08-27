@@ -108,6 +108,11 @@ note-tree/
         assets/             anything more data than code, including massive constants
         components/         components copy-pasted accross multiple projects
         utils/              utils copy-pasted accross multiple projects
-        legacy-components/  TODO (Me): port these, put them into `components/`
-    
+        legacy-components/  TODO (Me): port these, put them into `components/`. The checkbox in particular was pretty cool if I remember correctly.
 ```
+
+TODO: Fix bugs:
+- [ ] with sticky child component being visible when normal component is also visible
+- [ ] where the tree corrupts itself just by being open for a long time. I havent been able to reproduce it on my machine...
+
+Since this code is mosty finished, I may never get to the TODOs. except for the bugfixes

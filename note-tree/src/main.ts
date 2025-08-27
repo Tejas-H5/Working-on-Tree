@@ -21,8 +21,10 @@ import {
     MEMO_CHANGED
 } from "src/utils/im-core";
 import {
+    elHasMouseClick,
     elHasMouseDown,
     elHasMouseOver,
+    elSetClass,
     elSetStyle,
     imDomRootBegin,
     imDomRootEnd,
@@ -42,6 +44,7 @@ import {
     CENTER,
     CH,
     COL,
+    imAbsolute,
     imAlign,
     imButton,
     imFixed,
@@ -51,6 +54,7 @@ import {
     imLayout,
     imLayoutEnd,
     imPre,
+    imRelative,
     imSize,
     INLINE_BLOCK,
     NA,
@@ -72,6 +76,7 @@ import {
     BYPASS_TEXT_AREA,
     CTRL,
     debouncedSave,
+    GlobalContext,
     handleImKeysInput,
     hasDiscoverableCommand,
     newGlobalContext,
@@ -100,12 +105,15 @@ import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { logTrace } from "./utils/log";
+import { cn, cssVars } from "./components/core/stylesheets";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
     if (theme === "Dark")  return ASCII_MOON_STARS;
     return ASCII_MOON_STARS;
 }
+
+const IS_RUNNING_FROM_FILE = window.location.protocol.startsWith("file");
 
 function imMainInner(c: ImCache) {
     let fpsCounter = imGet(c, newFpsCounterState);
@@ -446,6 +454,32 @@ function imMainInner(c: ImCache) {
                             }
                         } imLayoutEnd(c);
                     } imIfEnd(c);
+
+                    if (!IS_RUNNING_FROM_FILE) {
+                        imLayout(c, BLOCK); imFixed(c, 0, NA, 0, NA, 10, PX, 50, PERCENT); {
+                            if (isFirstishRender(c)) {
+                                // bruh ...
+                                elSetStyle(c, "transform", "translate(-50%, 0)");
+                            }
+
+                            imLayout(c, BLOCK); imButton(c); {
+                                if (isFirstishRender(c)) {
+                                    elSetStyle(c, "padding", "10px");
+                                    elSetStyle(c, "borderRadius", "5px");
+                                    elSetStyle(c, "border", "1px solid " + cssVars.fg);
+                                }
+
+                                imStr(c, "Download this page, and run it offline!");
+
+                                if (elHasMouseClick(c, ctx.ev)) {
+                                    const linkEl = document.createElement("a");
+                                    linkEl.setAttribute("download", "note-tree.html");
+                                    linkEl.setAttribute("href", window.location.href);
+                                    linkEl.click();
+                                }
+                            } imLayoutEnd(c);
+                        } imLayoutEnd(c);
+                    }
                 } imLayoutEnd(c);
             } 
 

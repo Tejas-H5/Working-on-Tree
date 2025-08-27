@@ -604,7 +604,7 @@ function imNoteTreeRow(
                         imLayout(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
                             // horizontal line xD
                             if (imIf(c) && hasHLine) {
-                                imLayout(c, BLOCK); imAbsolute(c, 0, NA, 0, PX, 1, EM, 0, NA); {
+                                imLayout(c, BLOCK); imAbsolute(c, 1, EM, 0, PX, 0, NA, 0, NA); {
                                     if (isFirstishRender(c)) {
                                         elSetStyle(c, "transform", "translate(0, -100%)");
                                     }
@@ -626,7 +626,7 @@ function imNoteTreeRow(
                                 let midpointUnits = EM;
 
                                 // Vertical line part 1. xd. We need a better API
-                                imLayout(c, BLOCK); imAbsolute(c, 0, NA, bulletStart, PX, 0, PX, 0, isLast ? NA : PX); {
+                                imLayout(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
                                     imSize(
                                         c,
                                         isLineInPath ? largeThicnkess : smallThicnkess, PX,
@@ -638,7 +638,7 @@ function imNoteTreeRow(
                                 // Vertical line part 2.
                                 imLayout(c, BLOCK); {
                                     const isThick = isLineInPath && !pathGoesRight;
-                                    imAbsolute(c, 0, NA, bulletStart, PX, midpointLen, midpointUnits, 0, isLast ? NA : PX); 
+                                    imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); 
                                     imSize(
                                         c,
                                         isThick ? largeThicnkess : smallThicnkess, PX,

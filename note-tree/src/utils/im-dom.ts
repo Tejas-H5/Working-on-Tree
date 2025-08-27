@@ -409,7 +409,7 @@ export type ImGlobalEventSystem = {
         mousemove:  (e: MouseEvent) => void;
         mouseenter: (e: MouseEvent) => void;
         mouseup:    (e: MouseEvent) => void;
-        mouseClick: (e: MouseEvent) => void;
+        mouseclick: (e: MouseEvent) => void;
         wheel:      (e: WheelEvent) => void;
         keydown:    (e: KeyboardEvent) => void;
         keyup:      (e: KeyboardEvent) => void;
@@ -496,7 +496,7 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
                     mouse.mouseDownElements.clear();
                 }
             },
-            mouseClick: (e) => {
+            mouseclick: (e) => {
                 findParents(e.target as ValidElement, mouse.mouseClickElements);
                 try {
                     eventSystem.rerender();
@@ -676,6 +676,7 @@ export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSys
     document.addEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.addEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.addEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.addEventListener("click", eventSystem.globalEventHandlers.mouseclick);
     document.addEventListener("wheel", eventSystem.globalEventHandlers.wheel);
     document.addEventListener("keydown", eventSystem.globalEventHandlers.keydown);
     document.addEventListener("keyup", eventSystem.globalEventHandlers.keyup);
@@ -687,6 +688,7 @@ export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEvent
     document.removeEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.removeEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.removeEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
+    document.removeEventListener("click", eventSystem.globalEventHandlers.mouseclick);
     document.removeEventListener("wheel", eventSystem.globalEventHandlers.wheel);
     document.removeEventListener("keydown", eventSystem.globalEventHandlers.keydown);
     document.removeEventListener("keyup", eventSystem.globalEventHandlers.keyup);
