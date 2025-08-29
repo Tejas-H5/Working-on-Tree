@@ -13,7 +13,7 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { imEditableTime } from "src/app-components/time-input";
-import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, INLINE_BLOCK, NONE, PX, ROW } from "src/components/core/layout";
+import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/components/core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
 import { BYPASS_TEXT_AREA, debouncedSave, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
@@ -738,12 +738,9 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                                     imLayout(c, BLOCK); imStr(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
                                 } imIfEnd(c);
-
-                                const duration = getActivityDurationMs(activity, s.activities[i + 1]);
-                                imLayout(c, BLOCK); imStr(c, formatDuration(duration, 2)); imNoWrap(c); imLayoutEnd(c);
                             } imLayoutEnd(c);
 
-                            imLine(c, LINE_VERTICAL, 1);
+                            imLayout(c, BLOCK); imSize(c, 5, PX, 0, NA); imLayoutEnd(c);
 
                             let text = getActivityText(state, activity);
                             imLayout(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
