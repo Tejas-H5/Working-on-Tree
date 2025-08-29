@@ -55,17 +55,15 @@ export const darkTheme: AppTheme = {
 let currentAppTheme: AppTheme = lightTheme;
 
 export function setAppTheme(theme: AppTheme) {
+    currentAppTheme = theme;
     setCssVars({
-        ...defaultCoreTheme,
+        ...currentAppTheme,
         fg: theme.fgColor,
         fg2: theme.bgColorFocus2,
         mg: theme.unfocusTextColor,
         bg2: theme.bgColorFocus,
         bg: theme.bgColor,
     });
-
-    currentAppTheme = theme;
-    setCssVars(currentAppTheme);
 }
 
 cssb.s(` 

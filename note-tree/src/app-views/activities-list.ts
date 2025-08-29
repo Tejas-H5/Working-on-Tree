@@ -1,4 +1,4 @@
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/app-components/im-line";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "src/app-components/list-row";
 import {
     clampedListIdx,
@@ -677,6 +677,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 s._startActivityIdx, s._endActivityIdxEx
             )) {
                 const { i, itemSelected } = list;
+
+                const prevActivity = get(s.activities, i - 1);
                 const activity = s.activities[i];
 
                 imKeyedBegin(c, activity); {
@@ -695,6 +697,13 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     }
 
                     const isBreakActivity = isBreak(activity);
+
+                    if (imIf(c) && prevActivity) {
+                        let deltaMs = activity.t.getTime() - prevActivity.t.getTime();
+                        imLayout(c, ROW); imAlign(c); imJustify(c); {
+                            imStr(c, formatDuration(deltaMs));
+                        } imLayoutEnd(c);
+                    } imIfEnd(c);
 
                     imNavListRowBegin(c, list, itemHighlighted); {
                         imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {

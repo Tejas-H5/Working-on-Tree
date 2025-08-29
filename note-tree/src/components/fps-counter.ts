@@ -1,3 +1,7 @@
+import { ImCache, imGet, imSet, inlineTypeId } from "src/utils/im-core";
+import { BLOCK, imLayout, imLayoutEnd } from "./core/layout";
+import { imStr } from "src/utils/im-dom";
+
 export type FpsCounterState = {
     renderStart: number;
     renderEnd: number;
@@ -26,4 +30,32 @@ export function fpsMarkRenderingStart(fps: FpsCounterState) {
 
 export function fpsMarkRenderingEnd(fps: FpsCounterState) {
     fps.renderEnd = performance.now();
+}
+
+export function imFpsCounterSimple(c: ImCache, fpsCounter: FpsCounterState) {
+    const RINGBUFFER_SIZE = 20;
+    let arr; arr = imGet(c, inlineTypeId(Array));
+    if (!arr) arr = imSet(c, {
+        frameMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
+        idx1: 0,
+        renderMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
+        idx2: 0,
+    });
+
+    arr.frameMsRingbuffer[arr.idx1] = fpsCounter.frameMs;
+    arr.idx1 = (arr.idx1 + 1) % arr.frameMsRingbuffer.length;
+
+    arr.renderMsRingbuffer[arr.idx2] = fpsCounter.renderMs;
+    arr.idx2 = (arr.idx2 + 1) % arr.renderMsRingbuffer.length;
+
+    let renderMs = 0;
+    let frameMs = 0;
+    for (let i = 0; i < arr.renderMsRingbuffer.length; i++) {
+        renderMs += arr.renderMsRingbuffer[i];
+        frameMs += arr.frameMsRingbuffer[i];
+    }
+    renderMs /= arr.frameMsRingbuffer.length;
+    frameMs /= arr.frameMsRingbuffer.length;
+
+    imLayout(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
 }

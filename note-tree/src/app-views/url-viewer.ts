@@ -1,5 +1,5 @@
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { COL, imAlign, imLayout, imFlex, imJustify, imLayoutEnd, ROW, BLOCK } from "src/components/core/layout";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "src/global-context";

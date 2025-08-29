@@ -4,7 +4,7 @@ import {
     startScrolling
 } from "src/components/scroll-container";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
-import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { cssVarsApp } from "src/app-styling";
 import {
     BLOCK,
@@ -590,7 +590,7 @@ function imNoteTreeRow(
                     foundLineInPath ||= isLineInPath;
 
                     const hasHLine = itPrev.id === note.id;
-                    const indent = 30;
+                    const indent = 28;
                     const bulletStart = 5;
 
                     const smallThicnkess = 1;

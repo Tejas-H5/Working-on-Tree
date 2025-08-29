@@ -1,3 +1,5 @@
+// IM-DOM 1.0
+
 import { assert } from "src/utils/assert";
 import {
     CACHE_RERENDER_FN,

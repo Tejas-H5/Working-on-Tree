@@ -33,7 +33,7 @@ import {
     imStr
 } from "src/utils/im-dom";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./app-components/im-line";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
@@ -66,6 +66,7 @@ import {
 import {
     fpsMarkRenderingEnd,
     fpsMarkRenderingStart,
+    imFpsCounterSimple,
     newFpsCounterState,
 } from "./components/fps-counter";
 import { imDurationsView } from "./app-views/durations-view";
@@ -129,7 +130,6 @@ function imMainInner(c: ImCache) {
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
     if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
-
 
     if (imMemo(c, state.settings.tabStopSize)) {
         elSetStyle(c, "tabSize", "" + state.settings.tabStopSize);
@@ -291,31 +291,7 @@ function imMainInner(c: ImCache) {
                                 } else {
                                     imIfElse(c);
 
-                                    const RINGBUFFER_SIZE = 20;
-                                    let arr; arr = imGet(c, inlineTypeId(Array));
-                                    if (!arr) arr = imSet(c, {
-                                        frameMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
-                                        idx1: 0,
-                                        renderMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
-                                        idx2: 0,
-                                    });
-
-                                    arr.frameMsRingbuffer[arr.idx1] = fpsCounter.frameMs;
-                                    arr.idx1 = (arr.idx1 + 1) % arr.frameMsRingbuffer.length;
-
-                                    arr.renderMsRingbuffer[arr.idx2] = fpsCounter.renderMs;
-                                    arr.idx2 = (arr.idx2 + 1) % arr.renderMsRingbuffer.length;
-
-                                    let renderMs = 0;
-                                    let frameMs = 0;
-                                    for (let i = 0; i < arr.renderMsRingbuffer.length; i++) {
-                                        renderMs += arr.renderMsRingbuffer[i];
-                                        frameMs += arr.frameMsRingbuffer[i];
-                                    }
-                                    renderMs /= arr.frameMsRingbuffer.length;
-                                    frameMs /= arr.frameMsRingbuffer.length;
-
-                                    imLayout(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
+                                    imFpsCounterSimple(c, fpsCounter);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 

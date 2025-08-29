@@ -115,4 +115,4 @@ TODO: Fix bugs:
 - [ ] with sticky child component being visible when normal component is also visible
 - [ ] where the tree corrupts itself just by being open for a long time. I havent been able to reproduce it on my machine...
 
-Since this code is mosty finished, I may never get to the TODOs. except for the bugfixes
+Since this code is mosty finished, I may never get to the TODOs. except for the bugfixes and *simple* feature additions.

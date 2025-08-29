@@ -1,4 +1,4 @@
-import { imLine, LINE_HORIZONTAL } from "src/app-components/im-line";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "src/components/core/layout";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";

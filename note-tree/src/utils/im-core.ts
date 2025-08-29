@@ -1,3 +1,5 @@
+// IM-CORE 1.0
+
 import { assert } from "src/utils/assert";
 
 // Conventions

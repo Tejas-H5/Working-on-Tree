@@ -1,4 +1,4 @@
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/app-components/im-line";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "src/components/core/layout";
 import { imB, imBEnd } from "src/components/core/text";
 import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "src/components/scroll-container";
