@@ -1,4 +1,12 @@
-import { CACHE_ITEMS_ITERATED_LAST_FRAME, CACHE_TOTAL_DESTRUCTORS, CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME, ImCache, imGet, imSet, inlineTypeId } from "src/utils/im-core";
+import {
+    CACHE_ITEMS_ITERATED_LAST_FRAME,
+    CACHE_TOTAL_DESTRUCTORS,
+    CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME,
+    ImCache,
+    imGet,
+    imSet,
+    inlineTypeId
+} from "src/utils/im-core";
 import { imStr } from "src/utils/im-dom";
 import { BLOCK, imLayout, imLayoutEnd } from "./core/layout";
 

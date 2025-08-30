@@ -35,7 +35,7 @@ import {
 } from "src/state";
 import { boundsCheck, get } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
-import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate } from "src/utils/datetime";
+import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
 import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
 
@@ -672,18 +672,22 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             const current = getCurrentNote(state);
             const hlt = getHigherLevelTask(state, current);
 
+            // We want to accumulate activity durations, and display it once it's large enough
+            let totalDuration = 0;
+
             while (navListNextItemSlice(
                 list, 
                 s._startActivityIdx, s._endActivityIdxEx
             )) {
                 const { i, itemSelected } = list;
 
-                const prevActivity = get(s.activities, i - 1);
                 const activity = s.activities[i];
+                const nextActivity = get(s.activities, i + 1);
 
                 imKeyedBegin(c, activity); {
                     const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                     const isEditingTime = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
+
 
                     let itemHighlighted = itemSelected;
                     if (!itemHighlighted && hlt) {
@@ -697,13 +701,6 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     }
 
                     const isBreakActivity = isBreak(activity);
-
-                    if (imIf(c) && prevActivity) {
-                        let deltaMs = activity.t.getTime() - prevActivity.t.getTime();
-                        imLayout(c, ROW); imAlign(c); imJustify(c); {
-                            imStr(c, formatDuration(deltaMs));
-                        } imLayoutEnd(c);
-                    } imIfEnd(c);
 
                     imNavListRowBegin(c, list, itemHighlighted); {
                         imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
@@ -779,6 +776,15 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
                     } imNavListRowEnd(c);
+
+                    const activityDuration = getActivityDurationMs(activity, nextActivity);
+                    totalDuration += activityDuration;
+                    if (imIf(c) && totalDuration > ONE_MINUTE * 5) {
+                        imLayout(c, ROW); imAlign(c); imJustify(c); {
+                            imStr(c, formatDuration(totalDuration));
+                            totalDuration = 0
+                        } imLayoutEnd(c);
+                    }imIfEnd(c);
                 } imKeyedEnd(c);
             } 
 
