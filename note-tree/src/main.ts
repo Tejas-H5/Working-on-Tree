@@ -1,3 +1,9 @@
+import { imDurationsView } from "src/app-views/durations-view";
+import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
+import { imNoteTraversal } from "src/app-views/lateral-traversal";
+import { imNoteTreeView } from "src/app-views/note-tree-view";
+import { imSettingsView } from "src/app-views/settings-view";
+import { imUrlViewer } from "src/app-views/url-viewer";
 import {
     getDeltaTimeSeconds,
     ImCache,
@@ -24,7 +30,6 @@ import {
     elHasMouseClick,
     elHasMouseDown,
     elHasMouseOver,
-    elSetClass,
     elSetStyle,
     imDomRootBegin,
     imDomRootEnd,
@@ -32,19 +37,18 @@ import {
     imGlobalEventSystemEnd,
     imStr
 } from "src/utils/im-dom";
-import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
+import { imAsciiIcon } from "./app-components/ascii-icon";
+import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components/navigable-list";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
-import { imAsciiIcon } from "./app-components/ascii-icon";
+import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import {
     BLOCK,
     CENTER,
     CH,
     COL,
-    imAbsolute,
     imAlign,
     imButton,
     imFixed,
@@ -54,7 +58,6 @@ import {
     imLayout,
     imLayoutEnd,
     imPre,
-    imRelative,
     imSize,
     INLINE_BLOCK,
     NA,
@@ -63,21 +66,21 @@ import {
     RIGHT,
     ROW
 } from "./components/core/layout";
+import { cssVars } from "./components/core/stylesheets";
 import {
     fpsMarkRenderingEnd,
     fpsMarkRenderingStart,
+    imExtraDiagnosticInfo,
     imFpsCounterSimple,
     newFpsCounterState,
 } from "./components/fps-counter";
-import { imDurationsView } from "./app-views/durations-view";
-import { imFuzzyFinder } from "./app-views/fuzzy-finder";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
 import {
     AUTO_INSERT_BREAK_CHECK_INTERVAL,
     autoInsertBreakIfRequired,
     BYPASS_TEXT_AREA,
     CTRL,
     debouncedSave,
-    GlobalContext,
     handleImKeysInput,
     hasDiscoverableCommand,
     newGlobalContext,
@@ -87,10 +90,6 @@ import {
     TASK_IN_PROGRESS,
     updateDiscoverableCommands
 } from "./global-context";
-import { imNoteTraversal } from "./app-views/lateral-traversal";
-import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components/navigable-list";
-import { imNoteTreeView } from "./app-views/note-tree-view";
-import { imSettingsView } from "./app-views/settings-view";
 import {
     AppTheme,
     getLastSavedTimestampLocalstate,
@@ -99,14 +98,12 @@ import {
     setTheme,
     state
 } from "./state";
-import { imUrlViewer } from "./app-views/url-viewer";
 import { get, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { newWebWorker } from "./utils/web-workers";
 import { logTrace } from "./utils/log";
-import { cn, cssVars } from "./components/core/stylesheets";
+import { newWebWorker } from "./utils/web-workers";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -291,7 +288,10 @@ function imMainInner(c: ImCache) {
                                 } else {
                                     imIfElse(c);
 
-                                    imFpsCounterSimple(c, fpsCounter);
+                                    imLayout(c, COL); imAlign(c); {
+                                        imFpsCounterSimple(c, fpsCounter);
+                                        imExtraDiagnosticInfo(c);
+                                    } imLayoutEnd(c);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 

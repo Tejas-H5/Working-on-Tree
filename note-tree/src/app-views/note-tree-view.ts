@@ -1,10 +1,18 @@
 import {
-    newScrollContainer,
-    ScrollContainer,
-    startScrolling
-} from "src/components/scroll-container";
-import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+    imListRowCellStyle
+} from "src/app-components/list-row";
+import {
+    clampedListIdx,
+    getNavigableListInput,
+    imNavListBegin,
+    imNavListEnd,
+    imNavListNextItemArray,
+    imNavListRowBegin,
+    imNavListRowEnd,
+    ListPosition,
+    NavigableListState,
+    newListPosition
+} from "src/app-components/navigable-list";
 import { cssVarsApp } from "src/app-styling";
 import {
     BLOCK,
@@ -27,6 +35,12 @@ import {
 } from "src/components/core/layout";
 import { cn } from "src/components/core/stylesheets";
 import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+import {
+    newScrollContainer,
+    ScrollContainer,
+    startScrolling
+} from "src/components/scroll-container";
 import {
     BYPASS_TEXT_AREA,
     CTRL,
@@ -37,21 +51,6 @@ import {
     setCurrentView,
     SHIFT
 } from "src/global-context";
-import {
-    imListRowCellStyle
-} from "src/app-components/list-row";
-import {
-    clampedListIdx,
-    getNavigableListInput,
-    imNavListBegin,
-    imNavListRowBegin,
-    imNavListEnd,
-    imNavListRowEnd,
-    imNavListNextItemArray,
-    ListPosition,
-    NavigableListState,
-    newListPosition
-} from "src/app-components/navigable-list";
 import {
     COLLAPSED_STATUS,
     createNewNote,
@@ -79,10 +78,11 @@ import {
 import { boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { formatDateTime } from "src/utils/datetime";
-import { EXTENT_END, EXTENT_START, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
+import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
 import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "src/utils/im-dom";
 import * as tree from "src/utils/int-tree";
+import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -373,25 +373,28 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
                 const { i, itemSelected } = list;
                 const note = s.childNotes[i];
 
-                const root = imNoteTreeRow(c, ctx, list, s, note, viewFocused, i, itemSelected);
+                imKeyedBegin(c, note); {
+                    const root = imNoteTreeRow(c, ctx, list, s, note, viewFocused, i, itemSelected);
 
-                // A bit stupid but yeah whatever.
-                if (
-                    s.noteParentNotes.includes(note) &&
-                    s.scrollContainer.root
-                ) {
-                    if (
-                        !s.stickyNotes.includes(note) &&
-                        getElementExtentNormalized(s.scrollContainer.root, root, EXTENT_VERTICAL | EXTENT_END) < 0
-                    ) {
-                        s.stickyNotes.push(note);
-                    } else if (
-                        s.stickyNotes.includes(note) &&
-                        getElementExtentNormalized(s.scrollContainer.root, root, EXTENT_VERTICAL | EXTENT_START) > 0
-                    ) {
-                        filterInPlace(s.stickyNotes, n => n !== note);
+                    // Add or remove this note as 'sticky', if it is an offscreen parent.
+                    // This note won't be in the viewRootNoteParents, so we add it to this third intermediary list instead.
+                    {
+                        const canAddAsSticky = s.noteParentNotes.includes(note);
+                        const canRemovefromSticky = s.stickyNotes.includes(note);
+                        if ((canRemovefromSticky || canAddAsSticky) && s.scrollContainer.root) {
+                            const verticalEndExtent = getElementExtentNormalized(
+                                s.scrollContainer.root,
+                                root,
+                                EXTENT_VERTICAL | EXTENT_END
+                            );
+                            if (!s.stickyNotes.includes(note) && verticalEndExtent < 0) {
+                                s.stickyNotes.push(note);
+                            } else if (s.stickyNotes.includes(note) && verticalEndExtent > 0) {
+                                filterInPlace(s.stickyNotes, n => n !== note);
+                            }
+                        }
                     }
-                }
+                } imKeyedEnd(c);
             };
 
             // Want to scroll off the bottom a bit

@@ -111,8 +111,8 @@ note-tree/
         legacy-components/  TODO (Me): port these, put them into `components/`. The checkbox in particular was pretty cool if I remember correctly.
 ```
 
-TODO: Fix bugs:
-- [ ] with sticky child component being visible when normal component is also visible
-- [ ] where the tree corrupts itself just by being open for a long time. I havent been able to reproduce it on my machine...
+TODO (CRITICAL): Fix how we handle the scenario where multiple tabs are open at once. The way we do it now isn't quite right
 
-Since this code is mosty finished, I may never get to the TODOs. except for the bugfixes and *simple* feature additions.
+While this code is mostly finished, I will still be making fixes and adding some simple features, as I think of them.
+Turns out that having an app in 'production' running your framework is very useful for testing changes to the framework.
+

@@ -10,7 +10,7 @@ import {
     getEntriesParent,
     imSet,
     inlineTypeId,
-    imCacheEntriesAddDestructor,
+    cacheEntriesAddDestructor,
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -573,7 +573,7 @@ export function imGlobalEventSystemBegin(c: ImCache, eventSystem: ImGlobalEventS
 
         eventSystem.rerender = c[CACHE_RERENDER_FN];
         addDocumentAndWindowEventListeners(eventSystem);
-        imCacheEntriesAddDestructor(c, () => removeDocumentAndWindowEventListeners(eventSystem));
+        cacheEntriesAddDestructor(c, () => removeDocumentAndWindowEventListeners(eventSystem));
         state = imSet(c, eventSystem);
     }
 
@@ -606,7 +606,7 @@ export function imTrackSize(c: ImCache) {
         };
 
         self.observer.observe(root);
-        imCacheEntriesAddDestructor(c, () => {
+        cacheEntriesAddDestructor(c, () => {
             self.observer.disconnect()
         });
 
@@ -642,7 +642,7 @@ export function imPreventScrollEventPropagation(c: ImCache, eventSystem: ImGloba
         };
 
         el.addEventListener("wheel", handler);
-        imCacheEntriesAddDestructor(c, () =>  el.removeEventListener("wheel", handler));
+        cacheEntriesAddDestructor(c, () =>  el.removeEventListener("wheel", handler));
 
         state = imSet(c, val);
     }

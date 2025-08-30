@@ -1,4 +1,5 @@
-// IM-CORE 1.0
+// IM-CORE 1.01
+// NOTE: still need to test 'destroying' of elements.
 
 import { assert } from "src/utils/assert";
 
@@ -26,46 +27,50 @@ export const ENTRIES_IS_DERIVED = 4;
 export const ENTRIES_STARTED_CONDITIONALLY_RENDERING = 5;
 export const ENTRIES_DESTRUCTORS = 6;
 export const ENTRIES_KEYED_MAP = 7;
-export const ENTRIES_COMPLETED_ONE_RENDER = 8;
-export const ENTRIES_INTERNAL_TYPE = 9;
-export const ENTRIES_PARENT_TYPE = 10;
-export const ENTRIES_PARENT_VALUE = 11;
-export const ENTRIES_ITEMS_START = 12;
+export const ENTRIES_KEYED_MAP_REMOVE_LEVEL = 8;
+export const ENTRIES_COMPLETED_ONE_RENDER = 9;
+export const ENTRIES_INTERNAL_TYPE = 10;
+export const ENTRIES_PARENT_TYPE = 11;
+export const ENTRIES_PARENT_VALUE = 12;
+export const ENTRIES_ITEMS_START = 13;
 
 // Allows us to cache state for our immediate mode callsites.
 // Initially started using array indices instead of object+fields to see what would happen.
 // A lot of code paths have actually been simplified as a result at the expense of type safety... (worth it)
 export type ImCache = (ImCacheEntries | any)[];
-export const CACHE_IDX = 0;
-export const CACHE_CURRENT_ENTRIES = 1;
-export const CACHE_CURRENT_WAITING_FOR_SET = 2;
-export const CACHE_CONTEXTS = 3;
-export const CACHE_ROOT_ENTRIES = 4;
-export const CACHE_NEEDS_RERENDER = 5;
-export const CACHE_RERENDER_FN = 6;
-export const CACHE_IS_RENDERING = 7;
-export const CACHE_ANIMATE_FN = 8;
-export const CACHE_ANIMATION_ID = 9;
-export const CACHE_ANIMATION_TIME = 10;
+export const CACHE_IDX                          = 0;
+export const CACHE_CURRENT_ENTRIES              = 1;
+export const CACHE_CURRENT_WAITING_FOR_SET      = 2;
+export const CACHE_CONTEXTS                     = 3;
+export const CACHE_ROOT_ENTRIES                 = 4;
+export const CACHE_NEEDS_RERENDER               = 5;
+export const CACHE_RERENDER_FN                  = 6;
+export const CACHE_IS_RENDERING                 = 7;
+export const CACHE_ANIMATE_FN                   = 8;
+export const CACHE_ANIMATION_ID                 = 9;
+export const CACHE_ANIMATION_TIME               = 10;
 export const CACHE_ANIMATION_DELTA_TIME_SECONDS = 11;
-export const CACHE_ITEMS_ITERATED = 12;
-export const CACHE_ENTRIES_START = 13;
-
-
-// NOTE: this only works if you can somehow re-render your program whenever any error occurs.
-// While you can just rerender this every frame in requestAnimationFrame (which is how I plan on using it),
-// I am making it optional, hence CACHE_NEEDS_RERENDER. You could also just rerender on user events, and maintain a queue of 
-// [cache, function] that need realtime updates.
+export const CACHE_ITEMS_ITERATED               = 12;
+export const CACHE_ITEMS_ITERATED_LAST_FRAME    = 13; // Useful performance metric
+export const CACHE_TOTAL_DESTRUCTORS            = 14; // Useful memory leak indicator
+export const CACHE_TOTAL_MAP_ENTRIES            = 15; // Useful memory leak indicator
+export const CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME = 16; 
+export const CACHE_ENTRIES_START                = 17;
 
 
 export const REMOVE_LEVEL_NONE = 1;
 export const REMOVE_LEVEL_DETATCHED = 2;
 export const REMOVE_LEVEL_DESTROYED = 3;
 
+
 export type RemovedLevel
     = typeof REMOVE_LEVEL_NONE
-    | typeof REMOVE_LEVEL_DETATCHED   // This is the default remove level. The increase in performance far oughtweighs any memory problems. 
-    | typeof REMOVE_LEVEL_DESTROYED;
+    // This is the default remove level. The increase in performance far oughtweighs any memory problems.
+    // The only exception is map entries, which default to being destroyed instead of removed.
+    // This is because keys are usually arbitrary values, and we can have a problem in the case that those values are
+    // constantly recomputed or reloaded - the map will simply keep growing in size forever.
+    | typeof REMOVE_LEVEL_DETATCHED   
+    | typeof REMOVE_LEVEL_DESTROYED;  // TODO: test that this level actually works. We haven't had to use it yet.
 
 // TypeIDs allow us to provide some basic sanity checks and protection
 // against the possiblity of data corruption that can happen when im-state is accessed 
@@ -126,6 +131,10 @@ export function imCacheBegin(
         c[CACHE_CURRENT_WAITING_FOR_SET] = false;
         c[CACHE_NEEDS_RERENDER] = false;
         c[CACHE_ITEMS_ITERATED] = 0;
+        c[CACHE_ITEMS_ITERATED_LAST_FRAME] = 0;
+        c[CACHE_TOTAL_DESTRUCTORS] = 0;
+        c[CACHE_TOTAL_MAP_ENTRIES] = 0;
+        c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME] = 0;
         c[CACHE_IS_RENDERING] = true; 
 
         c[CACHE_RERENDER_FN] = () => {
@@ -165,7 +174,10 @@ export function imCacheBegin(
     c[CACHE_IS_RENDERING] = true; 
     c[CACHE_IDX] = CACHE_ENTRIES_START - 1;
     c[CACHE_NEEDS_RERENDER] = false;
+    c[CACHE_ITEMS_ITERATED_LAST_FRAME] = c[CACHE_ITEMS_ITERATED];
     c[CACHE_ITEMS_ITERATED] = 0;
+    c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME] = c[CACHE_TOTAL_MAP_ENTRIES];
+    c[CACHE_TOTAL_MAP_ENTRIES] = 0;
     c[CACHE_CURRENT_WAITING_FOR_SET] = false;
 
     imCacheEntriesBegin(c, c[CACHE_ROOT_ENTRIES], imCacheBegin, c, INTERNAL_TYPE_CACHE);
@@ -212,6 +224,7 @@ const INTERNAL_TYPE_ARRAY_BLOCK = 3;
 const INTERNAL_TYPE_KEYED_BLOCK = 4;
 const INTERNAL_TYPE_TRY_BLOCK = 5;
 const INTERNAL_TYPE_CACHE = 6;
+const INTERNAL_TYPE_SWITCH_BLOCK = 7;
 
 export function imCacheEntriesBegin<T>(
     c: ImCache,
@@ -243,6 +256,7 @@ export function imCacheEntriesBegin<T>(
         entries[ENTRIES_PARENT_VALUE] = parent;
         entries[ENTRIES_DESTRUCTORS] = undefined;
         entries[ENTRIES_KEYED_MAP] = undefined;
+        entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
     } else {
         assert(entries[ENTRIES_PARENT_TYPE] === parentTypeId);
     }
@@ -370,11 +384,12 @@ function __imBlockKeyedBegin(c: ImCache, key: ValidKey) {
 
 /**
  * Allows you to reuse the same component for the same key.
- * This key is local to the current entry list, and not global to the entire im-cache.
+ * This key is local to the current entry list, which means that multiple `imKeyedBegin` calls all reuse the same entry list
+ * pushed by `imFor` in this example:
  *
  * ```ts
  * imFor(c); for (const val of list) {
- *      imKeyed(c, val); { ... } imKeyedEnd(c);
+ *      imKeyedBegin(c, val); { ... } imKeyedEnd(c);
  * } imForEnd(c);
  * ```
  */
@@ -387,7 +402,7 @@ export function imKeyedEnd(c: ImCache) {
 }
 
 // You probably don't need a destructor unless you're being forced to add/remove callbacks or 'clean up' something
-export function imCacheEntriesAddDestructor(c: ImCache, destructor: () => void) {
+export function cacheEntriesAddDestructor(c: ImCache, destructor: () => void) {
     const entries = c[CACHE_CURRENT_ENTRIES];
     let destructors = entries[ENTRIES_DESTRUCTORS];
     if (destructors === undefined) {
@@ -396,6 +411,7 @@ export function imCacheEntriesAddDestructor(c: ImCache, destructor: () => void) 
     }
 
     destructors.push(destructor);
+    c[CACHE_TOTAL_DESTRUCTORS]++;
 }
 
 function imCacheEntriesOnRemove(entries: ImCacheEntries) {
@@ -413,7 +429,7 @@ function imCacheEntriesOnRemove(entries: ImCacheEntries) {
     }
 }
 
-function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
+function imCacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
     // don't re-traverse these items.
     if (entries[ENTRIES_REMOVE_LEVEL] < REMOVE_LEVEL_DESTROYED) {
         entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
@@ -422,7 +438,7 @@ function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
             const t = entries[i];
             const v = entries[i + 1];
             if (t === imBlockBegin) {
-                imCacheEntriesOnDestroy(v);
+                imCacheEntriesOnDestroy(c, v);
             }
         }
 
@@ -431,6 +447,7 @@ function imCacheEntriesOnDestroy(entries: ImCacheEntries) {
             for (const d of destructors) {
                 try {
                     d();
+                    c[CACHE_TOTAL_DESTRUCTORS]--;
                 } catch (e) {
                     console.error("A destructor threw an error: ", e);
                 }
@@ -472,12 +489,26 @@ export function imBlockEnd(c: ImCache, internalType: number = INTERNAL_TYPE_NORM
     assert(entries[ENTRIES_INTERNAL_TYPE] === internalType);
 
     if (map !== undefined) {
-        // TODO: Blocks need to either have a 'REMOVE_LEVEL_DETATCHED' or a 'REMOVE_LEVEL_DESTROYED' so that
-        // we know what to do with the things we didn't render. For now, defaulting to DETATCHED
-        for (const v of map.values()) {
-            if (!v.rendered) {
-                imCacheEntriesOnRemove(v.entries);
+        c[CACHE_TOTAL_MAP_ENTRIES] += map.size;
+
+        const removeLevel = entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL];
+        if (removeLevel === REMOVE_LEVEL_DETATCHED) {
+            for (const v of map.values()) {
+                if (!v.rendered) {
+                    imCacheEntriesOnRemove(v.entries);
+                }
             }
+        } else if (removeLevel === REMOVE_LEVEL_DESTROYED) {
+            // This is now the default. You will avoid memory leaks if your keyed
+            // elements get destroyed instead of detatched. 
+            for (const [k, v] of map) {
+                if (!v.rendered) {
+                    imCacheEntriesOnDestroy(c, v.entries);
+                    map.delete(k);
+                }
+            }
+        } else {
+            throw new Error("Unknown remove level");
         }
     }
 
@@ -569,11 +600,14 @@ export function imIfEnd(c: ImCache) {
  * Use if-else + imIf/imIfElse/imIfEnd instead.
  */
 export function imSwitch(c: ImCache, key: ValidKey) {
+    const entries = __imBlockDerivedBegin(c, INTERNAL_TYPE_SWITCH_BLOCK);
+    entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = REMOVE_LEVEL_DETATCHED;
     __imBlockKeyedBegin(c, key);
 }
 
 export function imSwitchEnd(c: ImCache) {
     __imBlockDerivedEnd(c, INTERNAL_TYPE_KEYED_BLOCK);
+    __imBlockDerivedEnd(c, INTERNAL_TYPE_SWITCH_BLOCK);
 }
 
 function __imBlockArrayBegin(c: ImCache) {
