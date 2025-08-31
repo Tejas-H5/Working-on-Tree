@@ -1,4 +1,4 @@
-// IM-DOM 1.1
+// IM-DOM 1.21
 
 import { assert } from "src/utils/assert";
 import {
@@ -152,11 +152,6 @@ export function imEl<K extends keyof HTMLElementTagNameMap>(
 
     appendToDomRoot(appender, childAppender);
 
-    // NOTE: we don't necessarily need to make this a block.
-    // we can push and pop this element from our own internal stack as we iterate, 
-    // but we can keep the entries themselves flat.
-    // THis requires we have some way to access a global context dedicated to the dom appender though.
-    // or, TODO: the framework can provide this mechanism, and we can just hook into that.
     imBlockBegin(c, newDomAppender, childAppender);
 
     childAppender.idx = -1;
@@ -323,7 +318,7 @@ export function imOn<K extends keyof HTMLElementEventMap>(
     type: KeyRef<K>,
 ): HTMLElementEventMap[K] | null {
     let state; state = imGet(c, inlineTypeId(imOn));
-    if (!state) {
+    if (state === undefined) {
         const val: {
             el: ValidElement;
             eventType: KeyRef<keyof HTMLElementEventMap> | null;

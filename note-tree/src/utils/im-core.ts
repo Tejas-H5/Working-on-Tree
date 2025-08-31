@@ -1,4 +1,4 @@
-// IM-CORE 1.03
+// IM-CORE 1.041
 
 import { assert } from "src/utils/assert";
 
@@ -121,7 +121,10 @@ export function imCacheBegin(
     flags = USE_ANIMATION_FRAME
 ) {
     if (c.length === 0) {
-        c.length = CACHE_ENTRIES_START;
+        for (let i = 0; i < CACHE_ENTRIES_START; i++) {
+            c.push(undefined);
+        }
+
         // starts at -1 and increments onto the current value. So we can keep accessing this idx over and over without doing idx - 1.
         // NOTE: memory access is supposedly far slower than math. So might not matter too much
         c[CACHE_IDX] = 0;
@@ -145,12 +148,12 @@ export function imCacheBegin(
             }
         };
 
-        if (flags & USE_MANUAL_RERENDERING) {
+        if ((flags & USE_MANUAL_RERENDERING) !== 0) {
             c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
             c[CACHE_ANIMATE_FN] = noOp;
             c[CACHE_ANIMATION_ID] = null;
-        } else if (flags & USE_ANIMATION_FRAME) {
+        } else if ((flags & USE_ANIMATION_FRAME) !== 0) {
             c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 0;
             c[CACHE_ANIMATE_FN] = (t: number) => {
@@ -243,7 +246,10 @@ export function imCacheEntriesBegin<T>(
     c[CACHE_CURRENT_ENTRIES] = entries;
 
     if (entries.length === 0) {
-        entries.length = ENTRIES_ITEMS_START;
+        for (let i = 0; i < ENTRIES_ITEMS_START; i++) {
+            entries.push(undefined);
+        }
+
         entries[ENTRIES_IDX] = ENTRIES_ITEMS_START - 2;
         entries[ENTRIES_LAST_IDX] = ENTRIES_ITEMS_START - 2;
         entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_DETATCHED;
@@ -254,8 +260,6 @@ export function imCacheEntriesBegin<T>(
         entries[ENTRIES_INTERNAL_TYPE] = internalType;
         entries[ENTRIES_COMPLETED_ONE_RENDER] = false;
         entries[ENTRIES_PARENT_VALUE] = parent;
-        entries[ENTRIES_DESTRUCTORS] = undefined;
-        entries[ENTRIES_KEYED_MAP] = undefined;
         entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
     } else {
         assert(entries[ENTRIES_PARENT_TYPE] === parentTypeId);
@@ -279,7 +283,7 @@ export function imGet<T>(
     c[CACHE_ITEMS_ITERATED]++;
 
     // Make sure you called imSet for the previous state before calling imGet again.
-    assert(!c[CACHE_CURRENT_WAITING_FOR_SET]);
+    assert(c[CACHE_CURRENT_WAITING_FOR_SET] === false);
 
     entries[ENTRIES_IDX] += 2;
     const idx = entries[ENTRIES_IDX];
@@ -508,7 +512,7 @@ export function imBlockEnd(c: ImCache, internalType: number = INTERNAL_TYPE_NORM
         const removeLevel = entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL];
         if (removeLevel === REMOVE_LEVEL_DETATCHED) {
             for (const v of map.values()) {
-                if (!v.rendered) {
+                if (v.rendered === false) {
                     imCacheEntriesOnRemove(v.entries);
                 }
             }
@@ -516,7 +520,7 @@ export function imBlockEnd(c: ImCache, internalType: number = INTERNAL_TYPE_NORM
             // This is now the default. You will avoid memory leaks if your keyed
             // elements get destroyed instead of detatched. 
             for (const [k, v] of map) {
-                if (!v.rendered) {
+                if (v.rendered === false) {
                     imCacheEntriesOnDestroy(c, v.entries);
                     map.delete(k);
                 }
@@ -816,6 +820,9 @@ export function getDeltaTimeSeconds(c: ImCache): number {
  *
  * 99% of the time, this pattern is a mistake that obfuscates and overcomplicates the code, 
  * and you should just pass `thing` as an additional function parameter.
+ * And for things you pass around *a lot* like c: ImCache, you will incur a significant performance
+ * hit by using this approach (as of 08/2025) (on top of the perf hit of using this framework).
+ *
  * Here is a decision tree you can use to decide whether to use this pattern or not:
  *
  *                                      | I need this state everywhere,    | I infrequently need this value, but the requirement can arise 
@@ -824,10 +831,10 @@ export function getDeltaTimeSeconds(c: ImCache): number {
  *                                      |                                  | everywhere when it does.
  * ----------------------------------------------------------------------------------------------------------------------------
  *  This state is related to my app's   | Don't use a global state stack   | Don't use a global state stack 
- *  domain model                        |                                  |
+ *  domain model                        | ctx: AppGlobalCtxState is here   | s: BlahViewState is here
  * ----------------------------------------------------------------------------------------------------------------------------
- *  This state is related to auxilary   | Don't use a global state stack   | Consider using a global state stack
- *  functions like input events         |                                  |
+ *  This state is not related to my     | Don't use a global state stack   | Consider using a global state stack
+ *  app's domain model                  | c: IMCache is here               | ev: ImGlobalEventSystem is here 
  * ----------------------------------------------------------------------------------------------------------------------------
  *
  */
