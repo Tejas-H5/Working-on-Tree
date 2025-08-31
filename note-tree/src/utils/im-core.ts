@@ -1,19 +1,19 @@
-// IM-CORE 1.01
-// NOTE: still need to test 'destroying' of elements.
+// IM-CORE 1.03
 
 import { assert } from "src/utils/assert";
 
 // Conventions
-//  - All methods that call `imGet`, or call some other method that eventually calls `imGet` should be prefixed with 'im'.
+//  - All methods that call `imGet` at some point in their entire execution or plan on doing it should be prefixed with 'im'.
+//    Conversely, methods that don't do so and will never do so, should NOT be prefixed with 'im'.
 //    This allows developers (and in the future, static analysis tools) to know that this method can't be rendered conditionally, or
-//    out of order, similar to how React hooks work. This is really the only convention I would recommend users of this library to follow.
+//    out of order, similar to how React hooks work. This is really the only convention I would recommend you actually follow.
 //
 //  - imMethods that begin a scope and have a corresponding method to end that scope should be called `im<Name>Begin` and `im<Name>End`. 
 //    You may have some methods that are so frequently used that you can omit `Begin` from the first method's name to save some typing,
 //    and it may even be worth it. I have quite a few of these in im-core and im-dom. 
 //    After wasting a lot of time thinking about a convention that 100% covers all bases, and makes it 
 //    obvious which methods push/pop and also saves as much typing as possible, I wasn't able to find a good solution, 
-//    so I'll leave this decision up to you.
+//    so this is the compromise. 
 
 export type ImCacheEntries = any[];
 
@@ -103,11 +103,11 @@ export function inlineTypeId<T = undefined>(fn: Function) {
 // Can be any valid object reference. Or string, but avoid string if you can - string comparisons are slower than object comparisons
 export type ValidKey = string | number | Function | object | boolean | null | unknown;
 
-export const USE_EVENT_LOOP = 1 << 0;
+export const USE_MANUAL_RERENDERING = 1 << 0;
 export const USE_ANIMATION_FRAME = 1 << 1;
 
 /**
- * If you want to avoid requestAnimationFrame, then pass in the {@link USE_EVENT_LOOP} flag instead
+ * If you want to avoid requestAnimationFrame, then pass in the {@link USE_MANUAL_RERENDERING} flag instead
  * of the default {@link USE_ANIMATION_FRAME} flag.
  *  - You'll need to manually call c[CACHE_RERENDER_FN]() whenever any state anywhere changes.
  *  - Methods that previously reported a deltaTime will report a constant 0.0333_ instead.
@@ -145,7 +145,7 @@ export function imCacheBegin(
             }
         };
 
-        if (flags & USE_EVENT_LOOP) {
+        if (flags & USE_MANUAL_RERENDERING) {
             c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
             c[CACHE_ANIMATE_FN] = noOp;
@@ -270,7 +270,11 @@ export function imCacheEntriesEnd(c: ImCache) {
     assert(idx >= CACHE_ENTRIES_START - 1);
 }
 
-export function imGet<T>(c: ImCache, typeId: TypeId<T>, initialValue: T | undefined = undefined): T | undefined {
+export function imGet<T>(
+    c: ImCache,
+    typeId: TypeId<T>,
+    initialValue: T | undefined = undefined
+): T | undefined {
     const entries = c[CACHE_CURRENT_ENTRIES];
     c[CACHE_ITEMS_ITERATED]++;
 
@@ -307,6 +311,16 @@ export function imGet<T>(c: ImCache, typeId: TypeId<T>, initialValue: T | undefi
     }
 
     return entries[idx + 1];
+}
+
+/**
+ * A shorthand for a pattern that is very common.
+ * NOTE: if your state gains dependencies, you can just use imGet and imSet directly, as intended.
+ */
+export function imState<T>(c: ImCache, fn: () => T): T {
+    let val = imGet(c, fn);
+    if (val === undefined) val = imSet(c, fn());
+    return val;
 }
 
 export function getEntryAt<T>(c: ImCache, typeId: TypeId<T>, idx: number): T {
@@ -600,8 +614,7 @@ export function imIfEnd(c: ImCache) {
  * Use if-else + imIf/imIfElse/imIfEnd instead.
  */
 export function imSwitch(c: ImCache, key: ValidKey) {
-    const entries = __imBlockDerivedBegin(c, INTERNAL_TYPE_SWITCH_BLOCK);
-    entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = REMOVE_LEVEL_DETATCHED;
+    __imBlockDerivedBegin(c, INTERNAL_TYPE_SWITCH_BLOCK);
     __imBlockKeyedBegin(c, key);
 }
 
@@ -733,6 +746,16 @@ export type TryState = {
     // TODO: consider Map<Error, count: number>
 };
 
+/**
+ * ```ts
+ * const tryState = imTry(c); try {
+ *      // render your component here
+ * } catch(err) {
+ *      imTryCatch(c, tryState, err);
+ *      // don't render anything here! Only do the other things
+ * } imTryEnd(c, tryState); 
+ * ```
+ */
 export function imTry(c: ImCache): TryState {
     const entries = __imBlockDerivedBegin(c, INTERNAL_TYPE_TRY_BLOCK);
 
@@ -776,4 +799,61 @@ export function imTryEnd(c: ImCache, tryState: TryState) {
 
 export function getDeltaTimeSeconds(c: ImCache): number {
     return c[CACHE_ANIMATION_DELTA_TIME_SECONDS];
+}
+
+/**
+ * Sometimes, you'll need a global state stack, so that you have access to some state.
+ * ```ts
+ *
+ * globalStateStackPush(gssThing, thing); {
+ *      ...
+ *      // can be arbitrarily deep inside the component
+ *      const thing = globalStateStackGet(gssThing);
+ *
+ *      ...
+ * } globalStateStackPop(gssThing);
+ * ```ts
+ *
+ * 99% of the time, this pattern is a mistake that obfuscates and overcomplicates the code, 
+ * and you should just pass `thing` as an additional function parameter.
+ * Here is a decision tree you can use to decide whether to use this pattern or not:
+ *
+ *                                      | I need this state everywhere,    | I infrequently need this value, but the requirement can arise 
+ *                                      | and I make sure to pass it as    | naturally somewhere deep node of the component, and I have
+ *                                      | a method param everywhere anyway | to spend a bunch of time adding an extra function argument 
+ *                                      |                                  | everywhere when it does.
+ * ----------------------------------------------------------------------------------------------------------------------------
+ *  This state is related to my app's   | Don't use a global state stack   | Don't use a global state stack 
+ *  domain model                        |                                  |
+ * ----------------------------------------------------------------------------------------------------------------------------
+ *  This state is related to auxilary   | Don't use a global state stack   | Consider using a global state stack
+ *  functions like input events         |                                  |
+ * ----------------------------------------------------------------------------------------------------------------------------
+ *
+ */
+export function globalStateStackPush<T>(gss: T[], item: T) {
+    // I've put a limit on the context depth to 100. But really, anything > 1 is already a niche usecase, and anything > 2 may never happen in practice ... 
+    if (gss.length > 100) {
+        throw new Error("Looks like you're forgetting to pop items from your global state array. tsk tsk tsk. ");
+    }
+
+    gss.push(item);
+}
+
+export function globalStateStackGet<T>(gss: T[]): T {
+    // No context item was pushed
+    assert(gss.length > 0);
+
+    return gss[gss.length - 1];
+}
+
+export function globalStateStackPop<T>(gss: T[], item: T): T {
+    const currentItem = globalStateStackGet(gss);
+
+    // Item may have changed mid-render, which definitely shouldn't ever happen, and is indicative of some other issue.
+    assert(currentItem === item);
+
+    gss.pop();
+
+    return currentItem;
 }

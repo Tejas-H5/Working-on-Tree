@@ -784,7 +784,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                             imStr(c, formatDuration(totalDuration));
                             totalDuration = 0
                         } imLayoutEnd(c);
-                    }imIfEnd(c);
+                    } imIfEnd(c);
                 } imKeyedEnd(c);
             } 
 
