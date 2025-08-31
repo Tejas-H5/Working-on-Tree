@@ -1,7 +1,7 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { setInputValue } from "src/utils/dom-utils";
 import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, elSetTextSafetyRemoved, imElBegin as imElBegin, imElEnd, imStr } from "src/utils/im-dom";
+import { EL_TEXTAREA, elSetAttr, elSetClass, elSetStyle, elSetTextSafetyRemoved, imEl as imEl, imElEnd, imStr } from "src/utils/im-dom";
 import { BLOCK, imLayout as imLayout, imLayoutEnd, INLINE } from "./core/layout";
 import { cn, cssVars } from "./core/stylesheets";
 
@@ -121,7 +121,7 @@ export function imTextAreaBegin(c: ImCache, {
                 }
             } imLayoutEnd(c);
 
-            textArea = imElBegin(c, EL_TEXTAREA).root; {
+            textArea = imEl(c, EL_TEXTAREA).root; {
                 if (isFirstishRender(c)) {
                     elSetAttr(c, "class", [cn.allUnset, cn.absoluteFill, cn.preWrap, cn.w100, cn.h100].join(" "));
                     elSetAttr(c, "style", "background-color: transparent; color: transparent; overflow-y: hidden; padding: 0px");

@@ -136,7 +136,7 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
 
 
 
-export function imElBegin<K extends keyof HTMLElementTagNameMap>(
+export function imEl<K extends keyof HTMLElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
 ): DomAppender<HTMLElementTagNameMap[K]> {

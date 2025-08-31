@@ -40,7 +40,7 @@ import {
     inlineTypeId,
     isFirstishRender
 } from "src/utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
 import { VERSION_NUMBER } from "src/version-number";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 
@@ -204,7 +204,7 @@ const menus: MenuItem[] = [
 
                         imListRowBegin(c, true, hasFocus, false); {
                             imLayout(c, BLOCK); imListRowCellStyle(c); {
-                                imElBegin(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                                imEl(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
                             } imLayoutEnd(c);
                         } imListRowEnd(c);
 
