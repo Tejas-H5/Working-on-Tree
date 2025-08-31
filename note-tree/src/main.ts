@@ -28,7 +28,7 @@ import {
 } from "src/utils/im-core";
 import {
     elHasMouseClick,
-    elHasMouseDown,
+    elHasMousePress,
     elHasMouseOver,
     elSetStyle,
     imDomRootBegin,
@@ -122,7 +122,6 @@ function imMainInner(c: ImCache) {
     let ctx = imGet(c, newGlobalContext);
     if (!ctx) ctx = imSet(c, newGlobalContext());
 
-    imGlobalEventSystemBegin(c, ctx.ev);
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
@@ -178,7 +177,7 @@ function imMainInner(c: ImCache) {
 
     const tryState = imTry(c); try {
         if (imIf(c) && !errorState.error && !errorState.irrecoverableError) {
-            handleImKeysInput(ctx, ctx.ev);
+            handleImKeysInput(ctx);
 
             if (imMemo(c, state._notesMutationCounter) === MEMO_CHANGED) {
                 if (state._notesMutationCounter !== 0) {
@@ -219,13 +218,13 @@ function imMainInner(c: ImCache) {
 
                                 const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                 let icon = getIcon(state.currentTheme);
-                                if (elHasMouseOver(c, ctx.ev)) {
+                                if (elHasMouseOver(c)) {
                                     icon = getIcon(nextTheme);
                                 }
 
                                 imAsciiIcon(c, icon, 4.5);
 
-                                if (elHasMouseDown(c, ctx.ev)) {
+                                if (elHasMousePress(c)) {
                                     state.currentTheme = nextTheme;
                                     debouncedSave(ctx, state, "Theme change");
                                 }
@@ -447,7 +446,7 @@ function imMainInner(c: ImCache) {
 
                                 imStr(c, "Download this page, and run it offline!");
 
-                                if (elHasMouseClick(c, ctx.ev)) {
+                                if (elHasMouseClick(c)) {
                                     const linkEl = document.createElement("a");
                                     linkEl.setAttribute("download", "note-tree.html");
                                     linkEl.setAttribute("href", window.location.href);
@@ -557,7 +556,7 @@ function imMainInner(c: ImCache) {
                 }
 
                 if (ctx.handled) {
-                    preventImKeysDefault(ctx.ev);
+                    preventImKeysDefault();
                 }
 
                 // Only one text area can be focued at a time in the entire document.
@@ -623,7 +622,6 @@ function imMainInner(c: ImCache) {
         }
     } imTryEnd(c, tryState);
 
-    imGlobalEventSystemEnd(c, ctx.ev);
 
     fpsMarkRenderingEnd(fpsCounter);
 }
@@ -633,7 +631,11 @@ const cGlobal: ImCache = [];
 function imMainEntry(c: ImCache) {
     imCacheBegin(c, imMainEntry); {
         imDomRootBegin(c, document.body); {
+            const ev = imGlobalEventSystemBegin(c);
+
             imMainInner(c);
+
+            imGlobalEventSystemEnd(c, ev);
         } imDomRootEnd(c, document.body);
     } imCacheEnd(c);
 };

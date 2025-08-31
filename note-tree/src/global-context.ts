@@ -9,16 +9,14 @@ import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { ImGlobalEventSystem, newImGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { getGlobalEventSystem } from "./utils/im-dom";
 
 const SAVE_DEBOUNCE = 1500;
 
 export type GlobalContext = {
-    ev: ImGlobalEventSystem;
-
     now: Date;
 
     keyboard:          KeyboardState;
@@ -130,8 +128,6 @@ export function newGlobalContext(): GlobalContext {
     const keyboard = newKeyboardState();
 
     return {
-        ev: newImGlobalEventSystem(),
-
         now: new Date(),
 
         keyboard,
@@ -490,15 +486,12 @@ function resetKeyboardState(s: KeyboardState) {
     }
 }
 
-export function handleImKeysInput(
-    ctx: GlobalContext,
-    eventSystem: ImGlobalEventSystem,
-) {
+export function handleImKeysInput(ctx: GlobalContext,) {
     const keyboard = ctx.keyboard;
 
     ctx.handled = false;
 
-    const { keyDown, keyUp, blur } = eventSystem.keyboard;
+    const { keyDown, keyUp, blur } = getGlobalEventSystem().keyboard;
 
     stepKeyboardState(keyboard);
     if (keyDown) {
@@ -514,8 +507,8 @@ export function handleImKeysInput(
     return keyboard;
 }
 
-export function preventImKeysDefault(ev: ImGlobalEventSystem) {
-    const { keyDown, keyUp } = ev.keyboard;
+export function preventImKeysDefault() {
+    const { keyDown, keyUp } = getGlobalEventSystem().keyboard;
     if (keyDown) keyDown.preventDefault();
     if (keyUp)   keyUp.preventDefault();
 }

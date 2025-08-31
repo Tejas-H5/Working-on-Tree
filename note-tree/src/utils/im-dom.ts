@@ -1,4 +1,4 @@
-// IM-DOM 1.0
+// IM-DOM 1.1
 
 import { assert } from "src/utils/assert";
 import {
@@ -11,6 +11,10 @@ import {
     imSet,
     inlineTypeId,
     cacheEntriesAddDestructor,
+    imMemo,
+    globalStateStackPop,
+    globalStateStackPush,
+    globalStateStackGet,
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -197,6 +201,10 @@ interface Stringifyable {
     toString(): string;
 }
 
+/**
+ * This method manages a HTML Text node. So of course, we named it
+ * `imStr`.
+ */
 export function imStr(c: ImCache, value: Stringifyable): Text {
     let textNodeLeafAppender; textNodeLeafAppender = imGet(c, inlineTypeId(imStr));
     if (textNodeLeafAppender === undefined) textNodeLeafAppender = imSet(c, newDomAppender(document.createTextNode(""), null));
@@ -206,6 +214,26 @@ export function imStr(c: ImCache, value: Stringifyable): Text {
     if (lastValue !== value) {
         imSet(c, value);
         textNodeLeafAppender.root.nodeValue = value.toString();
+    }
+
+    const domAppender = getEntriesParent(c, newDomAppender);
+    appendToDomRoot(domAppender, textNodeLeafAppender);
+
+    return textNodeLeafAppender.root;
+}
+
+// TODO: not scaleable for the same reason imState isn't scaleable. we gotta think of something better that lets us have more dependencies/arguments to the formatter
+export function imStrFmt<T>(c: ImCache, value: T, formatter: (val: T) => string): Text {
+    let textNodeLeafAppender; textNodeLeafAppender = imGet(c, inlineTypeId(imStr));
+    if (textNodeLeafAppender === undefined) textNodeLeafAppender = imSet(c, newDomAppender(document.createTextNode(""), null));
+
+    const formatterChanged = imMemo(c, formatter);
+
+    // The user can't select this text node if we're constantly setting it, so it's behind a cache
+    let lastValue = imGet(c, inlineTypeId(document.createTextNode));
+    if (lastValue !== value || formatterChanged !== 0) {
+        imSet(c, value);
+        textNodeLeafAppender.root.nodeValue = formatter(value);
     }
 
     const domAppender = getEntriesParent(c, newDomAppender);
@@ -333,24 +361,27 @@ export function imOn<K extends keyof HTMLElementEventMap>(
     return result;
 }
 
+export function getGlobalEventSystem() {
+    return globalStateStackGet(gssEventSystems);
+}
 
-export function elHasMouseDown(c: ImCache, ev: ImGlobalEventSystem): boolean {
-    const el = elGet(c);
+export function elHasMousePress(c: ImCache, el = elGet(c)): boolean {
+    const ev = getGlobalEventSystem();
     return elIsInSetThisFrame(el, ev.mouse.mouseDownElements)
 }
 
-export function elHasMouseUp(c: ImCache, ev: ImGlobalEventSystem): boolean {
-    const el = elGet(c);
+export function elHasMouseUp(c: ImCache, el = elGet(c)): boolean {
+    const ev = getGlobalEventSystem();
     return elIsInSetThisFrame(el, ev.mouse.mouseUpElements)
 }
 
-export function elHasMouseClick(c: ImCache, ev: ImGlobalEventSystem): boolean {
-    const el = elGet(c);
+export function elHasMouseClick(c: ImCache, el = elGet(c)): boolean {
+    const ev = getGlobalEventSystem();
     return elIsInSetThisFrame(el, ev.mouse.mouseClickElements)
 }
 
-export function elHasMouseOver(c: ImCache, ev: ImGlobalEventSystem): boolean {
-    const el = elGet(c);
+export function elHasMouseOver(c: ImCache, el = elGet(c)): boolean {
+    const ev = getGlobalEventSystem();
     return ev.mouse.mouseOverElements.has(el);
 }
 
@@ -429,7 +460,7 @@ function findParents(el: ValidElement, elements: Set<ValidElement>) {
 }
 
 
-export function newImGlobalEventSystem(): ImGlobalEventSystem {
+export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSystem {
     const keyboard: ImKeyboardState = {
         keyDown: null,
         keyUp: null,
@@ -476,8 +507,7 @@ export function newImGlobalEventSystem(): ImGlobalEventSystem {
     };
 
     const eventSystem: ImGlobalEventSystem = {
-        // You should set this to your rerender method
-        rerender: () => {},
+        rerender: rerenderFn,
         keyboard,
         mouse,
         // stored, so we can dispose them later if needed.
@@ -564,26 +594,32 @@ function resetKeyboardState(keyboard: ImKeyboardState) {
     keyboard.blur = false;
 }
 
-export function imGlobalEventSystemBegin(c: ImCache, eventSystem: ImGlobalEventSystem) {
-    let state = imGet(c, newImGlobalEventSystem);
-    if (state !== eventSystem) {
-        if (state !== undefined) {
-            throw new Error("This code can't handle changing the event system like that yet - we need to remove the last destructor somehow before we can do this.");
-        }
+/**
+ * See the decision matrix above {@link globalStateStackPush}
+ */
+const gssEventSystems: ImGlobalEventSystem[] = [];
 
-        eventSystem.rerender = c[CACHE_RERENDER_FN];
+// TODO: is there any point in separating this from imDomRoot ?
+export function imGlobalEventSystemBegin(c: ImCache): ImGlobalEventSystem {
+    let state = imGet(c, newImGlobalEventSystem);
+    if (state === undefined) {
+        const eventSystem = newImGlobalEventSystem(c[CACHE_RERENDER_FN]);
         addDocumentAndWindowEventListeners(eventSystem);
         cacheEntriesAddDestructor(c, () => removeDocumentAndWindowEventListeners(eventSystem));
         state = imSet(c, eventSystem);
     }
 
+    globalStateStackPush(gssEventSystems, state);
+
     return state;
 }
 
 export function imGlobalEventSystemEnd(c: ImCache, eventSystem: ImGlobalEventSystem) {
-    endProcessingImEvent(eventSystem);
-}
+    resetKeyboardState(eventSystem.keyboard);
+    resetMouseState(eventSystem.mouse, false);
 
+    globalStateStackPop(gssEventSystems, eventSystem);
+}
 
 export function imTrackSize(c: ImCache) {
     let state; state = imGet(c, inlineTypeId(imTrackSize));
@@ -617,11 +653,6 @@ export function imTrackSize(c: ImCache) {
 
 }
 
-export function endProcessingImEvent(eventSystem: ImGlobalEventSystem) {
-    resetKeyboardState(eventSystem.keyboard);
-    resetMouseState(eventSystem.mouse, false);
-}
-
 function newPreventScrollEventPropagationState() {
     return { 
         isBlocking: true,
@@ -629,7 +660,7 @@ function newPreventScrollEventPropagationState() {
     };
 }
 
-export function imPreventScrollEventPropagation(c: ImCache, eventSystem: ImGlobalEventSystem) {
+export function imPreventScrollEventPropagation(c: ImCache) {
     let state = imGet(c, newPreventScrollEventPropagationState);
     if (state === undefined) {
         const val = newPreventScrollEventPropagationState();
@@ -647,8 +678,8 @@ export function imPreventScrollEventPropagation(c: ImCache, eventSystem: ImGloba
         state = imSet(c, val);
     }
 
-    const mouse = eventSystem.mouse;
-    if (state.isBlocking === true && elHasMouseOver(c, eventSystem) && mouse.scrollWheel !== 0) {
+    const { mouse } = getGlobalEventSystem();
+    if (state.isBlocking === true && elHasMouseOver(c) && mouse.scrollWheel !== 0) {
         state.scrollY += mouse.scrollWheel;
         mouse.scrollWheel = 0;
     } else {

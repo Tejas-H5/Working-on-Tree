@@ -1,4 +1,4 @@
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "src/app-components/list-row";
 import {
     clampedListIdx,

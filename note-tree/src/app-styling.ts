@@ -1,4 +1,4 @@
-import { cssVars, defaultCoreTheme } from "./components/core/stylesheets";
+import { cssVars } from "./components/core/stylesheets";
 import { newColor, newColorFromHex } from "./utils/colour";
 import { newCssBuilder, setCssVars } from "./utils/cssb";
 
