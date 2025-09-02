@@ -1,25 +1,24 @@
-import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { COL, imAlign, imLayout, imFlex, imJustify, imLayoutEnd, ROW, BLOCK } from "src/components/core/layout";
-import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
 import { imListRowCellStyle } from "src/app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
     imNavListBegin,
-    imNavListRowBegin,
     imNavListEnd,
-    imNavListRowEnd,
     imNavListNextItemArray,
+    imNavListRowBegin,
+    imNavListRowEnd,
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
+import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, ROW } from "src/components/core/layout";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
 import {
     dfsPre,
-    forEachChildNote,
     forEachParentNote,
     getCurrentNote,
+    getNote,
     setCurrentNote,
     state,
     TreeNote
@@ -27,6 +26,7 @@ import {
 import { get } from "src/utils/array-utils";
 import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { EL_A, elSetAttr, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
+import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 
 type UrlListViewUrl = {
     url: string;
@@ -90,11 +90,12 @@ function recomputeUrls(s: UrlListViewState) {
     let notes: TreeNote[] = []; 
     let lastNote = currentNote;
     forEachParentNote(state.notes, currentNote, note => {
-        forEachChildNote(state, note, note => {
-            if (note !== lastNote) {
-                notes.push(note)
-            }
-        });
+        notes.push(note)
+        for (let i = note.childIds.length - 1; i >= 0; i--) {
+            const id = note.childIds[i];
+            const child = getNote(state.notes, id);
+            notes.push(child)
+        }
 
         lastNote = note;
     });

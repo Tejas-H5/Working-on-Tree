@@ -49,6 +49,7 @@ export type DurationsViewState = {
 
     durations: TaskBlockInfo[];
     activityFilter: number[] | null;
+    hltMap: Map<NoteId | null, TaskBlockInfo>;
 
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
@@ -67,6 +68,7 @@ export function newDurationsViewState(): DurationsViewState {
         activitiesFrom: null,
         activitiesTo: null,
         activityFilter: null,
+        hltMap: new Map(),
     };
 }
 
@@ -134,7 +136,7 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
 function recomputeDurations(s: DurationsViewState) {
     recomputeAllNoteDurations(state, s.activitiesFrom, s.activitiesTo);
 
-    const hltMap = new Map<NoteId | null, TaskBlockInfo>();
+    s.hltMap = new Map<NoteId | null, TaskBlockInfo>();
 
     for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
         const activity = state.activities[i];
@@ -145,14 +147,14 @@ function recomputeDurations(s: DurationsViewState) {
         let newBlock = false;
 
         if (isBreak(activity)) {
-            block = hltMap.get(null);
+            block = s.hltMap.get(null);
             if (!block) {
                 block = {
                     hlt: null,
                     slots: [],
                     name: "Breaks",
                 };
-                hltMap.set(null, block);
+                s.hltMap.set(null, block);
                 newBlock = true;
             }
         } else {
@@ -167,7 +169,7 @@ function recomputeDurations(s: DurationsViewState) {
                 continue;
             }
 
-            block = hltMap.get(hlt.id);
+            block = s.hltMap.get(hlt.id);
             if (!block) {
                 block = {
                     hlt,
@@ -175,7 +177,7 @@ function recomputeDurations(s: DurationsViewState) {
                     name: getNoteTextWithoutPriority(hlt.data),
                 };
                 newBlock = true;
-                hltMap.set(hlt.id, block);
+                s.hltMap.set(hlt.id, block);
             }
         }
 
@@ -195,12 +197,6 @@ function recomputeDurations(s: DurationsViewState) {
         block.slots[dayOfWeek].time += durationMs;
         block.slots[dayOfWeek].activityIndices.push(i);
     }
-
-    s.durations = [...hltMap.values()].sort((a, b) => {
-        const aTotal = a.slots[a.slots.length - 1].time;
-        const bTotal = b.slots[b.slots.length - 1].time;
-        return bTotal - aTotal;
-    });
 
     if (s.tableRowPos.idx >= s.durations.length) {
         s.tableRowPos.idx = 0;
@@ -239,6 +235,13 @@ function recomputeActivityFilter(s: DurationsViewState) {
     }
 
     s.activityFilter = getFilter();
+
+    s.durations = [...s.hltMap.values()].sort((a, b) => {
+        const col = s.tableColPos.idx;
+        const aTotal = a.slots[col].time;
+        const bTotal = b.slots[col].time;
+        return bTotal - aTotal;
+    });
 }
 
 export function imDurationsView(
@@ -274,13 +277,12 @@ export function imDurationsView(
         
         let tableState; tableState = imGet(c, inlineTypeId(imLayout));
         if (!tableState) tableState = imSet(c, {
-            lastMaxWidth: 0,
-            maxWidth: 0,
+            widthMap: new Map<number, number>(),
             recomputedPrevFrame: false,
         });
 
         if (tableState.recomputedPrevFrame) {
-            tableState.maxWidth = 50;
+            tableState.widthMap.clear();
         }
 
         const allRowsSelected = s.tableRowPos.idx === -1;
@@ -288,7 +290,12 @@ export function imDurationsView(
         const allSelected = allRowsSelected && allColsSelected;
 
         imListRowBegin(c, allSelected, viewHasFocus && allSelected); {
-            imLayout(c, ROW); imFlex(c); imAlign(c); {
+            imLayout(c, ROW); imAlign(c); {
+                const width = tableState.widthMap.get(-1);
+                if (imMemo(c, width) && width) {
+                    elSetStyle(c, "width", width + "px");
+                }
+
                 imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
                 imLayout(c, BLOCK); {
@@ -311,6 +318,7 @@ export function imDurationsView(
                 imLayout(c, BLOCK); {
                     const colSelectedIndividual = s.tableColPos.idx === colIdx;
                     const colSelected = colSelectedIndividual || allColsSelected;
+                    const width = tableState.widthMap.get(colIdx);
 
                     imListRowBg(
                         c,
@@ -325,15 +333,12 @@ export function imDurationsView(
                     } imLayoutEnd(c);
 
                     imLayout(c, BLOCK); imListRowCellStyle(c); {
-                        if (imMemo(c, tableState.lastMaxWidth)) {
-                            elSetStyle(c, "width", tableState.lastMaxWidth + "px");
+                        if (imMemo(c, width) && width) {
+                            elSetStyle(c, "width", width + "px");
                         }
 
                         let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
-                        const span = imB(c).root; imStr(c, str); imBEnd(c);
-                        if (tableState.recomputedPrevFrame) {
-                            tableState.maxWidth = Math.max(tableState.maxWidth, span.scrollWidth);
-                        }
+                        imB(c).root; imStr(c, str); imBEnd(c);
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
             } imForEnd(c);
@@ -361,7 +366,7 @@ export function imDurationsView(
                         );
                     } imLayoutEnd(c);
 
-                    imLayout(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
+                    const div = imLayout(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
                         const selected = (rowSelected || allRowsSelected) && allColsSelected;
 
                         imListRowBg(
@@ -370,6 +375,12 @@ export function imDurationsView(
                         );
 
                         imStr(c, block.name); 
+
+                        if (tableState.recomputedPrevFrame) {
+                            let existingWidth = tableState.widthMap.get(-1) ?? 200;
+                            let maxWidth = Math.max(existingWidth, div.getBoundingClientRect().width);
+                            tableState.widthMap.set(-1, maxWidth);
+                        }
                     } imLayoutEnd(c);
 
                     imLine(c, LINE_VERTICAL, 1);
@@ -388,13 +399,16 @@ export function imDurationsView(
                                 getRowStatus(rowSelected || colSelected, viewHasFocus && cellSelected),
                             );
 
-                            if (imMemo(c, tableState.lastMaxWidth)) {
-                                elSetStyle(c, "width", tableState.lastMaxWidth + "px");
+                            const w = tableState.widthMap.get(colIdx);
+                            if (imMemo(c, w) && w) {
+                                elSetStyle(c, "width", w + "px");
                             }
 
                             const span = imLayout(c, INLINE); {
                                 if (tableState.recomputedPrevFrame) {
-                                    tableState.maxWidth = Math.max(tableState.maxWidth, span.scrollWidth);
+                                    let existingWidth = tableState.widthMap.get(colIdx) ?? 50;
+                                    let maxWidth = Math.max(existingWidth, span.getBoundingClientRect().width);
+                                    tableState.widthMap.set(colIdx, maxWidth);
                                 }
 
                                 imStr(c, formatDurationAsHours(slot.time)); 
@@ -409,9 +423,13 @@ export function imDurationsView(
             }
         } imNavListEnd(c, list);
 
-
-        tableState.recomputedPrevFrame = !!imMemo(c, s.durations)
-        tableState.lastMaxWidth = tableState.maxWidth;
+        // Trying to get this table shiet to work. Because I dont want to rewrite my layout primitives to use CSS table.
+        // This is eventually consistent. xD
+        // close enough. I don't care anymore
+        if (imMemo(c, s.durations)) {
+            tableState.recomputedPrevFrame = true;
+        } else {
+            tableState.recomputedPrevFrame = false;
+        }
     } imLayoutEnd(c);
 }
-
