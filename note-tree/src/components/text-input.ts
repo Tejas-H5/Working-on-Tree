@@ -4,12 +4,7 @@ import { EL_INPUT, elSetAttr, elSetClass, imEl } from "src/utils/im-dom";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { imLayoutEnd } from "./core/layout";
 
-function newInput() {
-    return document.createElement("input");
-}
-
 const cssb = newCssBuilder();
-
 
 const cnInput = cssb.newClassName("im-text-input");
 cssb.s(`
