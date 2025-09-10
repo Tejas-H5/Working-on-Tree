@@ -1339,7 +1339,7 @@ const PROJECT_NAME = "note-tree";
 const LAST_SAVED_TIMESTAMP_KEY = PROJECT_NAME + "-lastSavedTimestamp";
 const LAST_SAVED_VERSION_KEY = PROJECT_NAME + "-lastSavedVersion";
 const LAST_AUTO_INSERTED_BREAK_KEY = PROJECT_NAME + "-lastAutoinsertedBreakTime";
-let lastLoadedTime = "";
+let lastLoadedTime: string | null = null;
 let loading = false;
 
 let db: IDBDatabase | undefined;
