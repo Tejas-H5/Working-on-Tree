@@ -1,18 +1,19 @@
+import { handleKeysLifecycle, KeyState, newKeyState } from "src/utils/key-state";
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/lateral-traversal";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
-import { getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
+import { getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+import { getGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { getGlobalEventSystem } from "./utils/im-dom";
 
 const SAVE_DEBOUNCE = 1500;
 
@@ -278,20 +279,6 @@ function pushDiscoverableCommand(
     return command;
 }
 
-type KeyState = {
-    stringRepresentation: string;
-    key:  string;
-    key2: string | undefined;
-
-    pressed:  boolean;
-    repeat:   boolean;
-    held:     boolean;
-    released: boolean;
-
-    numPressed:  number;
-    numHeld:     number;
-    numReleased: number;
-}
 
 type KeyboardState = {
     keys: KeyState[];
@@ -336,26 +323,6 @@ type KeyboardState = {
     num9Key: KeyState;
 };
 
-function newKeyState(
-    stringRepresentation: string,
-    key: string,
-    key2?: string
-): KeyState {
-    return {
-        stringRepresentation,
-        key, 
-        key2,
-
-        pressed:  false,
-        held:     false,
-        released: false,
-        repeat:   false,
-
-        numPressed:  0,
-        numHeld:     0,
-        numReleased: 0,
-    };
-}
 
 function newKeyboardState(): KeyboardState {
     const state: KeyboardState = {
@@ -417,92 +384,14 @@ export function getAxisRaw(negative: boolean, positive: boolean): number {
     if (positive) result += 1;
     return result;
 }
-
-function pressKey(state: KeyState, repeat: boolean) {
-    if (!repeat) {
-        state.numPressed++;
-        state.numHeld++;
-    }
-
-    state.pressed = true;
-    state.repeat = repeat;
-    state.held = true;
-}
-
-function releaseKey(state: KeyState) {
-    state.numHeld--;
-    state.numReleased++;
-
-    state.held     = state.numHeld > 0;
-    state.released = true;
-}
-
-function stepKey(state: KeyState) {
-    state.numPressed  = 0;
-    state.numReleased = 0;
-
-    state.pressed  = false;
-    state.repeat = false;
-    state.released = false;
-}
-
-function resetKey(state: KeyState) {
-    state.numPressed  = 0;
-    state.numHeld     = 0;
-    state.numReleased = 0;
-
-    state.pressed  = false;
-    state.held     =
-    state.released = false;
-}
-
-function handleKeyDown(s: KeyboardState, e: KeyboardEvent) {
-    for (let i = 0; i < s.keys.length; i++) {
-        const key = s.keys[i];
-        if (e.key === key.key || e.key === key.key2) {
-            pressKey(key, e.repeat);
-        }
-    }
-}
-
-function handleKeyUp(s: KeyboardState, e: KeyboardEvent) {
-    for (let i = 0; i < s.keys.length; i++) {
-        const key = s.keys[i];
-        if (e.key === key.key || e.key === key.key2) {
-            releaseKey(key);
-        }
-    }
-}
-
-function stepKeyboardState(s: KeyboardState) {
-    for (let i = 0; i < s.keys.length; i++) {
-        stepKey(s.keys[i]);
-    }
-}
-
-function resetKeyboardState(s: KeyboardState) {
-    for (let i = 0; i < s.keys.length; i++) {
-        resetKey(s.keys[i]);
-    }
-}
-
-export function handleImKeysInput(ctx: GlobalContext,) {
+export function handleImKeysInput(ctx: GlobalContext) {
     const keyboard = ctx.keyboard;
 
     ctx.handled = false;
 
     const { keyDown, keyUp, blur } = getGlobalEventSystem().keyboard;
 
-    stepKeyboardState(keyboard);
-    if (keyDown) {
-        handleKeyDown(keyboard, keyDown);
-    }
-    if (keyUp) {
-        handleKeyUp(keyboard, keyUp);
-    }
-    if (blur) {
-        resetKeyboardState(keyboard);
-    }
+    handleKeysLifecycle(keyboard.keys, keyDown, keyUp, blur);
 
     return keyboard;
 }
