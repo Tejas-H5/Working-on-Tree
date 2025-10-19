@@ -204,7 +204,6 @@ function recomputeVisibleNotes(s: NoteTreeViewState) {
     if (s.viewRoot !== viewRoot) {
         s.viewRoot = viewRoot;
         s.stickyNotes.length = 0;
-        if (s.scrollContainer) startScrolling(s.scrollContainer, false);
         recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
     }
 
@@ -343,6 +342,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     if (viewFocused) {
         handleKeyboardInput(ctx, s);
     }
+
+
+    const sc = s.scrollContainer;
+    if (sc && !state._isEditingFocusedNote) {
+        sc.wantedScrollOffsetItem = 0.5;
+        sc.wantedScrollOffsetViewport = 0.5;
+    }
+
 
     imLayout(c, COL); imFlex(c); {
         imLayout(c, BLOCK); {
@@ -723,6 +730,43 @@ function imNoteTreeRow(
 
                             ctx.textAreaToFocus = textArea;
                         } imTextAreaEnd(c);
+
+                        // Make the scroll container scroll to the part of the text where the cursor is. 
+                        // Mainly applies when we've typed a LOT of text into the buffer
+                        const sc = list?.scrollContainer;
+                        if (sc) {
+                            const start = textArea.selectionStart;
+                            const end = textArea.selectionEnd;
+                            const text = note.data.text;
+
+                            const textLengthChanged = imMemo(c, text.length);
+                            const startChanged = imMemo(c, start);
+                            const endChanged = imMemo(c, end);
+
+                            if (textLengthChanged || startChanged || endChanged) {
+                                let posToScrollTo;
+                                if (startChanged) {
+                                    posToScrollTo = start;
+                                } else {
+                                    posToScrollTo = end;
+                                }
+
+                                let numNewlines = 0;
+                                let numNewlinesBeforePosToScrollTo = 0;
+                                let pos = 0;
+                                for (const c of text) {
+                                    if (c === '\n') {
+                                        numNewlines++;
+                                        if (pos < posToScrollTo) numNewlinesBeforePosToScrollTo++;
+                                    }
+                                    pos++;
+                                }
+
+                                const ratio = numNewlines === 0 ? 0 : numNewlinesBeforePosToScrollTo / numNewlines;
+                                sc.wantedScrollOffsetItem = ratio;
+                                sc.wantedScrollOffsetViewport = 0.5;
+                            }
+                        }
                     } else {
                         imIfElse(c);
 

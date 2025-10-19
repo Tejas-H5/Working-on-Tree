@@ -1,6 +1,6 @@
 import { getDeltaTimeSeconds, ImCache } from "src/utils/im-core";
 import { COL, imFlex, imLayout, imScrollOverflow, ROW } from "./core/layout";
-import { getScrollVH } from "src/utils/dom-utils";
+import { getScrollVHEx } from "src/utils/dom-utils";
 
 
 // NOTE: if all we need is idx, let's just inline it.
@@ -9,8 +9,13 @@ export type ScrollContainer = {
     isScrolling:     boolean;
     smoothScroll:    boolean;
 
-    lastScrollTop:   number;
-    lastScrollTopStableFrames: number;
+    wantedScrollOffsetViewport: number; 
+    wantedScrollOffsetItem: number; 
+
+    _scrollTopLast:   number;
+    _scrollTopStableFramesLast: number;
+    _wantedScrollOffsetViewportLast: number; 
+    _wantedScrollOffsetItemLast: number; 
 };
 
 export function newScrollContainer(): ScrollContainer {
@@ -18,17 +23,36 @@ export function newScrollContainer(): ScrollContainer {
         root:         null,
         isScrolling:  false,
         smoothScroll: false,
+        wantedScrollOffsetViewport: 0.5,
+        wantedScrollOffsetItem: 0.5,
 
-        lastScrollTop: -1,
-        lastScrollTopStableFrames: 0,
+        _scrollTopLast: -1,
+        _scrollTopStableFramesLast: 0,
+        _wantedScrollOffsetViewportLast: 0.5,
+        _wantedScrollOffsetItemLast: 0.5,
     };
+}
+
+export function scrollParamsChanged(sc: ScrollContainer) {
+    let result = false;
+
+    if (
+        sc.wantedScrollOffsetItem !== sc._wantedScrollOffsetItemLast ||
+        sc.wantedScrollOffsetViewport !== sc._wantedScrollOffsetViewportLast
+    ) {
+        result = true;
+        sc._wantedScrollOffsetItemLast = sc.wantedScrollOffsetItem;
+        sc._wantedScrollOffsetViewportLast = sc.wantedScrollOffsetViewport;
+    }
+
+    return result;
 }
 
 export function startScrolling(sc: ScrollContainer, smoothScroll: boolean) {
     sc.isScrolling = true;
     sc.smoothScroll = smoothScroll;
-    sc.lastScrollTopStableFrames = 0;
-    sc.lastScrollTop = -1;
+    sc._scrollTopStableFramesLast = 0;
+    sc._scrollTopLast = -1;
 }
 
 export function imScrollContainerBegin(
@@ -43,38 +67,39 @@ export function imScrollContainerBegin(
 
 // NOTE: it's up to you to only ever call this on one item at a time
 // TODO: move this into ScrollContainer, make this a side-effect of ending the container
-export function scrollToItem(c: ImCache, l: ScrollContainer, root: HTMLElement) {
-    const scrollParent = l.root;
+export function scrollToItem(c: ImCache, sc: ScrollContainer, root: HTMLElement) {
+    const scrollParent = sc.root;
     if (!scrollParent)  return;
-    if (!l.isScrolling) return;
+    if (!sc.isScrolling) return;
     if (root.parentNode === null) return;
-    if (l.lastScrollTopStableFrames > 10) {
-        l.isScrolling = false;
+    if (sc._scrollTopStableFramesLast > 10) {
+        sc.isScrolling = false;
         return;
     }
 
-    const { scrollTop } = getScrollVH(
+    const { scrollTop } = getScrollVHEx(
         scrollParent, root,
-        0.5, null
+        sc.wantedScrollOffsetViewport, sc.wantedScrollOffsetItem,
+        null, null,
     );
 
     const currentScrollTop = scrollParent.scrollTop;
 
     if (Math.abs(scrollTop - scrollParent.scrollTop) < 0.1) {
-        l.isScrolling = false;
+        sc.isScrolling = false;
     } else {
-        if (l.smoothScroll) {
+        if (sc.smoothScroll) {
             scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds(c));
         } else {
             scrollParent.scrollTop = scrollTop;
         }
     }
 
-    if (l.lastScrollTop !== currentScrollTop) {
-        l.lastScrollTop = currentScrollTop;
-        l.lastScrollTopStableFrames = 0;
+    if (sc._scrollTopLast !== currentScrollTop) {
+        sc._scrollTopLast = currentScrollTop;
+        sc._scrollTopStableFramesLast = 0;
     }
-    l.lastScrollTopStableFrames += 1;
+    sc._scrollTopStableFramesLast += 1;
 
 }
 
