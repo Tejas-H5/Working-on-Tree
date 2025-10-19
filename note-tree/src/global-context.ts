@@ -6,7 +6,7 @@ import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/l
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityTime, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -570,7 +570,7 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
         // This should solve the problem of me constantly forgetting to add breaks...
         const lastActivity = getLastActivity(state);
         const time = !lastActivity ? lastCheckTime.getTime() :
-            Math.max(lastCheckTime.getTime(), getActivityTime(lastActivity).getTime());
+            Math.max(lastCheckTime.getTime(), getActivityDate(lastActivity).getTime());
 
         pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
     }

@@ -17,7 +17,7 @@ import {
 import {
     Activity,
     getActivityDurationMs,
-    getActivityTime,
+    getActivityDate,
     getHigherLevelTask,
     getNote,
     getNoteTextWithoutPriority,
@@ -28,7 +28,7 @@ import {
     TreeNote
 } from "src/state";
 import { assert, mustGetDefined } from "src/utils/assert";
-import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours } from "src/utils/datetime";
+import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours, isSameDate } from "src/utils/datetime";
 import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, imStr } from "src/utils/im-dom";
 
@@ -143,6 +143,15 @@ function recomputeDurations(s: DurationsViewState) {
         const nextActivity = state.activities[i + 1] as Activity | undefined;
         const durationMs = getActivityDurationMs(activity, nextActivity);
 
+        const activityDate = getActivityDate(activity);
+        const nextActivityDate = getActivityDate(nextActivity);
+
+        // Specifically skip breaks spanning multiple days. This just means we didn't do anything the rest of the day,
+        // and not that we took a week-long break
+        if (isBreak(activity) && !isSameDate(activityDate, nextActivityDate)) {
+            continue;
+        }
+
         let block: TaskBlockInfo | undefined;
         let newBlock = false;
 
@@ -181,8 +190,6 @@ function recomputeDurations(s: DurationsViewState) {
             }
         }
 
-        const dayOfWeek = getActivityTime(activity).getDay();
-
         if (newBlock) {
             const numDays = getNumDays(s);
             for (let i = 0; i < numDays; i++) {
@@ -194,6 +201,7 @@ function recomputeDurations(s: DurationsViewState) {
         }
         assert(block.slots.length === 7);
 
+        const dayOfWeek = activityDate.getDay();
         block.slots[dayOfWeek].time += durationMs;
         block.slots[dayOfWeek].activityIndices.push(i);
     }

@@ -417,7 +417,7 @@ export function defaultNote(): Note {
     };
 }
 
-export function getActivityTime(activity: Activity | undefined) {
+export function getActivityDate(activity: Activity | undefined) {
     if (!activity) {
         return new Date();
     }
@@ -589,7 +589,7 @@ export function recomputeAllNoteDurations(
                 if (!isCurrentActivity) {
                     parentNote.data._durationUnranged += duration;
                 } else {
-                    parentNote.data._durationUnrangedOpenSince = getActivityTime(a0);
+                    parentNote.data._durationUnrangedOpenSince = getActivityDate(a0);
                 }
 
                 parentNote = getNote(state.notes, parentNote.parentId);
@@ -598,8 +598,8 @@ export function recomputeAllNoteDurations(
 
         // TODO: update this to work for activities with start/end times that overlap into the current range
         if (
-            (!activitiesFrom || activitiesFrom <= getActivityTime(a0)) && 
-            (!activitiesTo || getActivityTime(a1) <= activitiesTo)
+            (!activitiesFrom || activitiesFrom <= getActivityDate(a0)) && 
+            (!activitiesTo || getActivityDate(a1) <= activitiesTo)
         ) {
             if (state._activitiesFromIdx === -1) {
                 state._activitiesFromIdx = i;
@@ -612,7 +612,7 @@ export function recomputeAllNoteDurations(
                     if (!isCurrentActivity) {
                         parentNote.data._durationRanged += duration;
                     } else {
-                        parentNote.data._durationRangedOpenSince = getActivityTime(a0);
+                        parentNote.data._durationRangedOpenSince = getActivityDate(a0);
                     }
 
                     parentNote = getNote(state.notes, parentNote.parentId);
@@ -679,8 +679,8 @@ export function getActivityText(state: NoteTreeGlobalState, activity: Activity):
 }
 
 export function getActivityDurationMs(activity: Activity, nextActivity: Activity | undefined): number {
-    const startTimeMs = getActivityTime(activity).getTime();
-    const nextStart = (nextActivity ? getActivityTime(nextActivity) : new Date()).getTime();
+    const startTimeMs = getActivityDate(activity).getTime();
+    const nextStart = (nextActivity ? getActivityDate(nextActivity) : new Date()).getTime();
     return nextStart - startTimeMs;
 }
 
@@ -1196,8 +1196,8 @@ export function isBreak(activity: Activity): boolean {
 }
 
 export function isMultiDay(activity: Activity, nextActivity: Activity | undefined): boolean {
-    const t = getActivityTime(activity);
-    const t1 = nextActivity ? getActivityTime(nextActivity) : new Date();
+    const t = getActivityDate(activity);
+    const t1 = nextActivity ? getActivityDate(nextActivity) : new Date();
 
     return !(
         t.getDate() === t1.getDate() &&
@@ -1212,7 +1212,7 @@ export function getMostRecentlyWorkedOnChildActivityIdx(state: NoteTreeGlobalSta
 
     for (let i = state.activities.length - 1; i > 0; i--) {
         const activity = state.activities[i];
-        if (getActivityTime(activity) < noteCreatedAt) {
+        if (getActivityDate(activity) < noteCreatedAt) {
             // Can't possibly be any activities before this
             break;
         }

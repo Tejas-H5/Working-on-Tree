@@ -21,7 +21,7 @@ import {
     Activity,
     getActivityDurationMs,
     getActivityText,
-    getActivityTime,
+    getActivityDate,
     getCurrentNote,
     getHigherLevelTask,
     getLastActivity,
@@ -281,7 +281,7 @@ function insertBreak(
     
     const nextActivity = get(allActivities, idx + 1);
 
-    const timeA = getActivityTime(activity).getTime();
+    const timeA = getActivityDate(activity).getTime();
     const duration = getActivityDurationMs(activity, nextActivity);
     const midpoint = timeA + duration / 2;
 
