@@ -241,7 +241,7 @@ const menus: MenuItem[] = [
                     let importModalState = imGet(c, importModal);
                     if (!importModalState) importModalState = imSet(c, importModal());
 
-                    if (imMemo(c, hasFocus)) {
+                    if (imMemo(c, true)) {
                         resetImportModal(importModalState);
                     }
 
@@ -263,12 +263,25 @@ const menus: MenuItem[] = [
                                 imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
                                 imLayout(c, BLOCK); {
-                                    imB(c); imStr(c, "Filename: "); imLayoutEnd(c); imStr(c, importModalState.filename); imBEnd(c);
+                                    imB(c); imStr(c, "Filename: "); imBEnd(c);
+                                    imStr(c, importModalState.filename); 
                                 } imLayoutEnd(c);
-                                imLayout(c, BLOCK); imB(c); imStr(c, "Notes: "); imLayoutEnd(c); imStr(c, loadedState.notes.nodes.length); imBEnd(c);
-                                imLayout(c, BLOCK); imB(c); imStr(c, "Activities: "); imLayoutEnd(c); imStr(c, loadedState.activities.length); imBEnd(c);
-                                imLayout(c, BLOCK); imB(c); imStr(c, "Last Online: "); imLayoutEnd(c); imStr(c, !lastOnline ? "No idea" : formatDateTime(lastOnline)); imBEnd(c);
-                                imLayout(c, BLOCK); imB(c); imStr(c, "Last Theme: "); imLayoutEnd(c); imStr(c, loadedState.currentTheme); imBEnd(c);
+                                imLayout(c, BLOCK); {
+                                    imB(c); imStr(c, "Notes: "); imBEnd(c);
+                                    imStr(c, loadedState.notes.nodes.length);
+                                } imLayoutEnd(c);
+                                imLayout(c, BLOCK); {
+                                    imB(c); imStr(c, "Activities: "); imBEnd(c); 
+                                    imStr(c, loadedState.activities.length); 
+                                } imLayoutEnd(c);
+                                imLayout(c, BLOCK); {
+                                    imB(c); imStr(c, "Last Online: "); imBEnd(c);
+                                    imStr(c, !lastOnline ? "No idea" : formatDateTime(lastOnline));
+                                } imLayoutEnd(c);
+                                imLayout(c, BLOCK); {
+                                    imB(c); imStr(c, "Last Theme: "); imBEnd(c); 
+                                    imStr(c, loadedState.currentTheme);
+                                } imLayoutEnd(c);
 
                                 imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
@@ -312,7 +325,7 @@ const menus: MenuItem[] = [
                                 } imLayoutEnd(c);
 
                                 if (imIf(c) && importModalState.acceptPresses > 0) {
-                                    imLayout(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imLayoutEnd(c); imBEnd(c);
+                                    imLayout(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imBEnd(c); imLayoutEnd(c);
 
                                     imLayout(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
                                         const countChanged = imMemo(c, importModalState.acceptPresses);
@@ -338,7 +351,7 @@ const menus: MenuItem[] = [
                                 imIfElse(c);
 
                                 imLayout(c, BLOCK); {
-                                    imLayout(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imLayoutEnd(c); imBEnd(c);
+                                    imLayout(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imBEnd(c); imLayoutEnd(c);
                                     imLayout(c, BLOCK); imStr(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
                                 } imLayoutEnd(c);
 
