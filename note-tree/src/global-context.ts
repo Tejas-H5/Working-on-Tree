@@ -6,7 +6,7 @@ import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/l
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime, loadState, toDateOrZero, isLoadingState } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -455,8 +455,39 @@ console.log({
     if_you_encounter_bugs: GITHUB_PAGE_ISSUES
 });
 
+// NOTE: this method may be called in a 60fps loop continuously.
+export function reloadStateIfNewer(isRecursivePath = false): boolean {
+    if (isLoadingState()) {
+        return false;
+    }
+
+    const allTabsLastSaved = toDateOrZero(getLastSavedForAllTabs());
+    const thisLastSaved = toDateOrZero(getLastSavedForThisTab());
+
+    if (allTabsLastSaved.getTime() < thisLastSaved.getTime()) {
+        logTrace("[reload] Data corruption may have occured - we'll just save over it, what could go wrong...");
+    } else if (allTabsLastSaved.getTime() > thisLastSaved.getTime()) {
+        logTrace("[reload] A newer version exists. We will load that instead of saving over it");
+        loadState(() => {
+            logTrace("reloaded via saveCurrentState");
+            reloadStateIfNewer(true);
+        });
+        return true;
+    } else {
+        if (isRecursivePath) {
+            logTrace("[reload] No reload required");
+        }
+    }
+
+    return false;
+}
+
 let saveTimeout = 0;
 export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState, { debounced } = { debounced: false }) {
+    if (reloadStateIfNewer()) {
+        return;
+    }
+
     // user can switch to a different note mid-debounce, so we need to save
     // these here before the debounce
 

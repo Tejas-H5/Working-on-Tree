@@ -1339,17 +1339,34 @@ const PROJECT_NAME = "note-tree";
 const LAST_SAVED_TIMESTAMP_KEY = PROJECT_NAME + "-lastSavedTimestamp";
 const LAST_SAVED_VERSION_KEY = PROJECT_NAME + "-lastSavedVersion";
 const LAST_AUTO_INSERTED_BREAK_KEY = PROJECT_NAME + "-lastAutoinsertedBreakTime";
-let lastLoadedTime: string | null = null;
-let loading = false;
+// Storing dates as iso-string is a lot more convenient than a Date, as 
+// then, dates are immutable value types which are a lot easier to deal with in the code.
+let lastSavedTimeThisTab: string | null = null;
+let loadStateLoading = false;
 
 let db: IDBDatabase | undefined;
+
+export function getLastSavedForAllTabs() {
+    return localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY) || "";
+}
+
+export function getLastSavedForThisTab() {
+    return lastSavedTimeThisTab;
+}
+
+export function toDateOrZero(isoString: string | null | undefined) {
+    if (!isoString) return new Date(0);
+    return new Date(isoString);
+}
+
+export function isLoadingState() {
+    return loadStateLoading;
+}
 
 // TODO: (low priority) - Promisify and asincify this callback spam.
 // But honestly, even thoguh it looks bad, it works. The wrapper design might require some thought. 
 export function loadState(then: (error: string) => void) {
     // This app will have looked a lot different if I hadn't used localStorage as the storage API, and started with indexedDB.
-
-
     const lastSavedVersion = localStorage.getItem(LAST_SAVED_VERSION_KEY);
     if (lastSavedVersion) {
         const versionInt = parseInt(lastSavedVersion);
@@ -1359,36 +1376,26 @@ export function loadState(then: (error: string) => void) {
                 logTrace(message);
                 state._criticalLoadingError = message;
                 state._criticalLoadingErrorWasOurFault = false;
-                then("OLD_VERSION");
+                then(message);
                 return;
             }
         }
     }
 
-    if (loading) {
+    if (loadStateLoading) {
         logTrace("Already loading!");
         return;
     }
+    loadStateLoading = true;
 
-    if (lastLoadedTime === getLastSavedTimestampLocalstate()) {
-        logTrace("We're already at the latest version, no need to reload");
-        return;
-    }
-
-    loading = true;
-    const thenInternal = (error: string) => {
-        loading = false;
-        lastLoadedTime = getLastSavedTimestampLocalstate();
+    const afterStateLoadedOrErrored = (error: string) => {
+        loadStateLoading = false;
+        lastSavedTimeThisTab = getLastSavedForAllTabs();
         then(error);
     };
 
     logTrace("Opening DB...");
     const request = window.indexedDB.open(INDEXED_DB_KV_STORE_NAME, 1);
-    request.onerror = (e) => {
-        loadStateFromLocalStorage();
-        console.error("Error requesting db - ", e, request.error);
-        loading = false;
-    }
 
     request.onupgradeneeded = () => {
         logTrace("Migrating DB...");
@@ -1402,12 +1409,17 @@ export function loadState(then: (error: string) => void) {
         kvStore.createIndex("value", "value", { unique: false });
     }
 
+    request.onerror = (e) => {
+        loadStateFromLocalStorage();
+        console.error("Error requesting db - ", e, request.error);
+        afterStateLoadedOrErrored("Error requesting db - " + request.error);
+    }
+
     request.onsuccess = () => {
         db = request.result;
 
         logTrace("Opened DB");
 
-        
         if (!db) throw new Error("DB should be defined here");
         const kvStore = db.transaction([INDEXED_DB_KV_STORE_NAME], "readonly")
             .objectStore(INDEXED_DB_KV_STORE_NAME);
@@ -1415,7 +1427,7 @@ export function loadState(then: (error: string) => void) {
         const txRequest = kvStore.get(KV_STORE_STATE_KEY);
         txRequest.onerror = (e) => {
             console.error("Error getting kv store - ", e, request.error);
-            loading = false;
+            afterStateLoadedOrErrored("Error getting kv store - " + request.error);
         }
 
         txRequest.onsuccess = () => {
@@ -1427,20 +1439,18 @@ export function loadState(then: (error: string) => void) {
                 // Let's just load the state from local storage in case it exists...
                 loadStateFromLocalStorage();
 
-                thenInternal("");
+                afterStateLoadedOrErrored("");
                 return;
             }
 
             logTrace("Loaded data from IndexedDB (and not localStorage)");
-            setStateFromJSON(savedStateJSONWrapper.value, thenInternal);
+            setStateFromJSON(
+                savedStateJSONWrapper.value,
+                afterStateLoadedOrErrored
+            );
         }
     };
 }
-
-export function getLastSavedTimestampLocalstate() {
-    return localStorage.getItem(LAST_SAVED_TIMESTAMP_KEY) || "";
-}
-
 
 export function saveState(state: NoteTreeGlobalState, then: (serialize: string) => void) {
     if (state._criticalLoadingError) {
@@ -1475,7 +1485,7 @@ export function saveState(state: NoteTreeGlobalState, then: (serialize: string) 
         const version = VERSION_NUMBER_MONOTONIC;
         localStorage.setItem(LAST_SAVED_TIMESTAMP_KEY, timestamp);
         localStorage.setItem(LAST_SAVED_VERSION_KEY, version.toString());
-        lastLoadedTime = timestamp;
+        lastSavedTimeThisTab = timestamp;
 
         logTrace("Saved! (as a blob this time, and not text!)");
         then(serialized);

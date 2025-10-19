@@ -28,8 +28,8 @@ import {
 } from "src/utils/im-core";
 import {
     elHasMouseClick,
-    elHasMousePress,
     elHasMouseOver,
+    elHasMousePress,
     elSetStyle,
     imDomRootBegin,
     imDomRootEnd,
@@ -85,6 +85,7 @@ import {
     hasDiscoverableCommand,
     newGlobalContext,
     preventImKeysDefault,
+    reloadStateIfNewer,
     setCurrentView,
     SHIFT,
     TASK_IN_PROGRESS,
@@ -92,7 +93,6 @@ import {
 } from "./global-context";
 import {
     AppTheme,
-    getLastSavedTimestampLocalstate,
     loadState,
     setCurrentNote,
     setTheme,
@@ -102,7 +102,6 @@ import { get, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { logTrace } from "./utils/log";
 import { newWebWorker } from "./utils/web-workers";
 
 function getIcon(theme: AppTheme) {
@@ -587,23 +586,7 @@ function imMainInner(c: ImCache) {
 
             // Need to make sure that we aren't overwriting the latest state. 
             {
-                let mutationState; mutationState = imGet(c, inlineTypeId(getLastSavedTimestampLocalstate));
-                if (!mutationState) mutationState = imSet(c, {
-                    lastSyncTime: getLastSavedTimestampLocalstate(),
-                });
-
-                const val = getLastSavedTimestampLocalstate();
-                if (val !== mutationState.lastSyncTime) {
-                    if (mutationState.lastSyncTime !== null) {
-                        // Another program has just saved the state. we need to reload it.
-                        loadState(() => {
-                            // TODO: showStatusText
-                            logTrace("Reloaded the state!");
-                        });
-                    }
-
-                    mutationState.lastSyncTime = val;
-                }
+                reloadStateIfNewer();
             }
 
             errorState.framesSinceError++;
