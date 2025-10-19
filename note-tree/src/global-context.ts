@@ -25,6 +25,8 @@ export type GlobalContext = {
     noteTreeViewState: NoteTreeViewState;
 
     textAreaToFocus:     HTMLTextAreaElement | null;
+    focusNextFrame:      boolean;
+
     focusWithAllSelected: boolean;
 
     discoverableCommands: DiscoverableCommands;
@@ -63,8 +65,10 @@ export type GlobalContext = {
 export function setCurrentView(ctx: GlobalContext, view: unknown) {
     ctx.currentView = view;
     const currentNote = getNoteOrUndefined(state.notes, state.currentNoteId);
-    if (currentNote) {
-        ctx.noteBeforeFocus = currentNote;
+    if (view !== ctx.views.noteTree) {
+        if (currentNote) {
+            ctx.noteBeforeFocus = currentNote;
+        }
     }
 }
 
@@ -136,6 +140,8 @@ export function newGlobalContext(): GlobalContext {
         noteTreeViewState: newNoteTreeViewState(),
 
         textAreaToFocus:      null,
+        focusNextFrame:       false,
+
         focusWithAllSelected: false,
 
         views: {

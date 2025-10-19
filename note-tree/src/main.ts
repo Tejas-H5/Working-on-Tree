@@ -509,9 +509,6 @@ function imMainInner(c: ImCache) {
                     ctx.views.activities.inputs.activityFilter = null;
                 }
 
-                // close locoked-in mode
-                ctx.notLockedIn
-
                 // back to the last note when escape pressed
                 {
                     if (
@@ -559,19 +556,30 @@ function imMainInner(c: ImCache) {
                     preventImKeysDefault();
                 }
 
+
+                const textAreaToFocusChanged = imMemo(c, ctx.textAreaToFocus);
+
                 // Only one text area can be focued at a time in the entire document.
                 // imMemo here, because we still want to select text with the mouse.
                 // Not ideal for a real app, but preventing it makes it not feel like a real website.
-                if (imMemo(c, ctx.textAreaToFocus) && ctx.textAreaToFocus) {
+                if (textAreaToFocusChanged || ctx.focusNextFrame) {
+                    ctx.focusNextFrame = false;
                     const textArea = ctx.textAreaToFocus;
-                    textArea.focus();
-                    if (ctx.focusWithAllSelected) {
-                        textArea.selectionStart = 0;
-                        textArea.selectionEnd = textArea.value.length;
-                        ctx.focusWithAllSelected = false;
+                    if (textArea) {
+                        textArea.focus();
+                        if (ctx.focusWithAllSelected) {
+                            textArea.selectionStart = 0;
+                            textArea.selectionEnd = textArea.value.length;
+                            ctx.focusWithAllSelected = false;
+                        }
                     }
                 }
                 ctx.textAreaToFocus = null;
+
+                const lockedInChanged = imMemo(c, ctx.notLockedIn);
+                if (lockedInChanged) {
+                    ctx.focusNextFrame = true;
+                }
 
                 // discoverable commands (at the very end).
                 updateDiscoverableCommands(ctx.discoverableCommands);
