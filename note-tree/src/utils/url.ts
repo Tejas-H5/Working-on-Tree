@@ -1,8 +1,11 @@
 import { forEachMatch } from "./re";
 
 function urlRegex() {
-    // urls are a string of non-whitespace that start with "https:", and contain at least 1 dot in there somewhere
-    return /(https|file):\S+\.\S+/g;
+    // urls are one of:
+    // - a string of non-whitespace that start with "https:", and contain at least 1 dot in there somewhere
+    // - a string of non-whitespace that start wtih "http://localhost"
+    //
+    return /((https|file):\S+\.\S+)|(http:\/\/localhost:\S+)/g;
 }
 
 export function forEachUrlPosition(text: string, fn: (start: number, end: number) => void) {
@@ -12,7 +15,8 @@ export function forEachUrlPosition(text: string, fn: (start: number, end: number
 export function openUrlInNewTab(url: string) {
     if (
         !url.startsWith("https") &&
-        !url.startsWith("file")
+        !url.startsWith("file") &&
+        !url.startsWith("http://localhost")
     ) {
         return;
     }
