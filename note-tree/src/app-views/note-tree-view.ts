@@ -550,6 +550,9 @@ function imNoteTreeRow(
 ) {
     s.numVisible++;
 
+    const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
+    const isEditingChanged = imMemo(c, isEditing);
+
     let numInProgress = 0;
     let numDone = 0;
     for (const id of note.childIds) {
@@ -689,10 +692,6 @@ function imNoteTreeRow(
                         imLayout(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
                     } imLayoutEnd(c);
 
-                    const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
-
-                    const isEditingChanged = imMemo(c, isEditing);
-
                     if (imIf(c) && isEditing) {
                         const [, textArea] = imTextAreaBegin(c, {
                             value: note.data.text,
@@ -774,8 +773,24 @@ function imNoteTreeRow(
                         let text = imGet(c, String);
                         if (text === undefined || textChanged) {
                             let val = note.data.text;
-                            if (val.length > 150) {
-                                val = `[${val.length}ch] - ${val}`;
+
+                            const truncationLines = 5;
+                            
+                            let numNewlines = 0;
+                            let pos = 0;
+                            let truncated = false;
+                            let truncatePos = 0;
+                            for (const c of val) {
+                                if (c === '\n') numNewlines++;
+                                if (!truncated && numNewlines >= truncationLines) {
+                                    truncated = true;
+                                    truncatePos = pos;
+                                }
+                                pos++;
+                            }
+
+                            if (truncated) {
+                                val = `[${numNewlines} lines] - ${val.substring(0, truncatePos)}...`
                             }
 
                             text = imSet(c, val);
