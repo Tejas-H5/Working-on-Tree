@@ -24,7 +24,7 @@ import {
     TreeNote
 } from "src/state";
 import { get } from "src/utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { EL_A, elSetAttr, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 
@@ -137,7 +137,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
 
     let renderedAny = false;
     const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        while (imNavListNextItemArray(list, s.urls)) {
+        imFor(c); while (imNavListNextItemArray(list, s.urls)) {
             renderedAny = true;
             const { i } = list;
             const url = s.urls[i];
@@ -153,7 +153,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
                     } imElEnd(c, EL_A);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);
-        }
+        } imForEnd(c);
 
         imKeyedBegin(c, "empty"); {
             if (imIf(c) && !renderedAny) {

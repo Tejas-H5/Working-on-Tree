@@ -26,7 +26,7 @@ import {
     TreeNote
 } from "src/state";
 import { get } from "src/utils/array-utils";
-import { ImCache, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, imStr } from "src/utils/im-dom";
 
 
@@ -152,7 +152,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
     let renderedAny = false;
     const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        while (imNavListNextItemArray(list, s.notes)) {
+        imFor(c); while (imNavListNextItemArray(list, s.notes)) {
             renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
@@ -170,7 +170,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);
-        }
+        } imForEnd(c);
 
         imKeyedBegin(c, "empty"); {
             if (imIf(c) && !renderedAny) {

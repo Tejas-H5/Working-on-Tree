@@ -36,7 +36,7 @@ import {
 import { boundsCheck, get } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
-import { ImCache, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
+import { ImCache, imFor, imForEnd, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
 
 const FOCUS_ACTIVITIES_LIST = 0;
@@ -675,7 +675,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             // We want to accumulate activity durations, and display it once it's large enough
             let totalDuration = 0;
 
-            while (navListNextItemSlice(
+            imFor(c); while (navListNextItemSlice(
                 list, 
                 s._startActivityIdx, s._endActivityIdxEx
             )) {
@@ -786,7 +786,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                         } imLayoutEnd(c);
                     } imIfEnd(c);
                 } imKeyedEnd(c);
-            } 
+            } imForEnd(c);
 
             imKeyedBegin(c, "footer"); {
                 if (imIf(c) && !hasActivities) {

@@ -68,12 +68,18 @@ export function setAppTheme(theme: AppTheme) {
 
 cssb.s(` 
 
-body { ${normalStyle} }
+body { 
+${normalStyle} 
+
+    scrollbar-color: ${cssVars.mg} ${cssVars.bg};
+}
+
+*::-webkit-scrollbar-thumb { background-color: ${cssVars.fg}; }
+*::-webkit-scrollbar-track { background-color: ${cssVars.bg}; }
 
 h4, h3, h2, h1 {
     margin: 0;
 }
-
 `);
 
 export const cnApp = {

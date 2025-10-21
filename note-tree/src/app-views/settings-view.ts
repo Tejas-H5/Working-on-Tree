@@ -564,7 +564,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
 
                     const hasFocus = viewHasFocus && !s.mainListHasFocus;
                     const hallwayList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
-                        while (imNavListNextItemArray(hallwayList, menus)) {
+                        imFor(c); while (imNavListNextItemArray(hallwayList, menus)) {
                             const menu = menus[hallwayList.i];
                             if (hallwayList.itemSelected) {
                                 s.selectedMenu = menu;
@@ -574,7 +574,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                                     imB(c); imStr(c, menu.name); imBEnd(c);
                                 } imLayoutEnd(c);
                             } imNavListRowEnd(c);
-                        }
+                        } imForEnd(c);
 
                         if (hasFocus) {
                             const vListInput = getNavigableListInput(ctx, vPos.idx, 0, hallwayList.i);

@@ -87,9 +87,11 @@ export const cn = Object.freeze({
     pointerEventsAll: cssb.cn("pointerEventsAll", [` { pointer-events: all; }`]),
     userSelectNone: cssb.cn("userSelectNone", [` { user-select: none; }`]),
 
-    table: cssb.cn("table", [` { display: table; }`]),
-    tableRow: cssb.cn("tableRow", [` { display: table-row; }`]),
-    tableCell: cssb.cn("tableCell", [` { display: table-cell; }`]),
+    // Read this to understand height: 1px and other table hacks here:
+    // https://stackoverflow.com/questions/3215553/make-a-div-fill-an-entire-table-cell
+    table: cssb.cn("table", [` { display: table; height: 1px; }`]),
+    tableRow: cssb.cn("tableRow", [` { display: table-row; height: 100%; }`]),
+    tableCell: cssb.cn("tableCell", [` { display: table-cell; height: 100%; }`]),
 
     /** we have React.Fragment at home. Kinda useless now, since our components can just render multiple things under another thing. */
     contents: cssb.cn("contents", [` { display: contents; }`]),

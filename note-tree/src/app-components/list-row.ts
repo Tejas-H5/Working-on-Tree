@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, imLayout, imLayoutEnd, imPadding, imSize, NA, PX, ROW } from "src/components/core/layout";
+import { BLOCK, DisplayType, imLayout, imLayoutEnd, imPadding, imSize, NA, PX, ROW, SizeUnits, TABLE_CELL, TABLE_ROW } from "src/components/core/layout";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle } from "src/utils/im-dom";
 
@@ -28,7 +28,7 @@ function getBg(status: RowStatus): string {
     return "";
 }
 
-// API is a bit strange but I can't put my finger on it...
+// API is a bit strange but I can't put my finger on why...
 export function getRowStatus(
     highlighted: boolean,
     focused: boolean,
@@ -46,6 +46,61 @@ export function getRowStatus(
     }
     return status;
 }
+
+export function imListTableRowBegin(
+    c: ImCache,
+    highlighted: boolean,
+    focused: boolean,
+    isEditing = false
+) {
+    const status = getRowStatus(highlighted, focused, isEditing);
+    const root = imLayout(c, TABLE_ROW); {
+        imListCursorBg(c, status);
+
+        if (isFirstishRender(c)) {
+            elSetStyle(c, "borderLeft", "10px solid " + getCursorBgColourForStatus(status));
+            elSetStyle(c, "paddingRight", "10px");
+        }
+
+    } // imLayoutEnd(c);
+
+    return root;
+} 
+export function imListTableRowEnd(c: ImCache) {
+    {
+    } imLayoutEnd(c);
+}
+
+/** 
+ * Contains a flex container immediately afterwards.
+ * The amount of hacks I have had to do to get even css table working is insane.
+ * TODO: learn css grid asap. Table sucks
+ */
+export function imTableCellFlexBegin(
+    c: ImCache,
+    type: DisplayType,
+    colWidth: number = 0, units: SizeUnits = NA,
+) {
+    imLayout(c, TABLE_CELL); imSize(c, colWidth, units, 0, NA); {
+        if (isFirstishRender(c)) {
+            elSetStyle(c, "verticalAlign", "middle");
+        }
+
+        imLayout(c, type); {
+            if (isFirstishRender(c)) {
+                elSetStyle(c, "height", "100%");
+            }
+        } // imLayoutEnd(c);
+    } // imLayoutEnd(c);
+}
+
+export function imTableCellFlexEnd(c: ImCache) {
+    {
+        {
+        } imLayoutEnd(c);
+    } imLayoutEnd(c);
+}
+
 
 export function imListRowBegin(
     c: ImCache,
@@ -66,6 +121,13 @@ export function imListRowBegin(
     return root;
 }
 
+export function imListRowEnd(c: ImCache) {
+    {
+        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+    } imLayoutEnd(c);
+}
+
+
 export function imListCursorBg(c: ImCache, status: RowStatus) {
     const statusChanged = imMemo(c, status);
     if (statusChanged) {
@@ -73,22 +135,19 @@ export function imListCursorBg(c: ImCache, status: RowStatus) {
     }
 }
 
+function getCursorBgColourForStatus(status: RowStatus) {
+    if (status === ROW_FOCUSED) return cssVarsApp.fgColor;
+    if (status === ROW_EDITING) return cssVarsApp.bgEditing
+    return "";
+}
+
 export function imListCursorColor(c: ImCache, status: RowStatus) {
     const statusChanged = imMemo(c, status);
     if (statusChanged) {
-        elSetStyle(c, "backgroundColor",
-            status === ROW_FOCUSED ? cssVarsApp.fgColor
-                : status === ROW_EDITING ? cssVarsApp.bgEditing
-                    : ""
-        );
+        elSetStyle(c, "backgroundColor", getCursorBgColourForStatus(status));
     }
 }
 
-export function imListRowEnd(c: ImCache) {
-    {
-        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
-    } imLayoutEnd(c);
-}
 
 export function imEndListRowNoPadding(c: ImCache) {
     {

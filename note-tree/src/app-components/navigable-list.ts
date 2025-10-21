@@ -182,7 +182,6 @@ export function imNavListBegin(
     s.i = -1;
 
     imScrollContainerBegin(c, s.scrollContainer, row ? ROW : COL); {
-        imFor(c);
 
          /**
           * // user code 
@@ -196,7 +195,6 @@ export function imNavListBegin(
           */
          
 
-        // imForEnd(c);
     } // imLayoutEnd(c);
 
     return s;
@@ -206,8 +204,7 @@ export function imNavListEnd(c: ImCache, _list: NavigableListState) {
     _list.numItems = _list.i + 1;
 
     {
-        {
-        } imForEnd(c);
+
     } imLayoutEnd(c);
 }
 

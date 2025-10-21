@@ -1,4 +1,4 @@
-import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
+import { ImCache, imGet, imGetInline, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
 import { EL_DIV, elSetClass, elSetStyle, imEl, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
 import { newCssBuilder } from 'src/utils/cssb';
@@ -59,6 +59,7 @@ export function imSize(
         size.wType = wType;
         elSetStyle(c, "minWidth", getSize(width, wType));
         elSetStyle(c, "maxWidth", getSize(width, wType));
+        elSetStyle(c, "width",    getSize(width, wType)); // Edge compatibility
     }
 
     if (size.height !== height || size.hType !== hType) {
@@ -66,6 +67,8 @@ export function imSize(
         size.hType = hType;
         elSetStyle(c, "minHeight", getSize(height, hType));
         elSetStyle(c, "maxHeight", getSize(height, hType));
+        // Actually need to comment this out for it to work xDDD 
+        // elSetStyle(c, "height",    getSize(height, hType)); 
     }
 
     return size;
@@ -140,40 +143,58 @@ export function imBg(c: ImCache, colour: string) {
 
 export type DisplayTypeInstance = number & { __displayType: void; };
 
-export const BLOCK = 1 as DisplayTypeInstance;
+export const BLOCK        = 1 as DisplayTypeInstance;
 export const INLINE_BLOCK = 2 as DisplayTypeInstance;
-export const INLINE = 3 as DisplayTypeInstance;
-export const ROW = 4 as DisplayTypeInstance;
-export const ROW_REVERSE = 5 as DisplayTypeInstance;
-export const COL = 6 as DisplayTypeInstance;
-export const COL_REVERSE = 7 as DisplayTypeInstance;
-export const TABLE = 8 as DisplayTypeInstance;
-export const TABLE_ROW = 9 as DisplayTypeInstance;
-export const TABLE_CELL = 10 as DisplayTypeInstance;
+export const INLINE       = 3 as DisplayTypeInstance;
+export const ROW          = 4 as DisplayTypeInstance;
+export const ROW_REVERSE  = 5 as DisplayTypeInstance;
+export const COL          = 6 as DisplayTypeInstance;
+export const COL_REVERSE  = 7 as DisplayTypeInstance;
+export const TABLE        = 8 as DisplayTypeInstance;
+export const TABLE_ROW    = 9 as DisplayTypeInstance;
+export const TABLE_CELL   = 10 as DisplayTypeInstance;
 
-type DisplayType = 
-    typeof BLOCK |
-    typeof INLINE_BLOCK |
-    typeof ROW |
-    typeof ROW_REVERSE |
-    typeof COL |
-    typeof COL_REVERSE |
-    typeof TABLE |
-    typeof TABLE_ROW |
-    typeof TABLE_CELL;
+export type DisplayType 
+    = typeof BLOCK 
+    | typeof INLINE_BLOCK 
+    | typeof ROW 
+    | typeof ROW_REVERSE 
+    | typeof COL 
+    | typeof COL_REVERSE 
+    | typeof TABLE 
+    | typeof TABLE_ROW  
+    | typeof TABLE_CELL;
 
 export function imLayout(c: ImCache, type: DisplayType) {
     const root = imEl(c, EL_DIV);
-    if (imMemo(c, type)) {
-        elSetClass(c, cn.inlineBlock, type === INLINE_BLOCK);
-        elSetClass(c, cn.inline, type === INLINE);
-        elSetClass(c, cn.row, type === ROW);
-        elSetClass(c, cn.rowReverse, type === ROW_REVERSE);
-        elSetClass(c, cn.col, type === COL);
-        elSetClass(c, cn.colReverse, type === COL_REVERSE);
-        elSetClass(c, cn.table, type === TABLE);
-        elSetClass(c, cn.tableRow, type === TABLE_ROW);
-        elSetClass(c, cn.tableCell, type === TABLE_CELL);
+
+    const last = imGet(c, inlineTypeId(imLayout), -1);
+    if (last !== type) {
+        imSet(c, type);
+
+        switch(last) {
+            case BLOCK:        /* Do nothing - this is the default style */ break;
+            case INLINE_BLOCK: elSetClass(c, cn.inlineBlock, false);        break;
+            case ROW:          elSetClass(c, cn.row, false);                break;
+            case ROW_REVERSE:  elSetClass(c, cn.rowReverse, false);         break;
+            case COL:          elSetClass(c, cn.col, false);                break;
+            case COL_REVERSE:  elSetClass(c, cn.colReverse, false);         break;
+            case TABLE:        elSetClass(c, cn.table, false);              break;
+            case TABLE_ROW:    elSetClass(c, cn.tableRow, false);           break;
+            case TABLE_CELL:   elSetClass(c, cn.tableCell, false);          break;
+        }
+
+        switch(type) {
+            case BLOCK:        /* Do nothing - this is the default style */ break;
+            case INLINE_BLOCK: elSetClass(c, cn.inlineBlock, true);         break;
+            case ROW:          elSetClass(c, cn.row, true);                 break;
+            case ROW_REVERSE:  elSetClass(c, cn.rowReverse, true);          break;
+            case COL:          elSetClass(c, cn.col, true);                 break;
+            case COL_REVERSE:  elSetClass(c, cn.colReverse, true);          break;
+            case TABLE:        elSetClass(c, cn.table, true);               break;
+            case TABLE_ROW:    elSetClass(c, cn.tableRow, true);            break;
+            case TABLE_CELL:   elSetClass(c, cn.tableCell, true);           break;
+        }
     }
 
     return root.root;

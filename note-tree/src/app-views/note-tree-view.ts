@@ -376,7 +376,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         } imLayoutEnd(c);
 
         const list = imNavListBegin(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
-            while (imNavListNextItemArray(list, s.childNotes)) {
+            imFor(c); while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const note = s.childNotes[i];
 
@@ -402,7 +402,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
                         }
                     }
                 } imKeyedEnd(c);
-            };
+            } imForEnd(c);;
 
             // Want to scroll off the bottom a bit
             imKeyedBegin(c, "scrolloff"); {

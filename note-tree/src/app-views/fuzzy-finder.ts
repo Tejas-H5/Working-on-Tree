@@ -323,7 +323,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             viewHasFocus
         ); {
             const matches = s.fuzzyFindState.matches;
-            while (imNavListNextItemArray(list, matches)) {
+            imFor(c); while (imNavListNextItemArray(list, matches)) {
                 const { i } = list;
                 const item = matches[i];
 
@@ -417,7 +417,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                         } imIfEnd(c);
                     } imLayoutEnd(c);
                 } imNavListRowEnd(c);
-            }
+            } imForEnd(c);
         } imNavListEnd(c, list);
 
         imLayout(c, ROW); imJustify(c); {

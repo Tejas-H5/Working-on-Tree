@@ -1,9 +1,13 @@
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
-import { BLOCK, COL, imAlign, imFlex, imLayout, imLayoutEnd, imSize, INLINE, NA, PX, ROW } from "src/components/core/layout";
-import { imB, imBEnd } from "src/components/core/text";
-import { newScrollContainer, ScrollContainer, scrollToItem, startScrolling } from "src/components/scroll-container";
-import { GlobalContext } from "src/global-context";
-import { getRowStatus, imEndListRowNoPadding, imListCursorColor, imListRowBegin, imListCursorBg as imListRowBg, imListRowCellStyle } from "src/app-components/list-row";
+import {
+    getRowStatus,
+    imListCursorColor,
+    imListCursorBg as imListRowBg,
+    imListRowCellStyle,
+    imListTableRowBegin,
+    imListTableRowEnd,
+    imTableCellFlexBegin,
+    imTableCellFlexEnd
+} from "src/app-components/list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
@@ -15,9 +19,33 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import {
+    BLOCK,
+    COL,
+    imAlign,
+    imFlex,
+    imJustify,
+    imLayout,
+    imLayoutEnd,
+    imSize,
+    PERCENT,
+    PX,
+    ROW,
+    STRETCH,
+    TABLE
+} from "src/components/core/layout";
+import { imB, imBEnd } from "src/components/core/text";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+import {
+    newScrollContainer,
+    ScrollContainer,
+    scrollToItem,
+    startScrolling
+} from "src/components/scroll-container";
+import { GlobalContext } from "src/global-context";
+import {
     Activity,
-    getActivityDurationMs,
     getActivityDate,
+    getActivityDurationMs,
     getHigherLevelTask,
     getNote,
     getNoteTextWithoutPriority,
@@ -29,8 +57,8 @@ import {
 } from "src/state";
 import { assert, mustGetDefined } from "src/utils/assert";
 import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours, isSameDate } from "src/utils/datetime";
-import { ImCache, imFor, imForEnd, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { elSetStyle, imStr } from "src/utils/im-dom";
+import { ImCache, imFor, imForEnd, imMemo } from "src/utils/im-core";
+import { imStr } from "src/utils/im-dom";
 
 type TaskBlockInfo = {
     // null means it's a break
@@ -50,6 +78,7 @@ export type DurationsViewState = {
     durations: TaskBlockInfo[];
     activityFilter: number[] | null;
     hltMap: Map<NoteId | null, TaskBlockInfo>;
+    totals: { time: number; }[];
 
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
@@ -69,6 +98,7 @@ export function newDurationsViewState(): DurationsViewState {
         activitiesTo: null,
         activityFilter: null,
         hltMap: new Map(),
+        totals: [],
     };
 }
 
@@ -136,7 +166,14 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
 function recomputeDurations(s: DurationsViewState) {
     recomputeAllNoteDurations(state, s.activitiesFrom, s.activitiesTo);
 
+    const numDays = getNumDays(s);
+
     s.hltMap = new Map<NoteId | null, TaskBlockInfo>();
+
+    s.totals = [];
+    for (let i = 0; i < numDays; i++) {
+        s.totals.push({ time: 0 });
+    }
 
     for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
         const activity = state.activities[i];
@@ -191,7 +228,6 @@ function recomputeDurations(s: DurationsViewState) {
         }
 
         if (newBlock) {
-            const numDays = getNumDays(s);
             for (let i = 0; i < numDays; i++) {
                 block.slots.push({
                     time: 0,
@@ -204,7 +240,10 @@ function recomputeDurations(s: DurationsViewState) {
         const dayOfWeek = activityDate.getDay();
         block.slots[dayOfWeek].time += durationMs;
         block.slots[dayOfWeek].activityIndices.push(i);
+        s.totals[dayOfWeek].time += durationMs;
     }
+
+    s.tableColPos.idx = clampedListIdxRange(s.tableColPos.idx, -1, numDays + 1);
 
     if (s.tableRowPos.idx >= s.durations.length) {
         s.tableRowPos.idx = 0;
@@ -218,6 +257,10 @@ function recomputeDurations(s: DurationsViewState) {
 
 // Expensive method, avoid callint it too often!
 function recomputeActivityFilter(s: DurationsViewState) {
+    const numDays = getNumDays(s);
+    s.tableRowPos.idx = clampedListIdxRange(s.tableRowPos.idx, 0, s.durations.length);
+    s.tableColPos.idx = clampedListIdxRange(s.tableColPos.idx, -1, numDays + 1);
+
     let rowIdx = s.tableRowPos.idx;
     let colIdx = s.tableColPos.idx;
 
@@ -257,6 +300,11 @@ export function imDurationsView(
     ctx: GlobalContext,
     s: DurationsViewState
 ) {
+    const numDays = getNumDays(s);
+
+    const firstColumnWidthPercentage = 50;
+    const restColumnWidthPercentage =  (100 - firstColumnWidthPercentage) / numDays;
+
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
         handleKeyboardInput(ctx, s);
@@ -279,165 +327,149 @@ export function imDurationsView(
 
     ctx.views.activities.inputs.activityFilter = s.activityFilter;
 
+    // NOTE: the 'correct' thing to do here is a CSS table. But that doesn't work with all the UI primitives we've already made. We also sacfice a LOT of control over how the rows are sized.
+    // But the layout is shit when we try to roll it ourselves, so I will just give in and use table. :(
+    // And as it turns out, even after we use css table, it is even worse. 
+    // there are all sorts of ways that the table API won't work properly, and all sorts
+    // of workarounds you need to use. 
+    // It would have been better to just get around to learning css grid, but
+    // I'm in too deep. We gotta get this done.
+
+    const allRowsSelected = s.tableRowPos.idx === -1;
+    const allColsSelected = s.tableColPos.idx === -1;
+    const allSelected = allRowsSelected && allColsSelected;
+
     imLayout(c, COL); imFlex(c); {
-        // NOTE: the 'correct' thing to do here is a CSS table. But that doesn't work with
-        // all the UI primitives we've already made. We also sacfice a LOT of control over how the rows are sized.
-        
-        let tableState; tableState = imGet(c, inlineTypeId(imLayout));
-        if (!tableState) tableState = imSet(c, {
-            widthMap: new Map<number, number>(),
-            recomputedPrevFrame: false,
-        });
+        imLayout(c, COL); {
+            imLayout(c, TABLE); imFlex(c); {
+                imListTableRowBegin(c, allSelected, viewHasFocus && allSelected); imAlign(c, STRETCH); {
+                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imJustify(c); imAlign(c); {
+                        imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
-        if (tableState.recomputedPrevFrame) {
-            tableState.widthMap.clear();
-        }
+                        imLayout(c, BLOCK); {
+                            imB(c); {
+                                imStr(c, "Duration Timesheet - ");
+                                imStr(c, formatDate(s.activitiesFrom, true));
+                                imStr(c, " to ");
+                                imStr(c, formatDate(s.activitiesTo, true));
+                            } imBEnd(c);
+                        } imLayoutEnd(c);
 
-        const allRowsSelected = s.tableRowPos.idx === -1;
-        const allColsSelected = s.tableColPos.idx === -1;
-        const allSelected = allRowsSelected && allColsSelected;
+                        imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                    } imTableCellFlexEnd(c);
 
-        imListRowBegin(c, allSelected, viewHasFocus && allSelected); {
-            imLayout(c, ROW); imAlign(c); {
-                const width = tableState.widthMap.get(-1);
-                if (imMemo(c, width) && width) {
-                    elSetStyle(c, "width", width + "px");
-                }
 
-                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                    imFor(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
+                        imTableCellFlexBegin(c, COL, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                            const colSelectedIndividual = s.tableColPos.idx === colIdx;
+                            const colSelected = colSelectedIndividual || allColsSelected;
 
-                imLayout(c, BLOCK); {
-                    imB(c); {
-                        imStr(c, "Duration Timesheet - ");
-                        imStr(c, formatDate(s.activitiesFrom, true))
-                        imStr(c, " to ");
-                        imStr(c, formatDate(s.activitiesTo, true))
-                    } imBEnd(c);
-                } imLayoutEnd(c);
+                            imListRowBg(
+                                c,
+                                getRowStatus(colSelected, viewHasFocus && allRowsSelected)
+                            );
 
-                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                            imLayout(c, BLOCK); imSize(c, 100, PERCENT, 7, PX); {
+                                imListCursorColor(
+                                    c,
+                                    getRowStatus(colSelected, viewHasFocus && colSelectedIndividual)
+                                );
+                            } imLayoutEnd(c);
+
+                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
+                                imB(c).root; imStr(c, str); imBEnd(c);
+                            } imLayoutEnd(c);
+                        } imTableCellFlexEnd(c);
+                    } imForEnd(c);
+                } imListTableRowEnd(c);
+
+                imListTableRowBegin(c, false, false); {
+                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                        imStr(c, "Total");
+                    } imTableCellFlexEnd(c);
+
+                    // imLine(c, LINE_VERTICAL, 1);
+
+                    const numDays = getNumDays(s);
+
+                    imFor(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
+                        imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                            const colSelectedIndividual = s.tableColPos.idx === colIdx;
+                            const colSelected = colSelectedIndividual || allColsSelected;
+
+                            imListRowBg(
+                                c,
+                                getRowStatus(colSelected, viewHasFocus && allRowsSelected)
+                            );
+
+                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                const totalMs = s.totals[colIdx].time;
+                                imStr(c, formatDurationAsHours(totalMs));
+                            } imLayoutEnd(c);
+                        } imTableCellFlexEnd(c);
+                    } imForEnd(c);
+                } imListTableRowEnd(c);
             } imLayoutEnd(c);
-
-            imLine(c, LINE_VERTICAL, 1);
-
-            const numDays = getNumDays(s);
-
-            imFor(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
-                imLayout(c, BLOCK); {
-                    const colSelectedIndividual = s.tableColPos.idx === colIdx;
-                    const colSelected = colSelectedIndividual || allColsSelected;
-                    const width = tableState.widthMap.get(colIdx);
-
-                    imListRowBg(
-                        c,
-                        getRowStatus(colSelected, viewHasFocus && allRowsSelected)
-                    );
-
-                    imLayout(c, BLOCK); imSize(c, 0, NA, 7, PX); {
-                        imListCursorColor(
-                            c,
-                            getRowStatus(colSelected, viewHasFocus && colSelectedIndividual)
-                        );
-                    } imLayoutEnd(c);
-
-                    imLayout(c, BLOCK); imListRowCellStyle(c); {
-                        if (imMemo(c, width) && width) {
-                            elSetStyle(c, "width", width + "px");
-                        }
-
-                        let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
-                        imB(c).root; imStr(c, str); imBEnd(c);
-                    } imLayoutEnd(c);
-                } imLayoutEnd(c);
-            } imForEnd(c);
-        } imEndListRowNoPadding(c);
+        } imLayoutEnd(c);
 
         imLine(c, LINE_HORIZONTAL, 1);
 
-        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); {
-            while (imNavListNextItemArray(list, s.durations)) {
-                const { i: rowIdx } = list;
-                const block = s.durations[rowIdx];
+        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imAlign(c, STRETCH); {
+            imLayout(c, TABLE); {
 
-                const rowSelectedIndividual = s.tableRowPos.idx === rowIdx;
-                const rowSelected = rowSelectedIndividual || allRowsSelected;
+                imFor(c); while (imNavListNextItemArray(list, s.durations)) {
+                    const { i: rowIdx } = list;
+                    const block = s.durations[rowIdx];
 
-                const root = imLayout(c, ROW); {
-                    imLayout(c, BLOCK); {
-                        if (isFirstishRender(c)) {
-                            elSetStyle(c, "width", "10px");
-                        }
+                    const rowSelectedIndividual = s.tableRowPos.idx === rowIdx;
+                    const rowSelected = rowSelectedIndividual || allRowsSelected;
 
-                        imListCursorColor(
-                            c,
-                            getRowStatus(rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
-                        );
-                    } imLayoutEnd(c);
-
-                    const div = imLayout(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
-                        const selected = (rowSelected || allRowsSelected) && allColsSelected;
-
-                        imListRowBg(
-                            c,
-                            getRowStatus(rowSelected, viewHasFocus && selected),
-                        );
-
-                        imStr(c, block.name); 
-
-                        if (tableState.recomputedPrevFrame) {
-                            let existingWidth = tableState.widthMap.get(-1) ?? 200;
-                            let maxWidth = Math.max(existingWidth, div.getBoundingClientRect().width);
-                            tableState.widthMap.set(-1, maxWidth);
-                        }
-                    } imLayoutEnd(c);
-
-                    imLine(c, LINE_VERTICAL, 1);
-
-                    imFor(c); for (let colIdx = 0; colIdx <block.slots.length; colIdx++) {
-                        const slot = block.slots[colIdx];
-
-                        const colSelectedIndividual = s.tableColPos.idx === colIdx;
-                        const colSelected = colSelectedIndividual || allColsSelected;
-
-                        const cellSelected = (rowSelected || allRowsSelected) && (colSelected || allColsSelected);
-
-                        imLayout(c, BLOCK); imListRowCellStyle(c); {
-                            imListRowBg(
-                                c,
-                                getRowStatus(rowSelected || colSelected, viewHasFocus && cellSelected),
-                            );
-
-                            const w = tableState.widthMap.get(colIdx);
-                            if (imMemo(c, w) && w) {
-                                elSetStyle(c, "width", w + "px");
-                            }
-
-                            const span = imLayout(c, INLINE); {
-                                if (tableState.recomputedPrevFrame) {
-                                    let existingWidth = tableState.widthMap.get(colIdx) ?? 50;
-                                    let maxWidth = Math.max(existingWidth, span.getBoundingClientRect().width);
-                                    tableState.widthMap.set(colIdx, maxWidth);
-                                }
-
-                                imStr(c, formatDurationAsHours(slot.time)); 
+                    const root = imListTableRowBegin(c, false, false); {
+                        imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c, STRETCH); imJustify(c); {
+                            imLayout(c, BLOCK); imSize(c, 10, PX, 100, PERCENT); {
+                                imListCursorColor(
+                                    c,
+                                    getRowStatus(rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
+                                );
                             } imLayoutEnd(c);
-                        } imLayoutEnd(c);
-                    } imForEnd(c);
-                } imLayoutEnd(c);
 
-                if (rowSelectedIndividual && list.scrollContainer) {
-                    scrollToItem(c, list.scrollContainer, root);
-                }
-            }
+                            imLayout(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
+                                const selected = (rowSelected || allRowsSelected) && allColsSelected;
+
+                                imListRowBg(
+                                    c,
+                                    getRowStatus(rowSelected, viewHasFocus && selected),
+                                );
+
+                                imStr(c, block.name);
+                            } imLayoutEnd(c);
+                        } imTableCellFlexEnd(c);
+
+                        imFor(c); for (let colIdx = 0; colIdx < block.slots.length; colIdx++) {
+                            const slot = block.slots[colIdx];
+
+                            const colSelectedIndividual = s.tableColPos.idx === colIdx;
+                            const colSelected = colSelectedIndividual || allColsSelected;
+
+                            const cellSelected = (rowSelected || allRowsSelected) && (colSelected || allColsSelected);
+
+                            imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                                imListRowBg(
+                                    c,
+                                    getRowStatus(rowSelected || colSelected, viewHasFocus && cellSelected),
+                                );
+
+                                imStr(c, formatDurationAsHours(slot.time));
+                            } imTableCellFlexEnd(c);
+                        } imForEnd(c);
+                    } imListTableRowEnd(c);
+
+                    if (rowSelectedIndividual && list.scrollContainer) {
+                        scrollToItem(c, list.scrollContainer, root);
+                    }
+                } imForEnd(c);
+            } imLayoutEnd(c);
         } imNavListEnd(c, list);
-
-        // Trying to get this table shiet to work. Because I dont want to rewrite my layout primitives to use CSS table.
-        // This is eventually consistent. xD
-        // close enough. I don't care anymore
-        if (imMemo(c, s.durations)) {
-            tableState.recomputedPrevFrame = true;
-        } else {
-            tableState.recomputedPrevFrame = false;
-        }
     } imLayoutEnd(c);
 }
