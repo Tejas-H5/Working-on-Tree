@@ -1,7 +1,7 @@
-import { ImCache, imGet, imGetInline, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
+import { newCssBuilder } from 'src/utils/cssb';
+import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
 import { EL_DIV, elSetClass, elSetStyle, imEl, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
-import { newCssBuilder } from 'src/utils/cssb';
 
 const cssb = newCssBuilder();
 
@@ -175,6 +175,7 @@ export function imLayout(c: ImCache, type: DisplayType) {
         switch(last) {
             case BLOCK:        /* Do nothing - this is the default style */ break;
             case INLINE_BLOCK: elSetClass(c, cn.inlineBlock, false);        break;
+            case INLINE:       elSetClass(c, cn.inline, false);             break;
             case ROW:          elSetClass(c, cn.row, false);                break;
             case ROW_REVERSE:  elSetClass(c, cn.rowReverse, false);         break;
             case COL:          elSetClass(c, cn.col, false);                break;
@@ -187,6 +188,7 @@ export function imLayout(c: ImCache, type: DisplayType) {
         switch(type) {
             case BLOCK:        /* Do nothing - this is the default style */ break;
             case INLINE_BLOCK: elSetClass(c, cn.inlineBlock, true);         break;
+            case INLINE:       elSetClass(c, cn.inline, true);              break;
             case ROW:          elSetClass(c, cn.row, true);                 break;
             case ROW_REVERSE:  elSetClass(c, cn.rowReverse, true);          break;
             case COL:          elSetClass(c, cn.col, true);                 break;

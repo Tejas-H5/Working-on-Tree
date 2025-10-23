@@ -116,7 +116,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: DurationsViewState) {
 }
 
 function setTableRow(ctx: GlobalContext, s: DurationsViewState, newRow: number) {
-    s.tableRowPos.idx = clampedListIdxRange(newRow, -1, s.durations.length);
+    s.tableRowPos.idx = newRow;
+    fixTableRowColValues(s);
+
     startScrolling(s.scrollContainer, true);
     setTableCol(ctx, s, s.tableColPos.idx);
 }
@@ -127,7 +129,8 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
     }
 
     const numDays = getNumDays(s);
-    s.tableColPos.idx = clampedListIdxRange(newCol, -1, numDays + 1);
+    s.tableColPos.idx = newCol;
+    fixTableRowColValues(s);
 
     let fullRecomputation = false;
 
@@ -243,23 +246,26 @@ function recomputeDurations(s: DurationsViewState) {
         s.totals[dayOfWeek].time += durationMs;
     }
 
-    s.tableColPos.idx = clampedListIdxRange(s.tableColPos.idx, -1, numDays + 1);
-
     if (s.tableRowPos.idx >= s.durations.length) {
         s.tableRowPos.idx = 0;
     }
     if (s.tableColPos.idx >= getNumDays(s)) {
         s.tableColPos.idx = 0;
     }
+    fixTableRowColValues(s);
 
     recomputeActivityFilter(s);
 }
 
-// Expensive method, avoid callint it too often!
-function recomputeActivityFilter(s: DurationsViewState) {
+function fixTableRowColValues(s: DurationsViewState) {
     const numDays = getNumDays(s);
-    s.tableRowPos.idx = clampedListIdxRange(s.tableRowPos.idx, 0, s.durations.length);
+    s.tableRowPos.idx = clampedListIdxRange(s.tableRowPos.idx, -1, s.durations.length);
     s.tableColPos.idx = clampedListIdxRange(s.tableColPos.idx, -1, numDays + 1);
+}
+
+// Expensive method, avoid calling it too often!
+function recomputeActivityFilter(s: DurationsViewState) {
+    fixTableRowColValues(s);
 
     let rowIdx = s.tableRowPos.idx;
     let colIdx = s.tableColPos.idx;
