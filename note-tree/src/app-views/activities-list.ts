@@ -31,7 +31,8 @@ import {
     newBreakActivity,
     pushBreakActivity,
     setCurrentNote,
-    state
+    state,
+    getLastActivityForNoteIdx
 } from "src/state";
 import { boundsCheck, get } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
@@ -550,15 +551,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         if (boundsCheck(s.activities, idx)) {
             const activity = s.activities[idx];
             if (activity.nId !== state.currentNoteId) {
-                let newActivityIdx = -1;
-                for (let i = state.activities.length - 1; i >= 0; i--) {
-                    const activity = state.activities[i];
-                    if (activity.nId === state.currentNoteId) {
-                        newActivityIdx = i;
-                        break;
-                    }
-                }
-
+                const newActivityIdx = getLastActivityForNoteIdx(state, state.currentNoteId);
                 if (newActivityIdx !== -1) {
                     activitiesViewSetIdx(ctx, s, newActivityIdx, NOT_IN_RANGE);
                 }

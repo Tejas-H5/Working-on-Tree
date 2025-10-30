@@ -1,3 +1,5 @@
+// DOM-utils v1.0
+
 /** Sets an input's value while retaining it's selection */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (

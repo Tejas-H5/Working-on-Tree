@@ -1,21 +1,20 @@
-// IM-DOM 1.21
-// TODO: update 1.31
+// IM-DOM 1.35
 
 import { assert } from "src/utils/assert";
 import {
     CACHE_RERENDER_FN,
+    cacheEntriesAddDestructor,
+    getEntriesParent,
+    globalStateStackGet,
+    globalStateStackPop,
+    globalStateStackPush,
     imBlockBegin,
     imBlockEnd,
     ImCache,
     imGet,
-    getEntriesParent,
+    imMemo,
     imSet,
     inlineTypeId,
-    cacheEntriesAddDestructor,
-    imMemo,
-    globalStateStackPop,
-    globalStateStackPush,
-    globalStateStackGet,
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -191,7 +190,7 @@ export function imDomRootEnd(c: ImCache, root: ValidElement) {
 }
 
 
-interface Stringifyable {
+export interface Stringifyable {
     // Allows you to memoize the text on the object reference, and not the literal string itself, as needed.
     // Also, most objects in JavaScript already implement this.
     toString(): string;
@@ -399,13 +398,14 @@ export type ImKeyboardState = {
     // from knowing about this event.
     keyDown: KeyboardEvent | null;
     keyUp: KeyboardEvent | null;
-    blur: boolean;
 };
 
 
 export type ImMouseState = {
     lastX: number;
     lastY: number;
+
+    ev: MouseEvent | null;
 
     leftMouseButton: boolean;
     middleMouseButton: boolean;
@@ -433,6 +433,7 @@ export type ImGlobalEventSystem = {
     rerender: () => void;
     keyboard: ImKeyboardState;
     mouse:    ImMouseState;
+    blur:     boolean;
     globalEventHandlers: {
         mousedown:  (e: MouseEvent) => void;
         mousemove:  (e: MouseEvent) => void;
@@ -460,12 +461,13 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
     const keyboard: ImKeyboardState = {
         keyDown: null,
         keyUp: null,
-        blur: false,
     };
 
     const mouse: ImMouseState = {
         lastX: 0,
         lastY: 0,
+
+        ev: null,
 
         leftMouseButton: false,
         middleMouseButton: false,
@@ -486,6 +488,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
     };
 
     const handleMouseMove = (e: MouseEvent) => {
+        mouse.ev = e;
         mouse.lastX = mouse.X;
         mouse.lastY = mouse.Y;
         mouse.X = e.clientX;
@@ -506,6 +509,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
         rerender: rerenderFn,
         keyboard,
         mouse,
+        blur: false,
         // stored, so we can dispose them later if needed.
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
@@ -519,24 +523,34 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
 
                 findParents(e.target as ValidElement, mouse.mouseDownElements);
                 try {
+                    mouse.ev = e;
                     eventSystem.rerender();
                 } finally {
                     mouse.mouseDownElements.clear();
+                    mouse.ev = null;
                 }
             },
             mouseclick: (e) => {
                 findParents(e.target as ValidElement, mouse.mouseClickElements);
                 try {
+                    mouse.ev = e;
                     eventSystem.rerender();
                 } finally {
                     mouse.mouseClickElements.clear();
+                    mouse.ev = null;
                 }
             },
             mousemove: (e) => {
-                if (handleMouseMove(e)) eventSystem.rerender();
+                if (handleMouseMove(e)) {
+                    eventSystem.rerender();
+                    mouse.ev = null;
+                }
             },
             mouseenter: (e) => {
-                if (handleMouseMove(e)) eventSystem.rerender();
+                if (handleMouseMove(e)) {
+                    eventSystem.rerender();
+                    mouse.ev = null;
+                }
             },
             mouseup: (e: MouseEvent) => {
                 if (e.button === 0) {
@@ -549,12 +563,12 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
 
                 findParents(e.target as ValidElement, mouse.mouseUpElements);
                 try {
+                    mouse.ev = e;
                     eventSystem.rerender();
                 } finally {
                     mouse.mouseUpElements.clear();
+                    mouse.ev = null;
                 }
-
-                eventSystem.rerender();
             },
             wheel: (e: WheelEvent) => {
                 mouse.scrollWheel += e.deltaX + e.deltaY + e.deltaZ;
@@ -575,7 +589,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
             blur: () => {
                 resetMouseState(mouse, true);
                 resetKeyboardState(keyboard);
-                keyboard.blur = true;
+                eventSystem.blur = true;
                 eventSystem.rerender();
             }
         },
@@ -587,7 +601,6 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
 function resetKeyboardState(keyboard: ImKeyboardState) {
     keyboard.keyDown = null
     keyboard.keyUp = null
-    keyboard.blur = false;
 }
 
 /**
@@ -613,6 +626,7 @@ export function imGlobalEventSystemBegin(c: ImCache): ImGlobalEventSystem {
 export function imGlobalEventSystemEnd(c: ImCache, eventSystem: ImGlobalEventSystem) {
     resetKeyboardState(eventSystem.keyboard);
     resetMouseState(eventSystem.mouse, false);
+    eventSystem.blur = false;
 
     globalStateStackPop(gssEventSystems, eventSystem);
 }
@@ -630,10 +644,14 @@ export function imTrackSize(c: ImCache) {
                     // NOTE: resize-observer cannot track the top, right, left, bottom of a rect. Sad.
                     self.size.width = entry.contentRect.width;
                     self.size.height = entry.contentRect.height;
+                    self.resized = true;
                     break;
                 }
 
-                c[CACHE_RERENDER_FN]();
+                if (self.resized) {
+                    c[CACHE_RERENDER_FN]();
+                    self.resized = false;
+                }
             })
         };
 
@@ -702,6 +720,7 @@ export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: 
 
 export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
     document.addEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.addEventListener("contextmenu", eventSystem.globalEventHandlers.mousedown);
     document.addEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.addEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.addEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
@@ -714,6 +733,7 @@ export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSys
 
 export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
     document.removeEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
+    document.removeEventListener("contextmenu", eventSystem.globalEventHandlers.mousedown);
     document.removeEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.removeEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.removeEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);

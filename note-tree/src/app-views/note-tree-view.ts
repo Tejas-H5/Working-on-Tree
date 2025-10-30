@@ -487,12 +487,14 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (!ctx.handled) {
             const moveNote = keyboard.altKey.held;
             const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
+            const ctrlOrShift = keyboard.ctrlKey.held || keyboard.shiftKey.held;
+
             if (listNavInput) {
                 moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
-            } else if (keyboard.leftKey.pressed) {
+            } else if (keyboard.leftKey.pressed && !ctrlOrShift) {
                 moveOutOfCurrent(ctx, s, moveNote);
                 ctx.handled = true;
-            } else if (keyboard.rightKey.pressed) {
+            } else if (keyboard.rightKey.pressed && !ctrlOrShift) {
                 moveIntoCurrent(ctx, s, moveNote);
                 ctx.handled = true;
             }

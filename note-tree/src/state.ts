@@ -54,7 +54,6 @@ export type NoteTreeGlobalState = {
     currentNoteId: NoteId;
     currentTheme: AppTheme;
 
-
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
     // (at least with the way I'm using it as a drop-in replacement for localStorage.).
     // see usages of this variable for more details.
@@ -70,6 +69,9 @@ export type NoteTreeGlobalState = {
     textOnArrival: string;
 
     settings: AppSettings;
+
+    _activitiesTraversalIdx: number;
+    _jumpBackToId: NoteId;
 
     _criticalLoadingError: string;
     // If true, error modals will include additional info on where to report the error.
@@ -296,6 +298,10 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
 
         _isEditingFocusedNote: false, // global flag to control if we're editing a note
 
+        _activitiesTraversalIdx: -1,
+
+        _jumpBackToId: itree.NIL_ID,
+
         // don't set this if our tree is corrupted!
         _criticalLoadingError: "",
         _criticalLoadingErrorWasOurFault: false,
@@ -380,22 +386,34 @@ export function getLastActivity(state: NoteTreeGlobalState): Activity | undefine
 
 export function getLastActivityWithNote(state: NoteTreeGlobalState): Activity | undefined {
     const idx = getLastActivityWithNoteIdx(state);
-    if (idx === -1) {
-        return undefined;
-    }
+    if (idx === -1) return undefined;
+    return state.activities[idx];
+}
+
+export function getFirstActivityWithNote(state: NoteTreeGlobalState): Activity | undefined {
+    const idx = getFirstActivityWithNoteIdx(state);
+    if (idx === -1) return undefined;
     return state.activities[idx];
 }
 
 export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
-    let i = state.activities.length - 1;
-    while (i >= 0) {
-        if (state.activities[i].nId) {
-            return i;
-        }
-
-        i--;
+    for (let i = state.activities.length - 1; i >= 0; i--) {
+        if (state.activities[i].nId) return i;
     }
+    return -1;
+}
 
+export function getFirstActivityWithNoteIdx(state: NoteTreeGlobalState): number {
+    for (let i = 0; i < state.activities.length; i++) {
+        if (state.activities[i].nId) return i;
+    }
+    return -1;
+}
+
+export function getLastActivityForNoteIdx(state: NoteTreeGlobalState, id: NoteId): number {
+    for (let i = state.activities.length - 1; i >= 0; i--) {
+        if (state.activities[i].nId === id) return i;
+    }
     return -1;
 }
 
@@ -997,6 +1015,10 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
 
     if (!itree.hasNode(state.notes, note.id)) {
         return;
+    }
+
+    if (noteIdJumpedFrom) {
+        state._jumpBackToId = noteIdJumpedFrom;
     }
 
     setNoteAsLastSelected(state, note);

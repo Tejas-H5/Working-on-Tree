@@ -83,16 +83,22 @@ import {
     debouncedSave,
     handleImKeysInput,
     hasDiscoverableCommand,
+    HIDDEN,
     newGlobalContext,
     preventImKeysDefault,
     reloadStateIfNewer,
+    REPEAT,
     setCurrentView,
     SHIFT,
     TASK_IN_PROGRESS,
     updateDiscoverableCommands
 } from "./global-context";
 import {
+    Activity,
     AppTheme,
+    getFirstActivityWithNoteIdx,
+    getLastActivityWithNoteIdx,
+    idIsNilOrRoot,
     loadState,
     setCurrentNote,
     setTheme,
@@ -103,6 +109,7 @@ import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
+import { NIL_ID } from "./utils/int-tree";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -520,6 +527,65 @@ function imMainInner(c: ImCache) {
                     ) {
                         setCurrentNote(state, ctx.noteBeforeFocus.id);
                         setCurrentView(ctx, ctx.views.noteTree);
+                    }
+                }
+
+                // Traverse the history
+                {
+                    const ctrlAndShiftHeld = ctx.keyboard.shiftKey.held && ctx.keyboard.ctrlKey.held;
+                    if (imMemo(c, ctrlAndShiftHeld)) {
+                        if (ctrlAndShiftHeld) {
+                            // Start traversal from the most recent activity
+                            const newActivityIdx = state.activities.length - 1;
+                            state._activitiesTraversalIdx = newActivityIdx;
+                        } else {
+                            state._activitiesTraversalIdx = -1;
+                        }
+                    }
+
+                    if (state._activitiesTraversalIdx !== -1) {
+                        // Activities for the same note can re-appear at different indices, so it is more correct to
+                        // use indices here instead of activity -> note id
+
+                        const firstActivityIdx = getFirstActivityWithNoteIdx(state);
+                        const lastActivityIdx = getLastActivityWithNoteIdx(state);
+
+                        let newActivity: Activity | undefined;
+
+                        // We actually are forced to handle repeats here - otherwise we'll start selecting text.
+                        const flags = CTRL | SHIFT | REPEAT;
+                        // And we need to handle this event all the time. Otherwise the default behaviour
+                        // starts happening again when we reach either end of the activity list :D
+                        const canGoBack = firstActivityIdx < state._activitiesTraversalIdx;
+                        if (
+                            hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Last activity", flags | (canGoBack ? 0 : HIDDEN))
+                        ) {
+                            if (!idIsNilOrRoot(state._jumpBackToId)) {
+                                setCurrentNote(state, state._jumpBackToId);
+                                state._jumpBackToId = NIL_ID;
+                            } else {
+                                while (state._activitiesTraversalIdx > firstActivityIdx) {
+                                    state._activitiesTraversalIdx--;
+                                    newActivity = state.activities[state._activitiesTraversalIdx]
+                                    if (newActivity.nId) break;
+                                }
+                            }
+                        }
+
+                        const canGoForward = state._activitiesTraversalIdx < lastActivityIdx;
+                        if (
+                            hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Next activity", flags | (canGoForward ? 0 : HIDDEN))
+                        ) {
+                            while (state._activitiesTraversalIdx < lastActivityIdx) {
+                                state._activitiesTraversalIdx++;
+                                newActivity = state.activities[state._activitiesTraversalIdx]
+                                if (newActivity.nId) break;
+                            }
+                        }
+
+                        if (newActivity && newActivity.nId) {
+                            setCurrentNote(state, newActivity.nId);
+                        }
                     }
                 }
 

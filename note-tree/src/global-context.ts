@@ -267,7 +267,9 @@ function pushDiscoverableCommand(
         const commandWants = (CTRL | SHIFT | ALT) & flags;
 
         const excessKeys = currentlyHeld & (~commandWants);
-        if (excessKeys) return null;
+        if (excessKeys) {
+            return null;
+        }
 
         const remainingToPress = commandWants & (~currentlyHeld);
         if (remainingToPress & CTRL) commands.ctrlAvailable = true;
@@ -395,7 +397,8 @@ export function handleImKeysInput(ctx: GlobalContext) {
 
     ctx.handled = false;
 
-    const { keyDown, keyUp, blur } = getGlobalEventSystem().keyboard;
+    const { keyboard: evKeyboard, blur } = getGlobalEventSystem();
+    const { keyDown, keyUp } = evKeyboard;
 
     handleKeysLifecycle(keyboard.keys, keyDown, keyUp, blur);
 
