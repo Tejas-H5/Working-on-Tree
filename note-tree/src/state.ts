@@ -426,6 +426,7 @@ export function defaultNote(): Note {
         _depth: 0,
         _durationUnranged: 0,
         _durationRanged: 0,
+        _tasksInProgress: 0,
     };
 }
 
