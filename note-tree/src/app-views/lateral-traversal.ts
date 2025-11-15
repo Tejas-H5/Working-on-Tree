@@ -1,5 +1,5 @@
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK } from "src/components/core/layout";
+import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK, INLINE_BLOCK, imPadding, PX, NA } from "src/components/core/layout";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
 import { imListRowCellStyle } from "src/app-components/list-row";
@@ -20,6 +20,7 @@ import {
     getNote,
     isHigherLevelTask,
     NoteId,
+    recomputeNumTasksInProgressRecursively,
     setCurrentNote,
     state,
     STATUS_IN_PROGRESS,
@@ -84,16 +85,14 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
 }
 
 function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePosition: boolean) {
+
     s.notes.length = 0;
-
-
-    // TODO: sort by date last edited
 
     const note = getNote(state.notes, noteId);
     s.viewRoot = getNoteViewRoot(state, note);
 
-    const dfs = (note: TreeNote, doThing: boolean) => {
-        if (doThing) {
+    const dfs = (note: TreeNote, pushNote: boolean) => {
+        if (pushNote) {
             if (note.data._status === STATUS_IN_PROGRESS) {
                 const isHlt = isHigherLevelTask(note);
                 if (note.childIds.length === 0 || isHlt) {
@@ -110,10 +109,19 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
             dfs(child, true);
         }
     }
-
     dfs(s.viewRoot, false);
 
-    s.notes.sort((a, b) => b.data.editedAt.getTime() - a.data.editedAt.getTime());
+    recomputeNumTasksInProgressRecursively(state);
+    s.notes.sort((a, b) => {
+        if (
+            (a.data._tasksInProgress > 0 && b.data._tasksInProgress > 0) ||
+            (a.data._tasksInProgress === 0 && b.data._tasksInProgress === 0)
+        ) {
+            return b.data.editedAt.getTime() - a.data.editedAt.getTime();
+        }
+
+        return b.data._tasksInProgress - a.data._tasksInProgress;
+    });
 
     const idx = s.notes.indexOf(note);
     if (useNotePosition && idx !== -1) {
@@ -160,13 +168,22 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
             imNavListRowBegin(c, list); {
                 imLayout(c, BLOCK); imListRowCellStyle(c); {
                     imLayout(c, INLINE); {
-                        const canGoIn = note.childIds.length > 0;
-                        if (imMemo(c, canGoIn)) {
-                            elSetStyle(c, "fontWeight", canGoIn ? "bold" : "");
-                        }
+                        const isBold = note.data._tasksInProgress > 0;
+                        if (imMemo(c, isBold)) elSetStyle(c, "fontWeight", isBold ? "bold" : "");
+
+                        imStr(c, "(");
+                        imStr(c, note.data._tasksInProgress);
+                        imStr(c, ") ");
                         
                         const text = note.data.text;
                         imStr(c, text); 
+
+                        const canGoIn = note.childIds.length > 0;
+                        if (imIf(c) && canGoIn) {
+                            imLayout(c, INLINE_BLOCK); imPadding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
+                                imStr(c, " ->");
+                            } imLayoutEnd(c);
+                        } imIfEnd(c);
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);

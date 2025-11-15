@@ -130,6 +130,8 @@ export type Note = {
     _durationRanged: number;
     // TODO: fivure out what this is and document it. I think it has something to do with computing the duration of the most recent note ?
     _durationRangedOpenSince?: Date;
+
+    _tasksInProgress: number; // recursive in nature
 };
 
 
@@ -199,17 +201,9 @@ export function getTodoNotePriority(note: Note): number {
 
     let priority = 0;
 
-    let text = note.text;
-    let pos = 0;
-    if (text[pos] === " ") {
-        pos++;
-    }
-
-    for (let i = pos; i < text.length; i++) {
-        if (text[i] !== '>') {
-            break;
-        }
-
+    let text = note.text.trimStart();
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] !== '>') break;
         priority++;
     }
 
@@ -554,6 +548,19 @@ export function recomputeNoteStatusRecursively(
             recomputeNoteStatusRecursively(state, parent, true, false);
         }
     }
+}
+
+export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalState) {
+    itree.forEachNode(state.notes, note => note.data._tasksInProgress = 0);
+    itree.forEachNode(state.notes, note => {
+        if (note.childIds.length > 0) return;
+        if (getTodoNotePriority(note.data) > 0) return;
+        if (note.data._status !== STATUS_IN_PROGRESS) return;
+
+        forEachParentNote(state.notes, note, parent => {
+            parent.data._tasksInProgress++
+        });
+    });
 }
 
 function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote) {
