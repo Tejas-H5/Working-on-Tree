@@ -1,4 +1,6 @@
-// IM-CORE 1.042
+// IM-CORE 1.047
+// NOTE: I'm currently working on 3 different apps with this framework,
+// so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
 import { assert } from "src/utils/assert";
 
@@ -46,16 +48,18 @@ export const CACHE_ROOT_ENTRIES                 = 4;
 export const CACHE_NEEDS_RERENDER               = 5;
 export const CACHE_RERENDER_FN                  = 6;
 export const CACHE_IS_RENDERING                 = 7;
-export const CACHE_ANIMATE_FN                   = 8;
-export const CACHE_ANIMATION_ID                 = 9;
-export const CACHE_ANIMATION_TIME               = 10;
-export const CACHE_ANIMATION_DELTA_TIME_SECONDS = 11;
-export const CACHE_ITEMS_ITERATED               = 12;
-export const CACHE_ITEMS_ITERATED_LAST_FRAME    = 13; // Useful performance metric
-export const CACHE_TOTAL_DESTRUCTORS            = 14; // Useful memory leak indicator
-export const CACHE_TOTAL_MAP_ENTRIES            = 15; // Useful memory leak indicator
-export const CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME = 16; 
-export const CACHE_ENTRIES_START                = 17;
+export const CACHE_RENDER_COUNT                 = 8;
+export const CACHE_ANIMATE_FN                   = 9;
+export const CACHE_ANIMATION_ID                 = 10;
+export const CACHE_ANIMATION_TIME_LAST          = 11;
+export const CACHE_ANIMATION_TIME               = 12;
+export const CACHE_ANIMATION_DELTA_TIME_SECONDS = 13;
+export const CACHE_ITEMS_ITERATED               = 14;
+export const CACHE_ITEMS_ITERATED_LAST_FRAME    = 15; // Useful performance metric
+export const CACHE_TOTAL_DESTRUCTORS            = 16; // Useful memory leak indicator
+export const CACHE_TOTAL_MAP_ENTRIES            = 17; // Useful memory leak indicator
+export const CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME = 18; // Useful memory leak indicator
+export const CACHE_ENTRIES_START                = 19;
 
 
 export const REMOVE_LEVEL_NONE = 1;
@@ -139,22 +143,25 @@ export function imCacheBegin(
         c[CACHE_TOTAL_MAP_ENTRIES] = 0;
         c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME] = 0;
         c[CACHE_IS_RENDERING] = true; 
+        c[CACHE_RENDER_COUNT] = 0;
 
         c[CACHE_RERENDER_FN] = () => {
             if (c[CACHE_IS_RENDERING] === true) {
+                // we can't rerender right here, so we'll queue a rerender at the end of the component
                 c[CACHE_NEEDS_RERENDER] = true;
             } else {
                 renderFn(c);
             }
         };
 
+        // Deltatime should naturally reach 0 on 'rerenders'. Not sure how it will work for manual rendering.
+        c[CACHE_ANIMATION_TIME] = 0;
+        c[CACHE_ANIMATION_TIME_LAST] = 0;
+
         if ((flags & USE_MANUAL_RERENDERING) !== 0) {
-            c[CACHE_ANIMATION_TIME] = 0;
-            c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
             c[CACHE_ANIMATE_FN] = noOp;
             c[CACHE_ANIMATION_ID] = null;
         } else if ((flags & USE_ANIMATION_FRAME) !== 0) {
-            c[CACHE_ANIMATION_TIME] = 0;
             c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 0;
             c[CACHE_ANIMATE_FN] = (t: number) => {
                 if (c[CACHE_IS_RENDERING] === true) {
@@ -163,9 +170,7 @@ export function imCacheBegin(
                     return;
                 }
 
-                const lastT = c[CACHE_ANIMATION_TIME];
                 c[CACHE_ANIMATION_TIME] = t;
-                c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = (t - lastT) / 1000.0;
                 renderFn(c);
             };
             c[CACHE_ANIMATION_ID] = 0;
@@ -182,6 +187,14 @@ export function imCacheBegin(
     c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME] = c[CACHE_TOTAL_MAP_ENTRIES];
     c[CACHE_TOTAL_MAP_ENTRIES] = 0;
     c[CACHE_CURRENT_WAITING_FOR_SET] = false;
+    c[CACHE_RENDER_COUNT]++;
+
+    if ((flags & USE_ANIMATION_FRAME) !== 0) {
+        c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = (c[CACHE_ANIMATION_TIME] - c[CACHE_ANIMATION_TIME_LAST]) / 1000;
+        c[CACHE_ANIMATION_TIME_LAST] = c[CACHE_ANIMATION_TIME];
+    } else {
+        c[CACHE_ANIMATION_DELTA_TIME_SECONDS] = 1 / 30;
+    }
 
     imCacheEntriesBegin(c, c[CACHE_ROOT_ENTRIES], imCacheBegin, c, INTERNAL_TYPE_CACHE);
 
@@ -323,6 +336,10 @@ export function imGet<T>(
  * let s; s = imGetInline(c, fn);
  * if (!s) s = imSet(c, { blah });
  * ```ts
+ * Or more concise:
+ * let s; s = imGetInline(c, fn) ?? imSet(c, { blah });
+ * ```ts
+ * ```
  */
 export function imGetInline(
     c: ImCache,
@@ -567,6 +584,17 @@ export function __imBlockDerivedBegin(c: ImCache, internalType: number): ImCache
     return imBlockBegin(c, parentType, parent, internalType);
 }
 
+// Not quite the first render - 
+// if the function errors out before the entries finish one render, 
+// this method will rerender. Use this when you want to do something maybe once or twice or several times but hopefully just once,
+// as it doesn't require an additional im-state entry. 
+// For example, if you have an API like this:
+// ```ts
+// imDiv(c); imRow(c); imCode(c); imJustifyCenter(c); imBg(c, cssVars.bg); {
+// } imDivEnd(c);
+// ```
+// Each of those methods that 'augment' the call to `imDiv` may have their own initialization logic.
+// TODO: remove this thing. the performance increase is negligble, and is gone as soon as we replace imIsFirstRender with imMemo.
 export function isFirstishRender(c: ImCache): boolean {
     const entries = c[CACHE_CURRENT_ENTRIES];
     return entries[ENTRIES_COMPLETED_ONE_RENDER] === false;
@@ -600,10 +628,53 @@ export function __imBlockDerivedEnd(c: ImCache, internalType: number) {
 }
 
 /**
- * I could write a massive doc here explaning how {@link imIf], {@link imIfElse} and {@link imIfEnd} work.
- * but it may be more effective to just arrange the methods one after the other:
+ * Usage:
+ * ```ts
+ *
+ * // Annotating the control flow is needed - otherwise it won't work
+ *
+ * if (imIf(c) && <condition>) {
+ *      // <condition> will by adequately type-narrowed by typescript
+ * } else if (imElseIf(c) && <condition2>){
+ *      // <condition>'s negative will not by adequately type-narrowed here though, sadly.
+ *      // I might raise an issue on their github soon.
+ * } else {
+ *      imElse(c);
+ *      // <condition>'s negative will not by adequately type-narrowed here though, sadly, same as above.
+ * } imIfEnd(c);
+ *
+ * ```
+ *
+ * It effectively converts a variable number of im-entries into a single if-entry,
+ * that has a fixed number of entries within it, so it still abides by 
+ * the immediate mode restrictions.
+ * This thing works by detecting if 0 things were rendered, and 
+ * then detatching the things we rendered last time if that was the case. 
+ * Even though code like below will work, you should never write it:
+ * ```ts
+ * imIf(c); if (<condition>) {
+ * } else {
+ *      imElse(c);
+ * }imIfEnd(c);
+ * ```
+ * Because it suggests that you can extend it like the following, which would
+ * no longer be correct:
+ * ```ts
+ * imIf(c); if (<condition>) {
+ * } else if (<condition2>) {
+ *      // NOO this will throw or corrupt data :((
+ *      imElseIf(c);
+ * } else {
+ *      imElse(c);
+ * } imIfEnd(c);
+ * ```
+ *
+ * The framework assumes that every conditional annotation will get called in order,
+ * till one of the conditions passes, after which the next annotation is `imIfEnd`. 
+ * But now, it is no longer guaranteed that imElseIf will always be called if <condition> was false.
+ * This means the framework has no way of telling the difference between the else-if block
+ * and the else block (else blocks and else-if blocks are handled the same internally).
  */
-
 export function imIf(c: ImCache): true {
     __imBlockArrayBegin(c);
     __imBlockConditionalBegin(c);
@@ -620,6 +691,13 @@ export function imIfEnd(c: ImCache) {
     __imBlockConditionalEnd(c);
     __imBlockArrayEnd(c);
 }
+
+// All roads lead to rome(TM) design pattern. not sure if good idea or shit idea
+export const imEndIf = imIfEnd;
+export const imElse = imIfElse;
+export const imEndSwitch = imSwitchEnd;
+export const imEndFor = imForEnd;
+export const imCatch = imTryCatch;
 
 /**
  * ```ts
@@ -716,14 +794,38 @@ export type ImMemoResult
     | typeof MEMO_FIRST_RENDER_CONDITIONAL;
 
 /**
- * Returns non-zero when:
- *  - val was different from the last value, 
- *  - the component wasn't in the conditional rendering pathway before,
+ * Returns non-zero when either:
+ *  1. val was different from the last value, 
+ *  2. the component wasn't in the conditional rendering pathway before,
  *    but it is now
  *
- * There are a lot of times where things need to be recomputed
- * based on values, as well as when a component re-enters the view.
- * In fact, you probably want this most of the time.
+ * 1 makes sense, but 2 only arises is because we want code like this to work
+ * in any concievable context:
+ *
+ * ```ts
+ * function uiComponent(focused: boolean) {
+ *      if (imMemo(c, focused)) {
+ *          // recompute state
+ *      }
+ * }
+ * ```
+ *
+ * With 1. alone, it won't work if the component leaves the conditional rendering pathway, 
+ * and then re-enters it:
+ *
+ * ```ts
+ * imSwitch(c); switch(currentComponent) {
+ *      case "component 1": uiComponent(true); break;
+ *      case "component 2": somethingElse(true); break;
+ *  } imSwitchEnd(c);
+ * ```
+ *
+ * But with 2. as well, it should always work as expected.
+ *
+ * NOTE: NaN !== NaN. So your memo will fire every frame. 
+ * I'm still diliberating on should my code be 'correct' and always handle this for every imMemo, 
+ * even when it doesn't really need to, or if you sohuld just handle it as needed. 
+ * For now, you can handle it.
  */
 export function imMemo(c: ImCache, val: unknown): ImMemoResult {
     /**
@@ -829,6 +931,13 @@ export function imTryEnd(c: ImCache, tryState: TryState) {
 
 export function getDeltaTimeSeconds(c: ImCache): number {
     return c[CACHE_ANIMATION_DELTA_TIME_SECONDS];
+}
+
+// Events can trigger rerenders in the same frame.
+// Memoizing on this allows us to avoid excess reruns on the same frame
+// for animation/canvas-drawing code
+export function getRenderCount(c: ImCache) {
+    return c[CACHE_RENDER_COUNT];
 }
 
 /**
