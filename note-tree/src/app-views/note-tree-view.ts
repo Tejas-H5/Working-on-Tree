@@ -202,6 +202,9 @@ function recomputeVisibleNotes(s: NoteTreeViewState) {
     const viewRoot = getNoteViewRoot(state, s.note);
 
     if (s.viewRoot !== viewRoot) {
+        // Don't smoothscroll when the view root changes
+        startScrolling(s.scrollContainer, false);
+
         s.viewRoot = viewRoot;
         s.stickyNotes.length = 0;
         recomputeNoteParents(state, s.viewRootParentNotes, s.viewRoot);
