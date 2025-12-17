@@ -1,23 +1,23 @@
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { COL, imAlign, imFlex, imJustify, INLINE, ROW, imLayout, imLayoutEnd, BLOCK, INLINE_BLOCK, imPadding, PX, NA } from "src/components/core/layout";
-import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
 import { imListRowCellStyle } from "src/app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
     imNavListBegin,
-    imNavListRowBegin as imNavListRowBegin,
     imNavListEnd,
-    imNavListRowEnd as imNavListRowEnd,
     imNavListNextItemArray,
+    imNavListRowBegin,
+    imNavListRowEnd,
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { getNoteViewRoot } from "./note-tree-view";
+import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, imPadding, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/components/core/layout";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
 import {
     getCurrentNote,
     getNote,
+    getRootNote,
     isHigherLevelTask,
     NoteId,
     recomputeNumTasksInProgressRecursively,
@@ -29,7 +29,7 @@ import {
 import { get } from "src/utils/array-utils";
 import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, imStr } from "src/utils/im-dom";
-
+import { getNoteViewRoot } from "./note-tree-view";
 
 export type NoteTraversalViewState = {
     viewRoot: TreeNote | null;
@@ -38,6 +38,8 @@ export type NoteTraversalViewState = {
     lastChildForViewRoot: Map<NoteId | undefined, NoteId>;
     scrollContainer: ScrollContainer;
     listPosition: ListPosition;
+
+    isFlat: boolean;
 };
 
 export function newNoteTraversalViewState(): NoteTraversalViewState {
@@ -48,6 +50,8 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
         scrollContainer: newScrollContainer(),
         lastChildForViewRoot: new Map(),
         listPosition: newListPosition(),
+
+        isFlat: false,
     };
 }
 
@@ -68,13 +72,18 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         setIdx(ctx, s, listNavigation.newIdx);
     }
 
-    if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)) {
+    if (
+        s.viewRoot && 
+        !s.isFlat &&
+        hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)
+    ) {
         recomputeTraversal(s, s.viewRoot.id);
     }
 
     if (
         isHigherLevelTask(current) && 
         current.childIds.length > 0 && 
+        !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
         recomputeTraversal(s, current.childIds[0]);
@@ -84,14 +93,23 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         setCurrentView(ctx, ctx.views.noteTree);
     }
 
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.fKey, s.isFlat ? "Tree mode" : "Flat mode")) {
+        s.isFlat = !s.isFlat;
+        recomputeTraversal(s, current.id, true);
+    }
+
     // TODO: left/right should move up/down high level tasks
 }
 
-function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId) {
+function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useCurrentNote = false) {
     s.notes.length = 0;
+    const current = getNote(state.notes, noteId);
 
-    const note = getNote(state.notes, noteId);
-    s.viewRoot = getNoteViewRoot(state, note);
+    if (s.isFlat) {
+        s.viewRoot = getRootNote(state);
+    } else {
+        s.viewRoot = getNoteViewRoot(state, current);
+    }
 
     const dfs = (note: TreeNote, pushNote: boolean) => {
         if (pushNote) {
@@ -100,8 +118,10 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId) {
                 if (note.childIds.length === 0 || isHlt) {
                     s.notes.push(note);
 
-                    // don't go further into this note
-                    return;
+                    if (!s.isFlat) {
+                        // don't go further into this note, unless we're flat.
+                        return;
+                    }
                 }
             }
         }
@@ -125,24 +145,26 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId) {
         return b.data._tasksInProgress - a.data._tasksInProgress;
     });
 
-    let found = false;
+    let noteIdToFocus: NoteId | undefined;
 
-    let noteIdToFocus = s.lastChildForViewRoot.get(s.viewRoot?.id);
+    if (useCurrentNote) {
+        noteIdToFocus = current.id;
+    }
+
+    if (noteIdToFocus === undefined) {
+        noteIdToFocus = s.lastChildForViewRoot.get(s.viewRoot?.id);
+    }
+
+    if (noteIdToFocus === undefined && s.notes.length > 0) {
+        noteIdToFocus = s.notes[0].id;
+    }
+
     if (noteIdToFocus !== undefined) {
         const idx = s.notes.findIndex(note => note.id === noteIdToFocus);
         if (idx !== -1) {
             s.listPosition.idx = idx;
-            found = true;
-        } 
-    }
+        }
 
-    if (!found && s.notes.length > 0) {
-        s.listPosition.idx = 0;
-        noteIdToFocus = s.notes[0].id;
-        found = true;
-    }
-
-    if (found && noteIdToFocus !== undefined && state.currentNoteId !== noteIdToFocus) {
         setCurrentNote(state, noteIdToFocus);
     }
 }
@@ -153,7 +175,9 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId);
+    if (imMemo(c, state._notesMutationCounter)) {
+        recomputeTraversal(s, state.currentNoteId, true);
+    }
 
     imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
         if (isFirstishRender(c)) {

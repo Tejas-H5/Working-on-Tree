@@ -559,6 +559,7 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
         if (note.data._status !== STATUS_IN_PROGRESS) return;
 
         forEachParentNote(state.notes, note, parent => {
+            if (note === parent) return;
             parent.data._tasksInProgress++
         });
     });
