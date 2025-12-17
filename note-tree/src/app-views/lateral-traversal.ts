@@ -35,6 +35,7 @@ export type NoteTraversalViewState = {
     viewRoot: TreeNote | null;
     notes: TreeNote[];
 
+    lastChildForViewRoot: Map<NoteId | undefined, NoteId>;
     scrollContainer: ScrollContainer;
     listPosition: ListPosition;
 };
@@ -45,6 +46,7 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
         notes: [],
 
         scrollContainer: newScrollContainer(),
+        lastChildForViewRoot: new Map(),
         listPosition: newListPosition(),
     };
 }
@@ -53,6 +55,7 @@ function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, idx: number) {
     s.listPosition.idx = clampedListIdx(idx, s.notes.length);
     const note = get(s.notes, s.listPosition.idx);
     if (note) {
+        s.lastChildForViewRoot.set(s.viewRoot?.id, note.id);
         setCurrentNote(state, note.id, ctx.noteBeforeFocus?.id);
     }
 }
@@ -66,7 +69,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     }
 
     if (s.viewRoot && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)) {
-        recomputeTraversal(s, s.viewRoot.id, false);
+        recomputeTraversal(s, s.viewRoot.id);
     }
 
     if (
@@ -74,7 +77,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         current.childIds.length > 0 && 
         hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
-        recomputeTraversal(s, current.childIds[0], false);
+        recomputeTraversal(s, current.childIds[0]);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
@@ -84,8 +87,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     // TODO: left/right should move up/down high level tasks
 }
 
-function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePosition: boolean) {
-
+function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId) {
     s.notes.length = 0;
 
     const note = getNote(state.notes, noteId);
@@ -123,16 +125,25 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useNotePo
         return b.data._tasksInProgress - a.data._tasksInProgress;
     });
 
-    const idx = s.notes.indexOf(note);
-    if (useNotePosition && idx !== -1) {
-        s.listPosition.idx = idx;
-    } else if (s.notes.length > 0) {
-        s.listPosition.idx = 0;
-        noteId = s.notes[0].id;
+    let found = false;
+
+    let noteIdToFocus = s.lastChildForViewRoot.get(s.viewRoot?.id);
+    if (noteIdToFocus !== undefined) {
+        const idx = s.notes.findIndex(note => note.id === noteIdToFocus);
+        if (idx !== -1) {
+            s.listPosition.idx = idx;
+            found = true;
+        } 
     }
 
-    if (state.currentNoteId !== noteId) {
-        setCurrentNote(state, noteId);
+    if (!found && s.notes.length > 0) {
+        s.listPosition.idx = 0;
+        noteIdToFocus = s.notes[0].id;
+        found = true;
+    }
+
+    if (found && noteIdToFocus !== undefined && state.currentNoteId !== noteIdToFocus) {
+        setCurrentNote(state, noteIdToFocus);
     }
 }
 
@@ -142,7 +153,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId, true);
+    if (imMemo(c, state._notesMutationCounter)) recomputeTraversal(s, state.currentNoteId);
 
     imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
         if (isFirstishRender(c)) {
