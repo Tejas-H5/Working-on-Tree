@@ -1,4 +1,3 @@
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "src/app-components/list-row";
 import {
     clampedListIdx,
@@ -15,24 +14,25 @@ import {
 import { imEditableTime } from "src/app-components/time-input";
 import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/components/core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
 import { BYPASS_TEXT_AREA, debouncedSave, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
 import {
     Activity,
+    getActivityDate,
     getActivityDurationMs,
     getActivityText,
-    getActivityDate,
     getCurrentNote,
     getHigherLevelTask,
     getLastActivity,
+    getLastActivityForNoteIdx,
     getNote,
     isBreak,
     isCurrentlyTakingABreak,
     newBreakActivity,
     pushBreakActivity,
     setCurrentNote,
-    state,
-    getLastActivityForNoteIdx
+    state
 } from "src/state";
 import { boundsCheck, get } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
@@ -524,15 +524,16 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             s.activities = state.activities;
         }
 
+        let idx = s.activities.length - 1;
         if (currentActivity) {
-            const idx = s.activities.indexOf(currentActivity);
-            if (idx !== -1) {
-                activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
-            } else if (s.activities.length > 0) {
-                activitiesViewSetIdx(ctx, s, s.activities.length - 1, NOT_IN_RANGE);
-                currentActivity = get(s.activities, s.activityListPositon.idx);
+            const currIdx = s.activities.indexOf(currentActivity);
+            if (currIdx !== -1) {
+                idx = currIdx;
             }
         }
+
+        activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
+        currentActivity = get(s.activities, s.activityListPositon.idx);
     }
 
     const viewHasFocusChanged = imMemo(c, viewHasFocus);
