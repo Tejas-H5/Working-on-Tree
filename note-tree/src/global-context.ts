@@ -2,7 +2,7 @@ import { handleKeysLifecycle, KeyState, newKeyState } from "src/utils/key-state"
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
-import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/lateral-traversal";
+import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";

@@ -1,5 +1,3 @@
-import { getMostRecentlyWorkedOnChildActivityIdx } from "src/state";
-
 export function swap(arr: unknown[], a: number, b: number) {
     if (
         a < 0 || a >= arr.length ||
@@ -158,7 +156,7 @@ export function moveArrayItem(arr: unknown[], a: number, b: number) {
     }
 }
 
-export function get<T>(arr: T[], i: number): T | undefined {
+export function arrayAt<T>(arr: T[], i: number): T | undefined {
     let result = undefined;
     if (i < arr.length) result = arr[i];
     return result;

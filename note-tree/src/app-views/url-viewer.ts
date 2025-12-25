@@ -23,7 +23,7 @@ import {
     state,
     TreeNote
 } from "src/state";
-import { get } from "src/utils/array-utils";
+import { arrayAt } from "src/utils/array-utils";
 import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { EL_A, elSetAttr, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
@@ -58,7 +58,7 @@ function setIdx(s: UrlListViewState, idx: number) {
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState) {
-    const url = get(s.urls, s.listPosition.idx);
+    const url = arrayAt(s.urls, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.urls.length);
     if (listNavigation) {

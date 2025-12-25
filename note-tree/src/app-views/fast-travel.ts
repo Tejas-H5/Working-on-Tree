@@ -26,7 +26,7 @@ import {
     STATUS_IN_PROGRESS,
     TreeNote
 } from "src/state";
-import { get } from "src/utils/array-utils";
+import { arrayAt } from "src/utils/array-utils";
 import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle, imStr } from "src/utils/im-dom";
 import { getNoteViewRoot } from "./note-tree-view";
@@ -57,7 +57,7 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
 
 function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, idx: number) {
     s.listPosition.idx = clampedListIdx(idx, s.notes.length);
-    const note = get(s.notes, s.listPosition.idx);
+    const note = arrayAt(s.notes, s.listPosition.idx);
     if (note) {
         s.lastChildForViewRoot.set(s.viewRoot?.id, note.id);
         setCurrentNote(state, note.id, ctx.noteBeforeFocus?.id);
@@ -65,7 +65,7 @@ function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, idx: number) {
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
-    const current = getCurrentNote(state);
+    const currentListNote = arrayAt(s.notes, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.notes.length);
     if (listNavigation) {
@@ -81,21 +81,25 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
     }
 
     if (
-        isHigherLevelTask(current) && 
-        current.childIds.length > 0 && 
+        currentListNote && 
+        isHigherLevelTask(currentListNote) && 
+        currentListNote.childIds.length > 0 && 
         !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
-        recomputeTraversal(s, current.childIds[0]);
+        recomputeTraversal(s, currentListNote.childIds[0]);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
         setCurrentView(ctx, ctx.views.noteTree);
     }
 
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.fKey, s.isFlat ? "Tree mode" : "Flat mode")) {
+    if (
+        currentListNote && 
+        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, s.isFlat ? "Tree mode" : "Flat mode")
+    ) {
         s.isFlat = !s.isFlat;
-        recomputeTraversal(s, current.id, true);
+        recomputeTraversal(s, currentListNote.id, true);
     }
 
     // TODO: left/right should move up/down high level tasks

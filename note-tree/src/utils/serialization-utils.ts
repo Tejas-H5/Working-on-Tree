@@ -2,9 +2,9 @@
 // Serilizing is fairly simple. 
 // However, we want the data we deserialize to all have the same optimized 'hidden class' as the normal objects we create within the app.
 // Getting this wrong is supposed to have an adverse effect on all downstream code. This is mainly a javascript problem, and 
-// won't appear in other languages that have RTTI or reflection.
+// won't appear in other languages that have comptime or RTTI/reflection.
 // We also want the code to be resistant to schema change.
-// For this reason, deserialization is more complicated, but hopefully it's worth it (?).
+// For this reason, deserialization is more complicated, but it's worth it.
 // This was the tradeoff between literally serializing every field, or using some library that probably doesn't 
 // even know or care about javascript internals. Because what's the point of using plain objects for your state
 // if the engine just de-optimizes all of them as soon as you load them?
@@ -259,7 +259,7 @@ export function extractArray<T>(src: JSONRecord, key: string  & keyof T): JSONRe
 /**
  * Does more than you'd expect.
  * - Fields starting with _ are removed to save space - we assume they are 'computed' fields
- *  that may be derived from other thing.
+ *  that are either derived from the other fields, or may be reset to a default value each time we reload the state
  * - Maps are converted to an array of entries
  * - Sets are converted to an array of keys
  * - Dates are converted to an iso-string

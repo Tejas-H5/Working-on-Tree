@@ -34,7 +34,7 @@ import {
     setCurrentNote,
     state
 } from "src/state";
-import { boundsCheck, get } from "src/utils/array-utils";
+import { boundsCheck, arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
 import { ImCache, imFor, imForEnd, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
@@ -254,7 +254,7 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
 }
 
 function canInsertBreak(_ctx: GlobalContext, s: ActivitiesViewState) {
-    const currentActivity = get(s.activities, s.activityListPositon.idx);
+    const currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
     if (!currentActivity) return false;
 
     return true;
@@ -268,7 +268,7 @@ function insertBreak(
     if (!canInsertBreak(ctx, s)) return;
 
     const filteredListIdx = s.activityListPositon.idx;
-    const activity = get(s.activities, filteredListIdx);
+    const activity = arrayAt(s.activities, filteredListIdx);
     if (!activity) {
         return;
     }
@@ -280,7 +280,7 @@ function insertBreak(
         return;
     }
     
-    const nextActivity = get(allActivities, idx + 1);
+    const nextActivity = arrayAt(allActivities, idx + 1);
 
     const timeA = getActivityDate(activity).getTime();
     const duration = getActivityDurationMs(activity, nextActivity);
@@ -306,7 +306,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     const { keyboard } = ctx;
 
     const [lo, hi] = getActivityRange(s);
-    const currentActivity = get(s.activities, s.activityListPositon.idx);
+    const currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
 
     if (!hasActivitiesToView(s)) {
         s.currentFocus === FOCUS_DATE_SELECTOR;
@@ -499,7 +499,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     const filter = s.inputs.activityFilter;
 
-    let currentActivity = get(s.activities, s.activityListPositon.idx);
+    let currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
 
     if (imMemo(c, filter)) {
         // recompute filtered activities
@@ -533,7 +533,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         }
 
         activitiesViewSetIdx(ctx, s, idx, NOT_IN_RANGE);
-        currentActivity = get(s.activities, s.activityListPositon.idx);
+        currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
     }
 
     const viewHasFocusChanged = imMemo(c, viewHasFocus);
@@ -676,7 +676,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 const { i, itemSelected } = list;
 
                 const activity = s.activities[i];
-                const nextActivity = get(s.activities, i + 1);
+                const nextActivity = arrayAt(s.activities, i + 1);
 
                 imKeyedBegin(c, activity); {
                     const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
@@ -700,8 +700,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                         imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
                             imLayout(c, INLINE_BLOCK); {
                                 if (imIf(c) && isEditingTime) {
-                                    const lowerBound = get(s.activities, i - 1)?.t;
-                                    const upperBound = get(s.activities, i + 1)?.t;
+                                    const lowerBound = arrayAt(s.activities, i - 1)?.t;
+                                    const upperBound = arrayAt(s.activities, i + 1)?.t;
 
                                     const { edit, textArea } = imEditableTime(c, activity.t, lowerBound ?? null, upperBound);
 

@@ -1,6 +1,6 @@
 import { imDurationsView } from "src/app-views/durations-view";
 import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
-import { imNoteTraversal } from "src/app-views/lateral-traversal";
+import { imNoteTraversal } from "src/app-views/fast-travel";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
 import { imUrlViewer } from "src/app-views/url-viewer";
@@ -104,7 +104,7 @@ import {
     setTheme,
     state
 } from "./state";
-import { get, getWrappedIdx } from "./utils/array-utils";
+import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -422,8 +422,8 @@ function imMainInner(c: ImCache) {
 
                             // navigate list
                             {
-                                const prev = get(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
-                                const next = get(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
+                                const prev = arrayAt(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
+                                const next = arrayAt(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
                                 if (prev && next) {
                                     const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
                                     if (tabInput < 0) {

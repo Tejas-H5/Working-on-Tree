@@ -20,7 +20,7 @@ import { imB, imBEnd, imI, imIEnd } from "src/components/core/text";
 import { newScrollContainer, } from "src/components/scroll-container";
 import { debouncedSave, GlobalContext, hasDiscoverableCommand, saveCurrentState, setCurrentView, SHIFT } from "src/global-context";
 import { getCurrentStateAsJSON, getLastActivity, loadStateFromJSON, LoadStateFromJSONResult, resetState, setState, state } from "src/state";
-import { get } from "src/utils/array-utils";
+import { arrayAt } from "src/utils/array-utils";
 import { formatDateTime } from "src/utils/datetime";
 import { downloadTextAsFile, loadFile } from "src/utils/file-download";
 import {
@@ -379,8 +379,8 @@ const menus: MenuItem[] = [
                         // navigate the buttons
                         // TODO: make fn
                         {
-                            const prev = get(navList.views, navList.idx - 1);
-                            const next = get(navList.views, navList.idx + 1);
+                            const prev = arrayAt(navList.views, navList.idx - 1);
+                            const next = arrayAt(navList.views, navList.idx + 1);
                             const tabInput = getTabInput(
                                 ctx,
                                 prev ? "Go to " + prev.name : null,
