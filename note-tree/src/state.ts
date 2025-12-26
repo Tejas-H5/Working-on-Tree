@@ -47,7 +47,8 @@ export type NoteTreeGlobalState = {
 
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: TreeNoteTree;
-    _notesMutationCounter: number;
+    /** See {@link notesMutated} */
+    _notesMutationCounter: number; 
     // NOTE: kinda need to be references - some code will toggle between whenether we're using 
     _isEditingFocusedNote: boolean;
 
@@ -70,6 +71,10 @@ export type NoteTreeGlobalState = {
 
     settings: AppSettings;
 
+    // Indices map to 1234567890 on the keyboard, so there can only be 10 of these. 
+    // probably only the first 4 will ever be used.
+    marks: (NoteId | null)[];
+
     _activitiesTraversalIdx: number;
     _jumpBackToId: NoteId;
 
@@ -88,6 +93,7 @@ export type NoteTreeGlobalState = {
     _statusTextColor: string;
 };
 
+// Increment this to signal to UI that the note tree state has changed
 export function notesMutated(state: NoteTreeGlobalState) {
     // This is a good place to put a breakpoint
     state._notesMutationCounter++;
@@ -284,6 +290,9 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         _activitiesMutationCounter: 0,
 
         settings: newAppSettings(),
+
+        marks: [],
+
         currentTheme: "Light",
         criticalSavingError: "",
 
@@ -1626,3 +1635,17 @@ export function updateBreakAutoInsertLastPolledTime() {
     return localStorage.setItem(LAST_AUTO_INSERTED_BREAK_KEY, new Date().toISOString());
 }
 
+export function setNoteMarked(state: NoteTreeGlobalState, id: NoteId | null, idx: number) {
+    if (state.marks.length !== 10) {
+        state.marks.length = 10;
+    }
+    assert(idx >= 0 && idx < 10);
+    state.marks[idx] = id;
+    notesMutated(state);
+}
+
+
+const KEYBOARD_NUMBERS = "1234567890";
+export function markIdxToString(idx: number): string {
+    return KEYBOARD_NUMBERS[idx];
+}

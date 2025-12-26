@@ -24,7 +24,8 @@ import {
     imTryEnd,
     inlineTypeId,
     isFirstishRender,
-    MEMO_CHANGED
+    MEMO_CHANGED,
+    USE_REQUEST_ANIMATION_FRAME
 } from "src/utils/im-core";
 import {
     elHasMouseClick,
@@ -110,6 +111,7 @@ import { formatDateTime } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
+import { validateSchemas } from "./schema";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -437,7 +439,7 @@ function imMainInner(c: ImCache) {
                     } imIfEnd(c);
 
                     if (!IS_RUNNING_FROM_FILE) {
-                        imLayout(c, BLOCK); imFixed(c, 0, NA, 0, NA, 10, PX, 50, PERCENT); {
+                        imLayout(c, BLOCK); imFixed(c, 0, NA, 0, NA, 50, PX, 50, PERCENT); {
                             if (isFirstishRender(c)) {
                                 // bruh ...
                                 elSetStyle(c, "transform", "translate(-50%, 0)");
@@ -515,6 +517,13 @@ function imMainInner(c: ImCache) {
                     ctx.views.activities.inputs.activityFilter = null;
                 }
 
+                if (
+                    ctx.currentView !== ctx.views.settings &&
+                    hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
+                ) {
+                    setCurrentView(ctx, ctx.views.settings);
+                }
+
                 // back to the last note when escape pressed
                 {
                     if (
@@ -587,13 +596,6 @@ function imMainInner(c: ImCache) {
                             setCurrentNote(state, newActivity.nId);
                         }
                     }
-                }
-
-                if (
-                    ctx.currentView !== ctx.views.settings,
-                    hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
-                ) {
-                    setCurrentView(ctx, ctx.views.settings);
                 }
 
                 // Take a break from any view.
@@ -685,8 +687,8 @@ function imMainInner(c: ImCache) {
 
 const cGlobal: ImCache = [];
 
-function imMainEntry(c: ImCache) {
-    imCacheBegin(c, imMainEntry); {
+function imMainEntryPoint(c: ImCache) {
+    imCacheBegin(c, imMainEntryPoint, USE_REQUEST_ANIMATION_FRAME); {
         imDomRootBegin(c, document.body); {
             const ev = imGlobalEventSystemBegin(c);
 
@@ -705,8 +707,10 @@ function imCommandDescription(c: ImCache, key: string, action: string) {
     } imLayoutEnd(c);
 }
 
+validateSchemas();
+
 loadState(() => {
-    imMainEntry(cGlobal);
+    imMainEntryPoint(cGlobal);
 });
 
 // Using a custom styling solution

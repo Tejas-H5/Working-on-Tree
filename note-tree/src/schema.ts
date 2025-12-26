@@ -9,6 +9,7 @@ import {
     asTrue,
     deserializeObject,
     extractKey,
+    serializeToJSON,
 } from "src/utils/serialization-utils";
 import {
     Activity,
@@ -20,7 +21,7 @@ import {
     Note,
     NoteId,
     NoteTreeGlobalState,
-    TreeNote,
+    TreeNote
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
@@ -105,22 +106,32 @@ export function asNoteTreeGlobalState(val: unknown) {
     });
     filterInPlace(state.activities, a => a.breakInfo != null || a.nId != null);
 
-    // TODO: remove later - we introduced this bug in this rewrite, so don't need this in the final code
-    filterInPlace(state.activities, (a, i) => {
-        const isSorted = (i === state.activities.length - 1) ||
-            state.activities[i].t.getTime() < state.activities[i + 1].t.getTime();
-
-        return isSorted;
-    });
     state.activities.forEach((a, i) => {
         const isSorted = i === 0 ||
             state.activities[i - 1].t.getTime() < state.activities[i].t.getTime();
         if (!isSorted) {
-            throw new Error("BRUH " + i);
+            throw new Error("Activities weren't sorted " + i);
         }
     });
+
+    const marksArr = mustGetDefined(asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks")))
+    state.marks = marksArr.map(val => {
+        const valNum = asNumber(val);
+        if (valNum === undefined) return null;
+        return valNum as NoteId;
+    }).slice(0, 10);
 
     deserializeObject(state, stateObj);
 
     return state;
+}
+
+
+// Validate schema parsing logic.
+// It's easy to add new default state that will load fine untill we set it for the first time.
+// To validate that all default state is deserialized, we can just serialize/deserialize a default object.
+export function validateSchemas() {
+    const defaultTree = newNoteTreeGlobalState();
+    const serialized = JSON.parse(serializeToJSON(defaultTree));
+    asNoteTreeGlobalState(serialized);
 }

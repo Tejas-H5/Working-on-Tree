@@ -143,6 +143,17 @@ export function imBg(c: ImCache, colour: string) {
 
 export type DisplayTypeInstance = number & { __displayType: void; };
 
+/**
+ * Whitespace " " can permeate 'through' display: block DOM nodes, so it's useful for text.
+ * ```ts
+ * imLayout(c, BLOCK); { 
+ *      imLayout(c, INLINE); {
+ *          if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
+ *          imStr(c, "Hello, "); // imLayout(c, ROW) would ignore this whitespace.
+ *      } imLayoutEnd(c);
+ *      imStr(c, "World"); 
+ *  } imLayoutEnd(c);
+ */
 export const BLOCK        = 1 as DisplayTypeInstance;
 export const INLINE_BLOCK = 2 as DisplayTypeInstance;
 export const INLINE       = 3 as DisplayTypeInstance;

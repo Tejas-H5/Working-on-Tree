@@ -25,9 +25,11 @@ import {
     imGap,
     imLayout,
     imLayoutEnd,
+    imNoWrap,
     imOpacity,
     imRelative,
     imSize,
+    INLINE,
     NA,
     PX,
     ROW,
@@ -47,6 +49,7 @@ import {
     debouncedSave,
     GlobalContext,
     hasDiscoverableCommand,
+    HIDDEN,
     REPEAT,
     setCurrentView,
     SHIFT
@@ -63,6 +66,7 @@ import {
     idIsRoot,
     isNoteCollapsed,
     isNoteEmpty,
+    markIdxToString,
     notesMutated,
     noteStatusToString,
     NoteTreeGlobalState,
@@ -70,17 +74,18 @@ import {
     recomputeNoteStatusRecursively,
     setCurrentNote,
     setIsEditingCurrentNote,
+    setNoteMarked,
     setNoteText,
     state,
     STATUS_IN_PROGRESS,
     TreeNote,
 } from "src/state";
-import { boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
+import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { formatDateTime } from "src/utils/datetime";
 import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
 import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr } from "src/utils/im-dom";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr, imStrFmt } from "src/utils/im-dom";
 import * as tree from "src/utils/int-tree";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 
@@ -413,6 +418,35 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             } imKeyedEnd(c);
         } imNavListEnd(c, list);
 
+        // Wouldnt it be cool if we could render everything, _then_ decide we dont want to render the thing,
+        // and hide it retrospectively?
+        let hasMarks = false;
+        for (const m of state.marks) {
+            if (m != null) hasMarks = true;
+        }
+
+        if (imIf(c) && hasMarks) {
+            imLine(c, LINE_HORIZONTAL, 1);
+
+            imLayout(c, COL); {
+                imFor(c); for (let i = 0; i < state.marks.length; i++) {
+                    const m = state.marks[i];
+                    if (!m) continue;
+                    const note = getNote(state.notes, m);
+                    imLayout(c, BLOCK); imNoWrap(c); {
+                        if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+                        imLayout(c, INLINE); {
+                            if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
+                            imStr(c, "Mark ");
+                            imStrFmt(c, i, markIdxToString);
+                            imStr(c, " :: ");
+                        } imLayoutEnd(c);
+                        imStr(c, note.data.text);
+                    } imLayoutEnd(c);
+                } imForEnd(c);
+            } imLayoutEnd(c);
+        } imIfEnd(c);
+
         imLine(c, LINE_HORIZONTAL, 1);
 
         const currentNote = getCurrentNote(state);
@@ -470,6 +504,22 @@ function moveToLocalidx(
     }
 }
 
+function toggleMark(currentNote: TreeNote, idx: number) {
+    if (state.marks[idx] === currentNote.id) {
+        setNoteMarked(state, null, idx);
+    } else {
+        setNoteMarked(state, currentNote.id, idx);
+    }
+}
+
+function navigateToMark(s: NoteTreeViewState, currentNote: TreeNote, idx: number) {
+    const mark = arrayAt(state.marks, idx);
+    if (!mark) return;
+
+    const note = getNote(state.notes, mark);
+    setCurrentNote(state, note.id, currentNote.id);
+}
+
 function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
@@ -515,6 +565,28 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (hasDiscoverableCommand(ctx, keyboard.slashKey, "URLs", CTRL)) {
             setCurrentView(ctx, ctx.views.urls);
         }
+
+        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "toggle mark 0", HIDDEN | SHIFT)) toggleMark(currentNote, 0);
+        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "toggle mark 1", HIDDEN | SHIFT)) toggleMark(currentNote, 1);
+        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "toggle mark 2", HIDDEN | SHIFT)) toggleMark(currentNote, 2);
+        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "toggle mark 3", HIDDEN | SHIFT)) toggleMark(currentNote, 3);
+        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "toggle mark 4", HIDDEN | SHIFT)) toggleMark(currentNote, 4);
+        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "toggle mark 5", HIDDEN | SHIFT)) toggleMark(currentNote, 5);
+        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "toggle mark 6", HIDDEN | SHIFT)) toggleMark(currentNote, 6);
+        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "toggle mark 7", HIDDEN | SHIFT)) toggleMark(currentNote, 7);
+        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "toggle mark 8", HIDDEN | SHIFT)) toggleMark(currentNote, 8);
+        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "toggle mark 9", HIDDEN | SHIFT)) toggleMark(currentNote, 9);
+
+        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "navigate to mark 0", HIDDEN)) navigateToMark(s, currentNote, 0);
+        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "navigate to mark 1", HIDDEN)) navigateToMark(s, currentNote, 1);
+        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "navigate to mark 2", HIDDEN)) navigateToMark(s, currentNote, 2);
+        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "navigate to mark 3", HIDDEN)) navigateToMark(s, currentNote, 3);
+        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "navigate to mark 4", HIDDEN)) navigateToMark(s, currentNote, 4);
+        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "navigate to mark 5", HIDDEN)) navigateToMark(s, currentNote, 5);
+        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "navigate to mark 6", HIDDEN)) navigateToMark(s, currentNote, 6);
+        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "navigate to mark 7", HIDDEN)) navigateToMark(s, currentNote, 7);
+        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "navigate to mark 8", HIDDEN)) navigateToMark(s, currentNote, 8);
+        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN)) navigateToMark(s, currentNote, 9);
     }
 
     // Adding a note can be done in both editing and not editing contexts

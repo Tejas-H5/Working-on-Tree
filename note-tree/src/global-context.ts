@@ -32,13 +32,13 @@ export type GlobalContext = {
     discoverableCommands: DiscoverableCommands;
 
     views: {
-        noteTree: NoteTreeViewState;
+        noteTree:   NoteTreeViewState;
         activities: ActivitiesViewState;
-        urls: UrlListViewState;
+        urls:       UrlListViewState;
         fastTravel: NoteTraversalViewState;
-        finder: FuzzyFinderViewState;
-        settings: SettingsViewState;
-        durations: DurationsViewState;
+        finder:     FuzzyFinderViewState;
+        settings:   SettingsViewState;
+        durations:  DurationsViewState;
     };
     currentView: unknown;
     leftTab: unknown;
@@ -96,7 +96,7 @@ export type DiscoverableCommands = {
 }
 
 export function newDiscoverableCommands(): DiscoverableCommands {
-    const newCommandArray = () => Array(32).fill(null).map((): DiscoverableCommand => {
+    const newCommandArray = () => Array(64).fill(null).map((): DiscoverableCommand => {
         return {
             key: null,
             desc: "",
@@ -105,7 +105,6 @@ export function newDiscoverableCommands(): DiscoverableCommands {
     });
 
     return {
-        // only 8 discoverable commands at any given time MAX.
         thisFrame: newCommandArray(),
         stabilized: [],
         idx: 0,
@@ -145,13 +144,13 @@ export function newGlobalContext(): GlobalContext {
         focusWithAllSelected: false,
 
         views: {
-            noteTree: newNoteTreeViewState(),
+            noteTree:   newNoteTreeViewState(),
             activities: newActivitiesViewState(),
-            urls: newUrlListViewState(),
+            urls:       newUrlListViewState(),
             fastTravel: newNoteTraversalViewState(),
-            finder: newFuzzyFinderViewState(),
-            settings: newSettingsViewState(),
-            durations: newDurationsViewState(),
+            finder:     newFuzzyFinderViewState(),
+            settings:   newSettingsViewState(),
+            durations:  newDurationsViewState(),
         },
         notLockedIn: true,
 
@@ -206,7 +205,6 @@ export function hasDiscoverableCommand(
     return false;
 }
 
-// Mainly for when you don't want a command to be discoverable for some reason.
 function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
     if (ctx.handled) return false;
 
@@ -309,6 +307,7 @@ type KeyboardState = {
     bKey: KeyState;
     tKey: KeyState;
     fKey: KeyState;
+    mKey: KeyState;
     hKey: KeyState;
 
     enterKey:  KeyState;
@@ -355,6 +354,7 @@ function newKeyboardState(): KeyboardState {
         bKey: newKeyState("B", "B", "b"),
         tKey: newKeyState("T", "T", "t"),
         fKey: newKeyState("F", "F", "f"),
+        mKey: newKeyState("M", "M", "m"),
         hKey: newKeyState("H", "H", "h"),
 
         enterKey:  newKeyState("Enter", "Enter"),
@@ -365,16 +365,16 @@ function newKeyboardState(): KeyboardState {
         altKey:   newKeyState("Alt", "Alt"),
         tabKey:   newKeyState("Tab", "Tab"),
 
-        num0Key: newKeyState("0", "0"),
-        num1Key: newKeyState("1", "1"),
-        num2Key: newKeyState("2", "2"),
-        num3Key: newKeyState("3", "3"),
-        num4Key: newKeyState("4", "4"),
-        num5Key: newKeyState("5", "5"),
-        num6Key: newKeyState("6", "6"),
-        num7Key: newKeyState("7", "7"),
-        num8Key: newKeyState("8", "8"),
-        num9Key: newKeyState("9", "9"),
+        num0Key: newKeyState("0", "0", ")"),
+        num1Key: newKeyState("1", "1", "!"),
+        num2Key: newKeyState("2", "2", "@"),
+        num3Key: newKeyState("3", "3", "#"),
+        num4Key: newKeyState("4", "4", "$"),
+        num5Key: newKeyState("5", "5", "%"),
+        num6Key: newKeyState("6", "6", "^"),
+        num7Key: newKeyState("7", "7", "&"),
+        num8Key: newKeyState("8", "8", "*"),
+        num9Key: newKeyState("9", "9", "("),
     };
 
     for (const k in state) {
