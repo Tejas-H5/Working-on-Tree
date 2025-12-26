@@ -629,6 +629,7 @@ function imNoteTreeRow(
 
     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
     const isEditingChanged = imMemo(c, isEditing);
+    const selectedChanged = imMemo(c, itemSelected);
 
     let numInProgress = 0;
     let numDone = 0;
@@ -643,7 +644,7 @@ function imNoteTreeRow(
 
     const root = imNavListRowBegin(c, list); {
         imLayout(c, ROW); imFlex(c); {
-            if (imMemo(c, itemSelected)) {
+            if (selectedChanged) {
                 elSetClass(c, cn.preWrap, itemSelected);
             }
 
@@ -848,26 +849,29 @@ function imNoteTreeRow(
 
                         const textChanged = imMemo(c, note.data.text);
                         let text = imGet(c, String);
-                        if (text === undefined || textChanged) {
+                        if (text === undefined || textChanged || selectedChanged) {
                             let val = note.data.text;
 
-                            const truncationLines = 5;
-                            
-                            let numNewlines = 0;
-                            let pos = 0;
-                            let truncated = false;
-                            let truncatePos = 0;
-                            for (const c of val) {
-                                if (c === '\n') numNewlines++;
-                                if (!truncated && numNewlines >= truncationLines) {
-                                    truncated = true;
-                                    truncatePos = pos;
-                                }
-                                pos++;
-                            }
+                            const shouldTruncate = !selectedChanged;
+                            if (shouldTruncate) {
+                                const truncationLines = 5;
 
-                            if (truncated) {
-                                val = `[${numNewlines} lines] - ${val.substring(0, truncatePos)}...`
+                                let numNewlines = 0;
+                                let pos = 0;
+                                let truncated = false;
+                                let truncatePos = 0;
+                                for (const c of val) {
+                                    if (c === '\n') numNewlines++;
+                                    if (!truncated && numNewlines >= truncationLines) {
+                                        truncated = true;
+                                        truncatePos = pos;
+                                    }
+                                    pos++;
+                                }
+
+                                if (truncated) {
+                                    val = `[${numNewlines} lines] - ${val.substring(0, truncatePos)}...`
+                                }
                             }
 
                             text = imSet(c, val);

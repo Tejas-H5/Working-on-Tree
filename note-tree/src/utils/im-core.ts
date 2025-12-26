@@ -1,12 +1,13 @@
-// IM-CORE 1.048
+// IM-CORE 1.054
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
 import { assert } from "src/utils/assert";
 
 // Conventions
-//  - All methods that call `imGet` at some point in their entire execution or plan on doing it should be prefixed with 'im'.
-//    Conversely, methods that don't do so and will never do so, should NOT be prefixed with 'im'.
+//  - An 'immediate mode' method or 'im' method is any method that eventually _writes_ to the `ImCache`.
+//    These methods should ideally be prefixed with 'im'.
+//    Conversely, methods that don't touch the imCache, or that will only ever _read_ from the imCache, should NOT be prefixed with 'im'.
 //    This allows developers (and in the future, static analysis tools) to know that this method can't be rendered conditionally, or
 //    out of order, similar to how React hooks work. This is really the only convention I would recommend you actually follow.
 //
@@ -16,6 +17,7 @@ import { assert } from "src/utils/assert";
 //    After wasting a lot of time thinking about a convention that 100% covers all bases, and makes it 
 //    obvious which methods push/pop and also saves as much typing as possible, I wasn't able to find a good solution, 
 //    so this is the compromise. 
+//    Some day, I plan on making aneslint rule that will make use of this convention to flag missing closing statements.
 
 export type ImCacheEntries = any[];
 
@@ -69,12 +71,12 @@ export const REMOVE_LEVEL_DESTROYED = 3;
 
 export type RemovedLevel
     = typeof REMOVE_LEVEL_NONE
-    // This is the default remove level. The increase in performance far oughtweighs any memory problems.
-    // The only exception is map entries, which default to being destroyed instead of removed.
-    // This is because keys are usually arbitrary values, and we can have a problem in the case that those values are
-    // constantly recomputed or reloaded - the map will simply keep growing in size forever.
+// This is the default remove level. The increase in performance far oughtweighs any memory problems.
+//
+// The only exception is map entries (created by imKeyedBegin), which default to being destroyed instead of removed.
+// That way, the maps won't grow in size forever - this is very easy when values are immutable, or reloaded frequently enough.
     | typeof REMOVE_LEVEL_DETATCHED   
-    | typeof REMOVE_LEVEL_DESTROYED;  // TODO: test that this level actually works. We haven't had to use it yet.
+    | typeof REMOVE_LEVEL_DESTROYED;
 
 // TypeIDs allow us to provide some basic sanity checks and protection
 // against the possiblity of data corruption that can happen when im-state is accessed 
@@ -336,15 +338,19 @@ export function imGet<T>(
 }
 
 /**
- * NOTE: undefined return type is a lie! Will also return whatever you set with imSet.
+ * Allows you to get/set state inline without using lambdas:
  * ```ts
  * let s; s = imGetInline(c, fn);
  * if (!s) s = imSet(c, { blah });
  * ```ts
+ *
  * Or more concise:
+ *
  * let s; s = imGetInline(c, fn) ?? imSet(c, { blah });
  * ```ts
  * ```
+ * NOTE: undefined return type is a lie! Will also return whatever you set with imSet.
+ * But we want typescript to infer the value of `x = imGet(c) ?? imSet(c, val)` to always be the type of val.
  */
 export function imGetInline(
     c: ImCache,
@@ -599,7 +605,6 @@ export function __imBlockDerivedBegin(c: ImCache, internalType: number): ImCache
 // } imDivEnd(c);
 // ```
 // Each of those methods that 'augment' the call to `imDiv` may have their own initialization logic.
-// TODO: remove this thing. the performance increase is negligble, and is gone as soon as we replace imIsFirstRender with imMemo.
 export function isFirstishRender(c: ImCache): boolean {
     const entries = c[CACHE_CURRENT_ENTRIES];
     return entries[ENTRIES_COMPLETED_ONE_RENDER] === false;
@@ -657,6 +662,7 @@ export function __imBlockDerivedEnd(c: ImCache, internalType: number) {
  * then detatching the things we rendered last time if that was the case. 
  * Even though code like below will work, you should never write it:
  * ```ts
+ * // technically correct but dont do it like this:
  * imIf(c); if (<condition>) {
  * } else {
  *      imElse(c);
@@ -697,7 +703,7 @@ export function imIfEnd(c: ImCache) {
     __imBlockArrayEnd(c);
 }
 
-// All roads lead to rome(TM) design pattern. not sure if good idea or shit idea
+// All roads lead to rome (TM) design pattern. not sure if good idea or shit idea
 export const imEndIf = imIfEnd;
 export const imElse = imIfElse;
 export const imEndSwitch = imSwitchEnd;
@@ -705,6 +711,7 @@ export const imEndFor = imForEnd;
 export const imCatch = imTryCatch;
 
 /**
+ * Example usage:
  * ```ts
  * imSwitch(c, key) switch (key) {
  *      case a: { ... } break;
@@ -712,8 +719,19 @@ export const imCatch = imTryCatch;
  *      case c: { ... } break;
  * } imSwitchEnd(c);
  * ```
- * NOTE: doesn't work as you would expect when you use fallthrough, so don't use fallthrough with imSwitch.
- * Use if-else + imIf/imIfElse/imIfEnd instead.
+ * ERROR: Don't use fallthrough, use if-else + imIf/imIfElse/imIfEnd instead. 
+ * Fallthrough doesn't work as you would expect - for example:
+ * ```ts
+ *  imSwitch(c,key); switch(key) {
+ *          case "A": { imComponent1(c); } // fallthrough (nooo)
+ *          case "B": { imComponent2(c); }
+ *  } imSwitchEnd(c);
+ * ```
+ * When the key is `b`, an instance of imComponent2 is rendered. However,
+ * when the key is `a`, two completely separate instances of `imComponent1` and `imComponent2` are rendered.
+ *      You would expect the `imComponent2` from both switch cases to be the same instance, but they are duplicates 
+ *      with none of the same state.
+ * 
  */
 export function imSwitch(c: ImCache, key: ValidKey) {
     __imBlockDerivedBegin(c, INTERNAL_TYPE_SWITCH_BLOCK);
@@ -939,8 +957,6 @@ export function getDeltaTimeSeconds(c: ImCache): number {
 }
 
 // Events can trigger rerenders in the same frame.
-// Memoizing on this allows us to avoid excess reruns on the same frame
-// for animation/canvas-drawing code
 export function getRenderCount(c: ImCache) {
     return c[CACHE_RENDER_COUNT];
 }
@@ -963,7 +979,7 @@ export function getRenderCount(c: ImCache) {
  * And for things you pass around *a lot* like c: ImCache, you will incur a significant performance
  * hit by using this approach (as of 08/2025) (on top of the perf hit of using this framework).
  *
- * Here is a decision tree you can use to decide whether to use this pattern or not:
+ * Here is a decision matrix you can use to decide whether to use this pattern or not:
  *
  *                                      | I need this state everywhere,    | I infrequently need this value, but the requirement can arise 
  *                                      | and I make sure to pass it as    | naturally somewhere deep node of the component, and I have
