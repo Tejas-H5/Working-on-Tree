@@ -114,12 +114,14 @@ export function asNoteTreeGlobalState(val: unknown) {
         }
     });
 
-    const marksArr = mustGetDefined(asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks")))
-    state.marks = marksArr.map(val => {
-        const valNum = asNumber(val);
-        if (valNum === undefined) return null;
-        return valNum as NoteId;
-    }).slice(0, 10);
+    const marksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks"));
+    if (marksArr) {
+        state.marks = marksArr.map(val => {
+            const valNum = asNumber(val);
+            if (valNum === undefined) return null;
+            return valNum as NoteId;
+        }).slice(0, 10);
+    }
 
     deserializeObject(state, stateObj);
 
