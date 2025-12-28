@@ -1,4 +1,4 @@
-// IM-CORE 1.054
+// IM-CORE 1.055
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -17,7 +17,10 @@ import { assert } from "src/utils/assert";
 //    After wasting a lot of time thinking about a convention that 100% covers all bases, and makes it 
 //    obvious which methods push/pop and also saves as much typing as possible, I wasn't able to find a good solution, 
 //    so this is the compromise. 
-//    Some day, I plan on making aneslint rule that will make use of this convention to flag missing closing statements.
+//    Some day, I plan on making an eslint rule that will make use of this convention to flag missing closing statements.
+//    The missing open/close statements not being paired correctly bug is not always caught, and there can be 
+//    pretty big consequences. I have been working at making this as unlikely as possible, with typeIds and such, 
+//    but it is still the main thing stopping me from publically advertising this framework ... 
 
 export type ImCacheEntries = any[];
 

@@ -301,7 +301,7 @@ const menus: MenuItem[] = [
                                             importModalState.acceptPresses++;
                                             if (importModalState.acceptPresses >= REQUIRED_PRESSES && !importModalState.imported) {
                                                 setState(loadedState);
-                                                saveCurrentState(ctx, state, { debounced: false });
+                                                saveCurrentState(ctx, state, { debounced: false, where: "Backup import" });
                                                 setCurrentView(ctx, ctx.views.noteTree);
                                             }
                                         }

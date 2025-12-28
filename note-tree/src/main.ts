@@ -112,7 +112,7 @@ import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
 import { validateSchemas } from "./schema";
-import { imGraphMappingsView } from "./app-views/graph-view";
+import { imGraphMappingsEditorView } from "./app-views/graph-view";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -352,10 +352,34 @@ function imMainInner(c: ImCache) {
 
                     if (imIf(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
-                    } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings || true) {
-                        imGraphMappingsView(c, ctx, ctx.views.mappings);
+                    } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings) {
+                        imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph);
+                        if (imMemo(c, state.mappingGraph._version)) {
+                            debouncedSave(ctx, state, "ImMain - graph edit");
+                        }
                     } else {
                         imIfElse(c);
+
+                        if (!IS_RUNNING_FROM_FILE) {
+                            imLayout(c, BLOCK); imFixed(c, 0, NA, 20, PERCENT, 10, PX, 0, NA); {
+                                imLayout(c, BLOCK); imButton(c); {
+                                    if (isFirstishRender(c)) {
+                                        elSetStyle(c, "padding", "10px");
+                                        elSetStyle(c, "borderRadius", "5px");
+                                        elSetStyle(c, "border", "1px solid " + cssVars.fg);
+                                    }
+
+                                    imStr(c, "Download this page, and run it offline!");
+
+                                    if (elHasMouseClick(c)) {
+                                        const linkEl = document.createElement("a");
+                                        linkEl.setAttribute("download", "note-tree.html");
+                                        linkEl.setAttribute("href", window.location.href);
+                                        linkEl.click();
+                                    }
+                                } imLayoutEnd(c);
+                            } imLayoutEnd(c);
+                        }
 
                         imLayout(c, ROW); imFlex(c); {
                             // TODO: think about this.
@@ -437,32 +461,6 @@ function imMainInner(c: ImCache) {
                             }
                         } imLayoutEnd(c);
                     } imIfEnd(c);
-
-                    if (!IS_RUNNING_FROM_FILE) {
-                        imLayout(c, BLOCK); imFixed(c, 0, NA, 0, NA, 50, PX, 50, PERCENT); {
-                            if (isFirstishRender(c)) {
-                                // bruh ...
-                                elSetStyle(c, "transform", "translate(-50%, 0)");
-                            }
-
-                            imLayout(c, BLOCK); imButton(c); {
-                                if (isFirstishRender(c)) {
-                                    elSetStyle(c, "padding", "10px");
-                                    elSetStyle(c, "borderRadius", "5px");
-                                    elSetStyle(c, "border", "1px solid " + cssVars.fg);
-                                }
-
-                                imStr(c, "Download this page, and run it offline!");
-
-                                if (elHasMouseClick(c)) {
-                                    const linkEl = document.createElement("a");
-                                    linkEl.setAttribute("download", "note-tree.html");
-                                    linkEl.setAttribute("href", window.location.href);
-                                    linkEl.click();
-                                }
-                            } imLayoutEnd(c);
-                        } imLayoutEnd(c);
-                    }
                 } imLayoutEnd(c);
             } 
 
@@ -536,6 +534,14 @@ function imMainInner(c: ImCache) {
                     }
                     ctx.views.activities.inputs.activityFilter = null;
                 } 
+
+
+                if (
+                    ctx.currentView !== ctx.views.settings &&
+                    hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
+                ) {
+                    setCurrentView(ctx, ctx.views.settings);
+                }
 
                 if (
                     ctx.currentView !== ctx.views.mappings &&

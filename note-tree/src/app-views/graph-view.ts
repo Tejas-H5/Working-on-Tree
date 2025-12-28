@@ -8,10 +8,7 @@ import {
     imAlign,
     imBg,
     imButton,
-    imFg,
     imFlex,
-    imFlex1,
-    imGap,
     imJustify,
     imLayout,
     imLayoutEnd,
@@ -22,14 +19,14 @@ import {
     NA,
     PX,
     ROW,
+    SizeUnits,
     STRETCH
 } from "src/components/core/layout";
 import { cn, cssVars } from "src/components/core/stylesheets";
-import { imB } from "src/components/core/text";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { imTextInputOneLine } from "src/components/text-input";
-import { GlobalContext } from "src/global-context";
-import { arrayAt, filterInPlace } from "src/utils/array-utils";
+import { arrayAt } from "src/utils/array-utils";
+import { assert } from "src/utils/assert";
 import {
     getDeltaTimeSeconds,
     ImCache,
@@ -39,6 +36,7 @@ import {
     imIfElse,
     imIfEnd,
     imMemo,
+    imState,
     isFirstishRender
 } from "src/utils/im-core";
 import {
@@ -85,14 +83,14 @@ export function newGraphMappingConcept(x: number, y: number, name: string): Grap
 }
 
 // Not managed by the user. The system will infer them via the description!
-export type GraphRelationship = {
+export type GraphMappingRelationship = {
     relationshipName: string;
     description: string;
     srcId: number;
     dstId: number;
 };
 
-export function newGraphRelationship(srcId: number, dstId: number) {
+export function newGraphMappingRelationship(srcId: number, dstId: number): GraphMappingRelationship {
     return {
         relationshipName: "",
         description: "",
@@ -101,11 +99,26 @@ export function newGraphRelationship(srcId: number, dstId: number) {
     };
 }
 
-export type GraphMappingsViewState = {
+export type MappingGraph = {
+    _version: number;
     // Order of the items will never change, as their index is also their ID. 
     // Also means the UI doesn't need to use keys to render them though, unless it is doing it's own sorting.
     concepts: (GraphMappingConcept | null)[];
-    relationships: (GraphRelationship | null)[];
+    relationships: (GraphMappingRelationship | null)[];
+}
+
+export function newMappingGraph(): MappingGraph {
+    return {
+        _version: 0,
+        concepts: [],
+        relationships: [],
+    };
+}
+
+export type GraphMappingsViewState = {
+    graph: MappingGraph;
+
+    conceptsUiState: MappingConceptUiState[];
 
     newName: string;
 
@@ -155,13 +168,23 @@ export type GraphMappingsViewState = {
 
     relationshipCurrentlyEditingIdx: number;
     relationshipRightClickedOnIdx: number;
-
-    _version: number;
 };
+
+type MappingConceptUiState = {
+    size: { width: number; height: number; };
+};
+
+function conceptUiState(): MappingConceptUiState {
+    return {
+        size: { width: 0, height: 0 },
+    };
+}
 
 export function newGraphMappingsViewState(): GraphMappingsViewState {
     const result: GraphMappingsViewState = {
-        concepts: [],
+        graph: newMappingGraph(),
+
+        conceptsUiState: [],
 
         newName: "",
 
@@ -211,14 +234,11 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
         relationshipCurrentlyEditingIdx: -1,
         relationshipRightClickedOnIdx: -1,
-
-        relationships: [],
-        _version: 0,
     };
 
-    result.concepts.push(newGraphMappingConcept(100, 100, "A"));
-    result.concepts.push(newGraphMappingConcept(500, 100, "B"));
-    result.relationships.push(newGraphRelationship(0, 1));
+    result.graph.concepts.push(newGraphMappingConcept(100, 100, "A"));
+    result.graph.concepts.push(newGraphMappingConcept(500, 100, "B"));
+    result.graph.relationships.push(newGraphMappingRelationship(0, 1));
 
     return result;
 }
@@ -264,13 +284,25 @@ function toScreenY(s: GraphMappingsViewState, y: number) {
 }
 
 
-function lerp(a: number, b: number, t: number) {
+function lerpClamped(a: number, b: number, t: number) {
+    t = clamp(t, 0, 1);
+
     if (Math.abs(a - b) < 0.0001) return b;
 
     return (1 - t) * a + t * b;
 }
 
-export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMappingsViewState) {
+function clamp(t: number, a: number, b: number) {
+    if (t < a) t = a;
+    if (t > b) t = b;
+    return t;
+}
+
+export function imGraphMappingsEditorView(
+    c: ImCache,
+    s: GraphMappingsViewState,
+    graph: MappingGraph
+) {
     let edited = false;
 
     const { mouse } = getGlobalEventSystem();
@@ -280,6 +312,8 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
     const contextMenu = imContextMenu(c);
 
     const root = imLayout(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true); {
+        const rootRect = root.getBoundingClientRect();
+
         if (imMemo(c, s.zoom)) elSetStyle(c, "fontSize", s.zoom + "rem");
         if (isFirstishRender(c)) elSetStyle(c, "cursor", "move");
 
@@ -289,8 +323,10 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
         // zooming in and out
         {
             if (scrollAmount) {
-                const scrollSpeed = 0.5;
-                s.targetZoom /= 1.0 + scrollAmount * scrollSpeed;
+                const scrollSpeed = 0.2;
+                const divisor = clamp(1.0 + scrollAmount * scrollSpeed, 0.2, 1.8)
+                s.targetZoom /= divisor;
+                console.log(divisor);
                 if (s.targetZoom < 0.01) s.targetZoom = 0.01;
                 if (s.targetZoom > 10) s.targetZoom = 10;
             }
@@ -305,7 +341,7 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
                 const zoomCenterY = toGraphY(s, zoomCenterYScreen);
 
                 // TODO: technically wrog way to use lerp with deltatime but I keep forgetting the real one. Maybe the framework should just have it?
-                s.zoom = lerp(s.zoom, s.targetZoom, dt * 40);
+                s.zoom = lerpClamped(s.zoom, s.targetZoom, dt * 40);
 
                 const zoomCenterXAfterZoom = toGraphX(s, zoomCenterXScreen);
                 const zoomCenterYAfterZoom = toGraphY(s, zoomCenterYScreen);
@@ -323,14 +359,15 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
         const ctxEv = imOn(c, EV_CONTEXTMENU);
         if (ctxEv) {
             s.conceptRightClickedOnIdx = -1;
+            s.relationshipRightClickedOnIdx = -1;
         }
 
-        imFor(c); for (let relId = 0; relId < s.relationships.length; relId++) {
-            const rel = s.relationships[relId];
+        imFor(c); for (let relId = 0; relId < graph.relationships.length; relId++) {
+            const rel = graph.relationships[relId];
             if (!rel) continue;
 
-            const src = arrayAt(s.concepts, rel.srcId);
-            const dst = arrayAt(s.concepts, rel.dstId);
+            const src = arrayAt(graph.concepts, rel.srcId);
+            const dst = arrayAt(graph.concepts, rel.dstId);
             if (!src || !dst) continue;
 
             const x0 = toScreenX(s, src.x);
@@ -338,56 +375,21 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
             const x1 = toScreenX(s, dst.x);
             const y1 = toScreenY(s, dst.y);
 
-            const editing = s.relationshipCurrentlyEditingIdx === relId;
+            let labelX, labelY;
 
-            const isFlipped = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c, STRETCH); imGap(c, 20, PX); {
+            const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c, STRETCH); {
                 // handleedge
                 imLayout(c, ROW); imFlex(c); imAlign(c); {  
                     const col = elHasMouseOver(c) ? "red" : cssVars.fg;
                     imLayout(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
                 } imLayoutEnd(c);
 
-                imLayout(c, BLOCK); {
-                    if (imIf(c) && editing) {
-                        if (imMemo(c, true)) s.newName = rel.relationshipName || "Unnamed";
+                const midpointDiv = imLayout(c, BLOCK); imSize(c, 1, PX, 1, PX); imLayoutEnd(c);
+                const rect = midpointDiv.getBoundingClientRect();
+                labelX = rect.x - rootRect.x;
+                labelY = rect.y - rootRect.y;
 
-                        const ev = imTextInputOneLine(c, s.newName, "Name...", true, true);
-                        if (ev) {
-                            if (ev.newName !== undefined) {
-                                s.newName = ev.newName;
-                            }
-                            if (ev.submit !== undefined) {
-                                rel.relationshipName = s.newName;
-                                s.relationshipCurrentlyEditingIdx = -1;
-                                edited = true;
-                            }
-                            if (ev.cancel) {
-                                s.relationshipCurrentlyEditingIdx = -1;
-                            }
-                        }
-                    } else {
-                        imIfElse(c);
-
-                        if (ctxEv && elHasMouseOver(c)) {
-                            s.relationshipRightClickedOnIdx = relId;
-                        }
-
-                        imLayout(c, BLOCK); {
-                            if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
-
-                            /// imStr(c, rel.srcId);
-                            imStr(c, isFlipped ? " <<<<< " : " >>>>> "); // TODO: ARROWS!
-                            imStr(c, rel.relationshipName || "Unnamed");
-                            imStr(c, isFlipped ? " <<<<< " : " >>>>> "); // TODO: ARROWS!
-                            // imStr(c, rel.dstId);
-
-                            const dblClickEv = imOn(c, EV_DBLCLICK);
-                            if (dblClickEv) {
-                                s.relationshipCurrentlyEditingIdx = relId;
-                            }
-                        } imLayoutEnd(c);
-                    } imIfEnd(c);
-                } imLayoutEnd(c);
+                // edited = imRelationshipLabel(c, s, rel, relId, lineState.isUpsideDown, ctxEv) || edited;
 
                 // handleedge
                 imLayout(c, ROW); imFlex(c); imAlign(c); {  
@@ -395,9 +397,14 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
                     imLayout(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
+
+            imLayout(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); {
+                if (isFirstishRender(c)) elSetStyle(c, "transform", "translate(-50%, -50%");
+                edited = imRelationshipLabel(c, s, rel, relId, lineState.isUpsideDown, ctxEv) || edited;
+            } imLayoutEnd(c);
         } imForEnd(c);
 
-        const dragStart = arrayAt(s.concepts, s.dragNewEdge.srcId);
+        const dragStart = arrayAt(graph.concepts, s.dragNewEdge.srcId);
         if (imIf(c) && dragStart) {
             const x0 = toScreenX(s, dragStart.x);
             const y0 = toScreenY(s, dragStart.y);
@@ -421,14 +428,25 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
             } imLayoutEnd(c);
         } imIfEnd(c);
 
-        imFor(c); for (let conceptId = 0; conceptId < s.concepts.length; conceptId++) {
-            const concept = s.concepts[conceptId];
+        // Ensure parity
+        s.conceptsUiState.length = graph.concepts.length;
+        for (let i = 0; i < s.conceptsUiState.length; i++) {
+            if (!s.conceptsUiState[i]) s.conceptsUiState[i] = conceptUiState();
+        }
+        imFor(c); for (let conceptId = 0; conceptId < graph.concepts.length; conceptId++) {
+            const concept = graph.concepts[conceptId];
             if (!concept) continue;
 
             const editing = conceptId === s.conceptCurrentlyEditingIdx;
             let dragging = conceptId === s.dragConcept.draggingIdx;
 
-            imLayout(c, BLOCK); {
+            const conceptUiState = s.conceptsUiState[conceptId]; assert(!!conceptUiState);
+
+            const nodeRoot = imLayout(c, BLOCK); {
+                const rect = nodeRoot.getBoundingClientRect();
+                conceptUiState.size.width = rect.width;
+                conceptUiState.size.height = rect.height;
+
                 imAbsoluteXY(c, toScreenX(s, concept.x), PX, toScreenY(s, concept.y), PX);
                 imPadding(c, 20, PX, 20, PX, 20, PX, 20, PX);
 
@@ -528,9 +546,9 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
 
                         if (!mouse.leftMouseButton) {
                             // Drag accepted!
-                            const rel = newGraphRelationship(s.dragNewEdge.srcId, conceptId);
-                            pushToNullableArray(s.relationships, rel);
-
+                            const rel = newGraphMappingRelationship(s.dragNewEdge.srcId, conceptId);
+                            const idx = pushToNullableArray(graph.relationships, rel);
+                            s.relationshipCurrentlyEditingIdx = idx;
                             s.dragNewEdge.srcId = -1;
                         }
                     }
@@ -576,14 +594,14 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
                         "Unnamed",
                     );
 
-                    pushToNullableArray(s.concepts, newConcept);
-                    s.conceptCurrentlyEditingIdx = s.concepts.length - 1;
+                    const idx = pushToNullableArray(graph.concepts, newConcept);
+                    s.conceptCurrentlyEditingIdx = idx;
 
                     contextMenu.open = false;
                 }
             } imLayoutEnd(c);
 
-            const conceptClickedOn = arrayAt(s.concepts, s.conceptRightClickedOnIdx);
+            const conceptClickedOn = arrayAt(graph.concepts, s.conceptRightClickedOnIdx);
             if (imIf(c) && conceptClickedOn) {
                 const conceptId = s.conceptRightClickedOnIdx;
 
@@ -600,13 +618,13 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
                 imContextMenuItem(c); {
                     imStr(c, "Delete concept");
                     if (elHasMousePress(c)) {
-                        deleteConcept(s, conceptId);
+                        deleteConcept(graph, conceptId);
                         contextMenu.open = false;
                     }
                 } imLayoutEnd(c);
             } imIfEnd(c);
 
-            const relClickedOn = arrayAt(s.relationships, s.relationshipRightClickedOnIdx);
+            const relClickedOn = arrayAt(graph.relationships, s.relationshipRightClickedOnIdx);
             if (imIf(c) && relClickedOn) {
                 const relId = s.relationshipRightClickedOnIdx;
 
@@ -622,7 +640,7 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
                 imContextMenuItem(c); {
                     imStr(c, "Delete relationship");
                     if (elHasMousePress(c)) {
-                        deleteRelationship(s, relId)
+                        deleteRelationship(graph, relId)
                         contextMenu.open = false;
                     }
                 } imLayoutEnd(c);
@@ -631,7 +649,7 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
     } imIfEnd(c);
 
     if (edited) {
-        s._version++;
+        graph._version++;
     }
 
     // Some code above will check if elHasMouseOver() && dragInProgress && !mouseLeftButton
@@ -641,9 +659,70 @@ export function imGraphMappingsView(c: ImCache, ctx: GlobalContext, s: GraphMapp
         s.dragConcept.draggingIdx = -1;
         s.pan.isPanning = false;
         s.dragNewEdge.srcId = -1;
-        console.log("Cancel drag");
     }
 
+}
+
+function imRelationshipLabel(
+    c: ImCache,
+    s: GraphMappingsViewState,
+    rel: GraphMappingRelationship,
+    relId: number,
+    isFlipped: boolean,
+    ctxEv: MouseEvent | null,
+) {
+    let edited = false;
+
+    const editing = s.relationshipCurrentlyEditingIdx === relId;
+
+    imLayout(c, ROW); imBg(c, cssVars.bg); {
+        if (imIf(c) && editing) {
+            if (imMemo(c, true)) s.newName = rel.relationshipName || "Unnamed";
+
+            const ev = imTextInputOneLine(c, s.newName, "Name...", true, true);
+            if (ev) {
+                if (ev.newName !== undefined) {
+                    s.newName = ev.newName;
+                }
+                if (ev.submit !== undefined) {
+                    rel.relationshipName = s.newName;
+                    s.relationshipCurrentlyEditingIdx = -1;
+                    edited = true;
+                }
+                if (ev.cancel) {
+                    s.relationshipCurrentlyEditingIdx = -1;
+                }
+            }
+        } else {
+            imIfElse(c);
+
+            if (ctxEv && elHasMouseOver(c)) {
+                s.relationshipRightClickedOnIdx = relId;
+            }
+
+            imLayout(c, ROW); {
+                if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
+
+                imStr(c, isFlipped ? " <<< " : " >>> "); // TODO: ARROWS!
+                imStr(c, rel.relationshipName || "Unnamed");
+                imStr(c, isFlipped ? " <<< " : " >>> "); // TODO: ARROWS!
+
+                const dblClickEv = imOn(c, EV_DBLCLICK);
+                if (dblClickEv) {
+                    s.relationshipCurrentlyEditingIdx = relId;
+                }
+            } imLayoutEnd(c);
+        } imIfEnd(c);
+    } imLayoutEnd(c);
+
+    return edited;
+}
+
+function imLineLayoutState() {
+    return {
+        isUpsideDown: false,
+        angle: 0,
+    };
 }
 
 function imLayoutLine(
@@ -652,12 +731,14 @@ function imLayoutLine(
     x0: number, y0: number,
     x1: number, y1: number,
     neverUpsideDown = true,
-): boolean {
-    let isUpsideDown = x1 < x0;
+) {
+    const s = imState(c, imLineLayoutState);
+
+    s.isUpsideDown = x1 < x0;
 
     if (neverUpsideDown) {
         // try to make the line go left -> right so that the contents are never upside down
-        if (isUpsideDown) {
+        if (s.isUpsideDown) {
             let temp = x1;
             x1 = x0;
             x0 = temp;
@@ -673,16 +754,16 @@ function imLayoutLine(
 
     const dx = x1 - x0;
     const dy = y1 - y0;
-    let angle = Math.atan2(dy, dx);
+    s.angle = Math.atan2(dy, dx);
 
-    elSetStyle(c, "transform", `translate(0, -50%) rotate(${angle}rad)`)
+    elSetStyle(c, "transform", `translate(0, -50%) rotate(${s.angle}rad)`)
     elSetStyle(c, "transformOrigin", "center left")
     const len = Math.sqrt(dx * dx + dy * dy);
     elSetStyle(c, "width", len + "px");
 
     // imLayoutEnd
 
-    return isUpsideDown;
+    return s;
 }
 
 function imContextMenuItem(c: ImCache) {
@@ -690,19 +771,19 @@ function imContextMenuItem(c: ImCache) {
     } // imLayoutEnd
 }
 
-function deleteConcept(s: GraphMappingsViewState, conceptId: number) {
-    if (conceptId < 0 && conceptId >= s.concepts.length) return;
+function deleteConcept(graph: MappingGraph, conceptId: number) {
+    if (conceptId < 0 && conceptId >= graph.concepts.length) return;
 
-    s.concepts[conceptId] = null;
-    for (let relId = 0; relId < s.relationships.length; relId++) {
-        const rel = s.relationships[relId];
+    graph.concepts[conceptId] = null;
+    for (let relId = 0; relId < graph.relationships.length; relId++) {
+        const rel = graph.relationships[relId];
         if (!rel) continue;
         if (rel.srcId !== conceptId && rel.dstId !== conceptId) continue;
-        s.relationships[relId] = null;
+        graph.relationships[relId] = null;
     }
 }
 
-function deleteRelationship(s: GraphMappingsViewState, relId: number) {
-    if (relId < 0 && relId >= s.relationships.length) return;
-    s.relationships[relId] = null;
+function deleteRelationship(graph: MappingGraph, relId: number) {
+    if (relId < 0 && relId >= graph.relationships.length) return;
+    graph.relationships[relId] = null;
 }

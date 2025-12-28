@@ -233,6 +233,10 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
     src[key] = undefined;
 }
 
+// NOTE: only values that can't be inferred from the default type need to be manually extracted
+// and serialized sepratately:
+// - nullable values
+// - arrays, maps, sets
 export function deserializeObject<T extends JSONRecord>(dst: T, src: JSONRecord, rootName = "") {
     for (const k in dst) {
         deserializeObjectKey(dst, src, k, 0, rootName);

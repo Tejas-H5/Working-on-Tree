@@ -57,18 +57,13 @@ export function imSize(
     if (size.width !== width || size.wType !== wType) {
         size.width = width;
         size.wType = wType;
-        elSetStyle(c, "minWidth", getSize(width, wType));
-        elSetStyle(c, "maxWidth", getSize(width, wType));
         elSetStyle(c, "width",    getSize(width, wType)); // Edge compatibility
     }
 
     if (size.height !== height || size.hType !== hType) {
         size.height = height;
         size.hType = hType;
-        elSetStyle(c, "minHeight", getSize(height, hType));
-        elSetStyle(c, "maxHeight", getSize(height, hType));
-        // Actually need to comment this out for it to work xDDD 
-        // elSetStyle(c, "height",    getSize(height, hType)); 
+        elSetStyle(c, "height",    getSize(height, hType)); 
     }
 
     return size;

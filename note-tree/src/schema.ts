@@ -25,6 +25,7 @@ import {
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
+import { GraphMappingConcept, GraphMappingRelationship, MappingGraph, newGraphMappingConcept, newGraphMappingRelationship, newMappingGraph } from "./app-views/graph-view";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -100,7 +101,7 @@ export function asNoteTreeGlobalState(val: unknown) {
         activity.deleted   = asTrue(extractKey<Activity>(activityObj, "deleted"));
         activity.c         = asNumber(extractKey<Activity>(activityObj, "c"));
 
-        deserializeObject(activity, activityObj);
+        deserializeObject(activity, activityObj, "activities");
 
         return activity;
     });
@@ -113,6 +114,31 @@ export function asNoteTreeGlobalState(val: unknown) {
             throw new Error("Activities weren't sorted " + i);
         }
     });
+
+    const mappingGraphObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "mappingGraph"));
+    if (mappingGraphObj) {
+        const concepts = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "concepts")));
+        state.mappingGraph.concepts = concepts.map(conceptVal => {
+            const obj = asObject(conceptVal);
+            if (!obj) return null;
+
+            const value = newGraphMappingConcept(-1, -1, "");
+            deserializeObject(value, obj, "mappingGraph.concepts");
+            return value;
+        });
+
+        const relationships = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "relationships")));
+        state.mappingGraph.relationships = relationships.map(relationshipVal => {
+            const obj = asObject(relationshipVal);
+            if (!obj) return null;
+            
+            const value = newGraphMappingRelationship(-1, -1);
+            deserializeObject(value, obj, "mappingGraph.concepts");
+            return value;
+        });
+
+        deserializeObject(state.mappingGraph, mappingGraphObj);
+    }
 
     const marksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks"));
     if (marksArr) {

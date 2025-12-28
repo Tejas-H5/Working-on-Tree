@@ -7,6 +7,7 @@ import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { MappingGraph, newMappingGraph } from "./app-views/graph-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -74,6 +75,8 @@ export type NoteTreeGlobalState = {
     // Indices map to 1234567890 on the keyboard, so there can only be 10 of these. 
     // probably only the first 4 will ever be used.
     marks: (NoteId | null)[];
+
+    mappingGraph: MappingGraph;
 
     _activitiesTraversalIdx: number;
     _jumpBackToId: NoteId;
@@ -292,6 +295,8 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         settings: newAppSettings(),
 
         marks: [],
+
+        mappingGraph: newMappingGraph(),
 
         currentTheme: "Light",
         criticalSavingError: "",

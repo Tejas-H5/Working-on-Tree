@@ -491,7 +491,7 @@ export function reloadStateIfNewer(isRecursivePath = false): boolean {
 }
 
 let saveTimeout = 0;
-export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState, { debounced } = { debounced: false }) {
+export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState, { debounced, where } = { debounced: false, where: "unknown" }) {
     if (reloadStateIfNewer()) {
         return;
     }
@@ -506,6 +506,8 @@ export function saveCurrentState(ctx: GlobalContext, state: NoteTreeGlobalState,
             logTrace("The state changed unexpectedly! let's not save...");
             return;
         }
+
+        logTrace("Save initiated via " + where);
 
         // save current note
         saveState(thisState, (serialized) => {
@@ -581,8 +583,7 @@ function showStatusText(
 
 export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState, where: string) {
     assert(!!where);
-    logTrace("Save initiated via " + where);
-    saveCurrentState(ctx, state, { debounced: true });
+    saveCurrentState(ctx, state, { debounced: true, where });
 };
 
 
