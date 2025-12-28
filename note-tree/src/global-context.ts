@@ -14,6 +14,7 @@ import { getGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
 
 const SAVE_DEBOUNCE = 1500;
 
@@ -39,6 +40,7 @@ export type GlobalContext = {
         finder:     FuzzyFinderViewState;
         settings:   SettingsViewState;
         durations:  DurationsViewState;
+        mappings:   GraphMappingsViewState;
     };
     currentView: unknown;
     leftTab: unknown;
@@ -151,6 +153,7 @@ export function newGlobalContext(): GlobalContext {
             finder:     newFuzzyFinderViewState(),
             settings:   newSettingsViewState(),
             durations:  newDurationsViewState(),
+            mappings:   newGraphMappingsViewState(),
         },
         notLockedIn: true,
 
@@ -309,6 +312,7 @@ type KeyboardState = {
     fKey: KeyState;
     mKey: KeyState;
     hKey: KeyState;
+    gKey: KeyState;
 
     enterKey:  KeyState;
     escapeKey: KeyState;
@@ -356,6 +360,7 @@ function newKeyboardState(): KeyboardState {
         fKey: newKeyState("F", "F", "f"),
         mKey: newKeyState("M", "M", "m"),
         hKey: newKeyState("H", "H", "h"),
+        gKey: newKeyState("G", "G", "g"),
 
         enterKey:  newKeyState("Enter", "Enter"),
         escapeKey: newKeyState("Esc", "Escape"),

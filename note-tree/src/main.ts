@@ -112,6 +112,7 @@ import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
 import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
 import { validateSchemas } from "./schema";
+import { imGraphMappingsView } from "./app-views/graph-view";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -351,6 +352,8 @@ function imMainInner(c: ImCache) {
 
                     if (imIf(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
+                    } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings || true) {
+                        imGraphMappingsView(c, ctx, ctx.views.mappings);
                     } else {
                         imIfElse(c);
 
@@ -381,9 +384,6 @@ function imMainInner(c: ImCache) {
                             } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL, 1);
-                            // imLayout(c, BLOCK); {
-                            //     imInitStyles(`width: 1px; background-color: ${cssVarsApp.fgColor};`)
-                            // } imLayoutEnd(c);
 
                             if (
                                 ctx.currentView !== ctx.views.noteTree &&
@@ -515,13 +515,33 @@ function imMainInner(c: ImCache) {
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
-                }
+                } 
 
                 if (
-                    ctx.currentView !== ctx.views.settings &&
-                    hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
+                    !ctx.viewingDurations && 
+                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Duration timesheet")
                 ) {
-                    setCurrentView(ctx, ctx.views.settings);
+                    ctx.viewingDurations = true;
+                    setCurrentView(ctx, ctx.views.durations);
+                } else if (
+                    ctx.viewingDurations &&
+                    hasDiscoverableCommand(
+                        ctx, ctx.keyboard.escapeKey, "Close timesheet",
+                        ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
+                    )
+                ) {
+                    ctx.viewingDurations = false;
+                    if (ctx.currentView === ctx.views.durations) {
+                        setCurrentView(ctx, ctx.views.noteTree);
+                    }
+                    ctx.views.activities.inputs.activityFilter = null;
+                } 
+
+                if (
+                    ctx.currentView !== ctx.views.mappings &&
+                    hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Mappings Graph")
+                ) {
+                    setCurrentView(ctx, ctx.views.mappings);
                 }
 
                 // back to the last note when escape pressed

@@ -13,9 +13,9 @@ export type SizeUnitInstance = number & { __sizeUnit: void; };
 export const PX = 10001 as SizeUnitInstance;
 export const EM = 20001 as SizeUnitInstance;
 export const PERCENT = 30001 as SizeUnitInstance;
-export const REM = 50001 as SizeUnitInstance;
+export const REM = 40001 as SizeUnitInstance;
 export const CH = 50001 as SizeUnitInstance;
-export const NA = 40001 as SizeUnitInstance; // Not applicable. Nahh. 
+export const NA = 60001 as SizeUnitInstance; // Not applicable. Nahh. 
 
 export type SizeUnits = typeof PX |
     typeof EM |
@@ -141,6 +141,20 @@ export function imBg(c: ImCache, colour: string) {
     }
 }
 
+export function imFg(c: ImCache, colour: string) {
+    if (imMemo(c, colour)) {
+        elSetStyle(c, "color", colour);
+    }
+}
+
+export function imFontSize(c: ImCache, size: number, units: SizeUnits) {
+    const sizeChanged = imMemo(c, size);
+    const unitsChanged = imMemo(c, units);
+    if (sizeChanged || unitsChanged) {
+        elSetStyle(c, "fontSize", getSize(size, units));
+    }
+}
+
 export type DisplayTypeInstance = number & { __displayType: void; };
 
 /**
@@ -154,16 +168,16 @@ export type DisplayTypeInstance = number & { __displayType: void; };
  *      imStr(c, "World"); 
  *  } imLayoutEnd(c);
  */
-export const BLOCK        = 1 as DisplayTypeInstance;
+export const BLOCK = 1 as DisplayTypeInstance;
 export const INLINE_BLOCK = 2 as DisplayTypeInstance;
-export const INLINE       = 3 as DisplayTypeInstance;
-export const ROW          = 4 as DisplayTypeInstance;
-export const ROW_REVERSE  = 5 as DisplayTypeInstance;
-export const COL          = 6 as DisplayTypeInstance;
-export const COL_REVERSE  = 7 as DisplayTypeInstance;
-export const TABLE        = 8 as DisplayTypeInstance;
-export const TABLE_ROW    = 9 as DisplayTypeInstance;
-export const TABLE_CELL   = 10 as DisplayTypeInstance;
+export const INLINE = 3 as DisplayTypeInstance;
+export const ROW = 4 as DisplayTypeInstance;
+export const ROW_REVERSE = 5 as DisplayTypeInstance;
+export const COL = 6 as DisplayTypeInstance;
+export const COL_REVERSE = 7 as DisplayTypeInstance;
+export const TABLE = 8 as DisplayTypeInstance;
+export const TABLE_ROW = 9 as DisplayTypeInstance;
+export const TABLE_CELL = 10 as DisplayTypeInstance;
 
 export type DisplayType 
     = typeof BLOCK 
@@ -175,6 +189,12 @@ export type DisplayType
     | typeof TABLE 
     | typeof TABLE_ROW  
     | typeof TABLE_CELL;
+
+export function imFlex1(c: ImCache) {
+    imLayout(c, BLOCK); {
+        if (isFirstishRender(c)) elSetStyle(c, "flex", "1");
+    } imLayoutEnd(c);
+}
 
 export function imLayout(c: ImCache, type: DisplayType) {
     const root = imEl(c, EL_DIV);
@@ -251,6 +271,8 @@ export const NONE = 0;
 export const CENTER = 1;
 export const LEFT = 2;
 export const RIGHT = 3;
+export const START = 2;
+export const END = 3;
 export const STRETCH = 4;
 
 function getAlignment(alignment: number) {
@@ -259,6 +281,8 @@ function getAlignment(alignment: number) {
         case CENTER:  return "center";
         case LEFT:    return "left";
         case RIGHT:   return "right";
+        case START:   return "start";
+        case END:     return "end";
         case STRETCH: return "stretch";
     }
     return "";
@@ -352,6 +376,11 @@ function imOffsets(
 }
 
 
+/**
+ * 'Trouble' acronymn. Top Right Bottom Left. This is what we have resorted to.
+ * Silly order. But it's the css standard convention.
+ * I would have preferred (left, top), (right, bottom). You know, (x=0, y=0) -> (x=width, y=height) in HTML coordinates. xD
+ */
 export function imAbsolute(
     c: ImCache,
     top: number, topType: SizeUnits,
@@ -369,6 +398,20 @@ export function imAbsolute(
         right, rightType,
         bottom, bottomType,
         left, leftType,
+    );
+}
+
+export function imAbsoluteXY(c: ImCache, x: number, xType: SizeUnits, y: number, yUnits: SizeUnits) {
+    if (isFirstishRender(c)) {
+        elSetClass(c, cn.absolute);
+    }
+
+    imOffsets(
+        c,
+        y, yUnits,
+        0, NA,
+        0, NA, 
+        x, xType
     );
 }
 
@@ -400,5 +443,11 @@ export function imAspectRatio(c: ImCache, w: number, h: number) {
     const ar = w / h;
     if (imMemo(c, ar)) {
         elSetStyle(c, "aspectRatio", w + " / " + h);
+    }
+}
+
+export function imZIndex(c: ImCache, z: number) {
+    if (imMemo(c, z)) {
+        elSetStyle(c, "zIndex", "" + z);
     }
 }

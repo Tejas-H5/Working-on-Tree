@@ -1,4 +1,5 @@
-// IM-DOM 1.35
+// IM-DOM 1.43
+// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm.
 
 import { assert } from "src/utils/assert";
 import {
@@ -31,7 +32,8 @@ export type DomAppender<E extends AppendableElement> = {
     // depending on how the browser has implemented DOM node rendering.
     manualDom: boolean;
     // if null, root is a text node. else, it can be appended to.
-    children: (DomAppender<any>[] | null);
+    children: (DomAppender<AppendableElement>[] | null);
+    childrenLast: (DomAppender<AppendableElement>[] | null);
     rendered: boolean;
     parentIdx: number;
     childrenChanged: boolean;
@@ -43,6 +45,7 @@ export function newDomAppender<E extends AppendableElement>(root: E, children: (
         ref: null,
         idx: -1,
         children,
+        childrenLast: children ? [] : null,
         lastIdx: -1,
         manualDom: false,
         rendered: false,
@@ -91,20 +94,33 @@ export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<a
 
 export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
     if (
-        appender.children !== null &&
+        appender.children !== null && appender.childrenLast !== null &&
         (appender.childrenChanged || appender.lastIdx !== appender.idx)
     )  {
         appender.childrenChanged = false;
 
-        // TODO: optimize
+        // I've tried to do this in such a way that multiple DomAppenders could
+        // be appending to the same DOM node, but they only 'manage' the nodes that they've actually inserted,
+        // allowing multiple different dom appenders to effectively act on the same node.
+        // What could possibly go wrong...
+        
+        // NOTE: this loop only works because appendToDomRoot reorders nodes such that 
+        // we're left with a list of [...the new children in the desired order, ...other children we want to remove]
         for (let i = 0; i <= appender.idx; i++) {
             const val = appender.children[i];
 
-            const realChildren = appender.root.children;
-            if (i >= realChildren.length) {
+            if (i >= appender.childrenLast.length) {
                 appender.root.append(val.root);
-            } else if (realChildren[i] !== val.root) {
-                appender.root.insertBefore(val.root, realChildren[i]);
+                appender.childrenLast.push(val);
+            } else if (appender.childrenLast[i] !== val) {
+                if (i === 0) {
+                    appender.root.prepend(val.root);
+                } else {
+                    const prev = appender.childrenLast[i - 1].root;
+                    const reference = prev.nextSibling;
+                    appender.root.insertBefore(val.root, reference);
+                }
+                appender.childrenLast[i] = val;
             }
         }
 
@@ -112,26 +128,9 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
             appender.children[i].root.remove();
         }
 
+        appender.childrenLast.length = appender.idx + 1;
         appender.lastIdx = appender.idx;
     }
-
-
-    // TODO: by now everthing that wasnt rendered should be after idx. so we jsut remove those. all g. ?
-
-    // if (
-    //     (appender.childrenChanged === true || appender.idx !== appender.lastIdx) &&
-    //     appender.manualDom === false
-    // ) {
-    //     for (let i = 0; i < appender.lastIdx; i++) {
-    //         const child = appender.children[i];
-    //         if (child.rendered === false) {
-    //             child.root.remove();
-    //         }
-    //     }
-    //
-    //     appender.childrenChanged = false;
-    //     appender.lastIdx = appender.idx;
-    // }
 }
 
 
@@ -505,6 +504,12 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
         return false
     };
 
+    const updateMouseButtons = (e: MouseEvent) => {
+        mouse.leftMouseButton   = Boolean(e.buttons & (1 << 0));
+        mouse.rightMouseButton  = Boolean(e.buttons & (2 << 0));
+        mouse.middleMouseButton = Boolean(e.buttons & (3 << 0));
+    }
+
     const eventSystem: ImGlobalEventSystem = {
         rerender: rerenderFn,
         keyboard,
@@ -513,13 +518,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
         // stored, so we can dispose them later if needed.
         globalEventHandlers: {
             mousedown: (e: MouseEvent) => {
-                if (e.button === 0) {
-                    mouse.leftMouseButton = true;
-                } else if (e.button === 1) {
-                    mouse.middleMouseButton = true;
-                } else if (e.button === 2) {
-                    mouse.rightMouseButton = true;
-                }
+                updateMouseButtons(e);
 
                 findParents(e.target as ValidElement, mouse.mouseDownElements);
                 try {
@@ -541,6 +540,8 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
                 }
             },
             mousemove: (e) => {
+                updateMouseButtons(e);
+
                 if (handleMouseMove(e)) {
                     eventSystem.rerender();
                     mouse.ev = null;
@@ -553,13 +554,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
                 }
             },
             mouseup: (e: MouseEvent) => {
-                if (e.button === 0) {
-                    mouse.leftMouseButton = false;
-                } else if (e.button === 1) {
-                    mouse.middleMouseButton = false;
-                } else if (e.button === 2) {
-                    mouse.rightMouseButton = false;
-                }
+                updateMouseButtons(e);
 
                 findParents(e.target as ValidElement, mouse.mouseUpElements);
                 try {
@@ -623,7 +618,7 @@ export function imGlobalEventSystemBegin(c: ImCache): ImGlobalEventSystem {
     return state;
 }
 
-export function imGlobalEventSystemEnd(c: ImCache, eventSystem: ImGlobalEventSystem) {
+export function imGlobalEventSystemEnd(_c: ImCache, eventSystem: ImGlobalEventSystem) {
     resetKeyboardState(eventSystem.keyboard);
     resetMouseState(eventSystem.mouse, false);
     eventSystem.blur = false;
@@ -720,7 +715,6 @@ export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: 
 
 export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
     document.addEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
-    document.addEventListener("contextmenu", eventSystem.globalEventHandlers.mousedown);
     document.addEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.addEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.addEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
@@ -733,7 +727,6 @@ export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSys
 
 export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {
     document.removeEventListener("mousedown", eventSystem.globalEventHandlers.mousedown);
-    document.removeEventListener("contextmenu", eventSystem.globalEventHandlers.mousedown);
     document.removeEventListener("mousemove", eventSystem.globalEventHandlers.mousemove);
     document.removeEventListener("mouseenter", eventSystem.globalEventHandlers.mouseenter);
     document.removeEventListener("mouseup", eventSystem.globalEventHandlers.mouseup);
@@ -908,8 +901,16 @@ export const EV_FORMDATA = { val: "formdata" } as const;
 export const EV_GOTPOINTERCAPTURE = { val: "gotpointercapture" } as const;
 export const EV_INPUT = { val: "input" } as const;
 export const EV_INVALID = { val: "invalid" } as const;
+/** 
+ * NOTE: You may want to use {@link getGlobalEventSystem}.keyboard instead of this 
+ * TODO: fix
+ **/
 export const EV_KEYDOWN = { val: "keydown" } as const;
 export const EV_KEYPRESS = { val: "keypress" } as const;
+/** 
+ * NOTE: You may want to use {@link getGlobalEventSystem}.keyboard instead of this 
+ * TODO: fix
+ **/
 export const EV_KEYUP = { val: "keyup" } as const;
 export const EV_LOAD = { val: "load" } as const;
 export const EV_LOADEDDATA = { val: "loadeddata" } as const;
