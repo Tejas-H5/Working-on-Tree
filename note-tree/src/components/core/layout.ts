@@ -190,6 +190,9 @@ export type DisplayType
     | typeof TABLE_ROW  
     | typeof TABLE_CELL;
 
+/**
+ * A dummy element with flex: 1. Super useful for flexbox.
+ */
 export function imFlex1(c: ImCache) {
     imLayout(c, BLOCK); {
         if (isFirstishRender(c)) elSetStyle(c, "flex", "1");
