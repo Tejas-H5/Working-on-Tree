@@ -11,6 +11,7 @@ import {
     extractKey,
     serializeToJSON,
 } from "src/utils/serialization-utils";
+import { MappingGraph, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
 import {
     Activity,
     defaultActivity,
@@ -25,7 +26,6 @@ import {
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
-import { GraphMappingConcept, GraphMappingRelationship, MappingGraph, newGraphMappingConcept, newGraphMappingRelationship, newMappingGraph } from "./app-views/graph-view";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");

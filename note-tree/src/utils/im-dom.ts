@@ -1,4 +1,4 @@
-// IM-DOM 1.43
+// IM-DOM 1.45
 // NOTE: this version may be unstable, as we've updated the DOM diffing algorithm.
 
 import { assert } from "src/utils/assert";
@@ -134,7 +134,10 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
 }
 
 
-
+/**
+ * NOTE: SVG elements are actually different from normal HTML elements, and 
+ * will need to be created wtih {@link imElSvg}
+ */
 export function imEl<K extends keyof HTMLElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
@@ -149,21 +152,48 @@ export function imEl<K extends keyof HTMLElementTagNameMap>(
         childAppender.ref = r;
     }
 
+    imBeginDomAppender(c, appender, childAppender);
+
+    return childAppender;
+}
+
+function imBeginDomAppender(c: ImCache, appender: DomAppender<ValidElement>, childAppender: DomAppender<ValidElement>) {
     appendToDomRoot(appender, childAppender);
 
     imBlockBegin(c, newDomAppender, childAppender);
 
     childAppender.idx = -1;
+}
+
+export function imElSvg<K extends keyof SVGElementTagNameMap>(
+    c: ImCache,
+    r: KeyRef<K>
+): DomAppender<SVGElementTagNameMap[K]> {
+    // Make this entry in the current entry list, so we can delete it easily
+    const appender = getEntriesParent(c, newDomAppender);
+
+    let childAppender: DomAppender<SVGElementTagNameMap[K]> | undefined = imGet(c, newDomAppender);
+    if (childAppender === undefined) {
+        const svgElement = document.createElementNS("http://www.w3.org/2000/svg", r.val);
+        // Seems unnecessary. 
+        // svgElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
+        childAppender = imSet(c, newDomAppender(svgElement, []));
+        childAppender.ref = r;
+    }
+
+    imBeginDomAppender(c, appender, childAppender);
 
     return childAppender;
 }
 
-export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap>) {
+export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap | keyof SVGElementTagNameMap>) {
     const appender = getEntriesParent(c, newDomAppender);
     assert(appender.ref === r) // make sure we're popping the right thing
     finalizeDomAppender(appender);
     imBlockEnd(c);
 }
+
+export const imElSvgEnd = imElEnd;
 
 
 export function imDomRootBegin(c: ImCache, root: ValidElement) {
@@ -740,10 +770,11 @@ export function removeDocumentAndWindowEventListeners(eventSystem: ImGlobalEvent
 
 ///////// Keys
 
-// We can now memoize on an object reference instead of a string.
+// We can now memoize on an object reference instead of a string. This improves performance.
 // You shouldn't be creating these every frame - just reusing these constants below
 type KeyRef<K> = { val: K };
 
+// HTML elements
 export const EL_A = { val: "a" } as const;
 export const EL_ABBR = { val: "abbr" } as const;
 export const EL_ADDRESS = { val: "address" } as const;
@@ -856,6 +887,73 @@ export const EL_UL = { val: "ul" } as const;
 export const EL_VAR = { val: "var" } as const;
 export const EL_VIDEO = { val: "video" } as const;
 export const EL_WBR = { val: "wbr" } as const;
+
+// HTML svg elements
+export const EL_SVG_A = { val: "a" } as const;
+export const EL_SVG_ANIMATE = { val: "animate" } as const;
+export const EL_SVG_ANIMATEMOTION = { val: "animateMotion" } as const;
+export const EL_SVG_ANIMATETRANSFORM = { val: "animateTransform" } as const;
+export const EL_SVG_CIRCLE = { val: "circle" } as const;
+export const EL_SVG_CLIPPATH = { val: "clipPath" } as const;
+export const EL_SVG_DEFS = { val: "defs" } as const;
+export const EL_SVG_DESC = { val: "desc" } as const;
+export const EL_SVG_ELLIPSE = { val: "ellipse" } as const;
+export const EL_SVG_FEBLEND = { val: "feBlend" } as const;
+export const EL_SVG_FECOLORMATRIX = { val: "feColorMatrix" } as const;
+export const EL_SVG_FECOMPONENTTRANSFER = { val: "feComponentTransfer" } as const;
+export const EL_SVG_FECOMPOSITE = { val: "feComposite" } as const;
+export const EL_SVG_FECONVOLVEMATRIX = { val: "feConvolveMatrix" } as const;
+export const EL_SVG_FEDIFFUSELIGHTING = { val: "feDiffuseLighting" } as const;
+export const EL_SVG_FEDISPLACEMENTMAP = { val: "feDisplacementMap" } as const;
+export const EL_SVG_FEDISTANTLIGHT = { val: "feDistantLight" } as const;
+export const EL_SVG_FEDROPSHADOW = { val: "feDropShadow" } as const;
+export const EL_SVG_FEFLOOD = { val: "feFlood" } as const;
+export const EL_SVG_FEFUNCA = { val: "feFuncA" } as const;
+export const EL_SVG_FEFUNCB = { val: "feFuncB" } as const;
+export const EL_SVG_FEFUNCG = { val: "feFuncG" } as const;
+export const EL_SVG_FEFUNCR = { val: "feFuncR" } as const;
+export const EL_SVG_FEGAUSSIANBLUR = { val: "feGaussianBlur" } as const;
+export const EL_SVG_FEIMAGE = { val: "feImage" } as const;
+export const EL_SVG_FEMERGE = { val: "feMerge" } as const;
+export const EL_SVG_FEMERGENODE = { val: "feMergeNode" } as const;
+export const EL_SVG_FEMORPHOLOGY = { val: "feMorphology" } as const;
+export const EL_SVG_FEOFFSET = { val: "feOffset" } as const;
+export const EL_SVG_FEPOINTLIGHT = { val: "fePointLight" } as const;
+export const EL_SVG_FESPECULARLIGHTING = { val: "feSpecularLighting" } as const;
+export const EL_SVG_FESPOTLIGHT = { val: "feSpotLight" } as const;
+export const EL_SVG_FETILE = { val: "feTile" } as const;
+export const EL_SVG_FETURBULENCE = { val: "feTurbulence" } as const;
+export const EL_SVG_FILTER = { val: "filter" } as const;
+export const EL_SVG_FOREIGNOBJECT = { val: "foreignObject" } as const;
+export const EL_SVG_G = { val: "g" } as const;
+export const EL_SVG_IMAGE = { val: "image" } as const;
+export const EL_SVG_LINE = { val: "line" } as const;
+export const EL_SVG_LINEARGRADIENT = { val: "linearGradient" } as const;
+export const EL_SVG_MARKER = { val: "marker" } as const;
+export const EL_SVG_MASK = { val: "mask" } as const;
+export const EL_SVG_METADATA = { val: "metadata" } as const;
+export const EL_SVG_MPATH = { val: "mpath" } as const;
+export const EL_SVG_PATH = { val: "path" } as const;
+export const EL_SVG_PATTERN = { val: "pattern" } as const;
+export const EL_SVG_POLYGON = { val: "polygon" } as const;
+export const EL_SVG_POLYLINE = { val: "polyline" } as const;
+export const EL_SVG_RADIALGRADIENT = { val: "radialGradient" } as const;
+export const EL_SVG_RECT = { val: "rect" } as const;
+export const EL_SVG_SCRIPT = { val: "script" } as const;
+export const EL_SVG_SET = { val: "set" } as const;
+export const EL_SVG_STOP = { val: "stop" } as const;
+export const EL_SVG_STYLE = { val: "style" } as const;
+export const EL_SVG_SVG = { val: "svg" } as const;
+export const EL_SVG = EL_SVG_SVG; // more intuitive, innit
+export const EL_SVG_SWITCH = { val: "switch" } as const;
+export const EL_SVG_SYMBOL = { val: "symbol" } as const;
+export const EL_SVG_TEXT = { val: "text" } as const;
+export const EL_SVG_TEXTPATH = { val: "textPath" } as const;
+export const EL_SVG_TITLE = { val: "title" } as const;
+export const EL_SVG_TSPAN = { val: "tspan" } as const;
+export const EL_SVG_USE = { val: "use" } as const;
+export const EL_SVG_VIEW = { val: "view" } as const;
+
 
 // KeyRef<keyof GlobalEventHandlersEventMap>
 export const EV_ABORT = { val: "abort" } as const;

@@ -353,8 +353,10 @@ function imMainInner(c: ImCache) {
                     if (imIf(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
                     } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings) {
-                        imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph);
-                        if (imMemo(c, state.mappingGraph._version)) {
+                        imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
+                        const graphChanged = imMemo(c, state.mappingGraph._version);
+                        const graphViewChanged = imMemo(c, state.mappingGraphView._version);
+                        if (graphChanged || graphViewChanged) {
                             debouncedSave(ctx, state, "ImMain - graph edit");
                         }
                     } else {

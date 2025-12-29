@@ -7,7 +7,7 @@ import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { MappingGraph, newMappingGraph } from "./app-views/graph-view";
+import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -77,6 +77,7 @@ export type NoteTreeGlobalState = {
     marks: (NoteId | null)[];
 
     mappingGraph: MappingGraph;
+    mappingGraphView: MappingGraphView;
 
     _activitiesTraversalIdx: number;
     _jumpBackToId: NoteId;
@@ -297,6 +298,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         marks: [],
 
         mappingGraph: newMappingGraph(),
+        mappingGraphView: newMappingGraphView(),
 
         currentTheme: "Light",
         criticalSavingError: "",

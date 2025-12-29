@@ -1,4 +1,4 @@
-// IM-CORE 1.055
+// IM-CORE 1.056
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -453,6 +453,7 @@ function __imBlockKeyedBegin(c: ImCache, key: ValidKey) {
  *
  * ```ts
  * imFor(c); for (const val of list) {
+ *      if (!val) continue;
  *      imKeyedBegin(c, val); { ... } imKeyedEnd(c);
  * } imForEnd(c);
  * ```
