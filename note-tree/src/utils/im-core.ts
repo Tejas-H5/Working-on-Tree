@@ -1,4 +1,4 @@
-// IM-CORE 1.056
+// IM-CORE 1.057
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -21,6 +21,12 @@ import { assert } from "src/utils/assert";
 //    The missing open/close statements not being paired correctly bug is not always caught, and there can be 
 //    pretty big consequences. I have been working at making this as unlikely as possible, with typeIds and such, 
 //    but it is still the main thing stopping me from publically advertising this framework ... 
+
+
+// I've found a significant speedup by writing code like
+// if (x === false ) instaed of if (!x). 
+// You won't need to do this in 99.9999% of your code, but it 
+// would be nice if library code did it.
 
 export type ImCacheEntries = any[];
 

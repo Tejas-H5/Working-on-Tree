@@ -354,8 +354,8 @@ function imMainInner(c: ImCache) {
                         imSettingsView(c, ctx, ctx.views.settings);
                     } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings) {
                         imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
-                        const graphChanged = imMemo(c, state.mappingGraph._version);
-                        const graphViewChanged = imMemo(c, state.mappingGraphView._version);
+                        const graphChanged = imMemo(c, state.mappingGraph._version) === MEMO_CHANGED;
+                        const graphViewChanged = imMemo(c, state.mappingGraphView._version) === MEMO_CHANGED;
                         if (graphChanged || graphViewChanged) {
                             debouncedSave(ctx, state, "ImMain - graph edit");
                         }
@@ -556,13 +556,14 @@ function imMainInner(c: ImCache) {
                 {
                     if (
                         ctx.currentView !== ctx.views.noteTree &&
-                        ctx.noteBeforeFocus &&
                         hasDiscoverableCommand(
                             ctx, ctx.keyboard.escapeKey, "Back to notes",
                             ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
                         )
                     ) {
-                        setCurrentNote(state, ctx.noteBeforeFocus.id);
+                        if (ctx.noteBeforeFocus) {
+                            setCurrentNote(state, ctx.noteBeforeFocus.id);
+                        }
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                 }
