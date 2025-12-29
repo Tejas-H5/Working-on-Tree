@@ -51,8 +51,8 @@ export function imContextMenuBegin(c: ImCache, s: ContextMenuState) {
                 elSetStyle(c, "padding", "3px");
                 elSetStyle(c, "userSelect", "none");
                 elSetStyle(c, "backgroundColor", cssVars.bg);
-                elSetStyle(c, "boxShadow", "4px 4px 5px 0px rgba(0,0,0,0.37)");
-                elSetStyle(c, "border", "1px solid rgba(0,0,0,0.37)");
+                elSetStyle(c, "boxShadow", `4px 4px 5px 0px ${cssVars.bg2}`);
+                elSetStyle(c, "border", `1px solid ${cssVars.bg2}`);
             }
 
         } // imLayoutEnd(c);

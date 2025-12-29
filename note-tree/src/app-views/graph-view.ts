@@ -60,12 +60,14 @@ import {
 } from "src/utils/im-dom";
 
 
-// One year ago, I had tried making this exact widget. I gave up because of how hard it was. None of 
-// the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept not working quite right.
+// One year ago, I had tried making this exact widget. 
+// None of the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept stepping over each other.
 // Zooming to the mouse position? I understood the maths at the time, and had implemented it in several other places before then,
 // but I just couldn't pull it off in my old framework. 
-// Drag events? They kept treading on each other. Panning the graph would start dragging nodes, creating new edges, etc. 
-// After I fixed it all, the code was unreadable, unmaintainable. It was a pain. I never touched it or used it ever again.
+// Drag events? They kept treading on each other. Each new drag added substantial pain. 
+// Panning the graph would start dragging nodes, creating new edges, etc. 
+// After spending several hours attempting to fix it all, the code was unreadable, unmaintainable. 
+// It was a pain. I simply put a deprecation notice in the file, and never touched it or used it ever again.
 //
 // The new framework has allowed me to make this widget to a much higher degree of polish, functinality, and maintainabilit
 // in a couple of hours what took me a couple weeks in my previous framework. The rewrite was worth it after all.
