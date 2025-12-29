@@ -95,14 +95,31 @@ export function imTextInputOneLine(
             }
         } 
 
-        if (keyboard.keyDown?.key === "Enter" || blur || (lineEnding && !allowMultipleLines)) {
-            let value = input.value;
-            if (lineEnding) {
-                value = value.slice(0, value.length - lineEnding.length);
-            }
+        if (allowMultipleLines) {
+            // If multiple lines, need both Shift and enter.
+            if (
+                (keyboard.keyDown?.key === "Enter" && keyboard.keyDown.shiftKey) ||
+                blur
+            ) {
+                let value = input.value;
+                val = { submit: true, newName: value }
+            } 
+        } else {
+            if (
+                keyboard.keyDown?.key === "Enter" || 
+                blur || 
+                lineEnding
+            ) {
+                let value = input.value;
+                if (lineEnding) {
+                    value = value.slice(0, value.length - lineEnding.length);
+                }
 
-            val = { submit: true, newName: input.value }
-        } else if (keyboard.keyDown?.key === "Escape") {
+                val = { submit: true, newName: value }
+            } 
+        }
+
+        if (!val && keyboard.keyDown?.key === "Escape") {
             val = { cancel: true }
         }
     } imTextAreaEnd(c);

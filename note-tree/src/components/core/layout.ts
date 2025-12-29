@@ -54,16 +54,24 @@ export function imSize(
         size = imSet(c, { width: 0, wType: NA, height: 0, hType: NA });
     }
 
+    // TODO: Cross browser testing. Seems a bit sus here
+
     if (size.width !== width || size.wType !== wType) {
         size.width = width;
         size.wType = wType;
-        elSetStyle(c, "width",    getSize(width, wType)); // Edge compatibility
+        const sizeCss = getSize(width, wType);
+        elSetStyle(c, "width",    sizeCss); 
+        elSetStyle(c, "minWidth", sizeCss);
+        elSetStyle(c, "maxWidth", sizeCss);
     }
 
     if (size.height !== height || size.hType !== hType) {
         size.height = height;
         size.hType = hType;
-        elSetStyle(c, "height",    getSize(height, hType)); 
+        const sizeCss = getSize(height, hType);
+        elSetStyle(c, "height",    sizeCss); 
+        elSetStyle(c, "minHeight", sizeCss);
+        elSetStyle(c, "maxHeight", sizeCss);
     }
 
     return size;
