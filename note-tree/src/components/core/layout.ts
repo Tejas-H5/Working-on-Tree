@@ -203,6 +203,10 @@ export function imFlex1(c: ImCache) {
 }
 
 export function imLayoutBegin(c: ImCache, type: DisplayType) {
+    return imLayoutBeginInternal(c, type).root;
+}
+
+export function imLayoutBeginInternal(c: ImCache, type: DisplayType) {
     const root = imElBegin(c, EL_DIV);
 
     const last = imGet(c, inlineTypeId(imLayoutBegin), -1);
@@ -236,7 +240,7 @@ export function imLayoutBegin(c: ImCache, type: DisplayType) {
         }
     }
 
-    return root.root;
+    return root;
 }
 
 export function imPre(c: ImCache) {

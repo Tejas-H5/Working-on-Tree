@@ -1,4 +1,4 @@
-// IM-DOM 1.52
+// IM-DOM 1.53
 // NOTE: this version may be unstable, as we've updated the DOM diffing algorithm:
 // - Multiple dom appenders may append to the same node out of order
 // - Multiple dom appenders may append the same nodes to different dom nodes out of order
@@ -129,6 +129,78 @@ export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<a
     }
 }
 
+// Useful for debugging.
+function assertInvariants(appender: DomAppender<ValidElement>) {
+    if (!appender.children) return;
+
+    for (const child of appender.children) {
+        if (child.parentIdx !== -1) {
+            assert(appender.children[child.parentIdx] === child);
+        }
+
+        let count = 0;
+        for (const c2 of appender.children) {
+            if (c2 === child) count++;
+        }
+        assert(count <= 1);
+    }
+}
+
+/**
+
+let useDiv1 = false;
+export function imTestDomDiffingAlgo(c: ImCache) {
+    imLayoutBegin(c, BLOCK); imButton(c); {
+        imStr(c, "toggle");
+        if (elHasMousePress(c)) useDiv1 = !useDiv1;
+    } imLayoutEnd(c);
+
+    imLayoutBegin(c, COL); imFlex(c); {
+        let div1, div2
+        imLayoutBegin(c, ROW); imFlex(c); {
+            imLayoutBegin(c, COL); imFlex(c); {
+                imStr(c, "Div 1");
+
+                div1 = imLayoutBeginInternal(c, COL); imLayoutEnd(c);
+
+                imStr(c, "Div 1 end");
+            } imLayoutEnd(c);
+            imLayoutBegin(c, COL); imFlex(c); {
+                imStr(c, "Div 2");
+
+                div2 = imLayoutBeginInternal(c, COL); imLayoutEnd(c);
+
+                imStr(c, "Div 2 end");
+            } imLayoutEnd(c);
+        } imLayoutEnd(c);
+
+        const s = imGetInline(c, imGraphMappingsEditorView) ?? imSet(c, {
+            choices: [],
+        }) as any;
+
+        const num = 10;
+        if (useDiv1) {
+            // useDiv1 = false;
+            for (let i = 0; i < num; i++) {
+                s.choices[i] = Math.random() < 0.5;
+            }
+        }
+
+        imFor(c); for (let i = 0; i < num; i++) {
+            const randomChoice = s.choices[i] ? div1 : div2;
+
+            imDomRootExistingBegin(c, randomChoice); {
+                imLayoutBegin(c, COL); {
+                    addDebugLabelToAppender(c, "bruv " + i);
+                    imStr(c, "Naww: " + i);
+                } imLayoutEnd(c);
+            } imDomRootExistingEnd(c, randomChoice);
+        } imForEnd(c);
+    } imLayoutEnd(c);
+}
+
+*/
+
 export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
     if (
         appender.children !== null && appender.childrenLast !== null &&
@@ -168,12 +240,17 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
         let realIdx = appender.idx + 1;
         for (let i = appender.idx + 1; i < appender.children.length; i++) {
             const child = appender.children[i];
-            if (child.parent === appender) {
+            if (
+                // Node was transferred, ignore it
+                child.parent === appender
+                // Node was transferred internally, also ignore it
+            ) {
                 child.root.remove();
                 appender.children[realIdx] = child;
                 realIdx++;
             }
         }
+        appender.children.length = realIdx;
 
         appender.childrenLast.length = appender.idx + 1;
         appender.lastIdx = appender.idx;

@@ -4,6 +4,7 @@ import {
     BLOCK,
     COL,
     DisplayType,
+    imAbsolute,
     imAbsoluteXY,
     imAlign,
     imBg,
@@ -29,8 +30,6 @@ import { arrayAt, pushToNullableArray, resizeObjectPool } from "src/utils/array-
 import { assert } from "src/utils/assert";
 import {
     getDeltaTimeSeconds,
-    imBlockBegin,
-    imBlockEnd,
     ImCache,
     imFor,
     imForEnd,
@@ -41,8 +40,6 @@ import {
     imKeyedEnd,
     imMemo,
     imState,
-    imSwitch,
-    imSwitchEnd,
     isFirstishRender
 } from "src/utils/im-core";
 import {
@@ -56,13 +53,11 @@ import {
     EV_CONTEXTMENU,
     EV_DBLCLICK,
     getGlobalEventSystem,
-    imDomRootBegin,
-    imDomRootEnd,
     imElSvgBegin,
     imElSvgEnd,
     imOn,
     imPreventScrollEventPropagation,
-    imStr,
+    imStr
 } from "src/utils/im-dom";
 
 
@@ -506,47 +501,6 @@ export function imGraphMappingsEditorView(
     graph: MappingGraph,
     v: MappingGraphView,
 ) {
-    imLayoutBegin(c, COL); imFlex(c); {
-        let div1, div2
-        imLayoutBegin(c, ROW); imFlex(c); {
-            imLayoutBegin(c, COL); imFlex(c); {
-                imStr(c, "Div 1");
-
-                div1 = imOpenPortal(c);
-
-                imStr(c, "Div 1 end");
-            } imLayoutEnd(c);
-            imLayoutBegin(c, COL); imFlex(c); {
-                imStr(c, "Div 2");
-
-                div2 = imOpenPortal(c);
-
-                imStr(c, "Div 2 end");
-            } imLayoutEnd(c);
-        } imLayoutEnd(c);
-
-        imFor(c); for (let i = 0; i < 10; i++) {
-            const randomChoice = Math.random() < 0.5 ? div1 : div2;
-
-            imKeyedBegin(c, i); {
-                imSwitch(c, randomChoice); {
-                    imDomRootBegin(c, randomChoice); {
-                        imLayoutBegin(c, BLOCK); {
-                        imStr(c, "naww");
-                        } imLayoutEnd(c);
-                    } imDomRootEnd(c, randomChoice);
-                } imSwitchEnd(c);
-            } imKeyedEnd(c);
-        } imForEnd(c);
-    } imLayoutEnd(c);
-}
-
-export function imGraphMappingsEditorView2(
-    c: ImCache,
-    s: GraphMappingsViewState,
-    graph: MappingGraph,
-    v: MappingGraphView,
-) {
     let editedGraph = false;
     let editedView = false;
     let mutation: (() => void) | undefined;
@@ -568,9 +522,8 @@ export function imGraphMappingsEditorView2(
         resizeObjectPool(s.conceptsUiState, newMappingConceptUiState, graph.concepts.length);
     }
 
-    const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true); {
-        const rootRect = root.getBoundingClientRect();
-
+    const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true);
+    const rootRect = root.getBoundingClientRect(); {
         const isDraggingEdge = s.dragNewEdge.srcId !== -1;
         if (imMemo(c, v.zoom)) elSetStyle(c, "fontSize", v.zoom + "rem");
         if (imMemo(c, isDraggingEdge)) elSetStyle(c, "cursor", isDraggingEdge ? "crosshair" : "move");
@@ -625,10 +578,8 @@ export function imGraphMappingsEditorView2(
             const x1 = toScreenX(v, s.dragNewEdge.currentX);
             const y1 = toScreenY(v, s.dragNewEdge.currentY);
 
-            const dX = toGraphLength(v, mouse.X) - s.dragNewEdge.startMouseX;
-            const dY = toGraphLength(v, mouse.Y) - s.dragNewEdge.startMouseY;
-            s.dragNewEdge.currentX = s.dragNewEdge.startX + dX;
-            s.dragNewEdge.currentY = s.dragNewEdge.startY + dY;
+            s.dragNewEdge.currentX = toGraphX(v, mouse.X - rootRect.x);
+            s.dragNewEdge.currentY = toGraphY(v, mouse.Y - rootRect.y);
 
             const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c); imJustify(c); {
                 if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
@@ -763,8 +714,8 @@ export function imGraphMappingsEditorView2(
                                 s.dragNewEdge.srcId = conceptId;
 
                                 const rect = root.getBoundingClientRect();
-                                s.dragNewEdge.startMouseX = toGraphLength(v, mouse.X);
-                                s.dragNewEdge.startMouseY = toGraphLength(v, mouse.Y);
+                                s.dragNewEdge.startMouseX = toGraphX(v, mouse.X);
+                                s.dragNewEdge.startMouseY = toGraphY(v, mouse.Y);
                                 s.dragNewEdge.startX = toGraphX(v, mouse.X - rect.x);
                                 s.dragNewEdge.startY = toGraphY(v, mouse.Y - rect.y);
                                 s.dragNewEdge.currentX = s.dragNewEdge.startX;
@@ -927,6 +878,13 @@ export function imGraphMappingsEditorView2(
             openContextMenuAtMouse(contextMenu);
             ctxEv.preventDefault();
         }
+
+        imLayoutBegin(c, ROW); imAbsolute(c, 0, NA, 10, PX, 10, PX, 0, NA); {
+            if (isFirstishRender(c)) elSetStyle(c, "fontSize", "1rem");
+            if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
+            imStr(c, v.pan.x); imStr(c, ", "); imStr(c, v.pan.y);
+            imStr(c, " @ "); imStr(c, v.zoom); imStr(c, "x");
+        } imLayoutEnd(c);
     } imLayoutEnd(c);
 
 
@@ -950,6 +908,46 @@ export function imGraphMappingsEditorView2(
                         s.currentlyEditing = { conceptId: idx };
                         contextMenu.open = false;
                     }
+                }
+            } imLayoutEnd(c);
+
+            imContextMenuItem(c); {
+                imStr(c, "Recenter");
+                if (elHasMousePress(c)) {
+                    let minX: number | undefined;
+                    let maxX: number | undefined;
+                    let minY: number | undefined;
+                    let maxY: number | undefined;
+                    for (const concept of graph.concepts) {
+                        if (!concept) continue;
+                        if (minX === undefined || concept.x < minX) minX = concept.x;
+                        if (minY === undefined || concept.y < minY) minY = concept.y;
+                        if (maxX === undefined || concept.x > maxX) maxX = concept.x;
+                        if (maxY === undefined || concept.y > maxY) maxY = concept.y;
+                    }
+
+                    if (minX === undefined) minX = 0;
+                    if (maxX === undefined) maxX = minX;
+                    if (minY === undefined) minY = 0;
+                    if (maxY === undefined) maxY = minY;
+
+                    const wantedX = (minX + maxX) / 2;
+                    const wantedY = (minY + maxY) / 2;
+
+                    v.zoom = 1;
+                    s.targetZoom = 1;
+
+                    const centerX = toGraphX(v, rootRect.width / 2);
+                    const centerY = toGraphY(v, rootRect.height / 2);
+
+                    const dX = wantedX - centerX;
+                    const dY = wantedY - centerY;
+
+                    v.pan.x -= dX;
+                    v.pan.y -= dY;
+                    editedView = true;
+
+                    contextMenu.open = false;
                 }
             } imLayoutEnd(c);
 
