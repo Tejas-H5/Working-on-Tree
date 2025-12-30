@@ -1,10 +1,13 @@
-// IM-DOM 1.53
-// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm:
+// IM-DOM 1.54
+//
+// V1.54
+// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm yet again:
 // - Multiple dom appenders may append to the same node out of order
 // - Multiple dom appenders may append the same nodes to different dom nodes out of order
 // - Finalization has been moved to the very end. 
 //      - for now, we can't do the optimization where we only finalize when something has changed, because any dom node may be appended to at any time
 //      - it does allow for DOM node reuse, and appending to different places in the DOM tree via different places in the immediate mode tree.
+//      - Now opt-in. Components now actually work
 
 import { assert } from "src/utils/assert";
 import {
@@ -31,18 +34,23 @@ import {
 export type ValidElement = HTMLElement | SVGElement;
 export type AppendableElement = (ValidElement | Text);
 
+// The children of this dom node get diffed and inserted as soon as you call `imEndEl`
+export const FINALIZE_IMMEDIATELY = 0;
+// The diffing and inserting will be deferred to when we do `imDomRootEnd` instead. Useful for portal-like rendering.
+export const FINALIZE_DEFERRED = 1;
+
+export type FinalizationType 
+ = typeof FINALIZE_IMMEDIATELY
+ | typeof FINALIZE_DEFERRED;
 
 // NOTE: This dom appender is true immediate mode. No control-flow annotations are required for the elements to show up at the right place.
 // However, you do need to store your dom appender children somewhere beforehand for stable references. 
 // That is what the ImCache helps with - but the ImCache does need control-flow annotations to work. eh, It is what it is
-
 export type DomAppender<E extends AppendableElement> = {
     label?: string; // purely for debug
 
     root: E;
-    ref: unknown;
-    idx: number;
-    lastIdx: number;
+    keyRef: unknown; // Could be a key, or a dom element. Used to check pairs are linining up corectly.
 
     // Set this to true manually when you want to manage the DOM children yourself.
     // Hopefully that isn't all the time. If it is, then the framework isn't doing you too many favours.
@@ -53,16 +61,21 @@ export type DomAppender<E extends AppendableElement> = {
 
     // if null, root is a text node. else, it can be appended to.
     parent: DomAppender<AppendableElement> | null;
+
+    idx: number;     // Used to iterate the list
+    lastIdx: number; // If idx didn't reach lastIdx, the list changed
     children: (DomAppender<AppendableElement>[] | null);
     childrenLast: (DomAppender<AppendableElement>[] | null);
     parentIdx: number;
     childrenChanged: boolean;
+
+    finalizeType: FinalizationType; // if true, the final pass can ignore this.
 };
 
 export function newDomAppender<E extends AppendableElement>(root: E, children: (DomAppender<any>[] | null)): DomAppender<E> {
     return {
         root,
-        ref: null,
+        keyRef: null,
         idx: -1,
         parent: null,
         children,
@@ -71,6 +84,7 @@ export function newDomAppender<E extends AppendableElement>(root: E, children: (
         manualDom: false,
         parentIdx: -1,
         childrenChanged: false,
+        finalizeType: FINALIZE_IMMEDIATELY,
     };
 }
 
@@ -149,7 +163,7 @@ function assertInvariants(appender: DomAppender<ValidElement>) {
 /**
 
 let useDiv1 = false;
-export function imTestDomDiffingAlgo(c: ImCache) {
+export function imGraphMappingsEditorView(c: ImCache) {
     imLayoutBegin(c, BLOCK); imButton(c); {
         imStr(c, "toggle");
         if (elHasMousePress(c)) useDiv1 = !useDiv1;
@@ -161,14 +175,14 @@ export function imTestDomDiffingAlgo(c: ImCache) {
             imLayoutBegin(c, COL); imFlex(c); {
                 imStr(c, "Div 1");
 
-                div1 = imLayoutBeginInternal(c, COL); imLayoutEnd(c);
+                div1 = imLayoutBeginInternal(c, COL); imFinalizeDeferred(c); imLayoutEnd(c);
 
                 imStr(c, "Div 1 end");
             } imLayoutEnd(c);
             imLayoutBegin(c, COL); imFlex(c); {
                 imStr(c, "Div 2");
 
-                div2 = imLayoutBeginInternal(c, COL); imLayoutEnd(c);
+                div2 = imLayoutBeginInternal(c, COL); imFinalizeDeferred(c); imLayoutEnd(c);
 
                 imStr(c, "Div 2 end");
             } imLayoutEnd(c);
@@ -201,18 +215,18 @@ export function imTestDomDiffingAlgo(c: ImCache) {
 
 */
 
-export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
+function finalizeDomAppender(appender: DomAppender<ValidElement>) {
     if (
         appender.children !== null && appender.childrenLast !== null &&
         (appender.childrenChanged === true || appender.lastIdx !== appender.idx)
-    )  {
+    ) {
         appender.childrenChanged = false;
 
         // I've tried to do this in such a way that multiple DomAppenders could
         // be appending to the same DOM node, but they only 'manage' the nodes that they've actually inserted,
         // allowing multiple different dom appenders to effectively act on the same node.
         // What could possibly go wrong...
-        
+
         // NOTE: this loop only works because appendToDomRoot reorders nodes such that 
         // we're left with a list of [...the new children in the desired order, ...other children we want to remove]
         for (let i = 0; i <= appender.idx; i++) {
@@ -221,7 +235,7 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
             assert(val.parent === appender);
 
             if (i >= appender.childrenLast.length) {
-                appender.root.appendChild(val.root);
+                appender.root.append(val.root);
                 appender.childrenLast.push(val);
             } else if (appender.childrenLast[i] !== val) {
                 if (i === 0) {
@@ -273,7 +287,7 @@ export function imElBegin<K extends keyof HTMLElementTagNameMap>(
     if (childAppender === undefined) {
         const element = document.createElement(r.val);
         childAppender = imSet(c, newDomAppender(element, []));
-        childAppender.ref = r;
+        childAppender.keyRef = r;
     }
 
     imBeginDomAppender(c, appender, childAppender);
@@ -350,7 +364,7 @@ export function imElSvgBegin<K extends keyof SVGElementTagNameMap>(
         // Seems unnecessary. 
         // svgElement.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
         childAppender = imSet(c, newDomAppender(svgElement, []));
-        childAppender.ref = r;
+        childAppender.keyRef = r;
     }
 
     imBeginDomAppender(c, appender, childAppender);
@@ -358,9 +372,15 @@ export function imElSvgBegin<K extends keyof SVGElementTagNameMap>(
     return childAppender;
 }
 
+
 export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap | keyof SVGElementTagNameMap>) {
     const appender = getEntriesParent(c, newDomAppender);
-    assert(appender.ref === r) // make sure we're popping the right thing
+    assert(appender.keyRef === r) // make sure we're popping the right thing
+
+    if (appender.finalizeType === FINALIZE_IMMEDIATELY) {
+        finalizeDomAppender(appender);
+    }
+
     imBlockEnd(c);
 }
 
@@ -384,10 +404,13 @@ export function imDomRootBegin(c: ImCache, root: ValidElement) {
     let appender = imGet(c, newDomAppender);
     if (appender === undefined) {
         appender = imSet(c, newDomAppender(root, []));
-        appender.ref = root;
+        appender.keyRef = root;
     }
 
     imBlockBegin(c, newDomAppender, appender);
+
+    // well we kinda have to. imDomRootEnd will only finalize things with finalizeType === FINALIZE_DEFERRED
+    imFinalizeDeferred(c); 
 
     appender.idx = -1;
 
@@ -400,6 +423,10 @@ export function addDebugLabelToAppender(c: ImCache, str: string | undefined) {
 }
 
 export function imDomRootExistingBegin(c: ImCache, existing: DomAppender<any>) {
+    // If you want to re-push this DOM node to the immediate mode stack, use imFinalizeDeferred(c).
+    // I.e imElBegin(c, EL_BLAH); imFinalizeDeferred(c); {
+    assert(existing.finalizeType === FINALIZE_DEFERRED);
+
     imBlockBegin(c, newDomAppender, existing);
 }
 
@@ -409,9 +436,14 @@ export function imDomRootExistingEnd(c: ImCache, existing: DomAppender<any>) {
     imBlockEnd(c);
 }
 
+export function imFinalizeDeferred(c: ImCache) {
+    elGetAppender(c).finalizeType = FINALIZE_DEFERRED;
+}
+
+
 export function imDomRootEnd(c: ImCache, root: ValidElement) {
     let appender = getEntriesParent(c, newDomAppender);
-    assert(appender.ref === root);
+    assert(appender.keyRef === root);
 
     // By finalizing at the very end, we get two things:
     // - Opportunity to make a 'global key' - a component that can be instantiated anywhere but reuses the same cache entries. 
@@ -423,6 +455,9 @@ export function imDomRootEnd(c: ImCache, root: ValidElement) {
     //      but then organising the components becomes a bit annoying.
 
     const entries = __GetEntries(c);
+
+    // deferred finalization.
+    // NOTE: could be optimized later - since majority of nodes won't have finalization deferred.
     recursivelyEnumerateEntries(entries, domFinalizeEnumerator);
 
     imBlockEnd(c);
@@ -434,7 +469,9 @@ function domFinalizeEnumerator(entries: ImCacheEntries): boolean {
 
     const domAppender = getEntriesParentFromEntries(entries, newDomAppender);
     if (domAppender !== undefined) {
-        finalizeDomAppender(domAppender);
+        if (domAppender.finalizeType === FINALIZE_DEFERRED) {
+            finalizeDomAppender(domAppender);
+        }
         return true;
     }
 
