@@ -1,41 +1,60 @@
-// IM-DOM 1.5
-// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm.
+// IM-DOM 1.52
+// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm:
+// - Multiple dom appenders may append to the same node out of order
+// - Multiple dom appenders may append the same nodes to different dom nodes out of order
+// - Finalization has been moved to the very end. 
+//      - for now, we can't do the optimization where we only finalize when something has changed, because any dom node may be appended to at any time
+//      - it does allow for DOM node reuse, and appending to different places in the DOM tree via different places in the immediate mode tree.
 
 import { assert } from "src/utils/assert";
 import {
+    __GetEntries,
     CACHE_RERENDER_FN,
     cacheEntriesAddDestructor,
     getEntriesParent,
+    getEntriesParentFromEntries,
     globalStateStackGet,
     globalStateStackPop,
     globalStateStackPush,
     imBlockBegin,
     imBlockEnd,
     ImCache,
+    ImCacheEntries,
     imGet,
     imMemo,
     imSet,
     inlineTypeId,
     isFirstishRender,
+    recursivelyEnumerateEntries
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
 export type AppendableElement = (ValidElement | Text);
+
+
+// NOTE: This dom appender is true immediate mode. No control-flow annotations are required for the elements to show up at the right place.
+// However, you do need to store your dom appender children somewhere beforehand for stable references. 
+// That is what the ImCache helps with - but the ImCache does need control-flow annotations to work. eh, It is what it is
+
 export type DomAppender<E extends AppendableElement> = {
+    label?: string; // purely for debug
+
     root: E;
     ref: unknown;
     idx: number;
     lastIdx: number;
+
     // Set this to true manually when you want to manage the DOM children yourself.
     // Hopefully that isn't all the time. If it is, then the framework isn't doing you too many favours.
     // Good use case: You have to manage hundreds of thousands of DOM nodes. 
     // From my experimentation, it is etiher MUCH faster to do this yourself instead of relying on the framework, or about the same,
     // depending on how the browser has implemented DOM node rendering.
     manualDom: boolean;
+
     // if null, root is a text node. else, it can be appended to.
+    parent: DomAppender<AppendableElement> | null;
     children: (DomAppender<AppendableElement>[] | null);
     childrenLast: (DomAppender<AppendableElement>[] | null);
-    rendered: boolean;
     parentIdx: number;
     childrenChanged: boolean;
 };
@@ -45,11 +64,11 @@ export function newDomAppender<E extends AppendableElement>(root: E, children: (
         root,
         ref: null,
         idx: -1,
+        parent: null,
         children,
         childrenLast: children ? [] : null,
         lastIdx: -1,
         manualDom: false,
-        rendered: false,
         parentIdx: -1,
         childrenChanged: false,
     };
@@ -60,18 +79,35 @@ export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<a
 
     const idx = ++appender.idx;
 
+    if (child.parent !== appender) {
+        // node is being transferred to a new parent. Adopted?
+        child.parent = appender;
+        child.parentIdx = -1;
+    }
+
     if (idx === appender.children.length) {
         appender.children.push(child);
         child.parentIdx = idx;
 
         appender.childrenChanged = true;
     } else if (idx < appender.children.length) {
-        if (appender.children[idx] !== child) {
-            if (child.parentIdx === -1) {
+        const existing = appender.children[idx];
+        if (existing !== child) {
+            if (existing.parent !== appender) {
+                // Other node has been moved to another parent. 
+
+                if (child.parentIdx !== -1) {
+                    // prevent duplicates before inserting.
+                    // Move existing to where child used to be. dont set it's index. It'll get filtered out later.
+                    appender.children[child.parentIdx] = existing;
+                } 
+
+                appender.children[idx] = child;
+                child.parentIdx = idx;
+            } else if (child.parentIdx === -1) {
                 // Adding a new item to the list. Push watever was at idx onto the end, put child at idx.
-                const a = appender.children[idx];
-                a.parentIdx = appender.children.length
-                appender.children.push(a);
+                existing.parentIdx = appender.children.length
+                appender.children.push(existing);
                 appender.children[idx] = child;
                 child.parentIdx = idx;
             } else {
@@ -96,7 +132,7 @@ export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<a
 export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
     if (
         appender.children !== null && appender.childrenLast !== null &&
-        (appender.childrenChanged || appender.lastIdx !== appender.idx)
+        (appender.childrenChanged === true || appender.lastIdx !== appender.idx)
     )  {
         appender.childrenChanged = false;
 
@@ -110,8 +146,10 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
         for (let i = 0; i <= appender.idx; i++) {
             const val = appender.children[i];
 
+            assert(val.parent === appender);
+
             if (i >= appender.childrenLast.length) {
-                appender.root.append(val.root);
+                appender.root.appendChild(val.root);
                 appender.childrenLast.push(val);
             } else if (appender.childrenLast[i] !== val) {
                 if (i === 0) {
@@ -125,8 +163,16 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
             }
         }
 
+        // Remove dom nodes that weren't rendered, _and_ filter out
+        // nodes that were transferred in place at the same time
+        let realIdx = appender.idx + 1;
         for (let i = appender.idx + 1; i < appender.children.length; i++) {
-            appender.children[i].root.remove();
+            const child = appender.children[i];
+            if (child.parent === appender) {
+                child.root.remove();
+                appender.children[realIdx] = child;
+                realIdx++;
+            }
         }
 
         appender.childrenLast.length = appender.idx + 1;
@@ -238,7 +284,6 @@ export function imElSvgBegin<K extends keyof SVGElementTagNameMap>(
 export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap | keyof SVGElementTagNameMap>) {
     const appender = getEntriesParent(c, newDomAppender);
     assert(appender.ref === r) // make sure we're popping the right thing
-    finalizeDomAppender(appender);
     imBlockEnd(c);
 }
 
@@ -272,14 +317,52 @@ export function imDomRootBegin(c: ImCache, root: ValidElement) {
     return appender;
 }
 
+export function addDebugLabelToAppender(c: ImCache, str: string | undefined) {
+    const appender = elGetAppender(c);
+    appender.label = str;
+}
+
+export function imDomRootExistingBegin(c: ImCache, existing: DomAppender<any>) {
+    imBlockBegin(c, newDomAppender, existing);
+}
+
+export function imDomRootExistingEnd(c: ImCache, existing: DomAppender<any>) {
+    let appender = getEntriesParent(c, newDomAppender);
+    assert(appender === existing);
+    imBlockEnd(c);
+}
+
 export function imDomRootEnd(c: ImCache, root: ValidElement) {
     let appender = getEntriesParent(c, newDomAppender);
     assert(appender.ref === root);
-    finalizeDomAppender(appender);
+
+    // By finalizing at the very end, we get two things:
+    // - Opportunity to make a 'global key' - a component that can be instantiated anywhere but reuses the same cache entries. 
+    //      a context menu is a good example of a usecase. Every component wants to instantiate it as if it were it's own, but really, 
+    //      only one can be open at a time - there is an opportunity to save resources here and reuse the same context menu every time.
+    // - Allows existing dom appenders to be re-pushed onto the stack, and appended to. 
+    //      Useful for creating 'layers' that exist in another part of the DOM tree that other components might want to render to.
+    //      For example, if I am making a node editor with SVG paths as edges, it is best to just have a single SVG layer to render everything into
+    //      but then organising the components becomes a bit annoying.
+
+    const entries = __GetEntries(c);
+    recursivelyEnumerateEntries(entries, domFinalizeEnumerator);
 
     imBlockEnd(c);
 }
 
+function domFinalizeEnumerator(entries: ImCacheEntries): boolean {
+    // TODO: only if any mutations
+    // TODO: handle global keyed elements
+
+    const domAppender = getEntriesParentFromEntries(entries, newDomAppender);
+    if (domAppender !== undefined) {
+        finalizeDomAppender(domAppender);
+        return true;
+    }
+
+    return false;
+}
 
 export interface Stringifyable {
     // Allows you to memoize the text on the object reference, and not the literal string itself, as needed.
@@ -388,7 +471,7 @@ export function elSetAttributes(c: ImCache, attrs: Record<string, string | strin
     const el = elGet(c);
     for (const key in attrs) {
         let val = attrs[key];
-        if (Array.isArray(val)) val = val.join(" ");
+        if (Array.isArray(val) === true) val = val.join(" ");
         el.setAttribute(key, val);
     }
 }
@@ -634,13 +717,13 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
             mousemove: (e) => {
                 updateMouseButtons(e);
 
-                if (handleMouseMove(e)) {
+                if (handleMouseMove(e) === true) {
                     eventSystem.rerender();
                     mouse.ev = null;
                 }
             },
             mouseenter: (e) => {
-                if (handleMouseMove(e)) {
+                if (handleMouseMove(e) === true) {
                     eventSystem.rerender();
                     mouse.ev = null;
                 }
@@ -660,7 +743,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
             wheel: (e: WheelEvent) => {
                 mouse.scrollWheel += e.deltaX + e.deltaY + e.deltaZ;
                 e.preventDefault();
-                if (!handleMouseMove(e)) {
+                if (!handleMouseMove(e) === true) {
                     // rerender anwyway
                     eventSystem.rerender();
                 }
@@ -735,7 +818,7 @@ export function imTrackSize(c: ImCache) {
                     break;
                 }
 
-                if (self.resized) {
+                if (self.resized === true) {
                     c[CACHE_RERENDER_FN]();
                     self.resized = false;
                 }

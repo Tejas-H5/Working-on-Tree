@@ -1,4 +1,4 @@
-// IM-CORE 1.06
+// IM-CORE 1.061
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -288,6 +288,10 @@ export function imCacheEntriesBegin<T>(
         entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
     } else {
         assert(entries[ENTRIES_PARENT_TYPE] === parentTypeId);
+        // NOTE: your API doesn't need to support changing this value every frame.
+        // In fact, most of the APIs I have made so far don't.
+        // This line of code only exists for the few times when you do want this.
+        entries[ENTRIES_PARENT_VALUE] = parent;
     }
 
     entries[ENTRIES_IDX] = ENTRIES_ITEMS_START - 2;
@@ -423,6 +427,13 @@ export function getEntriesParent<T>(c: ImCache, typeId: TypeId<T>): T {
     return entries[ENTRIES_PARENT_VALUE] as T;
 }
 
+export function getEntriesParentFromEntries<T>(entries: ImCacheEntries, typeId: TypeId<T>): T | undefined {
+    if (entries[ENTRIES_PARENT_TYPE] === typeId) {
+        return entries[ENTRIES_PARENT_VALUE] as T;
+    }
+    return undefined;
+}
+
 
 export function imSet<T>(c: ImCache, val: T): T {
     const entries = c[CACHE_CURRENT_ENTRIES];
@@ -432,7 +443,7 @@ export function imSet<T>(c: ImCache, val: T): T {
     return val;
 }
 
-type ListMapBlock = { rendered: boolean; entries: ImCacheEntries; };
+export type ListMapBlock = { rendered: boolean; entries: ImCacheEntries; };
 
 /**
  * Creates an entry in the _Parent's_ keyed elements map.
@@ -513,18 +524,38 @@ export function cacheEntriesAddDestructor(c: ImCache, destructor: () => void) {
 }
 
 function imCacheEntriesOnRemove(entries: ImCacheEntries) {
-    // don't re-traverse these items.
-    if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === true) {
-        entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
+    recursivelyEnumerateEntries(entries, imCacheEntriesRemoveEnumerator);
+}
 
+export function recursivelyEnumerateEntries(entries: ImCacheEntries, fn: (entries: ImCacheEntries) => boolean) {
+    const shouldEnumerate = fn(entries);
+    if (shouldEnumerate) {
         for (let i = ENTRIES_ITEMS_START; i < entries.length; i += 2) {
             const t = entries[i];
             const v = entries[i + 1];
             if (t === imBlockBegin) {
-                imCacheEntriesOnRemove(v);
+                recursivelyEnumerateEntries(v, fn);
+            }
+        }
+
+
+        let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
+        if (map !== undefined) {
+            for (const block of map.values()) {
+                recursivelyEnumerateEntries(block.entries, fn);
             }
         }
     }
+}
+
+function imCacheEntriesRemoveEnumerator(entries: ImCacheEntries): boolean {
+    // don't re-traverse these items.
+    if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === true) {
+        entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
+        return true;
+    }
+
+    return false;
 }
 
 function imCacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
@@ -555,6 +586,7 @@ function imCacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
     }
 }
 
+// This is the typeId for a list of cache entries.
 export function imBlockBegin<T>(
     c: ImCache,
     parentTypeId: TypeId<T>,
@@ -566,6 +598,11 @@ export function imBlockBegin<T>(
 
     imCacheEntriesBegin(c, entries, parentTypeId, parent, internalType);
 
+    return entries;
+}
+
+export function __GetEntries(c: ImCache): ImCacheEntries {
+    const entries = c[CACHE_CURRENT_ENTRIES];
     return entries;
 }
 
