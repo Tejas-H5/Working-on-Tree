@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX } from "src/components/core/layout";
+import { BLOCK, imLayoutBegin, imLayoutEnd, imSize, NA, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetClass, elSetStyle } from "src/utils/im-dom";
@@ -22,7 +22,7 @@ export function imLine(
     let heightUnit = PX;
     const isH = type === LINE_HORIZONTAL;
 
-    imLayout(c, BLOCK); imSize(c,
+    imLayoutBegin(c, BLOCK); imSize(c,
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
@@ -38,6 +38,6 @@ export function imLine(
 }
 
 export function imHLineDivider(c: ImCache) {
-    imLayout(c, BLOCK); imSize(c, 0, NA, 10, PX); imLayoutEnd(c);
+    imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 10, PX); imLayoutEnd(c);
 }
 

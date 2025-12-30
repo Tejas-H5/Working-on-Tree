@@ -24,7 +24,7 @@ import {
     imAlign,
     imFlex,
     imJustify,
-    imLayout,
+    imLayoutBegin,
     imLayoutEnd,
     imSize,
     PERCENT,
@@ -345,14 +345,14 @@ export function imDurationsView(
     const allColsSelected = s.tableColPos.idx === -1;
     const allSelected = allRowsSelected && allColsSelected;
 
-    imLayout(c, COL); imFlex(c); {
-        imLayout(c, COL); {
-            imLayout(c, TABLE); imFlex(c); {
+    imLayoutBegin(c, COL); imFlex(c); {
+        imLayoutBegin(c, COL); {
+            imLayoutBegin(c, TABLE); imFlex(c); {
                 imListTableRowBegin(c, allSelected, viewHasFocus && allSelected); imAlign(c, STRETCH); {
                     imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imJustify(c); imAlign(c); {
-                        imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
-                        imLayout(c, BLOCK); {
+                        imLayoutBegin(c, BLOCK); {
                             imB(c); {
                                 imStr(c, "Duration Timesheet - ");
                                 imStr(c, formatDate(s.activitiesFrom, true));
@@ -361,7 +361,7 @@ export function imDurationsView(
                             } imBEnd(c);
                         } imLayoutEnd(c);
 
-                        imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
                     } imTableCellFlexEnd(c);
 
 
@@ -375,14 +375,14 @@ export function imDurationsView(
                                 getRowStatus(colSelected, viewHasFocus && allRowsSelected)
                             );
 
-                            imLayout(c, BLOCK); imSize(c, 100, PERCENT, 7, PX); {
+                            imLayoutBegin(c, BLOCK); imSize(c, 100, PERCENT, 7, PX); {
                                 imListCursorColor(
                                     c,
                                     getRowStatus(colSelected, viewHasFocus && colSelectedIndividual)
                                 );
                             } imLayoutEnd(c);
 
-                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                 let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
                                 imB(c).root; imStr(c, str); imBEnd(c);
                             } imLayoutEnd(c);
@@ -409,7 +409,7 @@ export function imDurationsView(
                                 getRowStatus(colSelected, viewHasFocus && allRowsSelected)
                             );
 
-                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                 const totalMs = s.totals[colIdx].time;
                                 imStr(c, formatDurationAsHours(totalMs));
                             } imLayoutEnd(c);
@@ -422,7 +422,7 @@ export function imDurationsView(
         imLine(c, LINE_HORIZONTAL, 1);
 
         const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imAlign(c, STRETCH); {
-            imLayout(c, TABLE); {
+            imLayoutBegin(c, TABLE); {
 
                 imFor(c); while (imNavListNextItemArray(list, s.durations)) {
                     const { i: rowIdx } = list;
@@ -433,14 +433,14 @@ export function imDurationsView(
 
                     const root = imListTableRowBegin(c, false, false); {
                         imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c, STRETCH); imJustify(c); {
-                            imLayout(c, BLOCK); imSize(c, 10, PX, 100, PERCENT); {
+                            imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 100, PERCENT); {
                                 imListCursorColor(
                                     c,
                                     getRowStatus(rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
                                 );
                             } imLayoutEnd(c);
 
-                            imLayout(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
+                            imLayoutBegin(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
                                 const selected = (rowSelected || allRowsSelected) && allColsSelected;
 
                                 imListRowBg(

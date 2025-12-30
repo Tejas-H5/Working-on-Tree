@@ -56,7 +56,7 @@ import {
     imFlex,
     imGap,
     imJustify,
-    imLayout,
+    imLayoutBegin,
     imLayoutEnd,
     imPre,
     imSize,
@@ -200,10 +200,10 @@ function imMainInner(c: ImCache) {
             }
 
             {
-                imLayout(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
+                imLayoutBegin(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
                     const error = state.criticalSavingError || state._criticalLoadingError;
                     if (imIf(c) && error) {
-                        imLayout(c, BLOCK); {
+                        imLayoutBegin(c, BLOCK); {
                             if (isFirstishRender(c)) {
                                 elSetStyle(c, "color", "white");
                                 elSetStyle(c, "backgroundColor", "red");
@@ -221,9 +221,9 @@ function imMainInner(c: ImCache) {
                     }
 
                     if (imIf(c) && ctx.notLockedIn) {
-                        imLayout(c, ROW); imAlign(c, CENTER); {
-                            imLayout(c, ROW); imButton(c); imAlign(c); imJustify(c); imSize(c, 0, NA, 100, PERCENT); {
-                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                        imLayoutBegin(c, ROW); imAlign(c, CENTER); {
+                            imLayoutBegin(c, ROW); imButton(c); imAlign(c); imJustify(c); imSize(c, 0, NA, 100, PERCENT); {
+                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
                                 const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                 let icon = getIcon(state.currentTheme);
@@ -238,18 +238,18 @@ function imMainInner(c: ImCache) {
                                     debouncedSave(ctx, state, "Theme change");
                                 }
 
-                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
                             } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL);
 
-                            imLayout(c, ROW); imFlex(c); {
+                            imLayoutBegin(c, ROW); imFlex(c); {
                                 imAppHeadingBegin(c); {
                                     imStr(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
                                 } imAppHeadingEnd(c);
                             } imLayoutEnd(c);
 
-                            const root = imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                            const root = imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                                 if (isFirstishRender(c)) {
                                     // TODO: standardize
                                     elSetStyle(c, "fontSize", "20px");
@@ -269,7 +269,7 @@ function imMainInner(c: ImCache) {
                                         const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
                                         elSetStyle(c, "opacity", "" + opacity, root);
 
-                                        imLayout(c, BLOCK); {
+                                        imLayoutBegin(c, BLOCK); {
                                             if (isFirstishRender(c)) {
                                                 elSetStyle(c, "width", "20px");
                                                 elSetStyle(c, "height", "20px");
@@ -284,26 +284,26 @@ function imMainInner(c: ImCache) {
                                         elSetStyle(c, "opacity", "1", root);
                                     } imIfEnd(c);
 
-                                    imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                                    imLayout(c, BLOCK); imStr(c, ctx.status.statusText); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imStr(c, ctx.status.statusText); imLayoutEnd(c);
 
                                     if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        imLayout(c, BLOCK); {
+                                        imLayoutBegin(c, BLOCK); {
                                             imStr(c, ".".repeat(Math.ceil(2 * t % 3)));
                                         } imLayoutEnd(c);
                                     } imIfEnd(c);
                                 } else {
                                     imIfElse(c);
 
-                                    imLayout(c, COL); imAlign(c); {
+                                    imLayoutBegin(c, COL); imAlign(c); {
                                         imFpsCounterSimple(c, fpsCounter);
                                         imExtraDiagnosticInfo(c);
                                     } imLayoutEnd(c);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 
-                            imLayout(c, BLOCK); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
+                            imLayoutBegin(c, BLOCK); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
                                 if (isFirstishRender(c)) {
                                     // TODO: standardize
@@ -343,7 +343,7 @@ function imMainInner(c: ImCache) {
                                     commands.altAvailable = false;
                                 } 
 
-                                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
                     } imIfEnd(c);
@@ -363,8 +363,8 @@ function imMainInner(c: ImCache) {
                         imIfElse(c);
 
                         if (!IS_RUNNING_FROM_FILE) {
-                            imLayout(c, BLOCK); imFixed(c, 0, NA, 20, PERCENT, 10, PX, 0, NA); {
-                                imLayout(c, BLOCK); imButton(c); {
+                            imLayoutBegin(c, BLOCK); imFixed(c, 0, NA, 20, PERCENT, 10, PX, 0, NA); {
+                                imLayoutBegin(c, BLOCK); imButton(c); {
                                     if (isFirstishRender(c)) {
                                         elSetStyle(c, "padding", "10px");
                                         elSetStyle(c, "borderRadius", "5px");
@@ -383,7 +383,7 @@ function imMainInner(c: ImCache) {
                             } imLayoutEnd(c);
                         }
 
-                        imLayout(c, ROW); imFlex(c); {
+                        imLayoutBegin(c, ROW); imFlex(c); {
                             // TODO: think about this.
                             let focusRef = imGet(c, newFocusRef);
                             if (!focusRef) focusRef = imSet(c, newFocusRef());
@@ -391,14 +391,14 @@ function imMainInner(c: ImCache) {
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(c, focusRef);
 
-                            imLayout(c, COL); imFlex(c); {
+                            imLayoutBegin(c, COL); imFlex(c); {
                                 imNoteTreeView(c, ctx, ctx.views.noteTree);
                                 addView(navList, ctx.views.noteTree, "Notes");
 
                                 if (imIf(c) && ctx.viewingDurations) {
                                     imLine(c, LINE_HORIZONTAL, 1);
 
-                                    imLayout(c, COL); imFlex(c); {
+                                    imLayoutBegin(c, COL); imFlex(c); {
                                         if (isFirstishRender(c)) {
                                             elSetStyle(c, "maxHeight", "33%");
                                         }
@@ -422,7 +422,7 @@ function imMainInner(c: ImCache) {
                             }
 
                             if (imIf(c) && ctx.notLockedIn) {
-                                imLayout(c, COL); {
+                                imLayoutBegin(c, COL); {
                                     if (isFirstishRender(c)) {
                                         elSetStyle(c, "width", "33%");
                                     }
@@ -692,7 +692,7 @@ function imMainInner(c: ImCache) {
 
             // TODO: provide a way to recover from errors that _are_ recoverable
 
-            imLayout(c, BLOCK); imStr(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imStr(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
         } imIfEnd(c);
     } catch (e) {
         // unmounts imComponent1 immediately, rewinds the stack back to this list.
@@ -729,7 +729,7 @@ function imMainEntryPoint(c: ImCache) {
 };
 
 function imCommandDescription(c: ImCache, key: string, action: string) {
-    imLayout(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
+    imLayoutBegin(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
         imStr(c, "["); imStr(c, key); imStr(c, " - ");
         imStr(c, action);
         imStr(c, "]");

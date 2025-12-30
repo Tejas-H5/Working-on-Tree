@@ -10,7 +10,7 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, ROW } from "src/components/core/layout";
+import { BLOCK, COL, imAlign, imFlex, imJustify, imLayoutBegin, imLayoutEnd, ROW } from "src/components/core/layout";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
@@ -25,7 +25,7 @@ import {
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
-import { EL_A, elSetAttr, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
+import { EL_A, elSetAttr, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 
 type UrlListViewUrl = {
@@ -125,12 +125,12 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
         recomputeUrls(s);
     }
 
-    imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
+    imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
         if (isFirstishRender(c)) {
             elSetStyle(c, "fontWeight", "bold");
         }
 
-        imLayout(c, BLOCK); imStr(c, "Nearby URLs"); imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); imStr(c, "Nearby URLs"); imLayoutEnd(c);
     } imLayoutEnd(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
@@ -143,8 +143,8 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
             const url = s.urls[i];
 
             imNavListRowBegin(c, list); {
-                imLayout(c, BLOCK); imListRowCellStyle(c); {
-                    imEl(c, EL_A); {
+                imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                    imElBegin(c, EL_A); {
                         if (imMemo(c,url)) {
                             elSetAttr(c,"href", url.url);
                         }
@@ -157,7 +157,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
 
         imKeyedBegin(c, "empty"); {
             if (imIf(c) && !renderedAny) {
-                imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                     imStr(c, "No URLs found here.");
                 } imLayoutEnd(c);
             } imIfEnd(c);

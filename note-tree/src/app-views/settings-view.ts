@@ -14,7 +14,7 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imSize, NA, PERCENT, PX, ROW, STRETCH } from "src/components/core/layout";
+import { BLOCK, COL, imAlign, imFlex, imGap, imJustify, imLayoutBegin, imLayoutEnd, imSize, NA, PERCENT, PX, ROW, STRETCH } from "src/components/core/layout";
 import { cn } from "src/components/core/stylesheets";
 import { imB, imBEnd, imI, imIEnd } from "src/components/core/text";
 import { newScrollContainer, } from "src/components/scroll-container";
@@ -40,7 +40,7 @@ import {
     inlineTypeId,
     isFirstishRender
 } from "src/utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imEl, imElEnd, imStr } from "src/utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
 import { VERSION_NUMBER } from "src/version-number";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 
@@ -101,8 +101,8 @@ const menus: MenuItem[] = [
         name: "UI",
         desc: "Fine-tune UI interactions",
         imComponent: (c, ctx, _s, hasFocus) => {
-            imLayout(c, COL); imFlex(c); {
-                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+            imLayoutBegin(c, COL); imFlex(c); {
+                imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     // TODO: tab stop, tabs vs spaces, all on multiple lines -> parents on one line -> all on one line except selection
 
                     let vSc = imGet(c, newScrollContainer);
@@ -116,10 +116,10 @@ const menus: MenuItem[] = [
                     const itemList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
                         imNavListNextItem(itemList); {
                             imNavListRowBegin(c, itemList); {
-                                imLayout(c, ROW); imListRowCellStyle(c); {
+                                imLayoutBegin(c, ROW); imListRowCellStyle(c); {
                                     imB(c); imStr(c, "Spaces or tabs?"); imBEnd(c);
 
-                                    imLayout(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
 
                                     // nonEditingNotesOnOneLine: boolean;
                                     // parentNotesOnOneLine: boolean;
@@ -143,14 +143,14 @@ const menus: MenuItem[] = [
                             let canNarrow = hasFocus && settings.tabStopSize > 1;
 
                             imNavListRowBegin(c, itemList); {
-                                imLayout(c, ROW); imListRowCellStyle(c); {
+                                imLayoutBegin(c, ROW); imListRowCellStyle(c); {
                                     if (isFirstishRender(c)) {
                                         elSetClass(c, cn.preWrap);
                                     }
 
                                     imB(c); imStr(c, "Tab width"); imBEnd(c);
 
-                                    imLayout(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
 
                                     imStr(c, canNarrow ? "< " : "  ");
                                     imStr(c, settings.tabStopSize);
@@ -192,19 +192,19 @@ const menus: MenuItem[] = [
         name: "Download JSON",
         desc: "Export your data to a JSON file to import later/elsewhere",
         imComponent: (c, ctx, _s, hasFocus) => {
-            imLayout(c, COL); imFlex(c); {
+            imLayoutBegin(c, COL); imFlex(c); {
                 // NOTE: Don't want the export view to look similar to the import view. need to avoid action capture.
-                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+                imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     let errRef; errRef = imGet(c, inlineTypeId(imTry))
                     if (!errRef) errRef = imSet(c, { val: null as any });
 
                     if (imIf(c) && !errRef.val) {
-                        imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
-                        imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
-                            imLayout(c, BLOCK); imListRowCellStyle(c); {
-                                imEl(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                                imElBegin(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
                             } imLayoutEnd(c);
                         } imListRowEnd(c);
 
@@ -222,7 +222,7 @@ const menus: MenuItem[] = [
                     } else {
                         imIfElse(c);
 
-                        imLayout(c, BLOCK); imStr(c, "An error occured: " + errRef.val); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imStr(c, "An error occured: " + errRef.val); imLayoutEnd(c);
 
                         if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Dismiss")) {
                             errRef.val = null;
@@ -236,8 +236,8 @@ const menus: MenuItem[] = [
         name: "Load from JSON",
         desc: "Import your data from a JSON file you exported",
         imComponent: (c, ctx, _s, hasFocus) => {
-            imLayout(c, COL); imFlex(c); {
-                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+            imLayoutBegin(c, COL); imFlex(c); {
+                imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     let importModalState = imGet(c, importModal);
                     if (!importModalState) importModalState = imSet(c, importModal());
 
@@ -251,45 +251,45 @@ const menus: MenuItem[] = [
                         if (!current) current = imSet(c, newFocusRef());
                         const navList = imViewsList(c, current);
 
-                        imLayout(c, BLOCK); {
+                        imLayoutBegin(c, BLOCK); {
                             const loadedState = loadResult.state;
                             if (imIf(c) && loadedState) {
                                 const lastOnline = getLastActivity(loadedState)?.t;
 
-                                imLayout(c, ROW); imJustify(c); {
+                                imLayoutBegin(c, ROW); imJustify(c); {
                                     imB(c); imStr(c, "Make sure this looks reasonable before you load the backup"); imBEnd(c); 
                                 } imLayoutEnd(c);
 
-                                imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
+                                imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     imB(c); imStr(c, "Filename: "); imBEnd(c);
                                     imStr(c, importModalState.filename); 
                                 } imLayoutEnd(c);
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     imB(c); imStr(c, "Notes: "); imBEnd(c);
                                     imStr(c, loadedState.notes.nodes.length);
                                 } imLayoutEnd(c);
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     imB(c); imStr(c, "Activities: "); imBEnd(c); 
                                     imStr(c, loadedState.activities.length); 
                                 } imLayoutEnd(c);
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     imB(c); imStr(c, "Last Online: "); imBEnd(c);
                                     imStr(c, !lastOnline ? "No idea" : formatDateTime(lastOnline));
                                 } imLayoutEnd(c);
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     imB(c); imStr(c, "Last Theme: "); imBEnd(c); 
                                     imStr(c, loadedState.currentTheme);
                                 } imLayoutEnd(c);
 
-                                imLayout(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
+                                imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
-                                imLayout(c, ROW); imGap(c, 50, PX); {
+                                imLayoutBegin(c, ROW); imGap(c, 50, PX); {
                                     addView(navList, 0, "Accept button"); {
                                         const focused = current.focused === 0;
                                         imListRowBegin(c, focused, focused && hasFocus, false); {
-                                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                                 imB(c); imStr(c, "Accept"); imBEnd(c); 
                                             } imLayoutEnd(c);
                                         } imListRowEnd(c);
@@ -310,7 +310,7 @@ const menus: MenuItem[] = [
                                     addView(navList, 1, "Reject button"); {
                                         const focused = current.focused === 1;
                                         imListRowBegin(c, focused, focused && hasFocus, false); {
-                                            imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                                 imB(c); imStr(c, "Reject"); imBEnd(c);
                                             } imLayoutEnd(c);
                                         } imListRowEnd(c);
@@ -325,15 +325,15 @@ const menus: MenuItem[] = [
                                 } imLayoutEnd(c);
 
                                 if (imIf(c) && importModalState.acceptPresses > 0) {
-                                    imLayout(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imBEnd(c); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imBEnd(c); imLayoutEnd(c);
 
-                                    imLayout(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
+                                    imLayoutBegin(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
                                         const countChanged = imMemo(c, importModalState.acceptPresses);
 
                                         const col = "rgb(0, 255, 20)";
 
                                         imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
-                                            imLayout(c, BLOCK); imFlex(c); {
+                                            imLayoutBegin(c, BLOCK); imFlex(c); {
                                                 if (countChanged) {
                                                     elSetStyle(
                                                         c,
@@ -350,15 +350,15 @@ const menus: MenuItem[] = [
                             } else {
                                 imIfElse(c);
 
-                                imLayout(c, BLOCK); {
-                                    imLayout(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imBEnd(c); imLayoutEnd(c);
-                                    imLayout(c, BLOCK); imStr(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
+                                imLayoutBegin(c, BLOCK); {
+                                    imLayoutBegin(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imBEnd(c); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imStr(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
                                 } imLayoutEnd(c);
 
                                 addView(navList, 0, "Back button"); {
                                     const focused = current.focused === 0;
                                     imListRowBegin(c, focused, hasFocus && focused, false); {
-                                        imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                             imB(c); imStr(c, "Back");  imBEnd(c);
                                         } imLayoutEnd(c);
                                     } imListRowEnd(c);
@@ -396,7 +396,7 @@ const menus: MenuItem[] = [
                         imIfElse(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
-                            imLayout(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
+                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
                             if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Import JSON")) {
                                 loadFile((file) => {
                                     if (!file) {
@@ -423,17 +423,17 @@ const menus: MenuItem[] = [
         name: "Clear",
         desc: "Clear all your data, and start fresh",
         imComponent: (c, ctx, _s, hasFocus) => {
-            imLayout(c, COL); imFlex(c); {
-                imLayout(c, COL); imFlex(c); imAlign(c); imJustify(c); {
-                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
+            imLayoutBegin(c, COL); imFlex(c); {
+                imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
+                    imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
-                    imLayout(c, BLOCK); imListRowCellStyle(c); {
+                    imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                         imB(c); {
                             imStr(c, "Be sure to download your JSON"); imI(c); imStr(c, " before "); imIEnd(c); imStr(c, "you do this."); 
                         } imBEnd(c);
                     } imLayoutEnd(c);
 
-                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
+                    imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
                     // bruh... 
 
@@ -447,7 +447,7 @@ const menus: MenuItem[] = [
                     const countChanged = imMemo(c, clearDataState.count);
 
                     imListRowBegin(c, true, hasFocus, false); {
-                        imLayout(c, BLOCK); imListRowCellStyle(c); {
+                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                             if (isFirstishRender(c)) {
                                 elSetStyle(c, "fontSize", "30px");
                             }
@@ -459,9 +459,9 @@ const menus: MenuItem[] = [
                                 imStr(c, "Delete all data"); 
                             } imBEnd(c);
 
-                            imLayout(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
+                            imLayoutBegin(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
                                 imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
-                                    imLayout(c, BLOCK); imFlex(c); { 
+                                    imLayoutBegin(c, BLOCK); imFlex(c); { 
                                         if (countChanged) {
                                             elSetStyle(
                                                 c,
@@ -483,7 +483,7 @@ const menus: MenuItem[] = [
                         }
                     } imListRowEnd(c);
 
-                    imLayout(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
+                    imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
                     if (imIf(c) && clearDataState.count >= REQUIRED_PRESSES) {
                         const REQUIRED_TIME_SECONDS = 1;
@@ -496,7 +496,7 @@ const menus: MenuItem[] = [
                         }
                         timer = imSet(c, timer + getDeltaTimeSeconds(c));
 
-                        imLayout(c, BLOCK); {
+                        imLayoutBegin(c, BLOCK); {
                             if (isFirstishRender(c)) {
                                 elSetStyle(c, "fontSize", "30px");
                                 elSetStyle(c, "color", "red");
@@ -506,8 +506,8 @@ const menus: MenuItem[] = [
                                 imStr(c, "SYSTEM WIPE IMMINENT"); 
                             } imBEnd(c);
 
-                            imLayout(c, ROW); imAlign(c, STRETCH); imSize(c, 100, PERCENT, 30, PX); {
-                                imLayout(c, BLOCK); {
+                            imLayoutBegin(c, ROW); imAlign(c, STRETCH); imSize(c, 100, PERCENT, 30, PX); {
+                                imLayoutBegin(c, BLOCK); {
                                     elSetStyle(c, "width", ((timer / REQUIRED_TIME_SECONDS) * 100) + "%");
                                     elSetStyle(c, "backgroundColor", "red");
                                 } imLayoutEnd(c);
@@ -543,19 +543,19 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
         s.mainListHasFocus = false;
     }
 
-    imLayout(c, COL); imFlex(c); {
-        imLayout(c, COL); imAlign(c); imFlex(c); {
-            imLayout(c, ROW); imSize(c, 0, NA, 100, PERCENT); {
-                imLayout(c, COL);  {
+    imLayoutBegin(c, COL); imFlex(c); {
+        imLayoutBegin(c, COL); imAlign(c); imFlex(c); {
+            imLayoutBegin(c, ROW); imSize(c, 0, NA, 100, PERCENT); {
+                imLayoutBegin(c, COL);  {
                     if (isFirstishRender(c)) {
                         elSetStyle(c, "minWidth", "100px");
                     }
 
-                    imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+                    imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
                         imB(c); imStr(c, "Note Tree v" + VERSION_NUMBER); imBEnd(c); 
                     } imLayoutEnd(c);
 
-                    imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+                    imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
                         imB(c); imStr(c, "Settings"); imBEnd(c); 
                     } imLayoutEnd(c);
 
@@ -570,7 +570,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                                 s.selectedMenu = menu;
                             }
                             imNavListRowBegin(c, hallwayList); {
-                                imLayout(c, BLOCK); imListRowCellStyle(c); {
+                                imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                     imB(c); imStr(c, menu.name); imBEnd(c);
                                 } imLayoutEnd(c);
                             } imNavListRowEnd(c);
@@ -596,14 +596,14 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
 
                 } imLayoutEnd(c);
 
-                imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                imLayout(c, COL); imFlex(c); {
+                imLayoutBegin(c, COL); imFlex(c); {
                     if (isFirstishRender(c)) {
                         elSetStyle(c, "width", "800px");
                     }
 
-                    imLayout(c, ROW); imAlign(c); imJustify(c); {
+                    imLayoutBegin(c, ROW); imAlign(c); imJustify(c); {
                         imAppHeadingBegin(c); {
                             let text = "Settings";
 

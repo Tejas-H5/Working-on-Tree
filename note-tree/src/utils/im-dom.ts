@@ -1,4 +1,4 @@
-// IM-DOM 1.45
+// IM-DOM 1.5
 // NOTE: this version may be unstable, as we've updated the DOM diffing algorithm.
 
 import { assert } from "src/utils/assert";
@@ -16,6 +16,7 @@ import {
     imMemo,
     imSet,
     inlineTypeId,
+    isFirstishRender,
 } from "./im-core";
 
 export type ValidElement = HTMLElement | SVGElement;
@@ -136,9 +137,9 @@ export function finalizeDomAppender(appender: DomAppender<ValidElement>) {
 
 /**
  * NOTE: SVG elements are actually different from normal HTML elements, and 
- * will need to be created wtih {@link imElSvg}
+ * will need to be created wtih {@link imElSvgBegin}
  */
-export function imEl<K extends keyof HTMLElementTagNameMap>(
+export function imElBegin<K extends keyof HTMLElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
 ): DomAppender<HTMLElementTagNameMap[K]> {
@@ -165,7 +166,55 @@ function imBeginDomAppender(c: ImCache, appender: DomAppender<ValidElement>, chi
     childAppender.idx = -1;
 }
 
-export function imElSvg<K extends keyof SVGElementTagNameMap>(
+export type SvgContext = {
+    svg: SVGSVGElement;
+    width: number; 
+    height: number;
+    resized: boolean;
+}
+
+/**
+ * An alternative to {@link EL_SVG} for larger svg-based components.
+ * For one off icons, this is probably not as ideal.
+ *
+ * NOTE: large svg-based scenes are very hard and cumbersone to code. 
+ * This could very well be because this SvgContext isnt fully formed.
+ * TODO: we need to make SVG as simple as canvas. Some way to render elements to an SVG
+ * layer from within this component. 
+ */
+export function imSvgContext(c: ImCache): SvgContext {
+    const { size, resized } = imTrackSize(c);
+
+    const svgRoot = imElSvgBegin(c, EL_SVG); {
+        if (isFirstishRender(c)) elSetStyle(c, "position", "relative")
+        if (isFirstishRender(c)) elSetStyle(c, "width", "100%")
+        if (isFirstishRender(c)) elSetStyle(c, "height", "100%")
+        if (resized) elSetAttr(c, "viewBox", `0 0 ${size.width} ${size.height}`);
+    } // imElSvgEnd
+
+    let ctx = imGet(c, imSvgContext);
+    if (ctx === undefined) {
+        ctx = { 
+            svg: svgRoot.root,
+            width: 0,
+            height: 0,
+            resized: false,
+        };
+        imSet(c, ctx);
+    }
+
+    ctx.width = size.width;
+    ctx.height = size.height;
+    ctx.resized = resized;
+
+    return ctx;
+}
+
+export function imSvgContextEnd(c: ImCache) {
+    imElSvgEnd(c, EL_SVG);
+}
+
+export function imElSvgBegin<K extends keyof SVGElementTagNameMap>(
     c: ImCache,
     r: KeyRef<K>
 ): DomAppender<SVGElementTagNameMap[K]> {
@@ -196,6 +245,19 @@ export function imElEnd(c: ImCache, r: KeyRef<keyof HTMLElementTagNameMap | keyo
 export const imElSvgEnd = imElEnd;
 
 
+/**
+ * Typicaly just used at the very root of the program:
+ *
+ * const globalImCache: ImCache = [];
+ * main(globalImCache);
+ *
+ * function main(c: ImCache) {
+ *      imCacheBegin(c); {
+ *          imDomRootBegin(c, document.body); {
+ *          }
+ *      } imCacheEnd(c);
+ * }
+ */
 export function imDomRootBegin(c: ImCache, root: ValidElement) {
     let appender = imGet(c, newDomAppender);
     if (appender === undefined) {
@@ -943,8 +1005,11 @@ export const EL_SVG_SCRIPT = { val: "script" } as const;
 export const EL_SVG_SET = { val: "set" } as const;
 export const EL_SVG_STOP = { val: "stop" } as const;
 export const EL_SVG_STYLE = { val: "style" } as const;
-export const EL_SVG_SVG = { val: "svg" } as const;
-export const EL_SVG = EL_SVG_SVG; // more intuitive, innit
+/**
+ * For larger svg-based components with lots of moving parts, 
+ * consider {@link imSvgContext}, or creating something on your end that is similar.
+ */
+export const EL_SVG = { val: "svg" } as const;; 
 export const EL_SVG_SWITCH = { val: "switch" } as const;
 export const EL_SVG_SYMBOL = { val: "symbol" } as const;
 export const EL_SVG_TEXT = { val: "text" } as const;

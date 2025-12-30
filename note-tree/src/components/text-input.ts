@@ -1,6 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
 import { cssVars } from "./core/stylesheets";
-import { EL_INPUT, elSetAttr, elSetClass, EV_BLUR, EV_INPUT, getGlobalEventSystem, imEl, imElEnd, imOn } from "src/utils/im-dom";
+import { EL_INPUT, elSetAttr, elSetClass, EV_BLUR, EV_INPUT, getGlobalEventSystem, imElBegin, imElEnd, imOn } from "src/utils/im-dom";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { imFlex } from "./core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "./editable-text-area";
@@ -30,7 +30,7 @@ export function imTextInputBegin(c: ImCache, {
     value: string;
     placeholder?: string;
 }) {
-    const input = imEl(c, EL_INPUT); {
+    const input = imElBegin(c, EL_INPUT); {
         if (isFirstishRender(c)) {
             elSetClass(c, cnInput);
             elSetAttr(c, "type", "text");

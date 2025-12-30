@@ -12,7 +12,7 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { imEditableTime } from "src/app-components/time-input";
-import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayout, imLayoutEnd, imNoWrap, imSize, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/components/core/layout";
+import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayoutBegin, imLayoutEnd, imNoWrap, imSize, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/components/core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
@@ -577,8 +577,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         handleKeyboardInput(ctx, s);
     }
 
-    imLayout(c, COL); imFlex(c); {
-        imLayout(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+    imLayoutBegin(c, COL); imFlex(c); {
+        imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
             if (isFirstishRender(c)) {
                 elSetStyle(c, "fontWeight", "bold");
             }
@@ -607,16 +607,16 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 elSetStyle(c, "fontWeight", "bold");
             }
 
-            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
+            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
 
-                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
                 if (imIf(c) && dateSelectorFocused && s._canMoveToPrevDay) {
                     // TODO: buttons
-                    imLayout(c, BLOCK); imStr(c, "<-"); imLayoutEnd(c);
+                    imLayoutBegin(c, BLOCK); imStr(c, "<-"); imLayoutEnd(c);
                 } imIfEnd(c);
 
-                imLayout(c, ROW); {
+                imLayoutBegin(c, ROW); {
                     let dateText;
                     if (isSameDate(s.currentViewingDate, s.now)) {
                         dateText = " today (" + formatDate(s.currentViewingDate, true) + ")";
@@ -642,10 +642,10 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                 if (imIf(c) && dateSelectorFocused && s._canMoveToNextDay) {
                     // TODO: buttons
-                    imLayout(c, BLOCK); imStr(c, "->"); imLayoutEnd(c);
+                    imLayoutBegin(c, BLOCK); imStr(c, "->"); imLayoutEnd(c);
                 } imIfEnd(c);
 
-                imLayout(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
             } imLayoutEnd(c);
 
         } imListRowEnd(c);
@@ -697,8 +697,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     const isBreakActivity = isBreak(activity);
 
                     imNavListRowBegin(c, list, itemHighlighted); {
-                        imLayout(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
-                            imLayout(c, INLINE_BLOCK); {
+                        imLayoutBegin(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
+                            imLayoutBegin(c, INLINE_BLOCK); {
                                 if (imIf(c) && isEditingTime) {
                                     const lowerBound = arrayAt(s.activities, i - 1)?.t;
                                     const upperBound = arrayAt(s.activities, i + 1)?.t;
@@ -727,21 +727,21 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                 } else {
                                     imIfElse(c);
 
-                                    imLayout(c, BLOCK); imStr(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imStr(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
                                 } imIfEnd(c);
                             } imLayoutEnd(c);
 
-                            imLayout(c, BLOCK); imSize(c, 5, PX, 0, NA); imLayoutEnd(c);
+                            imLayoutBegin(c, BLOCK); imSize(c, 5, PX, 0, NA); imLayoutEnd(c);
 
                             let text = getActivityText(state, activity);
-                            imLayout(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
+                            imLayoutBegin(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
                                 if (imMemo(c, isBreakActivity)) {
                                     elSetStyle(c, "padding", isBreakActivity ? "40px" : "0");
                                 }
 
                                 const isEditingActivityChanged = imMemo(c, isEditingActivity);
                                 if (imIf(c) && !isEditingActivity) {
-                                    imLayout(c, BLOCK); imStr(c, text); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imStr(c, text); imLayoutEnd(c);
                                 } else {
                                     imIfElse(c);
 
@@ -774,7 +774,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     const activityDuration = getActivityDurationMs(activity, nextActivity);
                     totalDuration += activityDuration;
                     if (imIf(c) && totalDuration > ONE_MINUTE * 5) {
-                        imLayout(c, ROW); imAlign(c); imJustify(c); {
+                        imLayoutBegin(c, ROW); imAlign(c); imJustify(c); {
                             imStr(c, formatDuration(totalDuration));
                             totalDuration = 0
                         } imLayoutEnd(c);
@@ -784,7 +784,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
             imKeyedBegin(c, "footer"); {
                 if (imIf(c) && !hasActivities) {
-                    imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                    imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                         imStr(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");
                     } imLayoutEnd(c);
                 } imIfEnd(c);

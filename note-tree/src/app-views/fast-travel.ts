@@ -10,7 +10,7 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { BLOCK, COL, imAlign, imFlex, imJustify, imLayout, imLayoutEnd, imPadding, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/components/core/layout";
+import { BLOCK, COL, imAlign, imFlex, imJustify, imLayoutBegin, imLayoutEnd, imPadding, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/components/core/layout";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
@@ -183,15 +183,15 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
         recomputeTraversal(s, state.currentNoteId, true);
     }
 
-    imLayout(c, COL); imListRowCellStyle(c); imAlign(c); {
+    imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
         if (isFirstishRender(c)) {
             elSetStyle(c, "fontWeight", "bold");
         }
 
-        imLayout(c, BLOCK); imStr(c, "Fast travel"); imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); imStr(c, "Fast travel"); imLayoutEnd(c);
 
         if (imIf(c) && s.viewRoot) {
-            imLayout(c, BLOCK); imStr(c, s.viewRoot.data.text); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imStr(c, s.viewRoot.data.text); imLayoutEnd(c);
         } imIfEnd(c);
     } imLayoutEnd(c);
 
@@ -205,8 +205,8 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
             const note = s.notes[i];
 
             imNavListRowBegin(c, list); {
-                imLayout(c, BLOCK); imListRowCellStyle(c); {
-                    imLayout(c, INLINE); {
+                imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                    imLayoutBegin(c, INLINE); {
                         const isBold = note.data._tasksInProgress > 0;
                         if (imMemo(c, isBold)) elSetStyle(c, "fontWeight", isBold ? "bold" : "");
 
@@ -219,7 +219,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
                         const canGoIn = note.childIds.length > 0;
                         if (imIf(c) && canGoIn) {
-                            imLayout(c, INLINE_BLOCK); imPadding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
+                            imLayoutBegin(c, INLINE_BLOCK); imPadding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
                                 imStr(c, " ->");
                             } imLayoutEnd(c);
                         } imIfEnd(c);
@@ -230,7 +230,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
         imKeyedBegin(c, "empty"); {
             if (imIf(c) && !renderedAny) {
-                imLayout(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
                     imStr(c, "This level has been cleared!");
                 } imLayoutEnd(c);
             } imIfEnd(c);

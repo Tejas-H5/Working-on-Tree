@@ -8,7 +8,7 @@ import {
     inlineTypeId
 } from "src/utils/im-core";
 import { imStr } from "src/utils/im-dom";
-import { BLOCK, imLayout, imLayoutEnd } from "./core/layout";
+import { BLOCK, imLayoutBegin, imLayoutEnd } from "./core/layout";
 
 export type FpsCounterState = {
     renderStart: number;
@@ -65,7 +65,7 @@ export function imFpsCounterSimple(c: ImCache, fpsCounter: FpsCounterState) {
     renderMs /= arr.frameMsRingbuffer.length;
     frameMs /= arr.frameMsRingbuffer.length;
 
-    imLayout(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
+    imLayoutBegin(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
 }
 
 export function imExtraDiagnosticInfo(c: ImCache) {
@@ -73,7 +73,7 @@ export function imExtraDiagnosticInfo(c: ImCache) {
     const numDestructors = c[CACHE_TOTAL_DESTRUCTORS];
     const numMapEntries  = c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME];
 
-    imLayout(c, BLOCK); {
+    imLayoutBegin(c, BLOCK); {
         imStr(c, itemsIterated);
         imStr(c, "i ");
 

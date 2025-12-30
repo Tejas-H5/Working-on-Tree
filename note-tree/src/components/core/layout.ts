@@ -1,6 +1,6 @@
 import { newCssBuilder } from 'src/utils/cssb';
 import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
-import { EL_DIV, elSetClass, elSetStyle, imEl, imElEnd } from 'src/utils/im-dom';
+import { EL_DIV, elSetClass, elSetStyle, imElBegin, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
 
 const cssb = newCssBuilder();
@@ -197,15 +197,15 @@ export type DisplayType
  * A dummy element with flex: 1. Super useful for flexbox.
  */
 export function imFlex1(c: ImCache) {
-    imLayout(c, BLOCK); {
+    imLayoutBegin(c, BLOCK); {
         if (isFirstishRender(c)) elSetStyle(c, "flex", "1");
     } imLayoutEnd(c);
 }
 
-export function imLayout(c: ImCache, type: DisplayType) {
-    const root = imEl(c, EL_DIV);
+export function imLayoutBegin(c: ImCache, type: DisplayType) {
+    const root = imElBegin(c, EL_DIV);
 
-    const last = imGet(c, inlineTypeId(imLayout), -1);
+    const last = imGet(c, inlineTypeId(imLayoutBegin), -1);
     if (last !== type) {
         imSet(c, type);
 
@@ -422,7 +422,7 @@ export function imAbsoluteXY(c: ImCache, x: number, xType: SizeUnits, y: number,
 }
 
 export function imOverflowContainer(c: ImCache, noScroll: boolean = false) {
-    const root = imLayout(c, BLOCK);
+    const root = imLayoutBegin(c, BLOCK);
 
     if (imMemo(c, noScroll)) {
         if (noScroll) {

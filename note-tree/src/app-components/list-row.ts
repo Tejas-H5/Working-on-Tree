@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, DisplayType, imLayout, imLayoutEnd, imPadding, imSize, NA, PX, ROW, SizeUnits, TABLE_CELL, TABLE_ROW } from "src/components/core/layout";
+import { BLOCK, DisplayType, imLayoutBegin, imLayoutEnd, imPadding, imSize, NA, PX, ROW, SizeUnits, TABLE_CELL, TABLE_ROW } from "src/components/core/layout";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
 import { elSetStyle } from "src/utils/im-dom";
 
@@ -54,7 +54,7 @@ export function imListTableRowBegin(
     isEditing = false
 ) {
     const status = getRowStatus(highlighted, focused, isEditing);
-    const root = imLayout(c, TABLE_ROW); {
+    const root = imLayoutBegin(c, TABLE_ROW); {
         imListCursorBg(c, status);
 
         if (isFirstishRender(c)) {
@@ -81,12 +81,12 @@ export function imTableCellFlexBegin(
     type: DisplayType,
     colWidth: number = 0, units: SizeUnits = NA,
 ) {
-    imLayout(c, TABLE_CELL); imSize(c, colWidth, units, 0, NA); {
+    imLayoutBegin(c, TABLE_CELL); imSize(c, colWidth, units, 0, NA); {
         if (isFirstishRender(c)) {
             elSetStyle(c, "verticalAlign", "middle");
         }
 
-        imLayout(c, type); {
+        imLayoutBegin(c, type); {
             if (isFirstishRender(c)) {
                 elSetStyle(c, "height", "100%");
             }
@@ -109,10 +109,10 @@ export function imListRowBegin(
     isEditing = false
 ) {
     const status = getRowStatus(highlighted, focused, isEditing);
-    const root = imLayout(c, ROW); {
+    const root = imLayoutBegin(c, ROW); {
         imListCursorBg(c, status);
 
-        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); {
+        imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); {
             imListCursorColor(c, status);
         } imLayoutEnd(c);
 
@@ -123,7 +123,7 @@ export function imListRowBegin(
 
 export function imListRowEnd(c: ImCache) {
     {
-        imLayout(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
     } imLayoutEnd(c);
 }
 

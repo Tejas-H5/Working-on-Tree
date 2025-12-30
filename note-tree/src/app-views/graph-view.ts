@@ -10,7 +10,7 @@ import {
     imButton,
     imFlex,
     imJustify,
-    imLayout,
+    imLayoutBegin,
     imLayoutEnd,
     imPadding,
     imRelative,
@@ -29,6 +29,8 @@ import { arrayAt, pushToNullableArray, resizeObjectPool } from "src/utils/array-
 import { assert } from "src/utils/assert";
 import {
     getDeltaTimeSeconds,
+    imBlockBegin,
+    imBlockEnd,
     ImCache,
     imFor,
     imForEnd,
@@ -39,6 +41,8 @@ import {
     imKeyedEnd,
     imMemo,
     imState,
+    imSwitch,
+    imSwitchEnd,
     isFirstishRender
 } from "src/utils/im-core";
 import {
@@ -52,7 +56,9 @@ import {
     EV_CONTEXTMENU,
     EV_DBLCLICK,
     getGlobalEventSystem,
-    imElSvg,
+    imDomRootBegin,
+    imDomRootEnd,
+    imElSvgBegin,
     imElSvgEnd,
     imOn,
     imPreventScrollEventPropagation,
@@ -500,6 +506,47 @@ export function imGraphMappingsEditorView(
     graph: MappingGraph,
     v: MappingGraphView,
 ) {
+    imLayoutBegin(c, COL); imFlex(c); {
+        let div1, div2
+        imLayoutBegin(c, ROW); imFlex(c); {
+            imLayoutBegin(c, COL); imFlex(c); {
+                imStr(c, "Div 1");
+
+                div1 = imOpenPortal(c);
+
+                imStr(c, "Div 1 end");
+            } imLayoutEnd(c);
+            imLayoutBegin(c, COL); imFlex(c); {
+                imStr(c, "Div 2");
+
+                div2 = imOpenPortal(c);
+
+                imStr(c, "Div 2 end");
+            } imLayoutEnd(c);
+        } imLayoutEnd(c);
+
+        imFor(c); for (let i = 0; i < 10; i++) {
+            const randomChoice = Math.random() < 0.5 ? div1 : div2;
+
+            imKeyedBegin(c, i); {
+                imSwitch(c, randomChoice); {
+                    imDomRootBegin(c, randomChoice); {
+                        imLayoutBegin(c, BLOCK); {
+                        imStr(c, "naww");
+                        } imLayoutEnd(c);
+                    } imDomRootEnd(c, randomChoice);
+                } imSwitchEnd(c);
+            } imKeyedEnd(c);
+        } imForEnd(c);
+    } imLayoutEnd(c);
+}
+
+export function imGraphMappingsEditorView2(
+    c: ImCache,
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    v: MappingGraphView,
+) {
     let editedGraph = false;
     let editedView = false;
     let mutation: (() => void) | undefined;
@@ -521,7 +568,7 @@ export function imGraphMappingsEditorView(
         resizeObjectPool(s.conceptsUiState, newMappingConceptUiState, graph.concepts.length);
     }
 
-    const root = imLayout(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true); {
+    const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true); {
         const rootRect = root.getBoundingClientRect();
 
         const isDraggingEdge = s.dragNewEdge.srcId !== -1;
@@ -586,17 +633,17 @@ export function imGraphMappingsEditorView(
             const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c); imJustify(c); {
                 if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
                 if (imIf(c) && lineState.isUpsideDown) {
-                    imLayout(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
+                    imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                         imArrowHeadSvg(c);
                     } imLayoutEnd(c);
                 } imIfEnd(c);
 
-                imLayout(c, ROW); imFlex(c); {
+                imLayoutBegin(c, ROW); imFlex(c); {
                     imLine(c, LINE_HORIZONTAL, 3);
                 } imLayoutEnd(c);
 
                 if (imIf(c) && !lineState.isUpsideDown) {
-                    imLayout(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
+                    imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                         if (isFirstishRender(c)) elSetStyle(c, "transform", "scale(-1, 1)")
                         imArrowHeadSvg(c);
                     } imLayoutEnd(c);
@@ -625,7 +672,7 @@ export function imGraphMappingsEditorView(
                     conceptUiState.version++;
                 }
 
-                imLayout(c, BLOCK); {
+                imLayoutBegin(c, BLOCK); {
                     imZIndex(c, 1); // raise above edges
                     imAbsoluteXY(c, toScreenX(v, concept.x), PX, toScreenY(v, concept.y), PX);
                     imPadding(c, 20, PX, 20, PX, 20, PX, 20, PX);
@@ -636,7 +683,7 @@ export function imGraphMappingsEditorView(
                     if (isFirstishRender(c)) elSetClass(c, cn.pre);
 
                     let hoveredInner = false;
-                    const innerRoot = imLayout(c, COL); {
+                    const innerRoot = imLayoutBegin(c, COL); {
                         hoveredInner = elHasMouseOver(c)
 
                         const innerRect = innerRoot.getBoundingClientRect();
@@ -689,7 +736,7 @@ export function imGraphMappingsEditorView(
                                 s.rightClicked.conceptId = conceptId;
                             }
 
-                            imLayout(c, BLOCK); {
+                            imLayoutBegin(c, BLOCK); {
                                 if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
 
                                 imStr(c, concept.conceptName || "Unnamed");
@@ -797,7 +844,7 @@ export function imGraphMappingsEditorView(
 
                 const labelX = mx;
                 const labelY = my;
-                imLayout(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); imZIndex(c, 10); {
+                imLayoutBegin(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); imZIndex(c, 10); {
                     if (isFirstishRender(c)) elSetStyle(c, "transform", "translate(-50%, -50%");
 
                     imFor(c); for (let idxInGroup = 0; idxInGroup < edgeGroup.relIds.length; idxInGroup++) {
@@ -806,7 +853,7 @@ export function imGraphMappingsEditorView(
                         if (!rel) continue;
 
                         imKeyedBegin(c, relId); {
-                            imLayout(c, BLOCK); {
+                            imLayoutBegin(c, BLOCK); {
                                 editedGraph = imRelationshipLabel(c, s, rel, relId, ctxEv) || editedGraph;
                             } imLayoutEnd(c);
                         } imKeyedEnd(c);
@@ -830,22 +877,22 @@ export function imGraphMappingsEditorView(
                             const dstUiState = s.conceptsUiState[rel.dstId]; assert(!!dstUiState);
                             const relUiState = s.relUiState[relId]; assert(!!relUiState);
 
-                            imLayout(c, ROW); {
+                            imLayoutBegin(c, ROW); {
                                 // arrow. only one should appear at a time
                                 if (imIf(c) && lineState.isUpsideDown === isSrc) {
-                                    imLayout(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
+                                    imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                                         imArrowHeadSvg(c);
                                     } imLayoutEnd(c);
                                 } imIfEnd(c);
 
-                                imLayout(c, ROW); imFlex(c); imAlign(c); {
+                                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); {
                                     const col = elHasMouseOver(c) ? "red" : cssVars.fg;
-                                    imLayout(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
+                                    imLayoutBegin(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
                                 } imLayoutEnd(c);
 
                                 // arrow
                                 if (imIf(c) && lineState.isUpsideDown !== isSrc) {
-                                    imLayout(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
+                                    imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                                         if (isFirstishRender(c)) elSetStyle(c, "transform", "scale(-1, 1)")
                                         imArrowHeadSvg(c);
                                     } imLayoutEnd(c);
@@ -980,12 +1027,12 @@ export function imGraphMappingsEditorView(
 }
 
 function imArrowHeadSvg(c: ImCache) {
-    imElSvg(c, EL_SVG); imRelative(c); {
+    imElSvgBegin(c, EL_SVG); imRelative(c); {
         if (isFirstishRender(c)) elSetAttr(c, "viewBox", "0 0 10 10");
         if (isFirstishRender(c)) elSetStyle(c, "width", "100%")
         if (isFirstishRender(c)) elSetStyle(c, "height", "100%")
 
-        imElSvg(c, EL_SVG_POLYGON); {
+        imElSvgBegin(c, EL_SVG_POLYGON); {
             if (isFirstishRender(c)) elSetAttr(c, "points", "0,5 10,10 10,0 0,5");
             if (isFirstishRender(c)) elSetAttr(c, "style", `fill:${cssVars.fg};stroke-width:0;`);
         } imElSvgEnd(c, EL_SVG_POLYGON);
@@ -1003,7 +1050,7 @@ function imRelationshipLabel(
 
     const editing = s.currentlyEditing.relId === relId;
 
-    imLayout(c, ROW); imBg(c, cssVars.bg); {
+    imLayoutBegin(c, ROW); imBg(c, cssVars.bg); {
         const hovered = elHasMouseOver(c);
 
         if (isFirstishRender(c)) elSetStyle(c, "padding", "3px 10px");
@@ -1031,7 +1078,7 @@ function imRelationshipLabel(
                 s.rightClicked = { relId };
             }
 
-            imLayout(c, ROW); {
+            imLayoutBegin(c, ROW); {
                 if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
 
                 imStr(c, rel.relationshipName || "Unnamed");
@@ -1078,7 +1125,7 @@ function imLayoutLine(
         }
     }
 
-    imLayout(c, type);
+    imLayoutBegin(c, type);
     imAbsoluteXY(c, x0, PX, y0, PX);
 
     const dx = x1 - x0;
@@ -1101,7 +1148,7 @@ function imLayoutLineEnd(c: ImCache) {
 }
 
 function imContextMenuItem(c: ImCache) {
-    imLayout(c, BLOCK); imListRowCellStyle(c); imButton(c); {
+    imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imButton(c); {
     } // imLayoutEnd
 }
 

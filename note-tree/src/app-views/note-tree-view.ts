@@ -23,7 +23,7 @@ import {
     imBg,
     imFlex,
     imGap,
-    imLayout,
+    imLayoutBegin,
     imLayoutEnd,
     imNoWrap,
     imOpacity,
@@ -359,8 +359,8 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     }
 
 
-    imLayout(c, COL); imFlex(c); {
-        imLayout(c, BLOCK); {
+    imLayoutBegin(c, COL); imFlex(c); {
+        imLayoutBegin(c, BLOCK); {
             s.numVisible = 0;
             imFor(c); for (const row of s.viewRootParentNotes) {
                 imKeyedBegin(c, row); {
@@ -375,7 +375,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             !!s.scrollContainer.root && s.scrollContainer.root.scrollTop > 1,
         );
 
-        imLayout(c, BLOCK); {
+        imLayoutBegin(c, BLOCK); {
             imFor(c); for (const row of s.stickyNotes) {
                 imKeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
@@ -414,7 +414,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
             // Want to scroll off the bottom a bit
             imKeyedBegin(c, "scrolloff"); {
-                imLayout(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
+                imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
             } imKeyedEnd(c);
         } imNavListEnd(c, list);
 
@@ -428,14 +428,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         if (imIf(c) && hasMarks) {
             imLine(c, LINE_HORIZONTAL, 1);
 
-            imLayout(c, COL); {
+            imLayoutBegin(c, COL); {
                 imFor(c); for (let i = 0; i < state.marks.length; i++) {
                     const m = state.marks[i];
                     if (!m) continue;
                     const note = getNote(state.notes, m);
-                    imLayout(c, BLOCK); imNoWrap(c); {
+                    imLayoutBegin(c, BLOCK); imNoWrap(c); {
                         if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
-                        imLayout(c, INLINE); {
+                        imLayoutBegin(c, INLINE); {
                             if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
                             imStr(c, "Mark ");
                             imStrFmt(c, i, markIdxToString);
@@ -450,10 +450,10 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         imLine(c, LINE_HORIZONTAL, 1);
 
         const currentNote = getCurrentNote(state);
-        imLayout(c, ROW); imGap(c, 10, PX); {
-            imLayout(c, BLOCK); imStr(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
-            imLayout(c, BLOCK); imStr(c, "|"); imLayoutEnd(c);
-            imLayout(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
+        imLayoutBegin(c, ROW); imGap(c, 10, PX); {
+            imLayoutBegin(c, BLOCK); imStr(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imStr(c, "|"); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
         } imLayoutEnd(c);
     } imLayoutEnd(c);
 }
@@ -643,13 +643,13 @@ function imNoteTreeRow(
     }
 
     const root = imNavListRowBegin(c, list); {
-        imLayout(c, ROW); imFlex(c); {
+        imLayoutBegin(c, ROW); imFlex(c); {
             if (selectedChanged) {
                 elSetClass(c, cn.preWrap, itemSelected);
             }
 
             // The tree visuals
-            imLayout(c, ROW_REVERSE); {
+            imLayoutBegin(c, ROW_REVERSE); {
                 const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
 
                 let it = note;
@@ -692,10 +692,10 @@ function imNoteTreeRow(
 
                     // the tree visuals. It was a lot easier to do these here than in my last framework
                     {
-                        imLayout(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
+                        imLayoutBegin(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
                             // horizontal line xD
                             if (imIf(c) && hasHLine) {
-                                imLayout(c, BLOCK); imAbsolute(c, 1, EM, 0, PX, 0, NA, 0, NA); {
+                                imLayoutBegin(c, BLOCK); imAbsolute(c, 1, EM, 0, PX, 0, NA, 0, NA); {
                                     if (isFirstishRender(c)) {
                                         elSetStyle(c, "transform", "translate(0, -100%)");
                                     }
@@ -717,7 +717,7 @@ function imNoteTreeRow(
                                 let midpointUnits = EM;
 
                                 // Vertical line part 1. xd. We need a better API
-                                imLayout(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
+                                imLayoutBegin(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
                                     imSize(
                                         c,
                                         isLineInPath ? largeThicnkess : smallThicnkess, PX,
@@ -727,7 +727,7 @@ function imNoteTreeRow(
                                 } imLayoutEnd(c);
 
                                 // Vertical line part 2.
-                                imLayout(c, BLOCK); {
+                                imLayoutBegin(c, BLOCK); {
                                     const isThick = isLineInPath && !pathGoesRight;
                                     imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); 
                                     imSize(
@@ -744,12 +744,12 @@ function imNoteTreeRow(
                 } imForEnd(c);
             } imLayoutEnd(c);
 
-            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
+            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
                 if (imMemo(c, note.data._status)) {
                     elSetStyle(c, "color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
                 }
 
-                imLayout(c, ROW); imFlex(c); {
+                imLayoutBegin(c, ROW); imFlex(c); {
                     if (imMemo(c, itemSelected)) {
                         elSetClass(c, cn.preWrap, itemSelected);
                         elSetClass(c, cn.pre, !itemSelected);
@@ -757,17 +757,17 @@ function imNoteTreeRow(
                         elSetClass(c, cn.overflowHidden, !itemSelected);
                     }
 
-                    imLayout(c, ROW); {
+                    imLayoutBegin(c, ROW); {
                         if (isFirstishRender(c)) {
                             elSetClass(c, cn.noWrap);
                         }
 
-                        imLayout(c, BLOCK); imStr(c, noteStatusToString(note.data._status)); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imStr(c, noteStatusToString(note.data._status)); imLayoutEnd(c);
                         if (imIf(c) && (numInProgress + numDone) > 0) {
-                            imLayout(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
+                            imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
                             imStr(c, `(${numDone}/${numInProgress + numDone})`);
                         } imIfEnd(c);
-                        imLayout(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
                     } imLayoutEnd(c);
 
                     if (imIf(c) && isEditing) {
@@ -839,6 +839,8 @@ function imNoteTreeRow(
                                     pos++;
                                 }
 
+                                // NOTE: doesn't work for one long line of text that then gets wrapped :)
+                                // we could just make the text editor width unbounded, and autoscroll sideways too ...
                                 const ratio = numNewlines === 0 ? 0 : numNewlinesBeforePosToScrollTo / numNewlines;
                                 sc.wantedScrollOffsetItem = ratio;
                                 sc.wantedScrollOffsetViewport = 0.5;

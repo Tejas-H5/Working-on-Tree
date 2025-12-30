@@ -1,5 +1,5 @@
 import { cnApp } from "src/app-styling";
-import { BLOCK, COL, imFlex, imJustify, imLayout, imLayoutEnd, INLINE, ROW } from "src/components/core/layout";
+import { BLOCK, COL, imFlex, imJustify, imLayoutBegin, imLayoutEnd, INLINE, ROW } from "src/components/core/layout";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "src/global-context";
@@ -278,9 +278,9 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
     } 
     
     // Both items are focused at the same time !!! LFG
-    imLayout(c, COL); imFlex(c); {
+    imLayoutBegin(c, COL); imFlex(c); {
 
-        imLayout(c, ROW); imListRowCellStyle(c); imJustify(c); {
+        imLayoutBegin(c, ROW); imListRowCellStyle(c); imJustify(c); {
             if (isFirstishRender(c)) {
                 elSetStyle(c, "fontWeight", "bold");
             }
@@ -290,7 +290,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
         } imLayoutEnd(c);
 
         imListRowBegin(c, viewHasFocus, viewHasFocus, true); {
-            imLayout(c, ROW); imFlex(c); imListRowCellStyle(c); {
+            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
                 const [, textArea] = imTextAreaBegin(c, {
                     value: finderState.query,
                 }); {
@@ -311,7 +311,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
         } imListRowEnd(c);
 
         if (imIf(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
-            imLayout(c, ROW); imListRowCellStyle(c); {
+            imLayoutBegin(c, ROW); imListRowCellStyle(c); {
                 imStr(c, `Found 0 exact matches, fell back to a fuzzy search`);
             } imLayoutEnd(c);
         } imIfEnd(c);
@@ -328,7 +328,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                 const item = matches[i];
 
                 imNavListRowBegin(c, list); {
-                    imLayout(c, BLOCK); imListRowCellStyle(c); {
+                    imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
 
                         if (imIf(c) && item.ranges) {
                             let diffState; diffState = imGet(c, inlineTypeId(imFuzzyFinder));
@@ -391,18 +391,18 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
 
                                     lastStart = nextLastStart;
 
-                                    imLayout(c, INLINE); {
+                                    imLayoutBegin(c, INLINE); {
                                         if (isFirstishRender(c)) {
                                             elSetClass(c, cnApp.defocusedText); 
                                         }
 
                                         imStr(c, beforeHighlighted); 
                                     } imLayoutEnd(c);
-                                    imLayout(c, INLINE); imStr(c, highlighted); imLayoutEnd(c);
+                                    imLayoutBegin(c, INLINE); imStr(c, highlighted); imLayoutEnd(c);
                                 } imForEnd(c);
 
                                 if (imIf(c) && lastStart !== text.length) {
-                                    imLayout(c, INLINE); {
+                                    imLayoutBegin(c, INLINE); {
                                         if (isFirstishRender(c)) {
                                             elSetClass(c, cnApp.defocusedText);
                                         }
@@ -413,14 +413,14 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                             }
                         } else {
                             imIfElse(c);
-                            imLayout(c, INLINE); imStr(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
+                            imLayoutBegin(c, INLINE); imStr(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
                         } imIfEnd(c);
                     } imLayoutEnd(c);
                 } imNavListRowEnd(c);
             } imForEnd(c);
         } imNavListEnd(c, list);
 
-        imLayout(c, ROW); imJustify(c); {
+        imLayoutBegin(c, ROW); imJustify(c); {
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
