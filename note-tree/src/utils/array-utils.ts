@@ -158,7 +158,9 @@ export function moveArrayItem(arr: unknown[], a: number, b: number) {
 
 export function arrayAt<T>(arr: T[], i: number): T | undefined {
     let result = undefined;
-    if (i < arr.length) result = arr[i];
+    if (i < arr.length) {
+        result = arr[i];
+    }
     return result;
 }
 

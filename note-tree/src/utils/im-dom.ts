@@ -1,13 +1,11 @@
-// IM-DOM 1.54
-//
-// V1.54
+// IM-DOM 1.55
 // NOTE: this version may be unstable, as we've updated the DOM diffing algorithm yet again:
 // - Multiple dom appenders may append to the same node out of order
-// - Multiple dom appenders may append the same nodes to different dom nodes out of order
-// - Finalization has been moved to the very end. 
+// - Multiple dom appenders may append the same nodes to different dom nodes
+// - Multiple dom appenders _MAY NOT_ be created for the same DOM node though.
+// - Finalization can now optionally be moved to the very end. 
 //      - for now, we can't do the optimization where we only finalize when something has changed, because any dom node may be appended to at any time
 //      - it does allow for DOM node reuse, and appending to different places in the DOM tree via different places in the immediate mode tree.
-//      - Now opt-in. Components now actually work
 
 import { assert } from "src/utils/assert";
 import {
@@ -37,6 +35,8 @@ export type AppendableElement = (ValidElement | Text);
 // The children of this dom node get diffed and inserted as soon as you call `imEndEl`
 export const FINALIZE_IMMEDIATELY = 0;
 // The diffing and inserting will be deferred to when we do `imDomRootEnd` instead. Useful for portal-like rendering.
+// BTW. wouldn't deferring a region just break all finalize_immediately code anyway though? We should just remove this and
+// defer everything. Some code migration will be required.
 export const FINALIZE_DEFERRED = 1;
 
 export type FinalizationType 
@@ -59,15 +59,12 @@ export type DomAppender<E extends AppendableElement> = {
     // depending on how the browser has implemented DOM node rendering.
     manualDom: boolean;
 
-    // if null, root is a text node. else, it can be appended to.
-    parent: DomAppender<AppendableElement> | null;
-
     idx: number;     // Used to iterate the list
-    lastIdx: number; // If idx didn't reach lastIdx, the list changed
+
+    // if null, root is a text node. else, it can be appended to.
+    parent: DomAppender<ValidElement> | null;
     children: (DomAppender<AppendableElement>[] | null);
-    childrenLast: (DomAppender<AppendableElement>[] | null);
-    parentIdx: number;
-    childrenChanged: boolean;
+    selfIdx: number; // index of this node in it's own array
 
     finalizeType: FinalizationType; // if true, the final pass can ignore this.
 };
@@ -77,86 +74,99 @@ export function newDomAppender<E extends AppendableElement>(root: E, children: (
         root,
         keyRef: null,
         idx: -1,
+
         parent: null,
         children,
-        childrenLast: children ? [] : null,
-        lastIdx: -1,
+        selfIdx: 0,
         manualDom: false,
-        parentIdx: -1,
-        childrenChanged: false,
         finalizeType: FINALIZE_IMMEDIATELY,
     };
 }
 
-export function appendToDomRoot(appender: DomAppender<any>, child: DomAppender<any>) {
-    assert(appender.children !== null);
+function domAppenderDetatch(
+    parent: DomAppender<ValidElement>,
+    child: DomAppender<AppendableElement>
+) {
+    domAppenderClearParentAndShift(parent, child);
+    child.root.remove();
+}
 
-    const idx = ++appender.idx;
-
-    if (child.parent !== appender) {
-        // node is being transferred to a new parent. Adopted?
-        child.parent = appender;
-        child.parentIdx = -1;
+function domAppenderClearParentAndShift(
+    parent: DomAppender<ValidElement>,
+    child: DomAppender<AppendableElement>
+) {
+    assert(parent.children !== null);
+    assert(parent.children[child.selfIdx] === child);
+    assert(parent.idx <= child.selfIdx); // Dont move a DOM node that has already been appended
+    for (let i = child.selfIdx; i < parent.children.length - 1; i++) {
+        parent.children[i] = parent.children[i + 1];
+        parent.children[i].selfIdx = i;
     }
+    parent.children.pop();
+    child.parent = null;
+}
 
-    if (idx === appender.children.length) {
-        appender.children.push(child);
-        child.parentIdx = idx;
+export function appendToDomRoot(a: DomAppender<ValidElement>, child: DomAppender<AppendableElement>) {
+    if (a.children !== null) {
+        a.idx++;
+        const idx = a.idx;
 
-        appender.childrenChanged = true;
-    } else if (idx < appender.children.length) {
-        const existing = appender.children[idx];
-        if (existing !== child) {
-            if (existing.parent !== appender) {
-                // Other node has been moved to another parent. 
-
-                if (child.parentIdx !== -1) {
-                    // prevent duplicates before inserting.
-                    // Move existing to where child used to be. dont set it's index. It'll get filtered out later.
-                    appender.children[child.parentIdx] = existing;
-                } 
-
-                appender.children[idx] = child;
-                child.parentIdx = idx;
-            } else if (child.parentIdx === -1) {
-                // Adding a new item to the list. Push watever was at idx onto the end, put child at idx.
-                existing.parentIdx = appender.children.length
-                appender.children.push(existing);
-                appender.children[idx] = child;
-                child.parentIdx = idx;
-            } else {
-                // swap two existing children
-                assert(appender.children[child.parentIdx] === child);
-                appender.children[child.parentIdx] = appender.children[idx];
-                appender.children[child.parentIdx].parentIdx = child.parentIdx;
-                appender.children[idx] = child;
-                appender.children[idx].parentIdx = idx;
-            }
-
-            assert(appender.children[idx].parentIdx === idx);
-            assert(appender.children[child.parentIdx] === child);
-
-            appender.childrenChanged = true;
+        if (child.parent !== null && child.parent !== a) {
+            const parent = child.parent;
+            domAppenderDetatch(parent, child);
         }
-    } else {
-        throw new Error("Unreachable");
+
+        if (idx === a.children.length) {
+            // Simply append this element
+            child.parent = a;
+            child.selfIdx = a.children.length;
+            a.children.push(child);
+            a.root.appendChild(child.root);
+        } else if (idx < a.children.length) {
+            const last = a.children[idx];
+            assert(last.parent === a);
+
+            if (last === child) {
+                // no action required. Hopefull, this is the HOT path
+            } else {
+                if (child.parent === a) {
+                    // If child is already here, we'll need to remove it beforehand
+                    domAppenderClearParentAndShift(child.parent, child);
+                }
+                a.root.replaceChild(child.root, last.root);
+                a.children[idx] = child;
+                last.parent = null;
+                child.selfIdx = idx;
+                child.parent = a;
+            }
+        } else {
+            assert(false); // unreachable
+        }
     }
+
+    assert(child.parent === a);
+    assert(child.selfIdx === a.idx);
+    assert(child.root.parentNode === a.root);
+    assertInvariants(a);
 }
 
 // Useful for debugging.
 function assertInvariants(appender: DomAppender<ValidElement>) {
     if (!appender.children) return;
 
-    for (const child of appender.children) {
-        if (child.parentIdx !== -1) {
-            assert(appender.children[child.parentIdx] === child);
-        }
+    for (let i = 0; i <= appender.idx; i++) {
+        const child = appender.children[i];
+
+        assert(appender.children[child.selfIdx] === child);
 
         let count = 0;
-        for (const c2 of appender.children) {
+        for (let i = 0; i <= appender.idx; i++) {
+            const c2 = appender.children[i];
             if (c2 === child) count++;
         }
         assert(count <= 1);
+
+        assert(child.parent === appender);
     }
 }
 
@@ -215,59 +225,18 @@ export function imGraphMappingsEditorView(c: ImCache) {
 
 */
 
-function finalizeDomAppender(appender: DomAppender<ValidElement>) {
-    if (
-        appender.children !== null && appender.childrenLast !== null &&
-        (appender.childrenChanged === true || appender.lastIdx !== appender.idx)
-    ) {
-        appender.childrenChanged = false;
-
-        // I've tried to do this in such a way that multiple DomAppenders could
-        // be appending to the same DOM node, but they only 'manage' the nodes that they've actually inserted,
-        // allowing multiple different dom appenders to effectively act on the same node.
-        // What could possibly go wrong...
-
-        // NOTE: this loop only works because appendToDomRoot reorders nodes such that 
-        // we're left with a list of [...the new children in the desired order, ...other children we want to remove]
-        for (let i = 0; i <= appender.idx; i++) {
-            const val = appender.children[i];
-
-            assert(val.parent === appender);
-
-            if (i >= appender.childrenLast.length) {
-                appender.root.append(val.root);
-                appender.childrenLast.push(val);
-            } else if (appender.childrenLast[i] !== val) {
-                if (i === 0) {
-                    appender.root.prepend(val.root);
-                } else {
-                    const prev = appender.childrenLast[i - 1].root;
-                    const reference = prev.nextSibling;
-                    appender.root.insertBefore(val.root, reference);
-                }
-                appender.childrenLast[i] = val;
-            }
+function finalizeDomAppender(a: DomAppender<ValidElement>) {
+    // by the time we get here, the dom nodes we want have already been appended in the right order, and
+    // `a.children` should be pretty much identical to what is in the DOM. 
+    // We just need to remove the children we didn't render this time
+    if (a.children !== null && (a.idx + 1 !== a.children.length)) {
+        // Remove remaining children. do so backwards, might be faster
+        for (let i = a.children.length - 1; i >= a.idx + 1; i--) {
+            a.children[i].root.remove();
+            a.children[i].parent = null;
         }
 
-        // Remove dom nodes that weren't rendered, _and_ filter out
-        // nodes that were transferred in place at the same time
-        let realIdx = appender.idx + 1;
-        for (let i = appender.idx + 1; i < appender.children.length; i++) {
-            const child = appender.children[i];
-            if (
-                // Node was transferred, ignore it
-                child.parent === appender
-                // Node was transferred internally, also ignore it
-            ) {
-                child.root.remove();
-                appender.children[realIdx] = child;
-                realIdx++;
-            }
-        }
-        appender.children.length = realIdx;
-
-        appender.childrenLast.length = appender.idx + 1;
-        appender.lastIdx = appender.idx;
+        a.children.length = a.idx + 1;
     }
 }
 

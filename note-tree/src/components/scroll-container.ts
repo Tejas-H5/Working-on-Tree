@@ -60,7 +60,8 @@ export function imScrollContainerBegin(
     sc: ScrollContainer,
     orientation: typeof ROW | typeof COL = COL
 ): HTMLElement {
-    const scrollParent = imLayoutBegin(c, orientation); imFlex(c); imScrollOverflow(c, orientation === COL, orientation === ROW);
+    const scrollParent = imLayoutBegin(c, orientation); imFlex(c); 
+    imScrollOverflow(c, orientation === COL, orientation === ROW);
     sc.root = scrollParent;
     return scrollParent;
 }
