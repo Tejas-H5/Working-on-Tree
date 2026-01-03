@@ -1,4 +1,4 @@
-// IM-DOM 1.55
+// IM-DOM 1.56
 // NOTE: this version may be unstable, as we've updated the DOM diffing algorithm yet again:
 // - Multiple dom appenders may append to the same node out of order
 // - Multiple dom appenders may append the same nodes to different dom nodes
@@ -147,7 +147,6 @@ export function appendToDomRoot(a: DomAppender<ValidElement>, child: DomAppender
     assert(child.parent === a);
     assert(child.selfIdx === a.idx);
     assert(child.root.parentNode === a.root);
-    assertInvariants(a);
 }
 
 // Useful for debugging.
