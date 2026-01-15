@@ -132,7 +132,7 @@ export function asNoteTreeGlobalState(val: unknown) {
             const obj = asObject(relationshipVal);
             if (!obj) return null;
             
-            const value = newGraphMappingRelationship(-1, -1);
+            const value = newGraphMappingRelationship(-1, -1, "");
             deserializeObject(value, obj, "mappingGraph.concepts");
             return value;
         });

@@ -9,6 +9,7 @@ import {
     imAlign,
     imBg,
     imButton,
+    imFg,
     imFlex,
     imJustify,
     imLayoutBegin,
@@ -64,17 +65,16 @@ import {
 // One year ago, I had tried making this exact widget. 
 // None of the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept stepping over each other.
 // Zooming to the mouse position? I understood the maths at the time, and had implemented it in several other places before then,
-// but I just couldn't pull it off in my old framework. 
+// but I just couldn't pull it off over there.
 // Drag events? They kept treading on each other. Each new drag added substantial pain. 
 // Panning the graph would start dragging nodes, creating new edges, etc. 
 // After spending several hours attempting to fix it all, the code was unreadable, unmaintainable. 
 // It was a pain. I simply put a deprecation notice in the file, and never touched it or used it ever again.
 //
-// The new framework has allowed me to make this widget to a much higher degree of polish, functinality, and maintainabilit
+// The new framework has allowed me to make this widget to a much higher degree of polish, functinality, and maintainability
 // in a couple of hours what took me a couple weeks in my previous framework. The rewrite was worth it after all.
 
 // TODO: Rely less on getBoundingClientRect() for computing things like edge endpoint positions.
-
 
 export type GraphMappingConcept = {
     conceptName: string;
@@ -97,9 +97,9 @@ export type GraphMappingRelationship = {
     dstId: number;
 };
 
-export function newGraphMappingRelationship(srcId: number, dstId: number): GraphMappingRelationship {
+export function newGraphMappingRelationship(srcId: number, dstId: number, name: string): GraphMappingRelationship {
     return {
-        relationshipName: "",
+        relationshipName: name,
         srcId: srcId,
         dstId: dstId,
     };
@@ -159,30 +159,16 @@ export type GraphMappingsViewState = {
 
     dragConcept: {
         draggingIdx: number;
-        startX: number;
-        startY: number;
-        startMouseX: number;
-        startMouseY: number;
     };
 
-    dragNewEdge: {
+    dragEdge: {
         srcId: number;
-        startMouseX: number;
-        startMouseY: number;
         startX: number;
         startY: number;
         currentX: number;
         currentY: number;
-    };
-
-    dragExistingEdge: {
-        srcId: number;
-        startMouseX: number;
-        startMouseY: number;
-        startX: number;
-        startY: number;
-        currentX: number;
-        currentY: number;
+        srcToDst: boolean;
+        relId: number;
     };
 
     targetZoom: number;
@@ -194,10 +180,14 @@ export type GraphMappingsViewState = {
         startMouseY: number;
     };
 
+    hoveredRelIdNext: number;
+    hoveredRelId: number;
+
     rightClicked: ItemReference; 
     currentlyEditing: ItemReference;
 };
 
+// NOTE: treat this as a value type. You should never be assigning to these individually.
 type ItemReference = {
     relId?: number;
     conceptId?: number;
@@ -249,10 +239,6 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
         dragConcept: {
             draggingIdx: -1,
-            startX: 0,
-            startY: 0,
-            startMouseX: 0,
-            startMouseY: 0,
         },
 
         targetZoom: 1,
@@ -264,25 +250,19 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
             startMouseY: 0,
         },
 
-        dragNewEdge: {
+        dragEdge: {
             srcId: -1,
             startX: -1,
             currentX: -1,
             currentY: -1,
             startY: -1,
-            startMouseX: -1,
-            startMouseY: -1,
+            srcToDst: false,
+            relId: -1,
         },
 
-        dragExistingEdge: {
-            srcId: -1,
-            startX: -1,
-            currentX: -1,
-            currentY: -1,
-            startY: -1,
-            startMouseX: -1,
-            startMouseY: -1,
-        },
+
+        hoveredRelIdNext: 0,
+        hoveredRelId: 0,
 
         rightClicked: {},
         currentlyEditing: {},
@@ -293,8 +273,7 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 function isDraggingAnything(s: GraphMappingsViewState): boolean {
     return s.dragConcept.draggingIdx !== -1 ||
         s.panState.isPanning ||
-        s.dragNewEdge.srcId !== -1 ||
-        s.dragExistingEdge.srcId !== -1;
+        s.dragEdge.srcId !== -1;
 }
 
 function toGraphX(view: MappingGraphView, mouseX: number) {
@@ -524,7 +503,7 @@ export function imGraphMappingsEditorView(
 
     const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true);
     const rootRect = root.getBoundingClientRect(); {
-        const isDraggingEdge = s.dragNewEdge.srcId !== -1;
+        const isDraggingEdge = s.dragEdge.srcId !== -1;
         if (imMemo(c, v.zoom)) elSetStyle(c, "fontSize", v.zoom + "rem");
         if (imMemo(c, isDraggingEdge)) elSetStyle(c, "cursor", isDraggingEdge ? "crosshair" : "move");
 
@@ -567,23 +546,26 @@ export function imGraphMappingsEditorView(
 
         const ctxEv = imOn(c, EV_CONTEXTMENU);
         if (ctxEv) {
-            s.rightClicked.conceptId = -1;
-            s.rightClicked.relId = -1;
+            // don't worry - we check if (ctxEv) and then assign here later
+            s.rightClicked = {};
         }
 
-        const dragStartConcept = arrayAt(graph.concepts, s.dragNewEdge.srcId);
+        const dragStartConcept = arrayAt(graph.concepts, s.dragEdge.srcId);
         if (imIf(c) && dragStartConcept) {
-            const x0 = toScreenX(v, s.dragNewEdge.startX);
-            const y0 = toScreenY(v, s.dragNewEdge.startY);
-            const x1 = toScreenX(v, s.dragNewEdge.currentX);
-            const y1 = toScreenY(v, s.dragNewEdge.currentY);
+            const x0 = toScreenX(v, s.dragEdge.startX);
+            const y0 = toScreenY(v, s.dragEdge.startY);
+            const x1 = toScreenX(v, s.dragEdge.currentX);
+            const y1 = toScreenY(v, s.dragEdge.currentY);
 
-            s.dragNewEdge.currentX = toGraphX(v, mouse.X - rootRect.x);
-            s.dragNewEdge.currentY = toGraphY(v, mouse.Y - rootRect.y);
+            const mx = lerpClamped(x0, x1, 0.5);
+            const my = lerpClamped(y0, y1, 0.5);
+
+            s.dragEdge.currentX = toGraphX(v, mouse.X - rootRect.x);
+            s.dragEdge.currentY = toGraphY(v, mouse.Y - rootRect.y);
 
             const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c); imJustify(c); {
                 if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
-                if (imIf(c) && lineState.isUpsideDown) {
+                if (imIf(c) && lineState.isUpsideDown === s.dragEdge.srcToDst) {
                     imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                         imArrowHeadSvg(c);
                     } imLayoutEnd(c);
@@ -593,13 +575,23 @@ export function imGraphMappingsEditorView(
                     imLine(c, LINE_HORIZONTAL, 3);
                 } imLayoutEnd(c);
 
-                if (imIf(c) && !lineState.isUpsideDown) {
+                if (imIf(c) && lineState.isUpsideDown  !== s.dragEdge.srcToDst) {
                     imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
                         if (isFirstishRender(c)) elSetStyle(c, "transform", "scale(-1, 1)")
                         imArrowHeadSvg(c);
                     } imLayoutEnd(c);
                 } imIfEnd(c);
             } imLayoutLineEnd(c);
+
+            const rel = arrayAt(graph.relationships, s.dragEdge.relId);
+            if (imIf(c) && rel) {
+                const labelX = mx;
+                const labelY = my;
+                imLayoutBegin(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); imZIndex(c, 10); {
+                    if (isFirstishRender(c)) elSetStyle(c, "transform", "translate(-50%, -50%");
+                    imRelationshipLabel(c, s, rel, s.dragEdge.relId, ctxEv);
+                } imLayoutEnd(c);
+            } imIfEnd(c);
         } imIfEnd(c);
 
         imFor(c); for (let conceptId = 0; conceptId < graph.concepts.length; conceptId++) {
@@ -613,12 +605,8 @@ export function imGraphMappingsEditorView(
                 let dragging = conceptId === s.dragConcept.draggingIdx;
 
                 if (dragging) {
-                    // Complete the drag _before_ we set the absolute style.
-                    const dX = toGraphLength(v, mouse.X) - s.dragConcept.startMouseX;
-                    const dY = toGraphLength(v, mouse.Y) - s.dragConcept.startMouseY;
-                    concept.x = s.dragConcept.startX + dX;
-                    concept.y = s.dragConcept.startY + dY;
-
+                    concept.x = toGraphX(v, mouse.X - rootRect.x);;
+                    concept.y = toGraphY(v, mouse.Y - rootRect.y);
                     editedGraph = true;
                     conceptUiState.version++;
                 }
@@ -655,10 +643,6 @@ export function imGraphMappingsEditorView(
 
                         if (!isDraggingAnything(s) && elHasMousePress(c) && mouse.leftMouseButton) {
                             s.dragConcept.draggingIdx = conceptId;
-                            s.dragConcept.startMouseX = toGraphLength(v, mouse.X);
-                            s.dragConcept.startMouseY = toGraphLength(v, mouse.Y);
-                            s.dragConcept.startX = concept.x;
-                            s.dragConcept.startY = concept.y;
                         }
 
                         if (imIf(c) && editing) {
@@ -674,7 +658,7 @@ export function imGraphMappingsEditorView(
                                 // In this case, a more consistent UX is for escape to retain the contents
                                 if (ev.submit || ev.cancel) {
                                     concept.conceptName = s.newName;
-                                    s.currentlyEditing.conceptId = -1;
+                                    s.currentlyEditing = {};
 
                                     conceptUiState.version++;
                                     editedGraph = true;
@@ -684,7 +668,7 @@ export function imGraphMappingsEditorView(
                             imIfElse(c);
 
                             if (ctxEv && elHasMouseOver(c)) {
-                                s.rightClicked.conceptId = conceptId;
+                                s.rightClicked = { conceptId };
                             }
 
                             imLayoutBegin(c, BLOCK); {
@@ -695,7 +679,7 @@ export function imGraphMappingsEditorView(
                                 const dblClickEv = imOn(c, EV_DBLCLICK);
                                 if (dblClickEv) {
                                     s.currentlyEditing.conceptId = conceptId;
-                                    s.currentlyEditing.relId = -1;
+                                    s.currentlyEditing = {};
                                 }
                             } imLayoutEnd(c);
                         } imIfEnd(c);
@@ -711,27 +695,42 @@ export function imGraphMappingsEditorView(
                             canDragOutEdge = true;
 
                             if (mouse.leftMouseButton) {
-                                s.dragNewEdge.srcId = conceptId;
+                                s.dragEdge.srcId = conceptId;
 
                                 const rect = root.getBoundingClientRect();
-                                s.dragNewEdge.startMouseX = toGraphX(v, mouse.X);
-                                s.dragNewEdge.startMouseY = toGraphY(v, mouse.Y);
-                                s.dragNewEdge.startX = toGraphX(v, mouse.X - rect.x);
-                                s.dragNewEdge.startY = toGraphY(v, mouse.Y - rect.y);
-                                s.dragNewEdge.currentX = s.dragNewEdge.startX;
-                                s.dragNewEdge.currentY = s.dragNewEdge.startY;
+                                const mouseX = toGraphX(v, mouse.X - rect.x);
+                                const mouseY = toGraphY(v, mouse.Y - rect.y);
+                                s.dragEdge.startX = mouseX;
+                                s.dragEdge.startY = mouseY;
+                                s.dragEdge.currentX = s.dragEdge.startX;
+                                s.dragEdge.currentY = s.dragEdge.startY;
+                                s.dragEdge.srcToDst = true;
+                                s.dragEdge.relId = -1;
                             }
-                        } else if (s.dragNewEdge.srcId !== -1 && s.dragNewEdge.srcId !== conceptId) {
+                        } else if (s.dragEdge.srcId !== -1 && s.dragEdge.srcId !== conceptId) {
                             canAcceptInEdge = true;
 
                             if (!mouse.leftMouseButton) {
                                 // Drag accepted!
-                                const rel = newGraphMappingRelationship(s.dragNewEdge.srcId, conceptId);
                                 mutation = () => {
-                                    const idx = pushToNullableArray(graph.relationships, rel);
+                                    if (s.dragEdge.relId === -1) {
+                                        const rel = newGraphMappingRelationship(s.dragEdge.srcId, conceptId, "Unnamed");
+                                        const idx = pushToNullableArray(graph.relationships, rel);
+                                        s.currentlyEditing = { relId: idx };
+                                    } else {
+                                        const rel = graph.relationships[s.dragEdge.relId];
+                                        if (rel) {
+                                            if (s.dragEdge.srcToDst) {
+                                                rel.dstId = conceptId;
+                                            } else {
+                                                rel.srcId = conceptId;
+                                            }
+                                        }
+                                    }
+
                                     recomputeIndexes(s, graph);
-                                    s.currentlyEditing.relId = idx;
-                                    s.dragNewEdge.srcId = -1;
+                                    s.dragEdge.srcId = -1;
+                                    s.dragEdge.relId = -1;
                                     editedView = true;
                                 }
                             }
@@ -802,11 +801,10 @@ export function imGraphMappingsEditorView(
                         const relId = edgeGroup.relIds[idxInGroup];
                         const rel = graph.relationships[relId];
                         if (!rel) continue;
+                        if (s.dragEdge.relId === relId) continue;
 
                         imKeyedBegin(c, relId); {
-                            imLayoutBegin(c, BLOCK); {
-                                editedGraph = imRelationshipLabel(c, s, rel, relId, ctxEv) || editedGraph;
-                            } imLayoutEnd(c);
+                            editedGraph = imRelationshipLabel(c, s, rel, relId, ctxEv) || editedGraph;
                         } imKeyedEnd(c);
                     } imForEnd(c);
                 } imLayoutEnd(c);
@@ -816,6 +814,7 @@ export function imGraphMappingsEditorView(
                         const relId = edgeGroup.relIds[idxInGroup];
                         const rel = graph.relationships[relId];
                         if (!rel) continue;
+                        if (s.dragEdge.relId === relId) continue;
 
                         const src = arrayAt(graph.concepts, rel.srcId);
                         const dst = arrayAt(graph.concepts, rel.dstId);
@@ -829,6 +828,38 @@ export function imGraphMappingsEditorView(
                             const relUiState = s.relUiState[relId]; assert(!!relUiState);
 
                             imLayoutBegin(c, ROW); {
+                                let col = s.hoveredRelId === relId ? "red" : cssVars.fg;
+                                imFg(c, col);
+
+                                if (elHasMouseOver(c)) {
+                                    s.hoveredRelIdNext = relId;
+
+                                    if (!isDraggingAnything(s) && mouse.leftMouseButton) {
+                                        const rect = root.getBoundingClientRect();
+                                        const mouseX = toGraphX(v, mouse.X - rect.x);
+                                        const mouseY = toGraphY(v, mouse.Y - rect.y);
+
+                                        const toSrc = distSquared(src.x, src.y, mouseX, mouseY);
+                                        const toDst = distSquared(dst.x, dst.y, mouseX, mouseY);
+
+                                        if (toSrc < toDst) {
+                                            s.dragEdge.srcToDst = false;
+                                            s.dragEdge.srcId = rel.dstId;
+                                            s.dragEdge.startX = dst.x;
+                                            s.dragEdge.startY = dst.y;
+                                        } else {
+                                            s.dragEdge.srcToDst = true;
+                                            s.dragEdge.srcId = rel.srcId;
+                                            s.dragEdge.startX = src.x;
+                                            s.dragEdge.startY = src.y;
+                                        }
+
+                                        s.dragEdge.currentX = s.dragEdge.startX;
+                                        s.dragEdge.currentY = s.dragEdge.startY;
+                                        s.dragEdge.relId = relId;
+                                    }
+                                }
+
                                 // arrow. only one should appear at a time
                                 if (imIf(c) && lineState.isUpsideDown === isSrc) {
                                     imLayoutBegin(c, ROW); imSize(c, 20 * v.zoom, PX, 0, NA); imAlign(c); {
@@ -837,7 +868,11 @@ export function imGraphMappingsEditorView(
                                 } imIfEnd(c);
 
                                 imLayoutBegin(c, ROW); imFlex(c); imAlign(c); {
-                                    const col = elHasMouseOver(c) ? "red" : cssVars.fg;
+
+                                    if (elHasMouseOver(c) && ctxEv) {
+                                        s.rightClicked = { relId };
+                                    }
+
                                     imLayoutBegin(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
                                 } imLayoutEnd(c);
 
@@ -848,6 +883,7 @@ export function imGraphMappingsEditorView(
                                         imArrowHeadSvg(c);
                                     } imLayoutEnd(c);
                                 } imIfEnd(c);
+
                             } imLayoutEnd(c);
                         } imKeyedEnd(c);
 
@@ -986,6 +1022,9 @@ export function imGraphMappingsEditorView(
                 imContextMenuItem(c); {
                     imStr(c, "Rename relationship");
                     if (elHasMousePress(c)) {
+                        if (!relClickedOn.relationshipName) {
+                            relClickedOn.relationshipName = "Unnamed";
+                        }
                         s.currentlyEditing = { relId };
                         contextMenu.open = false;
                     }
@@ -1020,8 +1059,12 @@ export function imGraphMappingsEditorView(
     if (!mouse.leftMouseButton) {
         s.dragConcept.draggingIdx = -1;
         s.panState.isPanning = false;
-        s.dragNewEdge.srcId = -1;
+        s.dragEdge.srcId = -1;
+        s.dragEdge.relId = -1;
     }
+
+    s.hoveredRelId = s.hoveredRelIdNext;
+    s.hoveredRelIdNext = -1;
 }
 
 function imArrowHeadSvg(c: ImCache) {
@@ -1032,7 +1075,7 @@ function imArrowHeadSvg(c: ImCache) {
 
         imElSvgBegin(c, EL_SVG_POLYGON); {
             if (isFirstishRender(c)) elSetAttr(c, "points", "0,5 10,10 10,0 0,5");
-            if (isFirstishRender(c)) elSetAttr(c, "style", `fill:${cssVars.fg};stroke-width:0;`);
+            if (isFirstishRender(c)) elSetAttr(c, "style", `fill:currentColor;stroke-width:0;`);
         } imElSvgEnd(c, EL_SVG_POLYGON);
     } imElSvgEnd(c, EL_SVG);
 }
@@ -1046,50 +1089,64 @@ function imRelationshipLabel(
 ) {
     let edited = false;
 
-    const editing = s.currentlyEditing.relId === relId;
+    if (imIf(c) && rel.relationshipName) {
 
-    imLayoutBegin(c, ROW); imBg(c, cssVars.bg); {
-        const hovered = elHasMouseOver(c);
+        const editing = s.currentlyEditing.relId === relId;
 
-        if (isFirstishRender(c)) elSetStyle(c, "padding", "3px 10px");
-        if (imMemo(c, hovered)) elSetStyle(c, "border", hovered ? `2px solid ${cssVars.fg}` : "");
-        if (isFirstishRender(c)) elSetClass(c, cn.pre);
+        imLayoutBegin(c, ROW); imBg(c, cssVars.bg); {
+            const hovered = s.hoveredRelId === relId;
 
-        if (imIf(c) && editing) {
-            if (imMemo(c, true)) s.newName = rel.relationshipName || "Unnamed";
-
-            const ev = imTextInputOneLine(c, s.newName, "Name...", true, true);
-            if (ev) {
-                if (ev.newName !== undefined) {
-                    s.newName = ev.newName;
-                }
-                if (ev.submit || ev.cancel) {
-                    rel.relationshipName = s.newName;
-                    s.currentlyEditing = {};
-                    edited = true;
-                }
-            }
-        } else {
-            imIfElse(c);
-
-            if (ctxEv && hovered) {
-                s.rightClicked = { relId };
+            if (elHasMouseOver(c)) {
+                s.hoveredRelIdNext = relId;
             }
 
-            imLayoutBegin(c, ROW); {
-                if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
+            if (isFirstishRender(c)) elSetStyle(c, "padding", "3px 10px");
+            if (imMemo(c, hovered)) elSetStyle(c, "border", hovered ? `2px solid ${cssVars.fg}` : "");
+            if (isFirstishRender(c)) elSetClass(c, cn.pre);
 
-                imStr(c, rel.relationshipName || "Unnamed");
-
-                const dblClickEv = imOn(c, EV_DBLCLICK);
-                if (dblClickEv) {
-                    s.currentlyEditing = { relId };
+            if (imIf(c) && editing) {
+                if (imMemo(c, true)) {
+                    s.newName = rel.relationshipName;
                 }
-            } imLayoutEnd(c);
-        } imIfEnd(c);
-    } imLayoutEnd(c);
+
+                const ev = imTextInputOneLine(c, s.newName, "Name...", true, true);
+                if (ev) {
+                    if (ev.newName !== undefined) {
+                        s.newName = ev.newName;
+                    }
+                    if (ev.submit || ev.cancel) {
+                        console.log(ev);
+                        if (s.newName === " ") {
+                            s.newName = "";
+                        }
+                        rel.relationshipName = s.newName;
+                        s.currentlyEditing = {};
+                        edited = true;
+                    }
+                }
+            } else {
+                imIfElse(c);
+
+                if (ctxEv && hovered) {
+                    s.rightClicked = { relId };
+                }
+
+                imLayoutBegin(c, ROW); {
+                    if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
+
+                    imStr(c, rel.relationshipName);
+
+                    const dblClickEv = imOn(c, EV_DBLCLICK);
+                    if (dblClickEv) {
+                        s.currentlyEditing = { relId };
+                    }
+                } imLayoutEnd(c);
+            } imIfEnd(c);
+        } imLayoutEnd(c);
+    } imIfEnd(c);
 
     return edited;
+
 }
 
 function imLineLayoutState() {

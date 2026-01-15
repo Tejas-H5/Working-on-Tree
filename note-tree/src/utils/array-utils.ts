@@ -184,6 +184,15 @@ export function resizeObjectPool<T>(arr: T[], factory: () => T, wantedLength: nu
     }
 }
 
+export function resizeValuePool<T>(arr: T[], defaultVal: T, wantedLength: number) {
+    if (arr.length !== wantedLength) {
+        arr.length = wantedLength;
+        for (let i = 0; i < wantedLength; i++) {
+            if (arr[i] == null) arr[i] = defaultVal;
+        }
+    }
+}
+
 // Inserts at a tombstone, or at the very end.
 export function pushToNullableArray<T>(arr: (T | null)[], val: T): number {
     for (let i = 0; i < arr.length; i++) {

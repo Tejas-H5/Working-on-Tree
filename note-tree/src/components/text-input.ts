@@ -1,8 +1,8 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { cssVars } from "./core/stylesheets";
-import { EL_INPUT, elSetAttr, elSetClass, EV_BLUR, EV_INPUT, getGlobalEventSystem, imElBegin, imElEnd, imOn } from "src/utils/im-dom";
 import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
+import { EL_INPUT, elSetAttr, elSetClass, EV_BLUR, EV_INPUT, getGlobalEventSystem, imElBegin, imElEnd, imOn } from "src/utils/im-dom";
 import { imFlex } from "./core/layout";
+import { cssVars } from "./core/stylesheets";
 import { imTextAreaBegin, imTextAreaEnd } from "./editable-text-area";
 
 const cssb = newCssBuilder();
