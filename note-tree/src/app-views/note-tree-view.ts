@@ -85,9 +85,10 @@ import { assert } from "src/utils/assert";
 import { formatDateTime } from "src/utils/datetime";
 import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
 import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, imOn, imStr, imStrFmt } from "src/utils/im-dom";
+import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, getGlobalEventSystem, imOn, imStr, imStrFmt } from "src/utils/im-dom";
 import * as tree from "src/utils/int-tree";
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
+import { isKeyHeld, isKeyPressed } from "src/utils/key-state";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -538,16 +539,18 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 
     if (!state._isEditingFocusedNote) {
         if (!ctx.handled) {
-            const moveNote = keyboard.altKey.held;
+            const keys = getGlobalEventSystem().keyboard.keys;
+
+            const moveNote = isKeyHeld(keys, keyboard.altKey);
             const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
-            const ctrlOrShift = keyboard.ctrlKey.held || keyboard.shiftKey.held;
+            const ctrlOrShift = isKeyHeld(keys, keyboard.ctrlKey) || isKeyHeld(keys, keyboard.shiftKey);
 
             if (listNavInput) {
                 moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
-            } else if (keyboard.leftKey.pressed && !ctrlOrShift) {
+            } else if (isKeyPressed(keys, keyboard.leftKey) && !ctrlOrShift) {
                 moveOutOfCurrent(ctx, s, moveNote);
                 ctx.handled = true;
-            } else if (keyboard.rightKey.pressed && !ctrlOrShift) {
+            } else if (isKeyPressed(keys, keyboard.rightKey) && !ctrlOrShift) {
                 moveIntoCurrent(ctx, s, moveNote);
                 ctx.handled = true;
             }

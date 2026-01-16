@@ -1,12 +1,13 @@
-import { handleKeysLifecycle, KeyState, newKeyState } from "src/utils/key-state";
+import { getNormalizedKey, isKeyHeld, isKeyPressedOrRepeated, isKeyRepeated, Key } from "src/utils/key-state";
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
-import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
+import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
+import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, TreeNote, updateBreakAutoInsertLastPolledTime, loadState, toDateOrZero, isLoadingState } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, loadState, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
@@ -14,7 +15,6 @@ import { getGlobalEventSystem } from "./utils/im-dom";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
 
 const SAVE_DEBOUNCE = 1500;
 
@@ -122,7 +122,7 @@ export function newDiscoverableCommands(): DiscoverableCommands {
 
 
 export type DiscoverableCommand = {
-    key: KeyState | null;
+    key: Key | null;
     desc: string;
     flags: number;
 
@@ -193,7 +193,7 @@ export const ANY_MODIFIERS = 1 << 6;
 // TODO: maybe SHIFT and BYPASS_TEXT_AREA at the same time should throw?
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
-    key: KeyState,
+    key: Key,
     actionDescription: string,
     flags = 0,
 ) {
@@ -209,17 +209,19 @@ export function hasDiscoverableCommand(
 }
 
 function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
+    const keys = getGlobalEventSystem().keyboard.keys;
+
     if (ctx.handled) return false;
 
     if (!(command.flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) return false;
 
-    if (!command.key || !command.key.pressed)  return false;
-    if (!(command.flags & REPEAT) && command.key.repeat) return false;
+    if (!command.key || !isKeyPressedOrRepeated(keys, command.key)) return false;
+    if (!(command.flags & REPEAT) && isKeyRepeated(keys, command.key)) return false;
 
     if (!(command.flags & ANY_MODIFIERS)) {
-        if ((command.flags & ALT) && !ctx.keyboard.altKey.held) return false;
-        if ((command.flags & CTRL) && !ctx.keyboard.ctrlKey.held) return false;
-        if ((command.flags & SHIFT) && !ctx.keyboard.shiftKey.held) return false;
+        if ((command.flags & ALT)   && !isKeyHeld(keys, ctx.keyboard.altKey))   return false;
+        if ((command.flags & CTRL)  && !isKeyHeld(keys, ctx.keyboard.ctrlKey))  return false;
+        if ((command.flags & SHIFT) && !isKeyHeld(keys, ctx.keyboard.shiftKey)) return false;
     }
 
     return true;
@@ -227,7 +229,7 @@ function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
 
 function pushDiscoverableCommand(
     ctx: GlobalContext,
-    key: KeyState,
+    key: Key,
     actionDescription: string,
     flags: number,
 ): DiscoverableCommand | null {
@@ -259,10 +261,12 @@ function pushDiscoverableCommand(
     command.flags  = flags;
 
     if (!(flags & ANY_MODIFIERS)) {
+        const keys = getGlobalEventSystem().keyboard.keys;
+
         const currentlyHeld = (
-            (ctx.keyboard.ctrlKey.held ? CTRL : 0) |
-            (ctx.keyboard.shiftKey.held ? SHIFT : 0) |
-            (ctx.keyboard.altKey.held ? ALT : 0)
+            (isKeyHeld(keys, ctx.keyboard.ctrlKey) ? CTRL : 0) |
+            (isKeyHeld(keys, ctx.keyboard.shiftKey) ? SHIFT : 0) |
+            (isKeyHeld(keys, ctx.keyboard.altKey) ? ALT : 0)
         );
 
         const commandWants = (CTRL | SHIFT | ALT) & flags;
@@ -290,105 +294,146 @@ function pushDiscoverableCommand(
 
 
 type KeyboardState = {
-    keys: KeyState[];
+    upKey:       Key;
+    downKey:     Key;
+    leftKey:     Key;
+    rightKey:    Key;
+    pageDownKey: Key;
+    pageUpKey:   Key;
+    homeKey:     Key;
+    endKey:      Key;
+    spaceKey:    Key;
+    slashKey:    Key;
+    commaKey:    Key;
 
-    upKey:       KeyState;
-    downKey:     KeyState;
-    leftKey:     KeyState;
-    rightKey:    KeyState;
-    pageDownKey: KeyState;
-    pageUpKey:   KeyState;
-    homeKey:     KeyState;
-    endKey:      KeyState;
-    spaceKey:    KeyState;
-    slashKey:    KeyState;
-    commaKey:    KeyState;
+    aKey: Key;
+    sKey: Key;
+    dKey: Key;
+    bKey: Key;
+    tKey: Key;
+    fKey: Key;
+    mKey: Key;
+    hKey: Key;
+    gKey: Key;
 
-    aKey: KeyState;
-    sKey: KeyState;
-    dKey: KeyState;
-    bKey: KeyState;
-    tKey: KeyState;
-    fKey: KeyState;
-    mKey: KeyState;
-    hKey: KeyState;
-    gKey: KeyState;
+    enterKey:  Key;
+    escapeKey: Key;
 
-    enterKey:  KeyState;
-    escapeKey: KeyState;
+    ctrlKey:  Key;
+    shiftKey: Key;
+    altKey:   Key;
+    tabKey:   Key;
 
-    ctrlKey:  KeyState;
-    shiftKey: KeyState;
-    altKey:   KeyState;
-    tabKey:   KeyState;
-
-    num0Key: KeyState;
-    num1Key: KeyState;
-    num2Key: KeyState;
-    num3Key: KeyState;
-    num4Key: KeyState;
-    num5Key: KeyState;
-    num6Key: KeyState;
-    num7Key: KeyState;
-    num8Key: KeyState;
-    num9Key: KeyState;
+    num0Key: Key;
+    num1Key: Key;
+    num2Key: Key;
+    num3Key: Key;
+    num4Key: Key;
+    num5Key: Key;
+    num6Key: Key;
+    num7Key: Key;
+    num8Key: Key;
+    num9Key: Key;
 };
 
 
 function newKeyboardState(): KeyboardState {
     const state: KeyboardState = {
-        keys: [],
-
         // CONSIDER: hjkl to move around, as well as arrows!
-        upKey:       newKeyState("↑", "ArrowUp"),
-        downKey:     newKeyState("↓", "ArrowDown"),
-        leftKey:     newKeyState("←", "ArrowLeft"),
-        rightKey:    newKeyState("→", "ArrowRight"),
-        pageDownKey: newKeyState("PgDn", "PageDown"),
-        pageUpKey:   newKeyState("PgUp", "PageUp"),
-        homeKey:     newKeyState("Home", "Home"),
-        endKey:      newKeyState("End", "End"),
-        spaceKey:    newKeyState("Space", " "),
-        slashKey:    newKeyState("/", "?", "/"),
-        commaKey:    newKeyState(",", ",", "<"),
+        upKey:       getNormalizedKey("ArrowUp"),
+        downKey:     getNormalizedKey("ArrowDown"),
+        leftKey:     getNormalizedKey("ArrowLeft"),
+        rightKey:    getNormalizedKey("ArrowRight"),
+        pageDownKey: getNormalizedKey("PageDown"),
+        pageUpKey:   getNormalizedKey("PageUp"),
+        homeKey:     getNormalizedKey("Home"),
+        endKey:      getNormalizedKey("End"),
+        spaceKey:    getNormalizedKey(" "),
+        slashKey:    getNormalizedKey("?"),
+        commaKey:    getNormalizedKey(","),
 
-        aKey: newKeyState("A", "A", "a"),
-        sKey: newKeyState("S", "S", "s"),
-        dKey: newKeyState("D", "D", "d"),
-        bKey: newKeyState("B", "B", "b"),
-        tKey: newKeyState("T", "T", "t"),
-        fKey: newKeyState("F", "F", "f"),
-        mKey: newKeyState("M", "M", "m"),
-        hKey: newKeyState("H", "H", "h"),
-        gKey: newKeyState("G", "G", "g"),
+        aKey: getNormalizedKey("A"),
+        sKey: getNormalizedKey("S"),
+        dKey: getNormalizedKey("D"),
+        bKey: getNormalizedKey("B"),
+        tKey: getNormalizedKey("T"),
+        fKey: getNormalizedKey("F"),
+        mKey: getNormalizedKey("M"),
+        hKey: getNormalizedKey("H"),
+        gKey: getNormalizedKey("G"),
 
-        enterKey:  newKeyState("Enter", "Enter"),
-        escapeKey: newKeyState("Esc", "Escape"),
+        enterKey:  getNormalizedKey("Enter"),
+        escapeKey: getNormalizedKey("Escape"),
 
-        ctrlKey:  newKeyState("Ctrl", "Control", "Meta"),
-        shiftKey: newKeyState("Shift", "Shift"),
-        altKey:   newKeyState("Alt", "Alt"),
-        tabKey:   newKeyState("Tab", "Tab"),
+        ctrlKey:  getNormalizedKey("Control"),
+        shiftKey: getNormalizedKey("Shift"),
+        altKey:   getNormalizedKey("Alt"),
+        tabKey:   getNormalizedKey("Tab"),
 
-        num0Key: newKeyState("0", "0", ")"),
-        num1Key: newKeyState("1", "1", "!"),
-        num2Key: newKeyState("2", "2", "@"),
-        num3Key: newKeyState("3", "3", "#"),
-        num4Key: newKeyState("4", "4", "$"),
-        num5Key: newKeyState("5", "5", "%"),
-        num6Key: newKeyState("6", "6", "^"),
-        num7Key: newKeyState("7", "7", "&"),
-        num8Key: newKeyState("8", "8", "*"),
-        num9Key: newKeyState("9", "9", "("),
+        num0Key: getNormalizedKey("0"),
+        num1Key: getNormalizedKey("1"),
+        num2Key: getNormalizedKey("2"),
+        num3Key: getNormalizedKey("3"),
+        num4Key: getNormalizedKey("4"),
+        num5Key: getNormalizedKey("5"),
+        num6Key: getNormalizedKey("6"),
+        num7Key: getNormalizedKey("7"),
+        num8Key: getNormalizedKey("8"),
+        num9Key: getNormalizedKey("9"),
     };
-
-    for (const k in state) {
-        const key = k as keyof typeof state;
-        if (key !== "keys") state.keys.push(state[key]); 
-    }
 
     return state;
 }
+
+export function getKeyStringRepr(key: Key) {
+    switch (key) {
+        case "ArrowUp":    return "↑";
+        case "ArrowDown":  return "↓";
+        case "ArrowLeft":  return "←";
+        case "ArrowRight": return "→";
+        case "PageDown":   return "PgDn";
+        case "PageUp":     return "PgUp";
+        case "Home":       return "Home";
+        case "End":        return "End";
+        case " ":          return "Space";
+        case "?":          return "/";
+        case ",":          return ",";
+
+        case "A":          return "A";
+        case "S":          return "S";
+        case "D":          return "D";
+        case "B":          return "B";
+        case "T":          return "T";
+        case "F":          return "F";
+        case "M":          return "M";
+        case "H":          return "H";
+        case "G":          return "G";
+
+        case "Enter":      return "Enter";
+        case "Escape":     return "Esc";
+
+        case "Control":    return "Ctrl";
+        case "Shift":      return "Shift";
+        case "Alt":        return "Alt";
+        case "Tab":        return "Tab";
+
+        case "0":          return "0";
+        case "1":          return "1";
+        case "2":          return "2";
+        case "3":          return "3";
+        case "4":          return "4";
+        case "5":          return "5";
+        case "6":          return "6";
+        case "7":          return "7";
+        case "8":          return "8";
+        case "9":          return "9";
+    }
+
+    return key;
+}
+
+
+
 
 // <- negative | positive ->
 export function getAxisRaw(negative: boolean, positive: boolean): number {
@@ -397,17 +442,9 @@ export function getAxisRaw(negative: boolean, positive: boolean): number {
     if (positive) result += 1;
     return result;
 }
+
 export function handleImKeysInput(ctx: GlobalContext) {
-    const keyboard = ctx.keyboard;
-
     ctx.handled = false;
-
-    const { keyboard: evKeyboard, blur } = getGlobalEventSystem();
-    const { keyDown, keyUp } = evKeyboard;
-
-    handleKeysLifecycle(keyboard.keys, keyDown, keyUp, blur);
-
-    return keyboard;
 }
 
 export function preventImKeysDefault() {

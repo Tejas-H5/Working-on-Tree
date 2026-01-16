@@ -1,10 +1,12 @@
+import { getGlobalEventSystem } from "src/utils/im-dom";
+import { isKeyPressedOrRepeated } from "src/utils/key-state";
 import { COL, imLayoutEnd, ROW } from "../components/core/layout";
 import { imScrollContainerBegin, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { getWrappedIdx } from "../utils/array-utils";
 import { assert } from "../utils/assert";
 import { isEditingTextSomewhereInDocument } from "../utils/dom-utils";
-import { ImCache, imFor, imForEnd, imGet, imSet, ValidKey } from "../utils/im-core";
+import { ImCache, imGet, imSet, ValidKey } from "../utils/im-core";
 import { imListRowBegin, imListRowEnd } from "./list-row";
 
 
@@ -72,12 +74,13 @@ export function getNavigableListInput(
         if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Right", hdcFlags)) newIdx = oldIdx + 1;
     }
 
-    if (keyboard.pageUpKey.pressed) newIdx = oldIdx - 10;
-    if (keyboard.pageDownKey.pressed) newIdx = oldIdx + 10;
+    const keys = getGlobalEventSystem().keyboard.keys;
+    if (isKeyPressedOrRepeated(keys, keyboard.pageUpKey)) newIdx = oldIdx - 10;
+    if (isKeyPressedOrRepeated(keys, keyboard.pageDownKey)) newIdx = oldIdx + 10;
     // if I'm editing text, I want to use these for horizontal movements instead of list movements.
     if (!isEditingTextSomewhereInDocument()) {
-        if (keyboard.homeKey.pressed) newIdx = lo;
-        if (keyboard.endKey.pressed) newIdx = hi - 1;
+        if (isKeyPressedOrRepeated(keys, keyboard.homeKey)) newIdx = lo;
+        if (isKeyPressedOrRepeated(keys, keyboard.endKey)) newIdx = hi - 1;
     }
 
     if (newIdx === undefined) return null;

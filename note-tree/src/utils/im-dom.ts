@@ -1,11 +1,4 @@
-// IM-DOM 1.56
-// NOTE: this version may be unstable, as we've updated the DOM diffing algorithm yet again:
-// - Multiple dom appenders may append to the same node out of order
-// - Multiple dom appenders may append the same nodes to different dom nodes
-// - Multiple dom appenders _MAY NOT_ be created for the same DOM node though.
-// - Finalization can now optionally be moved to the very end. 
-//      - for now, we can't do the optimization where we only finalize when something has changed, because any dom node may be appended to at any time
-//      - it does allow for DOM node reuse, and appending to different places in the DOM tree via different places in the immediate mode tree.
+// IM-DOM 1.6
 
 import { assert } from "src/utils/assert";
 import {
@@ -28,6 +21,7 @@ import {
     isFirstishRender,
     recursivelyEnumerateEntries
 } from "./im-core";
+import { updateKeysState, newKeysState, KeysState } from "./key-state";
 
 export type ValidElement = HTMLElement | SVGElement;
 export type AppendableElement = (ValidElement | Text);
@@ -654,6 +648,8 @@ export type ImKeyboardState = {
     // from knowing about this event.
     keyDown: KeyboardEvent | null;
     keyUp: KeyboardEvent | null;
+
+    keys: KeysState;
 };
 
 
@@ -717,6 +713,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
     const keyboard: ImKeyboardState = {
         keyDown: null,
         keyUp: null,
+        keys: newKeysState(),
     };
 
     const mouse: ImMouseState = {
@@ -832,16 +829,19 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
             },
             keydown: (e: KeyboardEvent) => {
                 keyboard.keyDown = e;
+                updateKeysState(keyboard.keys, e, null, false);
                 eventSystem.rerender();
             },
             keyup: (e: KeyboardEvent) => {
                 keyboard.keyUp = e;
+                updateKeysState(keyboard.keys, null, e, false);
                 eventSystem.rerender();
             },
             blur: () => {
                 resetMouseState(mouse, true);
-                resetKeyboardState(keyboard);
+                resetImKeyboardState(keyboard);
                 eventSystem.blur = true;
+                updateKeysState(keyboard.keys, null, null, true);
                 eventSystem.rerender();
             }
         },
@@ -850,9 +850,12 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
     return eventSystem;
 }
 
-function resetKeyboardState(keyboard: ImKeyboardState) {
+function resetImKeyboardState(keyboard: ImKeyboardState) {
     keyboard.keyDown = null
     keyboard.keyUp = null
+
+    const keys = keyboard.keys;
+    updateKeysState(keys, null, null, true);
 }
 
 /**
@@ -876,7 +879,7 @@ export function imGlobalEventSystemBegin(c: ImCache): ImGlobalEventSystem {
 }
 
 export function imGlobalEventSystemEnd(_c: ImCache, eventSystem: ImGlobalEventSystem) {
-    resetKeyboardState(eventSystem.keyboard);
+    resetImKeyboardState(eventSystem.keyboard);
     resetMouseState(eventSystem.mouse, false);
     eventSystem.blur = false;
 

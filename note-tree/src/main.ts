@@ -32,11 +32,13 @@ import {
     elHasMouseOver,
     elHasMousePress,
     elSetStyle,
+    getGlobalEventSystem,
     imDomRootBegin,
     imDomRootEnd,
     imGlobalEventSystemBegin,
     imGlobalEventSystemEnd,
-    imStr
+    imStr,
+    imStrFmt
 } from "src/utils/im-dom";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
@@ -82,6 +84,7 @@ import {
     BYPASS_TEXT_AREA,
     CTRL,
     debouncedSave,
+    getKeyStringRepr,
     handleImKeysInput,
     hasDiscoverableCommand,
     HIDDEN,
@@ -113,6 +116,7 @@ import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
 import { validateSchemas } from "./schema";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
+import { isKeyHeld, isKeyPressed, Key } from "./utils/key-state";
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -317,24 +321,26 @@ function imMainInner(c: ImCache) {
                                         const command = commands.stabilized[i];
                                         if (!command.key) continue;
 
-                                        imCommandDescription(c, command.key.stringRepresentation, command.desc);
+                                        imCommandDescription(c, command.key, command.desc);
                                     } imForEnd(c);
 
-                                    const anyFulfilled = (ctx.keyboard.shiftKey.held && commands.shiftAvailable) ||
-                                        (ctx.keyboard.ctrlKey.held && commands.ctrlAvailable) ||
-                                        (ctx.keyboard.altKey.held && commands.altAvailable)
+                                    const keys = getGlobalEventSystem().keyboard.keys;
+
+                                    const anyFulfilled = (isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
+                                        (isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
+                                        (isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
 
                                     if (imIf(c) && !anyFulfilled) {
                                         if (imIf(c) && commands.shiftAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.shiftKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.shiftKey, "Hold");
                                         } imIfEnd(c);
 
                                         if (imIf(c) && commands.ctrlAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.ctrlKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.ctrlKey, "Hold");
                                         } imIfEnd(c);
 
                                         if (imIf(c) && commands.altAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.altKey.stringRepresentation, "Hold");
+                                            imCommandDescription(c, ctx.keyboard.altKey, "Hold");
                                         } imIfEnd(c);
                                     } imIfEnd(c);
 
@@ -570,7 +576,9 @@ function imMainInner(c: ImCache) {
 
                 // Traverse the history
                 {
-                    const ctrlAndShiftHeld = ctx.keyboard.shiftKey.held && ctx.keyboard.ctrlKey.held;
+                    const keys = getGlobalEventSystem().keyboard.keys;
+
+                    const ctrlAndShiftHeld = isKeyHeld(keys, ctx.keyboard.shiftKey) && isKeyHeld(keys, ctx.keyboard.ctrlKey);
                     if (imMemo(c, ctrlAndShiftHeld)) {
                         if (ctrlAndShiftHeld) {
                             // Start traversal from the most recent activity
@@ -636,13 +644,15 @@ function imMainInner(c: ImCache) {
                 }
 
                 if (!ctx.handled) {
+                    const keys = getGlobalEventSystem().keyboard.keys;
+
                     const keyboard = ctx.keyboard;
-                    if (keyboard.aKey.pressed && keyboard.ctrlKey.held && !isEditingTextSomewhereInDocument()) {
+                    if (isKeyPressed(keys, keyboard.aKey) && isKeyPressed(keys, keyboard.ctrlKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to select all text being in the DOM, actually
                         ctx.handled = true;
                     }
 
-                    if (keyboard.tabKey.pressed && !isEditingTextSomewhereInDocument()) {
+                    if (isKeyPressed(keys, keyboard.tabKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to defucs the program, actually
                         ctx.handled = true;
                     }
@@ -728,9 +738,9 @@ function imMainEntryPoint(c: ImCache) {
     } imCacheEnd(c);
 };
 
-function imCommandDescription(c: ImCache, key: string, action: string) {
+function imCommandDescription(c: ImCache, key: Key, action: string) {
     imLayoutBegin(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
-        imStr(c, "["); imStr(c, key); imStr(c, " - ");
+        imStr(c, "["); imStrFmt(c, key, getKeyStringRepr); imStr(c, " - ");
         imStr(c, action);
         imStr(c, "]");
     } imLayoutEnd(c);

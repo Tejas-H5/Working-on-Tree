@@ -34,11 +34,12 @@ import {
     setCurrentNote,
     state
 } from "src/state";
-import { boundsCheck, arrayAt } from "src/utils/array-utils";
+import { arrayAt, boundsCheck } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
 import { ImCache, imFor, imForEnd, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
-import { elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
+import { elSetStyle, EV_CHANGE, EV_INPUT, getGlobalEventSystem, imOn, imStr } from "src/utils/im-dom";
+import { isKeyPressedOrRepeated } from "src/utils/key-state";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -338,7 +339,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 // !currentActivity.locked && // TODO: review this flag. Not sure what the point of it is.
                 hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit break")
             ) {
-                s.isEditing = EDITING_ACTIVITY;;
+                s.isEditing = EDITING_ACTIVITY;
             } 
 
             if (
@@ -353,8 +354,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 insertBreak(ctx, s);
             }
 
+            const keys = getGlobalEventSystem().keyboard.keys;
+
             // TODO: make axis discoverable
-            const hDelta = getAxisRaw(keyboard.leftKey.pressed, keyboard.rightKey.pressed);
+            const hDelta = getAxisRaw(isKeyPressedOrRepeated(keys, keyboard.leftKey), isKeyPressedOrRepeated(keys, keyboard.rightKey));
             if (!ctx.handled && hDelta) {
                 ctx.handled = true;
 
