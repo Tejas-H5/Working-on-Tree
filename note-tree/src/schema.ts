@@ -11,7 +11,7 @@ import {
     extractKey,
     serializeToJSON,
 } from "src/utils/serialization-utils";
-import { MappingGraph, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
+import { ConceptSubset, GraphMappingConcept, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
 import {
     Activity,
     defaultActivity,
@@ -136,6 +136,22 @@ export function asNoteTreeGlobalState(val: unknown) {
             deserializeObject(value, obj, "mappingGraph.concepts");
             return value;
         });
+
+        const subsets = asArray(extractKey<MappingGraph>(mappingGraphObj, "subsets"));
+        if (subsets) {
+            state.mappingGraph.subsets = subsets.map(subsetsVal => {
+                const obj = asObject(subsetsVal);
+                if (!obj) return null;
+
+                const value = newConceptSubset();
+
+                const subsets = mustGetDefined(asArray(extractKey<ConceptSubset>(obj, "conceptIds")));
+                value.conceptIds = subsets.map(u => mustGetDefined(asNumber(u)));
+
+                deserializeObject(value, obj, "mappingGraph.subsets");
+                return value;
+            });
+        }
 
         deserializeObject(state.mappingGraph, mappingGraphObj);
     }
