@@ -87,7 +87,9 @@ There are better ways to implement the same thing, so I'm not going to bother po
 
 ## File structure
 
-We haven't introduced AI to this codebase yet, but when we do, surely this will be helpful:
+We haven't introduced AI to this codebase yet, but when we do, surely this will be helpful.
+That being said, I may never introduce AI to any of my codebases - while it might speed things up, 
+it takes a lot of the fun out of programming.
 
 ```
 note-tree/

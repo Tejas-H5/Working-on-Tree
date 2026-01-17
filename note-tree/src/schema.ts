@@ -140,9 +140,7 @@ export function asNoteTreeGlobalState(val: unknown) {
         const subsets = asArray(extractKey<MappingGraph>(mappingGraphObj, "subsets"));
         if (subsets) {
             state.mappingGraph.subsets = subsets.map(subsetsVal => {
-                const obj = asObject(subsetsVal);
-                if (!obj) return null;
-
+                const obj = mustGetDefined(asObject(subsetsVal));
                 const value = newConceptSubset();
 
                 const subsets = mustGetDefined(asArray(extractKey<ConceptSubset>(obj, "conceptIds")));

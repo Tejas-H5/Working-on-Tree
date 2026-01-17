@@ -1,4 +1,4 @@
-// IM-CORE 1.061
+// IM-CORE 1.062
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -260,6 +260,21 @@ const INTERNAL_TYPE_KEYED_BLOCK = 4;
 const INTERNAL_TYPE_TRY_BLOCK = 5;
 const INTERNAL_TYPE_CACHE = 6;
 const INTERNAL_TYPE_SWITCH_BLOCK = 7;
+
+// Some common errors will get their own dedicated throw Error insead of a simple assert + comment
+function internalTypeToString(internalType: number): string {
+    switch (internalType) {
+        case INTERNAL_TYPE_NORMAL_BLOCK:      return "INTERNAL_TYPE_NORMAL_BLOCK";
+        case INTERNAL_TYPE_CONDITIONAL_BLOCK: return "INTERNAL_TYPE_CONDITIONAL_BLOCK";
+        case INTERNAL_TYPE_ARRAY_BLOCK:       return "INTERNAL_TYPE_ARRAY_BLOCK";
+        case INTERNAL_TYPE_KEYED_BLOCK:       return "INTERNAL_TYPE_KEYED_BLOCK";
+        case INTERNAL_TYPE_TRY_BLOCK:         return "INTERNAL_TYPE_TRY_BLOCK";
+        case INTERNAL_TYPE_CACHE:             return "INTERNAL_TYPE_CACHE";
+        case INTERNAL_TYPE_SWITCH_BLOCK:      return "INTERNAL_TYPE_SWITCH_BLOCK";
+    }
+
+    return "Custom user type: " + internalType
+}
 
 export function imCacheEntriesBegin<T>(
     c: ImCache,
@@ -609,9 +624,11 @@ export function __GetEntries(c: ImCache): ImCacheEntries {
 export function imBlockEnd(c: ImCache, internalType: number = INTERNAL_TYPE_NORMAL_BLOCK) {
     const entries = c[CACHE_CURRENT_ENTRIES];
 
-    // Opening and closing blocks may not be lining up right.
-    // You may have missed or inserted some blocks by accident.
-    assert(entries[ENTRIES_INTERNAL_TYPE] === internalType);
+    if (entries[ENTRIES_INTERNAL_TYPE] !== internalType) {
+        const message = `Opening and closing blocks may not be lining up right. You may have missed or inserted some blocks by accident. `
+            + "expected " + internalTypeToString(entries[ENTRIES_INTERNAL_TYPE]) + ", got " + internalTypeToString(internalType);
+        throw new Error(message)
+    }
 
     let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
     if (map !== undefined) {
