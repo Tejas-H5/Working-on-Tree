@@ -15,7 +15,6 @@ import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
 import {
-    getCurrentNote,
     getNote,
     getRootNote,
     isHigherLevelTask,

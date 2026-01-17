@@ -60,7 +60,9 @@ import {
     imPreventScrollEventPropagation,
     imStr
 } from "src/utils/im-dom";
+import { getNormalizedKey, isKeyHeld } from "src/utils/key-state";
 
+const SHIFT = getNormalizedKey("Shift");
 
 // One year ago, I had tried making this exact widget. 
 // None of the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept stepping over each other.
@@ -159,6 +161,9 @@ export type GraphMappingsViewState = {
 
     dragConcept: {
         draggingIdx: number;
+        isSelected: boolean;
+        startX: number;
+        startY: number;
     };
 
     dragEdge: {
@@ -174,11 +179,20 @@ export type GraphMappingsViewState = {
     targetZoom: number;
     panState: {
         isPanning: boolean;
+        actuallyMoved: boolean;
         startX: number;
         startY: number;
         startMouseX: number;
         startMouseY: number;
     };
+
+    boxSelect: {
+        isBoxSelecting: boolean;
+        startX: number;
+        startY: number
+        endX: number;
+        endY: number
+    },
 
     hoveredRelIdNext: number;
     hoveredRelId: number;
@@ -201,6 +215,13 @@ type MappingConceptUiState = {
     bottom: number;
     right: number;
 
+    selected: boolean;
+
+    dragging: {
+        startX: number;
+        startY: number;
+    };
+
     version: 0,
 };
 
@@ -222,6 +243,13 @@ function newMappingConceptUiState(): MappingConceptUiState {
         bottom: 0,
         right: 0,
 
+        selected: false,
+
+        dragging: {
+            startX: 0,
+            startY: 0,
+        },
+
         version: 0,
     };
 }
@@ -239,15 +267,27 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
         dragConcept: {
             draggingIdx: -1,
+            isSelected: false,
+            startX: 0,
+            startY: 0,
         },
 
         targetZoom: 1,
         panState: {
             isPanning: false,
+            actuallyMoved: false,
             startX: 0,
             startY: 0,
             startMouseX: 0,
             startMouseY: 0,
+        },
+
+        boxSelect: {
+            isBoxSelecting: false,
+            startX: 0,
+            startY: 0,
+            endX: 0,
+            endY: 0,
         },
 
         dragEdge: {
@@ -259,7 +299,6 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
             srcToDst: false,
             relId: -1,
         },
-
 
         hoveredRelIdNext: 0,
         hoveredRelId: 0,
@@ -273,7 +312,8 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 function isDraggingAnything(s: GraphMappingsViewState): boolean {
     return s.dragConcept.draggingIdx !== -1 ||
         s.panState.isPanning ||
-        s.dragEdge.srcId !== -1;
+        s.dragEdge.srcId !== -1 ||
+        s.boxSelect.isBoxSelecting;
 }
 
 function toGraphX(view: MappingGraphView, mouseX: number) {
@@ -474,6 +514,7 @@ function recomputeIndexes(s: GraphMappingsViewState, graph: MappingGraph) {
     }
 }
 
+
 export function imGraphMappingsEditorView(
     c: ImCache,
     s: GraphMappingsViewState,
@@ -489,7 +530,7 @@ export function imGraphMappingsEditorView(
         recomputeIndexes(s, graph);
     }
 
-    const { mouse } = getGlobalEventSystem();
+    const { mouse, keyboard } = getGlobalEventSystem();
 
     const dt = getDeltaTimeSeconds(c);
 
@@ -503,9 +544,47 @@ export function imGraphMappingsEditorView(
 
     const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true);
     const rootRect = root.getBoundingClientRect(); {
+        if (isFirstishRender(c)) elSetClass(c, cn.userSelectNone);
+
         const isDraggingEdge = s.dragEdge.srcId !== -1;
         if (imMemo(c, v.zoom)) elSetStyle(c, "fontSize", v.zoom + "rem");
         if (imMemo(c, isDraggingEdge)) elSetStyle(c, "cursor", isDraggingEdge ? "crosshair" : "move");
+
+        if (s.dragConcept.draggingIdx !== -1) {
+            // The drag should actually be applied to the selection.
+
+            const rect = root.getBoundingClientRect();
+            const mouseX = toGraphX(v, mouse.X - rect.x);
+            const mouseY = toGraphY(v, mouse.Y - rect.y);
+            const dX = mouseX - s.dragConcept.startX;
+            const dY = mouseY - s.dragConcept.startY;
+
+            for (let i = 0; i < graph.concepts.length; i++) {
+                const concept = graph.concepts[i];
+                if (!concept) continue;
+
+                const ui = s.conceptsUiState[i];
+
+                let isDragging = false
+                if (s.dragConcept.isSelected) {
+                    isDragging = ui.selected;
+                } else {
+                    isDragging = i === s.dragConcept.draggingIdx;
+                }
+
+                if (!isDragging) continue;
+
+                const newX = ui.dragging.startX + dX
+                const newY = ui.dragging.startY + dY
+
+                if (concept.x !== newX || concept.y !== newY) {
+                    concept.x = newX;
+                    concept.y = newY;
+                    editedGraph = true;
+                    ui.version++;
+                }
+            }
+        }
 
         const scroll = imPreventScrollEventPropagation(c);
         const scrollAmount = scroll.scrollY / 100;
@@ -602,15 +681,6 @@ export function imGraphMappingsEditorView(
 
             imKeyedBegin(c, conceptId); {
                 const editing = conceptId === s.currentlyEditing.conceptId;
-                let dragging = conceptId === s.dragConcept.draggingIdx;
-
-                if (dragging) {
-                    concept.x = toGraphX(v, mouse.X - rootRect.x);;
-                    concept.y = toGraphY(v, mouse.Y - rootRect.y);
-                    editedGraph = true;
-                    conceptUiState.version++;
-                }
-
                 imLayoutBegin(c, BLOCK); {
                     imZIndex(c, 1); // raise above edges
                     imAbsoluteXY(c, toScreenX(v, concept.x), PX, toScreenY(v, concept.y), PX);
@@ -637,12 +707,37 @@ export function imGraphMappingsEditorView(
                         imPadding(c, 4 * v.zoom, PX, 10 * v.zoom, PX, 4 * v.zoom, PX, 10 * v.zoom, PX);
                         imBg(c, cssVars.bg);
 
-                        if (imMemo(c, hoveredInner)) elSetStyle(c, "border", "2px solid " + (hoveredInner ? cssVars.fg : cssVars.mg));
+                        if (
+                            imMemo(c, hoveredInner) |
+                            imMemo(c, conceptUiState.selected)
+                        ) {
+                            const col = hoveredInner ? cssVars.fg : 
+                                        conceptUiState.selected ? "#1E61FF" :
+                                        cssVars.mg;
+
+                            elSetStyle(c, "border", "2px solid " + col);
+                        }
                         if (imMemo(c, editing)) elSetStyle(c, "cursor", editing ? "" : "pointer");
                         if (imMemo(c, v.zoom)) elSetStyle(c, "borderRadius", (4 * v.zoom) + "px");
 
                         if (!isDraggingAnything(s) && elHasMousePress(c) && mouse.leftMouseButton) {
                             s.dragConcept.draggingIdx = conceptId;
+                            s.dragConcept.isSelected = conceptUiState.selected;
+
+                            const rect = root.getBoundingClientRect();
+                            const mouseX = toGraphX(v, mouse.X - rect.x);
+                            const mouseY = toGraphY(v, mouse.Y - rect.y);
+                            s.dragConcept.startX = mouseX;
+                            s.dragConcept.startY = mouseY;
+
+                            for (let i = 0; i < s.conceptsUiState.length; i++) {
+                                const concept = graph.concepts[i];
+                                if (!concept) continue;
+
+                                const ui = s.conceptsUiState[i];
+                                ui.dragging.startX = concept.x;
+                                ui.dragging.startY = concept.y;
+                            }
                         }
 
                         if (imIf(c) && editing) {
@@ -679,7 +774,6 @@ export function imGraphMappingsEditorView(
                                 const dblClickEv = imOn(c, EV_DBLCLICK);
                                 if (dblClickEv) {
                                     s.currentlyEditing.conceptId = conceptId;
-                                    s.currentlyEditing = {};
                                 }
                             } imLayoutEnd(c);
                         } imIfEnd(c);
@@ -895,20 +989,103 @@ export function imGraphMappingsEditorView(
 
 
         if (!isDraggingAnything(s) && elHasMousePress(c) && mouse.leftMouseButton) {
-            s.panState.startMouseX = toGraphLength(v, mouse.X);
-            s.panState.startMouseY = toGraphLength(v, mouse.Y);
-            s.panState.startX = v.pan.x;
-            s.panState.startY = v.pan.y;
-            s.panState.isPanning = true;
+            const keys = getGlobalEventSystem().keyboard.keys;
+
+            if (isKeyHeld(keys, SHIFT)) {
+                s.boxSelect.isBoxSelecting = true;
+
+                const rect = root.getBoundingClientRect();
+                const mouseX = toGraphX(v, mouse.X - rect.x);
+                const mouseY = toGraphY(v, mouse.Y - rect.y);
+                s.boxSelect.startX = mouseX;
+                s.boxSelect.startY = mouseY;
+                s.boxSelect.endX = s.boxSelect.startX;
+                s.boxSelect.endY = s.boxSelect.startY;
+            } else {
+                s.panState.startMouseX = toGraphLength(v, mouse.X);
+                s.panState.startMouseY = toGraphLength(v, mouse.Y);
+                s.panState.startX = v.pan.x;
+                s.panState.startY = v.pan.y;
+                s.panState.isPanning = true;
+                s.panState.actuallyMoved = false;
+            }
         }
 
         if (s.panState.isPanning) {
             const dX = toGraphLength(v, mouse.X) - s.panState.startMouseX;
             const dY = toGraphLength(v, mouse.Y) - s.panState.startMouseY;
+
+            const TOLERANCE_PX = 5;
+            if (!s.panState.actuallyMoved) {
+                s.panState.actuallyMoved = Math.abs(dX) + Math.abs(dY) > TOLERANCE_PX;
+            }
+
             v.pan.x = s.panState.startX + dX;
             v.pan.y = s.panState.startY + dY;
+
             editedView = true;
         }
+
+        if (imIf(c) && s.boxSelect.isBoxSelecting) {
+            imLayoutBegin(c, BLOCK); imZIndex(c, 10000); imBg(c, cssVars.fg025a); {
+                if (isFirstishRender(c)) elSetStyle(c, "border", "3px dashed " + cssVars.fg);
+
+                let x0 = toScreenX(v, s.boxSelect.startX);
+                let y0 = toScreenY(v, s.boxSelect.startY);
+
+                const rect = root.getBoundingClientRect();
+                const mouseX = mouse.X - rect.x;
+                const mouseY = mouse.Y - rect.y;
+
+                let x1 = mouseX;
+                let y1 = mouseY;
+
+                const minX = Math.min(x0, x1);
+                const minY = Math.min(y0, y1);
+                const maxX = Math.max(x0, x1);
+                const maxY = Math.max(y0, y1);
+
+                imAbsoluteXY(c, minX, PX, minY, PX);
+                imSize(c, maxX - minX, PX, maxY - minY, PX);
+
+
+                if (!mouse.leftMouseButton) {
+                    s.boxSelect.isBoxSelecting = false;
+
+                    const rect = root.getBoundingClientRect();
+                    const mouseX = toGraphX(v, mouse.X - rect.x);
+                    const mouseY = toGraphY(v, mouse.Y - rect.y);
+
+                    const minX = Math.min(mouseX, s.boxSelect.startX);
+                    const minY = Math.min(mouseY, s.boxSelect.startY);
+                    const maxX = Math.max(mouseX, s.boxSelect.startX);
+                    const maxY = Math.max(mouseY, s.boxSelect.startY);
+
+                    const keys = getGlobalEventSystem().keyboard.keys;
+                    const additive = isKeyHeld(keys, SHIFT)
+
+                    for (let i = 0; i < graph.concepts.length; i++) {
+                        const concept = graph.concepts[i];
+                        if (!concept) continue;
+
+                        const conceptUi = s.conceptsUiState[i];
+
+                        let selected = false;
+                        if (minX < concept.x && concept.x < maxX) {
+                            if (minY < concept.y && concept.y < maxY) {
+                                selected = true;
+                            }
+                        }
+
+                        if (additive) {
+                            conceptUi.selected ||= selected;
+                        } else {
+                            conceptUi.selected = selected;
+                        }
+                    }
+                }
+            } imLayoutEnd(c);
+        } imIfEnd(c);
 
         if (ctxEv) {
             openContextMenuAtMouse(contextMenu);
@@ -1058,7 +1235,18 @@ export function imGraphMappingsEditorView(
     // of first thing at the top.
     if (!mouse.leftMouseButton) {
         s.dragConcept.draggingIdx = -1;
-        s.panState.isPanning = false;
+
+        if (s.panState.isPanning) {
+            s.panState.isPanning = false;
+            if (!s.panState.actuallyMoved) {
+                // Deselect all the things
+                for (const cUi of s.conceptsUiState) {
+                    cUi.selected = false;
+                }
+            }
+        }
+
+        s.boxSelect.isBoxSelecting = false;
         s.dragEdge.srcId = -1;
         s.dragEdge.relId = -1;
     }
@@ -1066,6 +1254,7 @@ export function imGraphMappingsEditorView(
     s.hoveredRelId = s.hoveredRelIdNext;
     s.hoveredRelIdNext = -1;
 }
+
 
 function imArrowHeadSvg(c: ImCache) {
     imElSvgBegin(c, EL_SVG); imRelative(c); {

@@ -1,4 +1,4 @@
-// IM-DOM 1.6
+// IM-DOM 1.61
 
 import { assert } from "src/utils/assert";
 import {
@@ -838,7 +838,7 @@ export function newImGlobalEventSystem(rerenderFn: () => void): ImGlobalEventSys
                 eventSystem.rerender();
             },
             blur: () => {
-                resetMouseState(mouse, true);
+                resetImMouseState(mouse);
                 resetImKeyboardState(keyboard);
                 eventSystem.blur = true;
                 updateKeysState(keyboard.keys, null, null, true);
@@ -879,8 +879,9 @@ export function imGlobalEventSystemBegin(c: ImCache): ImGlobalEventSystem {
 }
 
 export function imGlobalEventSystemEnd(_c: ImCache, eventSystem: ImGlobalEventSystem) {
-    resetImKeyboardState(eventSystem.keyboard);
-    resetMouseState(eventSystem.mouse, false);
+    updateMouseState(eventSystem.mouse);
+    updateKeysState(eventSystem.keyboard.keys, null, null, false);
+
     eventSystem.blur = false;
 
     globalStateStackPop(gssEventSystems, eventSystem);
@@ -958,7 +959,16 @@ export function imPreventScrollEventPropagation(c: ImCache) {
     return state;
 }
 
-export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: boolean) {
+export function updateMouseState(mouse: ImMouseState) {
+    mouse.dX = 0;
+    mouse.dY = 0;
+    mouse.lastX = mouse.X;
+    mouse.lastY = mouse.Y;
+
+    mouse.scrollWheel = 0;
+}
+
+export function resetImMouseState(mouse: ImMouseState) {
     mouse.dX = 0;
     mouse.dY = 0;
     mouse.lastX = mouse.X;
@@ -966,11 +976,9 @@ export function resetMouseState(mouse: ImMouseState, clearPersistedStateAsWell: 
 
     mouse.scrollWheel = 0;
 
-    if (clearPersistedStateAsWell === true) {
-        mouse.leftMouseButton = false;
-        mouse.middleMouseButton = false;
-        mouse.rightMouseButton = false;
-    }
+    mouse.leftMouseButton = false;
+    mouse.middleMouseButton = false;
+    mouse.rightMouseButton = false;
 }
 
 export function addDocumentAndWindowEventListeners(eventSystem: ImGlobalEventSystem) {

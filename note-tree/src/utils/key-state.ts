@@ -1,4 +1,4 @@
-import { filterInPlace } from "./array-utils";
+import { assert } from "./assert";
 
 type PressedSymbols<T extends string> = {
     pressed: T[];
@@ -81,11 +81,31 @@ function updatePressedSymbols<T extends string>(
     s.repeated.length = 0;
     s.released.length = 0;
 
-    if (pressed !== undefined)  s.pressed.push(pressed);
-    if (repeated !== undefined) s.repeated.push(repeated);
+    if (pressed !== undefined) {
+        // It is assumed that the number of press events for a particular
+        // key type will equal the number of release events, so no deduplication
+        // is requried here. If this is not the case, then there's not much we can 
+        // do about it really.
+        assert(s.pressed.length < 1000);
+
+        s.pressed.push(pressed);
+    }
+
+    if (repeated !== undefined) {
+        if (s.repeated.indexOf(repeated) === -1) {
+            s.repeated.push(repeated);
+        }
+    }
 
     if (released !== undefined) {
-        filterInPlace(s.held, k => k !== released);
+        // Ensure only one of that key is removed
+        for (let i = 0; i < s.held.length; i++) {
+            if (s.held[i] === released) {
+                s.held[i] = s.held[s.held.length - 1];
+                s.held.pop();
+                break;
+            }
+        }
         s.released.push(released);
     }
 
