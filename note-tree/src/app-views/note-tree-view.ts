@@ -22,8 +22,10 @@ import {
     imAbsolute,
     imBg,
     imFlex,
+    imFlex1,
     imGap,
     imLayoutBegin,
+    imLayoutBeginInternal,
     imLayoutEnd,
     imNoWrap,
     imOpacity,
@@ -60,6 +62,8 @@ import {
     deleteNoteIfEmpty,
     getCurrentNote,
     getNote,
+    getNoteDurationUsingCurrentRange,
+    getNoteDurationWithoutRange,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
@@ -82,7 +86,7 @@ import {
 } from "src/state";
 import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
-import { formatDateTime } from "src/utils/datetime";
+import { formatDate, formatDateTime, formatDurationAsHours } from "src/utils/datetime";
 import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
 import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
 import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, getGlobalEventSystem, imOn, imStr, imStrFmt } from "src/utils/im-dom";
@@ -630,6 +634,7 @@ function imNoteTreeRow(
 ) {
     s.numVisible++;
 
+
     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
     const isEditingChanged = imMemo(c, isEditing);
     const selectedChanged = imMemo(c, itemSelected);
@@ -886,6 +891,18 @@ function imNoteTreeRow(
                     } imIfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
+
+            const durationView = ctx.views.durations;
+            const isViewingDurations = ctx.currentView === durationView;
+            if (imIf(c) && isViewingDurations) {
+                imLayoutBegin(c, ROW); {
+                    const durationTimesheet = getNoteDurationUsingCurrentRange(state, note);
+                    const durationAllTime = getNoteDurationWithoutRange(state, note);
+                    imStrFmt(c, durationTimesheet, formatDurationAsHours);
+                    imStr(c, " / ");
+                    imStrFmt(c, durationAllTime, formatDurationAsHours);
+                } imLayoutEnd(c);
+            } imIfEnd(c);
         } imLayoutEnd(c);
     } imNavListRowEnd(c);
 
