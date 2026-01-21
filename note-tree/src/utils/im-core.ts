@@ -1,4 +1,4 @@
-// IM-CORE 1.062
+// IM-CORE 1.063
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 
@@ -131,7 +131,7 @@ export const USE_REQUEST_ANIMATION_FRAME = 1 << 1;
  *
  * If you want to avoid the animation loop for whatever reason, pass in the {@link USE_MANUAL_RERENDERING} flag instead.
  *  - You'll need to manually call c[CACHE_RERENDER_FN]() whenever any state anywhere changes.
- *  - Methods that previously reported a deltaTime will report a constant 0.0333_ instead.
+ *  - Methods that previously reported a deltaTime will report a constant 1/30 instead.
  * 
  * NOTE: the rerender function and the `useEventLoop` parameter are completely ignored after the first render, and this will never change.
  */

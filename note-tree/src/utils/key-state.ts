@@ -29,6 +29,13 @@ export function newKeysState(): KeysState {
     };
 }
 
+const EV_NOTHING  = 0;
+const EV_PRESSED  = 1;
+const EV_RELEASED = 2;
+const EV_REPEATED = 3;
+const EV_BLUR     = 4;
+
+
 // https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values
 // There are a LOT of them. So I won't bother holding state for every possible key like usual
 // TODO: try using keyCode if available, then fall back on key
@@ -68,12 +75,9 @@ export function getNormalizedKey(key: string): Key {
 
 function updatePressedSymbols<T extends string>(
     s: PressedSymbols<T>,
-    pressed: T | undefined,
-    repeated: T | undefined,
-    released: T | undefined,
-    blur: boolean
+    ev: number,
+    key: T,
 ) {
-
     for (let i = 0; i < s.pressed.length; i++) {
         s.held.push(s.pressed[i]);
     }
@@ -81,40 +85,50 @@ function updatePressedSymbols<T extends string>(
     s.repeated.length = 0;
     s.released.length = 0;
 
-    if (pressed !== undefined) {
-        // It is assumed that the number of press events for a particular
-        // key type will equal the number of release events, so no deduplication
-        // is requried here. If this is not the case, then there's not much we can 
-        // do about it really.
-        assert(s.pressed.length < 1000);
-
-        s.pressed.push(pressed);
-    }
-
-    if (repeated !== undefined) {
-        if (s.repeated.indexOf(repeated) === -1) {
-            s.repeated.push(repeated);
-        }
-    }
-
-    if (released !== undefined) {
-        // Ensure only one of that key is removed
-        for (let i = 0; i < s.held.length; i++) {
-            if (s.held[i] === released) {
-                s.held[i] = s.held[s.held.length - 1];
-                s.held.pop();
-                break;
+    switch (ev) {
+        case EV_PRESSED: {
+            // It is assumed that the number of press events for a particular
+            // key type will equal the number of release events, so no deduplication
+            // is requried here. If this is not the case, then there's not much we can 
+            // do about it really.
+            assert(s.pressed.length < 1000);
+            s.pressed.push(key);
+        } break;
+        case EV_REPEATED: {
+            if (s.repeated.indexOf(key) === -1) {
+                s.repeated.push(key);
             }
-        }
-        s.released.push(released);
-    }
+        } break;
+        case EV_RELEASED: {
+            // Ensure only one of that key is removed
+            for (let i = 0; i < s.held.length; i++) {
+                if (s.held[i] === key) {
+                    s.held[i] = s.held[s.held.length - 1];
+                    s.held.pop();
+                    break;
+                }
+            }
 
-    if (blur) {
-        s.pressed.length = 0;
-        s.released.length = 0;
-        s.repeated.length = 0;
-        s.held.length = 0;
+            s.released.push(key);
+        } break;
+        case EV_BLUR: {
+            s.pressed.length = 0;
+            s.released.length = 0;
+            s.repeated.length = 0;
+            s.held.length = 0;
+        } break;
+        case EV_NOTHING: {
+        } break;
     }
+}
+
+function updateKeysStateInternal(
+    keysState: KeysState,
+    ev: number,
+    key: string,
+) {
+    updatePressedSymbols(keysState.keys, ev, getNormalizedKey(key));
+    updatePressedSymbols(keysState.letters, ev, key);
 }
 
 export function updateKeysState(
@@ -123,44 +137,30 @@ export function updateKeysState(
     keyUp: KeyboardEvent | null,
     blur: boolean,
 ) {
-    const keys = keysState.keys;
-    {
-        let keyPressed: Key | undefined;
-        let keyRepeated: Key | undefined;
-        let keyReleased: Key | undefined;
-
-        if (keyDown) {
-            if (keyDown.repeat === true) {
-                keyRepeated = getNormalizedKey(keyDown.key);
-            } else {
-                keyPressed = getNormalizedKey(keyDown.key);
-            }
-        } 
-        if (keyUp) {
-            keyReleased = getNormalizedKey(keyUp.key);
+    let key = "";
+    let ev  = EV_NOTHING
+    if (keyDown !== null) {
+        key = keyDown.key;
+        if (keyDown.repeat === true) {
+            ev = EV_REPEATED;
+        } else {
+            ev = EV_PRESSED;
         }
-
-        updatePressedSymbols(keys, keyPressed, keyRepeated, keyReleased, blur);
+    } else if (keyUp !== null) {
+        key = keyUp.key;
+        ev = EV_RELEASED;
+    } else if (blur === true) {
+        ev = EV_BLUR;
+        key = "";
+    } else {
+        ev = EV_NOTHING;
+        key = "";
     }
 
-    const letters = keysState.letters;
-    {
-        let keyPressed:  string | undefined;
-        let keyRepeated: string | undefined;
-        let keyReleased: string | undefined;
+    updateKeysStateInternal(keysState, ev, key);
 
-        if (keyDown) {
-            if (keyDown.repeat === true) {
-                keyRepeated = keyDown.key;
-            } else {
-                keyPressed = keyDown.key;
-            }
-        } 
-        if (keyUp) {
-            keyReleased = keyUp.key;
-        }
-
-        updatePressedSymbols(letters, keyPressed, keyRepeated, keyReleased, blur);
+    if (key === "Control" || key === "Meta") {
+        updateKeysStateInternal(keysState, ev, "Modifier");
     }
 }
 

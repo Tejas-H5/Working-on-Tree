@@ -365,7 +365,7 @@ function newKeyboardState(): KeyboardState {
         enterKey:  getNormalizedKey("Enter"),
         escapeKey: getNormalizedKey("Escape"),
 
-        ctrlKey:  getNormalizedKey("Control"),
+        ctrlKey:  getNormalizedKey("Modifier"),
         shiftKey: getNormalizedKey("Shift"),
         altKey:   getNormalizedKey("Alt"),
         tabKey:   getNormalizedKey("Tab"),
@@ -412,7 +412,7 @@ export function getKeyStringRepr(key: Key) {
         case "Enter":      return "Enter";
         case "Escape":     return "Esc";
 
-        case "Control":    return "Ctrl";
+        case "Modifier":    return "Ctrl/Cmd";
         case "Shift":      return "Shift";
         case "Alt":        return "Alt";
         case "Tab":        return "Tab";

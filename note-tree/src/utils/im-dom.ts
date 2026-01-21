@@ -579,6 +579,11 @@ export function imOn<K extends keyof HTMLElementEventMap>(
             eventType: null,
             eventValue: null,
             eventListener: (e: HTMLElementEventMap[K]) => {
+                // NOTE: Some of you coming from a non-web background may be puzzled as to why
+                // we are re-rendering the entire app for EVERY event. This is because we always want
+                // the ability to call e.preventDefault() while the event is occuring for any event.
+                // Buffering the events means that we will miss the opportunity to prevent the default event.
+
                 val.eventValue = e;
                 c[CACHE_RERENDER_FN]();
             },
