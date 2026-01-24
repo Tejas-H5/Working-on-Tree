@@ -368,27 +368,6 @@ function imMainInner(c: ImCache) {
                     } else {
                         imIfElse(c);
 
-                        if (!IS_RUNNING_FROM_FILE) {
-                            imLayoutBegin(c, BLOCK); imFixed(c, 0, NA, 20, PERCENT, 10, PX, 0, NA); {
-                                imLayoutBegin(c, BLOCK); imButton(c); {
-                                    if (isFirstishRender(c)) {
-                                        elSetStyle(c, "padding", "10px");
-                                        elSetStyle(c, "borderRadius", "5px");
-                                        elSetStyle(c, "border", "1px solid " + cssVars.fg);
-                                    }
-
-                                    imStr(c, "Download this page, and run it offline!");
-
-                                    if (elHasMouseClick(c)) {
-                                        const linkEl = document.createElement("a");
-                                        linkEl.setAttribute("download", "note-tree.html");
-                                        linkEl.setAttribute("href", window.location.href);
-                                        linkEl.click();
-                                    }
-                                } imLayoutEnd(c);
-                            } imLayoutEnd(c);
-                        }
-
                         imLayoutBegin(c, ROW); imFlex(c); {
                             // TODO: think about this.
                             let focusRef = imGet(c, newFocusRef);
@@ -435,8 +414,30 @@ function imMainInner(c: ImCache) {
 
                                     imSwitch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
-                                            imActivitiesList(c, ctx, ctx.views.activities);
-                                            addView(navList, ctx.views.activities, "Activities");
+                                            imLayoutBegin(c, COL); imFlex(c); {
+                                                imActivitiesList(c, ctx, ctx.views.activities);
+                                                addView(navList, ctx.views.activities, "Activities");
+
+                                                if (!IS_RUNNING_FROM_FILE) {
+                                                    imLayoutBegin(c, BLOCK); imButton(c); {
+                                                        if (isFirstishRender(c)) {
+                                                            elSetStyle(c, "padding", "10px");
+                                                            elSetStyle(c, "borderTop", "1px solid " + cssVars.fg);
+                                                            elSetStyle(c, "fontWeight", "bold");
+                                                            elSetStyle(c, "textAlign", "center");
+                                                        }
+
+                                                        imStr(c, "Download this page, and run it offline!");
+
+                                                        if (elHasMouseClick(c)) {
+                                                            const linkEl = document.createElement("a");
+                                                            linkEl.setAttribute("download", "note-tree.html");
+                                                            linkEl.setAttribute("href", window.location.href);
+                                                            linkEl.click();
+                                                        }
+                                                    } imLayoutEnd(c);
+                                                }
+                                            } imLayoutEnd(c);
                                         } break;
                                         case ctx.views.fastTravel: {
                                             imNoteTraversal(c, ctx, ctx.views.fastTravel);

@@ -73,8 +73,11 @@ export type NoteTreeGlobalState = {
     settings: AppSettings;
 
     // Indices map to 1234567890 on the keyboard, so there can only be 10 of these. 
-    // probably only the first 4 will ever be used.
-    marks: (NoteId | null)[];
+    // probably only the first 4 will ever be used. 
+    // Each mark maps to an _array_ of notes that we cycle through. 
+    // - Allows accidentally deleting a mark to be much harder
+    // - Allows us to get more use out of existing marks. 
+    marks: NoteId[][];
 
     mappingGraph: MappingGraph;
     mappingGraphView: MappingGraphView;
@@ -1642,12 +1645,21 @@ export function updateBreakAutoInsertLastPolledTime() {
     return localStorage.setItem(LAST_AUTO_INSERTED_BREAK_KEY, new Date().toISOString());
 }
 
-export function setNoteMarked(state: NoteTreeGlobalState, id: NoteId | null, idx: number) {
+export function toggleNoteMarked(state: NoteTreeGlobalState, id: NoteId, slotIndex: number) {
     if (state.marks.length !== 10) {
         state.marks.length = 10;
     }
-    assert(idx >= 0 && idx < 10);
-    state.marks[idx] = id;
+    assert(slotIndex >= 0 && slotIndex < 10);
+    if (!state.marks[slotIndex]) state.marks[slotIndex] = [];
+
+    const allMarks = state.marks[slotIndex];
+    const markIdx = allMarks.indexOf(id);
+    if (markIdx === - 1) {
+        allMarks.push(id);
+    } else {
+        filterInPlace(allMarks, existing => existing !== id);
+    }
+
     notesMutated(state);
 }
 

@@ -22,10 +22,8 @@ import {
     imAbsolute,
     imBg,
     imFlex,
-    imFlex1,
     imGap,
     imLayoutBegin,
-    imLayoutBeginInternal,
     imLayoutEnd,
     imNoWrap,
     imOpacity,
@@ -78,21 +76,21 @@ import {
     recomputeNoteStatusRecursively,
     setCurrentNote,
     setIsEditingCurrentNote,
-    setNoteMarked,
     setNoteText,
     state,
     STATUS_IN_PROGRESS,
+    toggleNoteMarked,
     TreeNote,
 } from "src/state";
 import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
-import { formatDate, formatDateTime, formatDurationAsHours } from "src/utils/datetime";
+import { formatDateTime, formatDurationAsHours } from "src/utils/datetime";
 import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
 import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, getGlobalEventSystem, imOn, imStr, imStrFmt } from "src/utils/im-dom";
+import { EL_B, elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, getGlobalEventSystem, imElBegin, imElEnd, imOn, imStr, imStrFmt } from "src/utils/im-dom";
 import * as tree from "src/utils/int-tree";
-import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 import { isKeyHeld, isKeyPressed } from "src/utils/key-state";
+import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -435,18 +433,33 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
             imLayoutBegin(c, COL); {
                 imFor(c); for (let i = 0; i < state.marks.length; i++) {
-                    const m = state.marks[i];
-                    if (!m) continue;
-                    const note = getNote(state.notes, m);
-                    imLayoutBegin(c, BLOCK); imNoWrap(c); {
+                    const allMarks = state.marks[i];
+                    if (allMarks.length === 0) continue;
+
+                    imLayoutBegin(c, ROW); imNoWrap(c); {
                         if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+
                         imLayoutBegin(c, INLINE); {
                             if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
-                            imStr(c, "Mark ");
                             imStrFmt(c, i, markIdxToString);
-                            imStr(c, " :: ");
+                            imStr(c, ": ");
                         } imLayoutEnd(c);
-                        imStr(c, note.data.text);
+
+                        imLayoutBegin(c, ROW); imFlex(c); {
+                            imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
+                                const noteId = allMarks[slotIdx];
+                                const note = getNote(state.notes, noteId);
+                                const isSelected = noteId === state.currentNoteId;
+
+                                const flexRatio = isSelected ? 3 : 1;
+                                imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : "");  {
+                                    imArrow(c);
+
+                                    if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+                                    imStr(c, note.data.text);
+                                } imLayoutEnd(c);
+                            } imForEnd(c);
+                        } imLayoutEnd(c);
                     } imLayoutEnd(c);
                 } imForEnd(c);
             } imLayoutEnd(c);
@@ -461,6 +474,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             imLayoutBegin(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
         } imLayoutEnd(c);
     } imLayoutEnd(c);
+}
+
+function imArrow(c: ImCache) {
+    imElBegin(c, EL_B); {
+        if (isFirstishRender(c)) elSetStyle(c, "padding", "0 10px");
+
+        imStr(c, " -> ");
+    } imElEnd(c, EL_B);
 }
 
 const UNDER = 1;
@@ -510,18 +531,23 @@ function moveToLocalidx(
 }
 
 function toggleMark(currentNote: TreeNote, idx: number) {
-    if (state.marks[idx] === currentNote.id) {
-        setNoteMarked(state, null, idx);
-    } else {
-        setNoteMarked(state, currentNote.id, idx);
-    }
+    toggleNoteMarked(state, currentNote.id, idx);
 }
 
 function navigateToMark(s: NoteTreeViewState, currentNote: TreeNote, idx: number) {
-    const mark = arrayAt(state.marks, idx);
-    if (!mark) return;
+    const allMarks = arrayAt(state.marks, idx);
+    if (!allMarks)             return;
+    if (allMarks.length === 0) return;
 
-    const note = getNote(state.notes, mark);
+    const markSlotIndex = allMarks.indexOf(currentNote.id);
+    let noteId;
+    if (markSlotIndex === -1) {
+        noteId = allMarks[0];
+    } else {
+        noteId = allMarks[(markSlotIndex + 1) % allMarks.length];
+    }
+
+    const note = getNote(state.notes, noteId);
     setCurrentNote(state, note.id, currentNote.id);
 }
 
@@ -892,9 +918,7 @@ function imNoteTreeRow(
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
 
-            const durationView = ctx.views.durations;
-            const isViewingDurations = ctx.currentView === durationView;
-            if (imIf(c) && isViewingDurations) {
+            if (imIf(c) && ctx.viewingDurations) {
                 imLayoutBegin(c, ROW); {
                     const durationTimesheet = getNoteDurationUsingCurrentRange(state, note);
                     const durationAllTime = getNoteDurationWithoutRange(state, note);

@@ -11,7 +11,7 @@ import {
     extractKey,
     serializeToJSON,
 } from "src/utils/serialization-utils";
-import { ConceptSubset, GraphMappingConcept, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
+import { ConceptSubset, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
 import {
     Activity,
     defaultActivity,
@@ -157,9 +157,21 @@ export function asNoteTreeGlobalState(val: unknown) {
     const marksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks"));
     if (marksArr) {
         state.marks = marksArr.map(val => {
+            if (val == null) {
+                return [];
+            }
+
             const valNum = asNumber(val);
-            if (valNum === undefined) return null;
-            return valNum as NoteId;
+            if (valNum !== undefined) {
+                return [valNum as tree.TreeId];
+            }
+
+            const valArray = asArray(val);
+            if (valArray) {
+                return valArray.map(asNumber).filter(n => n !== undefined) as tree.TreeId[];
+            }
+
+            return [];
         }).slice(0, 10);
     }
 
