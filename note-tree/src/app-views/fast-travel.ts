@@ -203,7 +203,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
             const { i } = list;
             const note = s.notes[i];
 
-            imNavListRowBegin(c, list); {
+            imNavListRowBegin(c, list, false, false); {
                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                     imLayoutBegin(c, INLINE); {
                         const isBold = note.data._tasksInProgress > 0;

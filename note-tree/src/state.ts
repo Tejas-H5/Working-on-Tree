@@ -1,13 +1,13 @@
 import { assert } from "src/utils/assert";
-import { formatDateTime, } from "src/utils/datetime";
+import { formatDateTime } from "src/utils/datetime";
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { serializeToJSON } from "src/utils/serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
+import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -65,6 +65,7 @@ export type NoteTreeGlobalState = {
     /** The sequence of tasks as we worked on them. Separate from the tree. One person can only work on one thing at a time */
     activities: Activity[];
     _activitiesMutationCounter: number;
+    _activitiesLastTouchedIdx: number;
 
     // Want to keep this so that we can refresh the page mid-delete.
     textOnArrivalNoteId: NoteId;
@@ -90,7 +91,6 @@ export type NoteTreeGlobalState = {
     // If false, the user can do something about it, and they don't have anything to report.
     _criticalLoadingErrorWasOurFault: boolean;
     
-    _lastStoppedEditingTimestamp: number | null,
     _activitiesFromIdx: number;
     _activitiesToIdx: number;
 
@@ -295,6 +295,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         currentNoteId: itree.NIL_ID,
         activities: [],
         _activitiesMutationCounter: 0,
+        _activitiesLastTouchedIdx: 0,
 
         settings: newAppSettings(),
 
@@ -318,8 +319,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         // don't set this if our tree is corrupted!
         _criticalLoadingError: "",
         _criticalLoadingErrorWasOurFault: false,
-
-        _lastStoppedEditingTimestamp: null,
 
         _activitiesFromIdx: -1,
         _activitiesToIdx: -1,
@@ -763,31 +762,16 @@ function canActivityBeReplacedWithNewActivity(state: NoteTreeGlobalState, lastAc
     const activityDurationMs = getActivityDurationMs(lastActivity, undefined);
 
     if (
-        lastActivity &&
         lastActivity.nId &&
         lastActivity.c === 1 &&
         !lastActivity.deleted
     ) {
+        // Can't replace activity for a newly created note
         return false;
     }
 
-    if (
-        // A bunch of conditions that make this activity something we don't need to keep around as much
-        !lastActivity ||
-        !lastActivity.nId ||
-        !hasNote(state.notes, lastActivity.nId) ||
-        lastActivity.deleted ||
-        lastActivity.c !== 1 || // activity wasn't created, but edited
-        isBreak(lastActivity) ||
-        !getNote(state.notes, lastActivity.nId).data.text.trim()  // empty text
-    ) {
-        // The activity is more replaceable, so we extend this time.
-        const LONG_DEBOUNCE = 1 * 60 * ONE_SECOND;
-        return activityDurationMs < LONG_DEBOUNCE;
-    }
-
-    const SHORT_DEBOUNCE = 2 * ONE_SECOND;
-    return activityDurationMs < SHORT_DEBOUNCE;
+    const IRREPLACEABLE_ACTIVITY_DURATION = 60 * ONE_SECOND;
+    return activityDurationMs < IRREPLACEABLE_ACTIVITY_DURATION;
 }
 
 function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
@@ -809,6 +793,7 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
 
     state.activities.push(activity);
     state._activitiesMutationCounter++;
+    state._activitiesLastTouchedIdx = state.activities.length - 1;
 }
 
 export function isNoteEmpty(note: TreeNote): boolean {
@@ -1025,8 +1010,11 @@ export function forEachChildNote(state: NoteTreeGlobalState, note: TreeNote, it:
     }
 }
 
-// TODO: fix this method.
-export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null, noteIdJumpedFrom?: NoteId | undefined) {
+export function setCurrentNote(
+    state: NoteTreeGlobalState,
+    noteId: NoteId | null,
+    noteIdJumpedFrom?: NoteId | undefined
+) {
     if (!noteId) {
         return;
     }
@@ -1054,14 +1042,9 @@ export function setCurrentNote(state: NoteTreeGlobalState, noteId: NoteId | null
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
     deleteNoteIfEmpty(state, currentNoteBeforeMove);
-    setCurrentActivityIdxToCurrentNote(state);
+    pushNoteActivity(state, note.id, false);
 
     return true;
-}
-
-export function setCurrentActivityIdxToCurrentNote(state: NoteTreeGlobalState) {
-    const note = getCurrentNote(state);
-    const idx = getMostRecentActivityIdx(state, note);
 }
 
 function setNoteAsLastSelected(state: NoteTreeGlobalState, note: TreeNote) {
@@ -1074,26 +1057,16 @@ function setNoteAsLastSelected(state: NoteTreeGlobalState, note: TreeNote) {
 }
 
 export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: boolean) {
-    state._isEditingFocusedNote = isEditing;
-
     if (isEditing) {
-        if (state._lastStoppedEditingTimestamp) {
-            const timeSinceLastEdited = Date.now() - state._lastStoppedEditingTimestamp;
-            if (timeSinceLastEdited > 1000 * 60 && !isCurrentlyTakingABreak(state)) {
-                pushBreakActivity(state, newBreakActivity("Planning/organising tasks", new Date(), false));
-            }
-        }
-
         const currentNote = getCurrentNote(state);
-        pushNoteActivity(state, currentNote.id, false);
-        setCurrentActivityIdxToCurrentNote(state);
-
         setNoteAsLastSelected(state, currentNote);
 
-        state.textOnArrival = currentNote.data.text;
+        state._isEditingFocusedNote = true;
+
+        state.textOnArrival       = currentNote.data.text;
         state.textOnArrivalNoteId = currentNote.id;
     } else {
-        state._lastStoppedEditingTimestamp = new Date().getTime();
+        state._isEditingFocusedNote = false;
     }
 }
 

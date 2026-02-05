@@ -327,7 +327,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                 const { i } = list;
                 const item = matches[i];
 
-                imNavListRowBegin(c, list); {
+                imNavListRowBegin(c, list, false, false); {
                     imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
 
                         if (imIf(c) && item.ranges) {

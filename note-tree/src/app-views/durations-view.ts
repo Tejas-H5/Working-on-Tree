@@ -340,6 +340,7 @@ export function imDurationsView(
     // of workarounds you need to use. 
     // It would have been better to just get around to learning css grid, but
     // I'm in too deep. We gotta get this done.
+    // TODO: use css grid to do this, now that we know how
 
     const allRowsSelected = s.tableRowPos.idx === -1;
     const allColsSelected = s.tableColPos.idx === -1;
@@ -348,7 +349,7 @@ export function imDurationsView(
     imLayoutBegin(c, COL); imFlex(c); {
         imLayoutBegin(c, COL); {
             imLayoutBegin(c, TABLE); imFlex(c); {
-                imListTableRowBegin(c, allSelected, viewHasFocus && allSelected); imAlign(c, STRETCH); {
+                imListTableRowBegin(c, allSelected, allSelected, viewHasFocus && allSelected); imAlign(c, STRETCH); {
                     imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imJustify(c); imAlign(c); {
                         imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
@@ -372,13 +373,13 @@ export function imDurationsView(
 
                             imListRowBg(
                                 c,
-                                getRowStatus(colSelected, viewHasFocus && allRowsSelected)
+                                getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
                             );
 
                             imLayoutBegin(c, BLOCK); imSize(c, 100, PERCENT, 7, PX); {
                                 imListCursorColor(
                                     c,
-                                    getRowStatus(colSelected, viewHasFocus && colSelectedIndividual)
+                                    getRowStatus(colSelected, colSelected, viewHasFocus && colSelectedIndividual)
                                 );
                             } imLayoutEnd(c);
 
@@ -390,7 +391,7 @@ export function imDurationsView(
                     } imForEnd(c);
                 } imListTableRowEnd(c);
 
-                imListTableRowBegin(c, false, false); {
+                imListTableRowBegin(c, false, false, false); {
                     imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
                         imStr(c, "Total");
                     } imTableCellFlexEnd(c);
@@ -406,7 +407,7 @@ export function imDurationsView(
 
                             imListRowBg(
                                 c,
-                                getRowStatus(colSelected, viewHasFocus && allRowsSelected)
+                                getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
                             );
 
                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
@@ -431,12 +432,12 @@ export function imDurationsView(
                     const rowSelectedIndividual = s.tableRowPos.idx === rowIdx;
                     const rowSelected = rowSelectedIndividual || allRowsSelected;
 
-                    const root = imListTableRowBegin(c, false, false); {
+                    const root = imListTableRowBegin(c, false, false, false); {
                         imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c, STRETCH); imJustify(c); {
                             imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 100, PERCENT); {
                                 imListCursorColor(
                                     c,
-                                    getRowStatus(rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
+                                    getRowStatus(rowSelectedIndividual, rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
                                 );
                             } imLayoutEnd(c);
 
@@ -445,7 +446,7 @@ export function imDurationsView(
 
                                 imListRowBg(
                                     c,
-                                    getRowStatus(rowSelected, viewHasFocus && selected),
+                                    getRowStatus(rowSelected, rowSelected, viewHasFocus && selected),
                                 );
 
                                 imStr(c, block.name);
@@ -463,7 +464,7 @@ export function imDurationsView(
                             imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
                                 imListRowBg(
                                     c,
-                                    getRowStatus(rowSelected || colSelected, viewHasFocus && cellSelected),
+                                    getRowStatus(rowSelected || colSelected, rowSelected || colSelected, viewHasFocus && cellSelected),
                                 );
 
                                 imStr(c, formatDurationAsHours(slot.time));

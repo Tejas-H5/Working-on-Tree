@@ -215,7 +215,9 @@ function moveToPrevDay(ctx: GlobalContext, s: ActivitiesViewState) {
 export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState, idx: number, notInRange: boolean) {
     if (s.activities.length === 0) return;
 
-    if (s.scrollContainer) startScrolling(s.scrollContainer, true);
+    if (s.scrollContainer) {
+        startScrolling(s.scrollContainer, true);
+    }
 
     const lastIdx = s.activityListPositon.idx;
     let newIdx = idx;
@@ -291,6 +293,7 @@ function insertBreak(
 
     allActivities.splice(idx + 1, 0, newBreak);
     state._activitiesMutationCounter++;
+    state._activitiesLastTouchedIdx = filteredListIdx + 1;
     if (s.activities !== allActivities) {
         // TODO: figure out a way for state._activitiesMutationCounter to flow down into us.
         // state._activitiesMutationCounter -> duration view filter changes -> this thing's activities list changes -> 
@@ -546,6 +549,14 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         }
     }
 
+    const activitiesMutated = imMemo(c, state._activitiesMutationCounter);
+    if (activitiesMutated || viewHasFocusChanged) {
+        // Don't track the current note if this UI is focused, as it will also move the current note when navigating activities
+        if (!viewHasFocus) {
+            activitiesViewSetIdx(ctx, s, state._activitiesLastTouchedIdx, true);
+        }
+    }
+
     const currentNote = getCurrentNote(state);
     if (imMemo(c, currentNote) && !viewHasFocus) {
         // Let's make sure the activity we're lookint at is always the most recent
@@ -603,6 +614,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
         imListRowBegin(
             c,
+            dateSelectorFocused,
             dateSelectorFocused,
             viewHasFocus && dateSelectorFocused
         ); {
@@ -699,7 +711,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                     const isBreakActivity = isBreak(activity);
 
-                    imNavListRowBegin(c, list, itemHighlighted); {
+                    imNavListRowBegin(c, list, itemHighlighted, itemSelected); {
                         imLayoutBegin(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
                             imLayoutBegin(c, INLINE_BLOCK); {
                                 if (imIf(c) && isEditingTime) {

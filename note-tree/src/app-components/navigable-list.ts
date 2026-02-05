@@ -211,16 +211,19 @@ export function imNavListEnd(c: ImCache, _list: NavigableListState) {
     } imLayoutEnd(c);
 }
 
-// might need to render a component outside of a list, and inside of a list. hence list | null
+// might need to render a component outside of a list, and inside of a list. hence list | null.
+// NOTE: the selected/highlighted you pass in here will always be ORed with the selected idx in the navList parent.
 export function imNavListRowBegin(
     c: ImCache,
     list: NavigableListState | null,
-    highlighted = false
+    selected: boolean,
+    highlighted: boolean,
 ) {
     const itemSelected = list ? list.itemSelected : false;
 
     const root = imListRowBegin(
         c,
+        itemSelected || selected,
         itemSelected || highlighted,
         list ? itemSelected && list.viewHasFocus : false,
         list ? itemSelected && list.isEditing : false,

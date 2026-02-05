@@ -142,7 +142,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
             const { i } = list;
             const url = s.urls[i];
 
-            imNavListRowBegin(c, list); {
+            imNavListRowBegin(c, list, false, false); {
                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                     imElBegin(c, EL_A); {
                         if (imMemo(c,url)) {

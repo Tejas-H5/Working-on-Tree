@@ -31,16 +31,20 @@ function getBg(status: RowStatus): string {
 // API is a bit strange but I can't put my finger on why...
 export function getRowStatus(
     highlighted: boolean,
+    selected: boolean,
     focused: boolean,
     isEditing = false
 ): RowStatus {
     let status: RowStatus = ROW_EXISTS;
     if (highlighted) {
-        status = ROW_SELECTED;
-        if (focused) {
-            status = ROW_FOCUSED;
-            if (isEditing) {
-                status = ROW_EDITING;
+        status = ROW_HIGHLIGHTED;
+        if (selected) { 
+            status = ROW_SELECTED;
+            if (focused) {
+                status = ROW_FOCUSED;
+                if (isEditing) {
+                    status = ROW_EDITING;
+                }
             }
         }
     }
@@ -50,10 +54,11 @@ export function getRowStatus(
 export function imListTableRowBegin(
     c: ImCache,
     highlighted: boolean,
+    selected: boolean,
     focused: boolean,
     isEditing = false
 ) {
-    const status = getRowStatus(highlighted, focused, isEditing);
+    const status = getRowStatus(highlighted, selected, focused, isEditing);
     const root = imLayoutBegin(c, TABLE_ROW); {
         imListCursorBg(c, status);
 
@@ -105,10 +110,11 @@ export function imTableCellFlexEnd(c: ImCache) {
 export function imListRowBegin(
     c: ImCache,
     highlighted: boolean,
+    selected: boolean,
     focused: boolean,
     isEditing = false
 ) {
-    const status = getRowStatus(highlighted, focused, isEditing);
+    const status = getRowStatus(highlighted, selected, focused, isEditing);
     const root = imLayoutBegin(c, ROW); {
         imListCursorBg(c, status);
 
@@ -138,6 +144,7 @@ export function imListCursorBg(c: ImCache, status: RowStatus) {
 function getCursorBgColourForStatus(status: RowStatus) {
     if (status === ROW_FOCUSED) return cssVarsApp.fgColor;
     if (status === ROW_EDITING) return cssVarsApp.bgEditing
+    if (status === ROW_SELECTED) return cssVarsApp.bgColorFocus;
     return "";
 }
 

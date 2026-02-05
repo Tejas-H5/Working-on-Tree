@@ -676,7 +676,7 @@ function imNoteTreeRow(
         }
     }
 
-    const root = imNavListRowBegin(c, list); {
+    const root = imNavListRowBegin(c, list, false, false); {
         imLayoutBegin(c, ROW); imFlex(c); {
             if (selectedChanged) {
                 elSetClass(c, cn.preWrap, itemSelected);

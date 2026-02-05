@@ -107,13 +107,21 @@ export function asNoteTreeGlobalState(val: unknown) {
     });
     filterInPlace(state.activities, a => a.breakInfo != null || a.nId != null);
 
-    state.activities.forEach((a, i) => {
-        const isSorted = i === 0 ||
-            state.activities[i - 1].t.getTime() < state.activities[i].t.getTime();
-        if (!isSorted) {
-            throw new Error("Activities weren't sorted " + i);
+    // self-healing code. fr fr. Also not sure if good idea or shit idea
+    {
+        let sorted = true;
+        for (let i = 1; i < state.activities.length; i++) {
+            if (state.activities[i - 1].t.getTime() < state.activities[i].t.getTime()) {
+                sorted = false;
+                break;
+            }
         }
-    });
+
+        if (!sorted) {
+            console.error("Activities weren't sorted. But we can just sort them tho?");
+            state.activities.sort((a, b) => a.t.getTime() - b.t.getTime());
+        }
+    }
 
     const mappingGraphObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "mappingGraph"));
     if (mappingGraphObj) {

@@ -115,7 +115,7 @@ const menus: MenuItem[] = [
 
                     const itemList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
                         imNavListNextItem(itemList); {
-                            imNavListRowBegin(c, itemList); {
+                            imNavListRowBegin(c, itemList, false, false); {
                                 imLayoutBegin(c, ROW); imListRowCellStyle(c); {
                                     imB(c); imStr(c, "Spaces or tabs?"); imBEnd(c);
 
@@ -142,7 +142,7 @@ const menus: MenuItem[] = [
                             let canWiden = hasFocus && settings.tabStopSize < 12;
                             let canNarrow = hasFocus && settings.tabStopSize > 1;
 
-                            imNavListRowBegin(c, itemList); {
+                            imNavListRowBegin(c, itemList, false, false); {
                                 imLayoutBegin(c, ROW); imListRowCellStyle(c); {
                                     if (isFirstishRender(c)) {
                                         elSetClass(c, cn.preWrap);
@@ -569,7 +569,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                             if (hallwayList.itemSelected) {
                                 s.selectedMenu = menu;
                             }
-                            imNavListRowBegin(c, hallwayList); {
+                            imNavListRowBegin(c, hallwayList, false, false); {
                                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                     imB(c); imStr(c, menu.name); imBEnd(c);
                                 } imLayoutEnd(c);
