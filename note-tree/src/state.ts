@@ -1042,7 +1042,6 @@ export function setCurrentNote(
     state.currentNoteId = note.id;
     setIsEditingCurrentNote(state, false);
     deleteNoteIfEmpty(state, currentNoteBeforeMove);
-    pushNoteActivity(state, note.id, false);
 
     return true;
 }
@@ -1060,6 +1059,7 @@ export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: b
     if (isEditing) {
         const currentNote = getCurrentNote(state);
         setNoteAsLastSelected(state, currentNote);
+        pushNoteActivity(state, currentNote.id, false);
 
         state._isEditingFocusedNote = true;
 

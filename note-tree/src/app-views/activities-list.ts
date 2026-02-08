@@ -239,12 +239,17 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
         newIdx = clampedListIdxRange(idx, lo, hi);
     }
 
+    const viewHasFocus = ctx.currentView === s;
+
     if (newIdx !== s.activityListPositon.idx) {
         s.activityListPositon.idx = newIdx;
 
         const activity = s.activities[newIdx];
         if (activity.nId) {
-            setCurrentNote(state, activity.nId, ctx.noteBeforeFocus?.id);
+            if (viewHasFocus) {
+                // This view should only move the note if it is focused
+                setCurrentNote(state, activity.nId, ctx.noteBeforeFocus?.id);
+            }
         }
     }
 
@@ -550,11 +555,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
     }
 
     const activitiesMutated = imMemo(c, state._activitiesMutationCounter);
-    if (activitiesMutated || viewHasFocusChanged) {
-        // Don't track the current note if this UI is focused, as it will also move the current note when navigating activities
-        if (!viewHasFocus) {
-            activitiesViewSetIdx(ctx, s, state._activitiesLastTouchedIdx, true);
-        }
+    if (activitiesMutated) {
+        activitiesViewSetIdx(ctx, s, state._activitiesLastTouchedIdx, true);
     }
 
     const currentNote = getCurrentNote(state);
