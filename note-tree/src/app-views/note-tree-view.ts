@@ -58,14 +58,19 @@ import {
     COLLAPSED_STATUS,
     createNewNote,
     deleteNoteIfEmpty,
+    DONE_SUFFIX,
+    forEachChildNote,
     getCurrentNote,
+    getLastActivity,
     getNote,
     getNoteDurationUsingCurrentRange,
     getNoteDurationWithoutRange,
+    getNoteOrUndefined,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
+    isBreak,
     isNoteCollapsed,
     isNoteEmpty,
     markIdxToString,
@@ -73,14 +78,16 @@ import {
     noteStatusToString,
     NoteTreeGlobalState,
     parentNoteContains,
+    pushNoteActivity,
     recomputeNoteStatusRecursively,
     setCurrentNote,
     setIsEditingCurrentNote,
     setNoteText,
     state,
+    STATUS_DONE,
     STATUS_IN_PROGRESS,
-    toggleNoteMarked,
-    TreeNote,
+    toggleNoteRootMark,
+    TreeNote
 } from "src/state";
 import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
@@ -253,7 +260,6 @@ export function newNoteTreeViewState(): NoteTreeViewState {
 
         scrollContainer: newScrollContainer(),
         listPos: newListPosition(),
-
         numVisible:     0,
     };
 
@@ -329,6 +335,25 @@ function moveIntoCurrent(
 
 export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewState) {
     const viewFocused = ctx.currentView === s;
+
+    if (imMemo(c, state._notesMutationCounter)) {
+        s.invalidateVisibleNotes = true;
+    }
+
+    // Only push an activity for the current note once we've moved to it, _AND_ this view is in focus.
+    const currentNote = getCurrentNote(state);
+    if (imMemo(c, currentNote) | imMemo(c, viewFocused)) {
+        if (viewFocused) {
+            const lastActivity = getLastActivity(state);
+            if (lastActivity && !isBreak(lastActivity)) {
+                const currentNote = getCurrentNote(state);
+                if (currentNote.id !== lastActivity.nId) {
+                    pushNoteActivity(state, currentNote.id, false);
+                }
+            }
+        }
+    }
+
 
     // invalidate properties as needed
     {
@@ -421,10 +446,8 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             } imKeyedEnd(c);
         } imNavListEnd(c, list);
 
-        // Wouldnt it be cool if we could render everything, _then_ decide we dont want to render the thing,
-        // and hide it retrospectively?
         let hasMarks = false;
-        for (const m of state.marks) {
+        for (const m of state._computedMarks) {
             if (m != null) hasMarks = true;
         }
 
@@ -432,9 +455,10 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             imLine(c, LINE_HORIZONTAL, 1);
 
             imLayoutBegin(c, COL); {
-                imFor(c); for (let i = 0; i < state.marks.length; i++) {
-                    const allMarks = state.marks[i];
-                    if (allMarks.length === 0) continue;
+                imFor(c); for (let i = 0; i < state._computedMarks.length; i++) {
+                    const allMarks = state._computedMarks[i];
+                    const mark = state.rootMarks[i];
+                    if (!mark) continue;
 
                     imLayoutBegin(c, ROW); imNoWrap(c); {
                         if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
@@ -446,19 +470,29 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
                         } imLayoutEnd(c);
 
                         imLayoutBegin(c, ROW); imFlex(c); {
-                            imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
-                                const noteId = allMarks[slotIdx];
-                                const note = getNote(state.notes, noteId);
-                                const isSelected = noteId === state.currentNoteId;
 
-                                const flexRatio = isSelected ? 3 : 1;
-                                imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : "");  {
-                                    imArrow(c);
-
-                                    if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
-                                    imStr(c, note.data.text);
+                            if (imIf(c) && allMarks.length === 0) {
+                                imLayoutBegin(c, ROW); {
+                                    imStr(c, "Nothing in progress under this mark");
                                 } imLayoutEnd(c);
-                            } imForEnd(c);
+                            } else {
+                                imIfElse(c);
+
+                                imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
+                                    const noteId = allMarks[slotIdx];
+                                    const note = getNote(state.notes, noteId);
+                                    const isSelected = noteId === state.currentNoteId;
+
+                                    const flexRatio = isSelected ? 3 : 1;
+                                    imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
+                                        imArrow(c);
+
+                                        if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+                                        imStr(c, note.data.text);
+                                    } imLayoutEnd(c);
+                                } imForEnd(c);
+                            } imIfEnd(c);
+
                         } imLayoutEnd(c);
                     } imLayoutEnd(c);
                 } imForEnd(c);
@@ -531,11 +565,11 @@ function moveToLocalidx(
 }
 
 function toggleMark(currentNote: TreeNote, idx: number) {
-    toggleNoteMarked(state, currentNote.id, idx);
+    toggleNoteRootMark(state, currentNote.id, idx);
 }
 
 function navigateToMark(s: NoteTreeViewState, currentNote: TreeNote, idx: number) {
-    const allMarks = arrayAt(state.marks, idx);
+    const allMarks = arrayAt(state._computedMarks, idx);
     if (!allMarks)             return;
     if (allMarks.length === 0) return;
 
@@ -622,6 +656,12 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN)) navigateToMark(s, currentNote, 9);
     }
 
+    if (hasDiscoverableCommand(ctx, keyboard.dKey, "Toggle DONE", SHIFT)) {
+        if (!reviveNote(currentNote)) {
+            completeNote(currentNote)
+        }
+    }
+
     // Adding a note can be done in both editing and not editing contexts
     {
         let noteToSet: TreeNote | undefined;
@@ -648,6 +688,74 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 }
 
+function reviveNote(note: TreeNote): boolean {
+    if (!note.data.text.endsWith(DONE_SUFFIX)) {
+        return false;
+    }
+
+    note.data.text = note.data.text.substring(
+        0,
+        note.data.text.length - DONE_SUFFIX.length
+    );
+    recomputeNoteStatusRecursively(state, note);
+    notesMutated(state);
+    return true;
+}
+
+function completeNote(note: TreeNote): void {
+    if (note.childIds.length === 0) {
+        if (note.data.text.endsWith(DONE_SUFFIX)) {
+            return;
+        }
+
+        note.data.text += DONE_SUFFIX;
+    } else {
+        let incompleteChild: TreeNote | undefined;
+        forEachChildNote(state, note, child => {
+            if (child.data._status !== STATUS_DONE && !incompleteChild) {
+                incompleteChild = child;
+            }
+        });
+
+        if (incompleteChild) {
+            setCurrentNote(state, incompleteChild.id);
+            return;
+        }
+
+        let appendDone = true;
+
+        if (note.childIds.length > 0) {
+            const lastId = note.childIds[note.childIds.length - 1]
+            const lastChild = getNote(state.notes, lastId);
+            if (lastChild.data.text === "DONE") {
+                // Don't append "DONE" again
+                appendDone = false;
+            }
+        }
+
+        if (appendDone) {
+            const newNote = createNewNote(state, "DONE");
+            tree.addUnder(state.notes, note, newNote);
+        }
+    }
+
+    recomputeNoteStatusRecursively(state, note);
+
+    let nextNotDone: TreeNote | undefined;
+    const parent = getNote(state.notes, note.parentId);
+    forEachChildNote(state, parent, child => {
+        if (nextNotDone) return;
+        if (child.data._status === STATUS_IN_PROGRESS) {
+            nextNotDone = child;
+        }
+    });
+    if (nextNotDone) {
+        setCurrentNote(state, nextNotDone.id);
+    }
+
+    notesMutated(state);
+}
+
 function imNoteTreeRow(
     c: ImCache,
     ctx: GlobalContext,
@@ -659,7 +767,6 @@ function imNoteTreeRow(
     itemSelected = false
 ) {
     s.numVisible++;
-
 
     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
     const isEditingChanged = imMemo(c, isEditing);
@@ -684,7 +791,7 @@ function imNoteTreeRow(
 
             // The tree visuals
             imLayoutBegin(c, ROW_REVERSE); {
-                const noteIsParent = s.noteParentNotes.includes(note) || idIsRoot(note.id);
+                const noteIsParent = s.viewRootParentNotes.includes(note) || idIsRoot(note.id);
 
                 let it = note;
                 let foundLineInPath = false;
@@ -694,35 +801,45 @@ function imNoteTreeRow(
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
                     it = getNote(state.notes, it.parentId);
+                    const itNext = getNoteOrUndefined(state.notes, it.parentId);
+
+                    let nextSibling: TreeNote | undefined;
+                    if (itPrev.idxInParentList + 1 < it.childIds.length) {
+                        nextSibling = getNote(state.notes, it.childIds[itPrev.idxInParentList + 1]);
+                    }
+
                     depth++;
 
+                    const isLineInPath: boolean =
+                        // !foundLineInPath &&
+                        // idx <= s.listPos.idx &&
+                        // idx <= s.childNextTaskIdx && 
+                        // itPrev.data._tasksInProgress > 0 
+                        itPrev.data._treeVisualsGoDown || 
+                        (itPrev === note && itPrev.data._treeVisualsGoRight);
+                        // itIsParent;
+
+                    foundLineInPath ||= isLineInPath;
+                    const hasHLine = itPrev.id === note.id;
+
                     // |---->| indent
-                    // [  x  ]Vertical line should line up with the note status above it:
+                    // [  x  ] (c1) Vertical line should line up with the note status above it:
                     //    |
                     //    |<-| bullet start
                     //    |
                     //    +-- [ x ] >> blah blah blah
-
-                    // const isLineInPath = inPath && prev === note;
-
-                    const itIsParent = s.noteParentNotes.includes(it) || idIsRoot(it.id);
-
-                    const isLineInPath: boolean =
-                        !foundLineInPath &&
-                        idx <= s.listPos.idx &&
-                        itIsParent;
-
-                    foundLineInPath ||= isLineInPath;
-
-                    const hasHLine = itPrev.id === note.id;
-                    const indent = 28;
-                    const bulletStart = 5;
+                    //
+                    // As it turns out, we can maintain the constraint c1 simply by setting
+                    // bulletStart = indent - 22;
+                    const indent = 29;
+                    const bulletStart = indent - 22;
 
                     const smallThicnkess = 1;
                     const largeThicnkess = 4;
                     const isLast = itPrev.idxInParentList === itPrevNumSiblings - 1;
 
-                    let pathGoesRight = (noteIsParent || it.id === note.id);
+                    let pathGoesRight = itPrev.data._treeVisualsGoRight;
+                    let pathGoesDown = itPrev.data._treeVisualsGoDown;
 
                     // the tree visuals. It was a lot easier to do these here than in my last framework
                     {
@@ -762,7 +879,7 @@ function imNoteTreeRow(
 
                                 // Vertical line part 2.
                                 imLayoutBegin(c, BLOCK); {
-                                    const isThick = isLineInPath && !pathGoesRight;
+                                    const isThick = isLineInPath && pathGoesDown;
                                     imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); 
                                     imSize(
                                         c,
@@ -796,7 +913,14 @@ function imNoteTreeRow(
                             elSetClass(c, cn.noWrap);
                         }
 
-                        imLayoutBegin(c, BLOCK); imStr(c, noteStatusToString(note.data._status)); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); {
+                            // const isFocusTask = note.data._treeVisualsGoRight; // && note.childIds.length === 0;
+                            // if (imMemo(c, isFocusTask)) {
+                            //     elSetStyle(c, "fontWeight", isFocusTask ? "bold" : "");
+                            // }
+                            imStr(c, noteStatusToString(note)); 
+                        } imLayoutEnd(c);
+
                         if (imIf(c) && (numInProgress + numDone) > 0) {
                             imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
                             imStr(c, `(${numDone}/${numInProgress + numDone})`);
@@ -932,5 +1056,3 @@ function imNoteTreeRow(
 
     return root;
 }
-
-

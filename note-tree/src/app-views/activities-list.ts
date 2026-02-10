@@ -554,24 +554,18 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         }
     }
 
-    const activitiesMutated = imMemo(c, state._activitiesMutationCounter);
-    if (activitiesMutated) {
-        activitiesViewSetIdx(ctx, s, state._activitiesLastTouchedIdx, true);
-    }
-
-    const currentNote = getCurrentNote(state);
-    if (imMemo(c, currentNote) && !viewHasFocus) {
-        // Let's make sure the activity we're lookint at is always the most recent
-        // activity for the current note.
-
-        const idx = s.activityListPositon.idx;
-        if (boundsCheck(s.activities, idx)) {
-            const activity = s.activities[idx];
-            if (activity.nId !== state.currentNoteId) {
-                const newActivityIdx = getLastActivityForNoteIdx(state, state.currentNoteId);
-                if (newActivityIdx !== -1) {
-                    activitiesViewSetIdx(ctx, s, newActivityIdx, NOT_IN_RANGE);
-                }
+    // Focus the latest activity or last touched activity if possible
+    {
+        const activitiesMutated = imMemo(c, state._activitiesMutationCounter);
+        let idx;
+        if (state._activitiesTraversalIdx !== -1) {
+            idx = state._activitiesTraversalIdx;
+        } else {
+            idx = state._activitiesLastTouchedIdx;
+        }
+        if (activitiesMutated | viewHasFocusChanged | imMemo(c, idx)) {
+            if (!viewHasFocus) {
+                activitiesViewSetIdx(ctx, s, idx, true);
             }
         }
     }
@@ -612,7 +606,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
         } imLayoutEnd(c);
 
-        const dateSelectorFocused  = currentFocus === FOCUS_DATE_SELECTOR;
+        const dateSelectorFocused = currentFocus === FOCUS_DATE_SELECTOR;
 
         imListRowBegin(
             c,
@@ -692,7 +686,9 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             )) {
                 const { i, itemSelected } = list;
 
-                const activity = s.activities[i];
+                const activity = arrayAt(s.activities, i);
+                if (!activity) continue;
+
                 const nextActivity = arrayAt(s.activities, i + 1);
 
                 imKeyedBegin(c, activity); {

@@ -315,6 +315,7 @@ type KeyboardState = {
     mKey: Key;
     hKey: Key;
     gKey: Key;
+    wKey: Key;
 
     enterKey:  Key;
     escapeKey: Key;
@@ -361,6 +362,7 @@ function newKeyboardState(): KeyboardState {
         mKey: getNormalizedKey("M"),
         hKey: getNormalizedKey("H"),
         gKey: getNormalizedKey("G"),
+        wKey: getNormalizedKey("W"),
 
         enterKey:  getNormalizedKey("Enter"),
         escapeKey: getNormalizedKey("Escape"),
@@ -624,8 +626,9 @@ export function debouncedSave(ctx: GlobalContext, state: NoteTreeGlobalState, wh
 };
 
 
-// Used by webworker and normal code
-export const AUTO_INSERT_BREAK_CHECK_INTERVAL = 5000;
+// Used by webworker and normal code.
+// NOTE: if set too low, workers can still be agressively throttled.
+export const AUTO_INSERT_BREAK_CHECK_INTERVAL = 60 * 1000;
 
 // NOTE: there may be a problem with this mechanism, although I'm not sure what it is.
 export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
@@ -638,21 +641,26 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
     const lastTime = getBreakAutoInsertLastPolledTime();
     const lastCheckTime = parseDateSafe(lastTime);
 
-    if (
-        !!lastCheckTime &&
-        (time.getTime() - lastCheckTime.getTime()) > AUTO_INSERT_BREAK_CHECK_INTERVAL + 5000
-    ) {
-        // If this javascript was running, i.e the computer was open constantly, this code should never run.
-        // So, we can insert a break now, if we aren't already taking one. 
-        // This should solve the problem of me constantly forgetting to add breaks...
-        const lastActivity = getLastActivity(state);
-        const time = !lastActivity ? lastCheckTime.getTime() :
-            Math.max(lastCheckTime.getTime(), getActivityDate(lastActivity).getTime());
+    try {
+        if (
+            !!lastCheckTime &&
+            (time.getTime() - lastCheckTime.getTime()) > 2 * AUTO_INSERT_BREAK_CHECK_INTERVAL
+        ) {
+            // If this javascript was running, i.e the computer was open constantly, this code should never run.
+            // So, we can insert a break now, if we aren't already taking one. 
+            // This should solve the problem of me constantly forgetting to add breaks...
+            const lastActivity = getLastActivity(state);
+            const time = !lastActivity ? lastCheckTime.getTime() :
+                Math.max(lastCheckTime.getTime(), getActivityDate(lastActivity).getTime());
 
-        pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
+            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
+        }
+    } catch (e) {
+        console.error("[autoInsertBreakIfRequired] - an error occured: ", e);
+    } finally {
+        // Make sure to set this no matter what.
+        updateBreakAutoInsertLastPolledTime();
     }
-
-    updateBreakAutoInsertLastPolledTime();
 }
 
 

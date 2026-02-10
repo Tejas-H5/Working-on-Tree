@@ -16,16 +16,21 @@ import {
     Activity,
     defaultActivity,
     defaultNote,
+    DONE_SUFFIX,
     getNote,
     idIsNilOrRoot,
     newNoteTreeGlobalState,
     Note,
     NoteId,
     NoteTreeGlobalState,
+    recomputeNoteStatusRecursivelyLegacyComputation,
+    STATUS_ASSUMED_DONE,
+    STATUS_DONE,
     TreeNote
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
+import { logTrace } from "./utils/log";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -111,7 +116,7 @@ export function asNoteTreeGlobalState(val: unknown) {
     {
         let sorted = true;
         for (let i = 1; i < state.activities.length; i++) {
-            if (state.activities[i - 1].t.getTime() < state.activities[i].t.getTime()) {
+            if (state.activities[i - 1].t.getTime() > state.activities[i].t.getTime()) {
                 sorted = false;
                 break;
             }
@@ -162,28 +167,36 @@ export function asNoteTreeGlobalState(val: unknown) {
         deserializeObject(state.mappingGraph, mappingGraphObj);
     }
 
-    const marksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "marks"));
-    if (marksArr) {
-        state.marks = marksArr.map(val => {
-            if (val == null) {
-                return [];
-            }
-
-            const valNum = asNumber(val);
-            if (valNum !== undefined) {
-                return [valNum as tree.TreeId];
-            }
-
-            const valArray = asArray(val);
-            if (valArray) {
-                return valArray.map(asNumber).filter(n => n !== undefined) as tree.TreeId[];
-            }
-
-            return [];
-        }).slice(0, 10);
+    const rootMarksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "rootMarks"));
+    if (rootMarksArr) {
+        state.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
     }
 
     deserializeObject(state, stateObj);
+
+    // Perform migrations
+    {
+        // Replace ASSUMED_DONE with DONE status
+        if (!state.schemaMajorVersion || state.schemaMajorVersion < 3) {
+            logTrace("migrating to schema major version 3");
+            state.schemaMajorVersion = 3;
+            let numBackfilled = 0;
+            recomputeNoteStatusRecursivelyLegacyComputation(state, tree.getNode(state.notes, tree.ROOT_ID), true, true);
+            tree.forEachNode(state.notes, note => {
+                if (
+                    note.data._status === STATUS_ASSUMED_DONE ||
+                    note.data._status === STATUS_DONE
+                ) {
+                    if (!note.data.text.endsWith(DONE_SUFFIX)) {
+                        note.data.text += DONE_SUFFIX;
+                        note.data._status = STATUS_DONE;
+                        numBackfilled += 1;
+                    }
+                }
+            });
+            logTrace("notes backfilled: " + numBackfilled);
+        }
+    }
 
     return state;
 }

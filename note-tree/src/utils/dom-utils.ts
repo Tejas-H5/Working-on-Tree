@@ -1,4 +1,4 @@
-// DOM-utils v1.0
+// DOM-utils v1.1
 
 /** Sets an input's value while retaining it's selection */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
@@ -78,6 +78,8 @@ export function getScrollVH(
  *     the scrollTop and scrollLeft returned by this method will make this happen,
  *     when assigned to the scrollTop and scrollLeft of the scrollParent.
  *
+ * WARNING: can be very computationally expensive if you're calling it on a new DOM node
+ * really frequently.
  */
 export function getScrollVHEx(
     scrollParent: HTMLElement,

@@ -10,6 +10,7 @@ export type TreeNode<T> = {
     id: TreeId;
     parentId: TreeId;
     idxInParentList: number; // NOTE: this index is transient, and can always change as nodes are added/removed.
+    /** Don't forget to call {@link reindexChildren} if you decide to reorder or otherwise mutate this yourself */
     childIds: TreeId[];
     data: T;
 };
@@ -70,7 +71,7 @@ export function getNode<T>(tree: TreeStore<T>, idx: number): TreeNode<T> {
 }
 
 // You can be sure that a node's parentIdx and idxInParent aren't null if this isn't undefined
-export function getParent(tree: TreeStore<unknown>, node: TreeNode<unknown>): TreeNode<unknown> | undefined {
+export function getParent<T>(tree: TreeStore<T>, node: TreeNode<unknown>): TreeNode<T> | undefined {
     const parentIdx = node.parentId;
     const idxInParent = node.idxInParentList;
     if (parentIdx === -1) {
@@ -146,11 +147,19 @@ export function remove(tree: TreeStore<unknown>, node: TreeNode<unknown>) {
 }
 
 // children must be re-indexed whenever they are moved around in their array
-function reindexChildren(tree: TreeStore<unknown>, note: TreeNode<unknown>, from: number) {
+export function reindexChildren(tree: TreeStore<unknown>, note: TreeNode<unknown>, from: number): boolean {
+    let didSomething = false;
+
     for (let i = from; i < note.childIds.length; i++) {
         const child = getNode(tree, note.childIds[i]);
-        child.idxInParentList = i;
+
+        if (i !== child.idxInParentList) {
+            child.idxInParentList = i;
+            didSomething = true;
+        }
     }
+
+    return didSomething;
 }
 
 /**
