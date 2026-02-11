@@ -248,7 +248,6 @@ export const STATUS_ASSUMED_DONE = 2 as NoteStatusInstance;
  * This ensures that even in the 'done' tree, all notes are calculated as done.
  */
 export const STATUS_DONE = 3 as NoteStatusInstance;
-
 /**
  * This status will shelve a parent note, and ALL it's children recursively. 
  * Knowing when to stop working on something is just as important as knowing what you're working on.
@@ -256,6 +255,17 @@ export const STATUS_DONE = 3 as NoteStatusInstance;
  * higher level task.
  */
 export const STATUS_SHELVED = 4 as NoteStatusInstance;
+/**
+ * This note is not a task that needs completion. It contains information that we will
+ * refer to later.
+ */
+export const STATUS_INFO = 5 as NoteStatusInstance;
+
+
+export function isStatusInProgressOrInfo(note: TreeNote) {
+    return note.data._status === STATUS_IN_PROGRESS || note.data._status === STATUS_INFO;
+}
+
 
 export type NoteStatus = 
     typeof STATUS_NOT_COMPUTED |
@@ -267,10 +277,14 @@ export type NoteStatus =
 
 export function noteStatusToString(note: TreeNote) {
     switch (note.data._status) {
-        case STATUS_IN_PROGRESS:  return "[ ]";
+        case STATUS_IN_PROGRESS: {
+            if (note.childIds.length === 0) return "[ ]";
+            return ""; // can just let the the (<done>/<total>) number thing take over 
+        }
         case STATUS_ASSUMED_DONE: return "[*]";
         case STATUS_DONE:         return "[x]";
         case STATUS_SHELVED:      return "[-]";
+        case STATUS_INFO:         return "(i)";
     }
 
     return "??";
@@ -467,8 +481,10 @@ export function setNoteText(
     note: TreeNote,
     text: string
 ) {
+    const priority = getTodoNotePriority(note.data);
     note.data.text = text;
-    recomputeNoteStatusRecursively(state, note);
+    const invalidate = getTodoNotePriority(note.data) !== priority;
+    recomputeNoteStatusRecursively(state, note, true, true, invalidate);
     notesMutated(state);
 
     let current = note;
@@ -610,22 +626,22 @@ export function recomputeNoteStatusRecursively(
     state: NoteTreeGlobalState,
     note: TreeNote,
     recomputeParents = true,
-    recomputeChildren = true
+    recomputeChildren = true,
+    invalidateOtherStuff = false,
 ): boolean {
-    let didSomething = false;
-
-    if (recomputeNoteStatusRecursivelyInternal(
+    invalidateOtherStuff = recomputeNoteStatusRecursivelyInternal(
         state,
         note,
         recomputeParents,
         recomputeChildren,
-    )) {
-        didSomething = true;
+    ) || invalidateOtherStuff;
+
+    if (invalidateOtherStuff) {
         recomputeNumTasksInProgressRecursively(state);
         recomputeMarkNavigation(state);
     };
 
-    return didSomething;
+    return invalidateOtherStuff;
 }
 
 export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
@@ -676,8 +692,13 @@ export function recomputeNoteStatusRecursivelyInternal(
     if (note.childIds.length === 0) {
         recomputeParents = true;
     } else if (note.childIds.length > 0) {
-        let foundShelvedNoteUnderThisParent = false;
+        const lastNoteId = note.childIds[note.childIds.length - 1];
+        const lastNote = getNote(state.notes, lastNoteId);
+
+        const lastNoteWasShelved = isNoteShelved(lastNote.data);
+
         let foundInProgressNoteUnderThisParent = false;
+        let foundShelvedNoteUnderThisParent = lastNoteWasShelved;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
             const child = getNote(state.notes, id);
@@ -697,13 +718,15 @@ export function recomputeNoteStatusRecursivelyInternal(
                     recomputeChildren = false;
 
                     didSomething = setNoteStatus(child, STATUS_SHELVED) || didSomething;
+                } else if (getTodoNotePriority(child.data) === 1) {
+                    didSomething = setNoteStatus(child, STATUS_INFO) || didSomething;
                 } else {
                     didSomething = setNoteStatus(child, STATUS_IN_PROGRESS) || didSomething;
                 }
             }
 
             if (child.data._status === STATUS_SHELVED) {
-                foundInProgressNoteUnderThisParent = true;
+                foundShelvedNoteUnderThisParent = true;
             } else if (child.data._status === STATUS_IN_PROGRESS) {
                 foundInProgressNoteUnderThisParent = true;
             }
@@ -713,28 +736,25 @@ export function recomputeNoteStatusRecursivelyInternal(
         note.childIds.sort((aId, bId) => {
             const a = getNote(state.notes, aId);
             const b = getNote(state.notes, bId);
-
-            let aPriority = a.data._status !== STATUS_IN_PROGRESS ? 0 : 1;
-            let bPriority = b.data._status !== STATUS_IN_PROGRESS ? 0 : 1;
-
-            return aPriority - bPriority;
+            return getNoteSortPriority(a) - getNoteSortPriority(b);
         });
         if (itree.reindexChildren(state.notes, note, 0)) {
             notesMutated(state);
             didSomething = true;
         }
 
-        let status = STATUS_DONE;
+        const previousStatus = note.data._status;
         if (foundInProgressNoteUnderThisParent) {
-            status = STATUS_IN_PROGRESS;
-        } else if (foundShelvedNoteUnderThisParent) {
-            status = STATUS_SHELVED;
+            didSomething = setNoteStatus(note, STATUS_IN_PROGRESS) || didSomething;
+        } else if (lastNoteWasShelved) {
+            didSomething = setNoteStatus(note, STATUS_SHELVED) || didSomething;
+        } else {
+            didSomething = setNoteStatus(note, STATUS_DONE) || didSomething;
         }
 
-        const previousStatus = note.data._status;
-        const noteStatusChanged = previousStatus !== status;
+        const noteStatusChanged = previousStatus !== note.data._status;
         if (noteStatusChanged) {
-            didSomething = setNoteStatus(note, status);
+            didSomething = true;
 
             // if it isn't computed, we're already computing the parents.
             if (previousStatus !== STATUS_NOT_COMPUTED) {
@@ -744,7 +764,7 @@ export function recomputeNoteStatusRecursivelyInternal(
             if (previousStatus === STATUS_SHELVED) {
                 // Need to recompute all the children recursively, now that this note is no longer shelved.
                 clearNoteStatusRecursively(state, note);
-                didSomething = recomputeNoteStatusRecursivelyInternal(state, note, false, true) || didSomething;
+                recomputeNoteStatusRecursivelyInternal(state, note, false, true);
             }
         }
     }
@@ -759,6 +779,23 @@ export function recomputeNoteStatusRecursivelyInternal(
     return didSomething;
 }
 
+function getNoteSortPriority(a: TreeNote): number {
+    if (!isStatusInProgressOrInfo(a)) {
+        return PRIORITY_NOT_IN_PROGRSS;
+    }
+
+    if (a.childIds.length > 0) {
+        return PRIORITY_CONTAINER_IN_PROGRESS;
+    }
+
+    return PRIORITY_LEAF_IN_PROGRESS;
+}
+
+const PRIORITY_NOT_IN_PROGRSS = 0;
+const PRIORITY_CONTAINER_IN_PROGRESS = 1;
+const PRIORITY_LEAF_IN_PROGRESS = 2;
+
+// NOTE: also recomputes tree visuals
 export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalState) {
     itree.forEachNode(state.notes, note => {
         note.data._tasksInProgress = 0;
@@ -773,7 +810,7 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
 
         const parent = getNote(state.notes, note.parentId);
         const prevSib = getNoteOrUndefined(state.notes, arrayAt(parent.childIds, note.idxInParentList - 1));
-        if (prevSib && prevSib.data._status === STATUS_IN_PROGRESS) return;
+        if (prevSib && getNoteSortPriority(prevSib) === PRIORITY_LEAF_IN_PROGRESS) return;
 
         note.data._treeVisualsGoRight = true;
         forEachParentNote(state.notes, note, note => {
@@ -1077,6 +1114,11 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, note: TreeNote): b
     while (state.activities.length > 0 && state.activities[state.activities.length - 1].deleted) {
         state.activities.pop();
     }
+
+    filterInPlace(state.rootMarks, m => m !== nId);
+    state._computedMarks.forEach(cm =>
+        filterInPlace(cm, m => m !== nId)
+    );
 
     notesMutated(state);
     return true;

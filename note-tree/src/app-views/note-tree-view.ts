@@ -73,6 +73,7 @@ import {
     isBreak,
     isNoteCollapsed,
     isNoteEmpty,
+    isStatusInProgressOrInfo,
     markIdxToString,
     notesMutated,
     noteStatusToString,
@@ -285,7 +286,7 @@ function moveOutOfCurrent(
             const parentIdx = parent.idxInParentList;
             tree.insertAt(state.notes, parentParent, s.note, parentIdx + 1);
             setNote(s, s.note, true);
-            recomputeNoteStatusRecursively(state, parent);
+            recomputeNoteStatusRecursively(state, parent, true, true, true);
             debouncedSave(ctx, state, "Moved a note");
         }
     } else {
@@ -314,7 +315,7 @@ function moveIntoCurrent(
             tree.insertAt(state.notes, prevNote, s.note, idxUnderPrev);
             prevNote.data.lastSelectedChildIdx = idxUnderPrev;
             setNote(s, s.note, true);
-            recomputeNoteStatusRecursively(state, prevNote);
+            recomputeNoteStatusRecursively(state, prevNote, true, true, true);
             notesMutated(state);
         }
     } else {
@@ -554,8 +555,8 @@ function moveToLocalidx(
 
     if (moveNote) {
         tree.insertAt(state.notes, parent, s.note, idx);
-        setNote(s, s.note, true);
-        recomputeNoteStatusRecursively(state, s.note);
+        setNote(s, s.note);
+        recomputeNoteStatusRecursively(state, s.note, true, true, true);
         notesMutated(state);
     } else {
         const childId = parent.childIds[idx];
@@ -689,9 +690,8 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 }
 
 function reviveNote(note: TreeNote): boolean {
-    if (!note.data.text.endsWith(DONE_SUFFIX)) {
-        return false;
-    }
+    if (note.data._status !== STATUS_DONE)     return false;
+    if (!note.data.text.endsWith(DONE_SUFFIX)) return false;
 
     note.data.text = note.data.text.substring(
         0,
@@ -712,7 +712,7 @@ function completeNote(note: TreeNote): void {
     } else {
         let incompleteChild: TreeNote | undefined;
         forEachChildNote(state, note, child => {
-            if (child.data._status !== STATUS_DONE && !incompleteChild) {
+            if (child.data._status === STATUS_IN_PROGRESS && !incompleteChild) {
                 incompleteChild = child;
             }
         });
@@ -722,37 +722,35 @@ function completeNote(note: TreeNote): void {
             return;
         }
 
-        let appendDone = true;
-
-        if (note.childIds.length > 0) {
-            const lastId = note.childIds[note.childIds.length - 1]
-            const lastChild = getNote(state.notes, lastId);
-            if (lastChild.data.text === "DONE") {
-                // Don't append "DONE" again
-                appendDone = false;
-            }
-        }
-
-        if (appendDone) {
-            const newNote = createNewNote(state, "DONE");
-            tree.addUnder(state.notes, note, newNote);
-        }
+        // This notes should already be done
     }
-
-    recomputeNoteStatusRecursively(state, note);
 
     let nextNotDone: TreeNote | undefined;
     const parent = getNote(state.notes, note.parentId);
     forEachChildNote(state, parent, child => {
         if (nextNotDone) return;
+        if (child === note) return;
         if (child.data._status === STATUS_IN_PROGRESS) {
             nextNotDone = child;
         }
     });
-    if (nextNotDone) {
-        setCurrentNote(state, nextNotDone.id);
+
+    let setEditing = false;
+
+    if (!nextNotDone) {
+        // There was no note to move to. Let's create it and add it
+        const newNote = createNewNote(state, "");
+        tree.addAfter(state.notes, note, newNote);
+        nextNotDone = newNote;
+        setEditing = true;
     }
 
+    setCurrentNote(state, nextNotDone.id);
+    if (setEditing) {
+        setIsEditingCurrentNote(state, true);
+    }
+
+    
     notesMutated(state);
 }
 
@@ -897,7 +895,14 @@ function imNoteTreeRow(
 
             imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
                 if (imMemo(c, note.data._status)) {
-                    elSetStyle(c, "color", note.data._status === STATUS_IN_PROGRESS ? "" : cssVarsApp.unfocusTextColor);
+                    let color;
+                    if (isStatusInProgressOrInfo(note)) {
+                        color = "";
+                    } else {
+                        color = cssVarsApp.unfocusTextColor;
+                    }
+
+                    elSetStyle(c, "color", color);
                 }
 
                 imLayoutBegin(c, ROW); imFlex(c); {
