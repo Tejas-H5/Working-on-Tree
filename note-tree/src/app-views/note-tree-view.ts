@@ -750,7 +750,7 @@ function completeNote(note: TreeNote): void {
         setIsEditingCurrentNote(state, true);
     }
 
-    
+    recomputeNoteStatusRecursively(state, nextNotDone, true, true, true);
     notesMutated(state);
 }
 

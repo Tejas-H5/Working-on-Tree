@@ -698,6 +698,7 @@ export function recomputeNoteStatusRecursivelyInternal(
         const lastNoteWasShelved = isNoteShelved(lastNote.data);
 
         let foundInProgressNoteUnderThisParent = false;
+        let foundNothingUnderThisParent = true;
         let foundShelvedNoteUnderThisParent = lastNoteWasShelved;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
@@ -727,8 +728,15 @@ export function recomputeNoteStatusRecursivelyInternal(
 
             if (child.data._status === STATUS_SHELVED) {
                 foundShelvedNoteUnderThisParent = true;
+                foundNothingUnderThisParent = false;
             } else if (child.data._status === STATUS_IN_PROGRESS) {
                 foundInProgressNoteUnderThisParent = true;
+                foundNothingUnderThisParent = false;
+            } else if (child.data._status === STATUS_DONE) {
+                foundNothingUnderThisParent = false;
+            } else if (child.data._status === STATUS_INFO) {
+                // should be treated like nothing.
+                // moving an info note under another note shouldn't 'complete' it.
             }
         }
 
@@ -744,7 +752,7 @@ export function recomputeNoteStatusRecursivelyInternal(
         }
 
         const previousStatus = note.data._status;
-        if (foundInProgressNoteUnderThisParent) {
+        if (foundInProgressNoteUnderThisParent || foundNothingUnderThisParent) {
             didSomething = setNoteStatus(note, STATUS_IN_PROGRESS) || didSomething;
         } else if (lastNoteWasShelved) {
             didSomething = setNoteStatus(note, STATUS_SHELVED) || didSomething;
@@ -781,19 +789,22 @@ export function recomputeNoteStatusRecursivelyInternal(
 
 function getNoteSortPriority(a: TreeNote): number {
     if (!isStatusInProgressOrInfo(a)) {
-        return PRIORITY_NOT_IN_PROGRSS;
+        if (getTodoNotePriority(a.data) === 2) {
+            return PRIORITY_SUBTASK_NOT_IN_PROGRESS
+        }
+        return PRIORITY_NOT_IN_PROGRESS;
     }
 
-    if (a.childIds.length > 0) {
-        return PRIORITY_CONTAINER_IN_PROGRESS;
+    if (getTodoNotePriority(a.data) === 2) {
+        return PRIORITY_SUBTASK_IN_PROGRESS
     }
-
-    return PRIORITY_LEAF_IN_PROGRESS;
+    return PRIORITY_IN_PROGRESS;
 }
 
-const PRIORITY_NOT_IN_PROGRSS = 0;
-const PRIORITY_CONTAINER_IN_PROGRESS = 1;
-const PRIORITY_LEAF_IN_PROGRESS = 2;
+const PRIORITY_SUBTASK_NOT_IN_PROGRESS = 0;
+const PRIORITY_NOT_IN_PROGRESS = 1;
+const PRIORITY_SUBTASK_IN_PROGRESS = 2;
+const PRIORITY_IN_PROGRESS = 3;
 
 // NOTE: also recomputes tree visuals
 export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalState) {
@@ -803,33 +814,51 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
         note.data._treeVisualsGoRight = false;
     });
 
+    // Recompute number of tasks remaining
     itree.forEachNode(state.notes, note => {
-        if (note.childIds.length > 0) return;
-        if (getTodoNotePriority(note.data) > 0) return;
+        if (note.childIds.length > 0)                 return;
         if (note.data._status !== STATUS_IN_PROGRESS) return;
 
-        const parent = getNote(state.notes, note.parentId);
-        const prevSib = getNoteOrUndefined(state.notes, arrayAt(parent.childIds, note.idxInParentList - 1));
-        if (prevSib && getNoteSortPriority(prevSib) === PRIORITY_LEAF_IN_PROGRESS) return;
-
-        note.data._treeVisualsGoRight = true;
-        forEachParentNote(state.notes, note, note => {
-            const parent = getNote(state.notes, note.parentId);
-
-            const idx = note.idxInParentList;
-            for (let i = idx - 1; i >= 0; i--) {
-                const sib = getNote(state.notes, parent.childIds[i]);
-                if (sib.data._treeVisualsGoDown) {
-                    // already been here before
-                    break;
-                }
-                sib.data._treeVisualsGoDown = true;
-            }
-
-            note.data._tasksInProgress++
-            parent.data._treeVisualsGoRight = true;
+        forEachParentNote(state.notes, note, parent => {
+            if (note === parent) return;
+            parent.data._tasksInProgress++
         });
     });
+
+    function startsNewFlow(note: TreeNote) {
+        return getTodoNotePriority(note.data) === 2;
+    }
+
+    // Recompute tree flow. this is slightly different.
+    function dfs(note: TreeNote, hasFlow: boolean) {
+        if (startsNewFlow(note)) {
+            hasFlow = true;
+        }
+
+        let lowestFlowPoint = -1;
+        for (let i = 0; i < note.childIds.length; i++) {
+            const childId = note.childIds[i];
+            const child = getNote(state.notes, childId);
+
+            child.data._treeVisualsGoRight = hasFlow && child.data._status === STATUS_IN_PROGRESS;
+            if (child.data._treeVisualsGoRight) {
+                if (!startsNewFlow(child)) {
+                    hasFlow = false;
+                }
+
+                lowestFlowPoint = i - 1;
+            }
+
+            dfs(child, hasFlow);
+        }
+
+        for (let i = lowestFlowPoint; i >= 0; i--) {
+            const childId = note.childIds[i];
+            const child = getNote(state.notes, childId);
+            child.data._treeVisualsGoDown = true;
+        }
+    }
+    dfs(getRootNote(state), true);
 }
 
 function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote): boolean {
