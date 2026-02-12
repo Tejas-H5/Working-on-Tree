@@ -647,16 +647,16 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (hasDiscoverableCommand(ctx, keyboard.num9Key, "toggle mark 8", HIDDEN | SHIFT)) toggleMark(currentNote, 8);
         if (hasDiscoverableCommand(ctx, keyboard.num0Key, "toggle mark 9", HIDDEN | SHIFT)) toggleMark(currentNote, 9);
 
-        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "navigate to mark 0", HIDDEN)) navigateToMark(s, currentNote, 0);
-        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "navigate to mark 1", HIDDEN)) navigateToMark(s, currentNote, 1);
-        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "navigate to mark 2", HIDDEN)) navigateToMark(s, currentNote, 2);
-        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "navigate to mark 3", HIDDEN)) navigateToMark(s, currentNote, 3);
-        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "navigate to mark 4", HIDDEN)) navigateToMark(s, currentNote, 4);
-        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "navigate to mark 5", HIDDEN)) navigateToMark(s, currentNote, 5);
-        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "navigate to mark 6", HIDDEN)) navigateToMark(s, currentNote, 6);
-        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "navigate to mark 7", HIDDEN)) navigateToMark(s, currentNote, 7);
-        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "navigate to mark 8", HIDDEN)) navigateToMark(s, currentNote, 8);
-        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN)) navigateToMark(s, currentNote, 9);
+        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "navigate to mark 0", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 0);
+        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "navigate to mark 1", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 1);
+        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "navigate to mark 2", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 2);
+        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "navigate to mark 3", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 3);
+        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "navigate to mark 4", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 4);
+        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "navigate to mark 5", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 5);
+        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "navigate to mark 6", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 6);
+        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "navigate to mark 7", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 7);
+        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "navigate to mark 8", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 8);
+        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 9);
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.dKey, "Toggle DONE", SHIFT)) {
@@ -843,10 +843,13 @@ function imNoteTreeRow(
 
                     // the tree visuals. It was a lot easier to do these here than in my last framework
                     {
+                        let midpointLen = 0.9;
+                        let midpointUnits = EM;
+
                         imLayoutBegin(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
                             // horizontal line xD
                             if (imIf(c) && hasHLine) {
-                                imLayoutBegin(c, BLOCK); imAbsolute(c, 1, EM, 0, PX, 0, NA, 0, NA); {
+                                imLayoutBegin(c, BLOCK); imAbsolute(c, midpointLen, midpointUnits, 0, PX, 0, NA, 0, NA); {
                                     if (isFirstishRender(c)) {
                                         elSetStyle(c, "transform", "translate(0, -100%)");
                                     }
@@ -864,9 +867,6 @@ function imNoteTreeRow(
                             const canDrawVerticalLine = !isLast || note === itPrev;
 
                             if (imIf(c) && canDrawVerticalLine) {
-                                let midpointLen = 1;
-                                let midpointUnits = EM;
-
                                 // Vertical line part 1. xd. We need a better API
                                 imLayoutBegin(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
                                     imSize(

@@ -6,7 +6,7 @@ import { serializeToJSON } from "src/utils/serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { asNoteTreeGlobalState } from "./schema";
-import { arrayAt, filterInPlace } from "./utils/array-utils";
+import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 // Used by webworker and normal code
@@ -278,10 +278,7 @@ export type NoteStatus =
 
 export function noteStatusToString(note: TreeNote) {
     switch (note.data._status) {
-        case STATUS_IN_PROGRESS: {
-            if (note.childIds.length === 0) return "[ ]";
-            return ""; // can just let the the (<done>/<total>) number thing take over 
-        }
+        case STATUS_IN_PROGRESS:  return "[ ]";
         case STATUS_ASSUMED_DONE: return "[*]";
         case STATUS_DONE:         return "[x]";
         case STATUS_SHELVED:      return "[-]";
@@ -675,7 +672,10 @@ export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
         state._computedMarks[i].sort((aId, bId) => {
             const a = getNote(state.notes, aId);
             const b = getNote(state.notes, bId);
-            return b.data.editedAt.getTime() - a.data.editedAt.getTime();
+            return (
+                (b.data.editedAt.getTime() - a.data.editedAt.getTime()) || // edited DESC
+                (a.childIds.length - b.childIds.length)                    // num children ASC
+            );
         });
     }
 }
@@ -814,60 +814,70 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
         note.data._treeVisualsFlowEndsHere = false;
     });
 
-    // Recompute number of tasks remaining, and the corresponding tree visuals
-    itree.forEachNode(state.notes, note => {
-        if (note.childIds.length === 0) return;
-        if (note.data._status !== STATUS_IN_PROGRESS) return;
-
-        let foundNextInProgress = false;
-        for (let i = 0; i < note.childIds.length; i++) {
-            const id = note.childIds[i];
+    const dfs = (note: TreeNote, foundInProgress = false): boolean => {
+        for (const id of note.childIds) {
             const child = getNote(state.notes, id);
+            if (child.data._status !== STATUS_IN_PROGRESS) continue;
 
-            const isHlt = isHigherLevelTask(child);
-            if (child.data._status === STATUS_IN_PROGRESS && (child.childIds.length === 0 || isHlt)) {
-                let isNextInProgress = false;
-                if (!foundNextInProgress && child.childIds.length === 0 && !isHlt) {
-                    isNextInProgress = true;
-                    foundNextInProgress = true;
-                }
+            const isHlt  = isHigherLevelTask(child);
+            const isTask = !isHlt && child.childIds.length === 0;
 
-                // update tree visuals
-                if (isNextInProgress || isHlt) {
+            let isNextInProgress = false;
+            if (!foundInProgress && isTask) {
+                foundInProgress = true;
+                isNextInProgress = true;
+            }
 
-                    forEachParentNote(state.notes, child, parent => {
-                        if (isNextInProgress) {
-                            parent.data._tasksInProgress += 1;
-                        }
+            if (isNextInProgress) {
+                foundInProgress = true;
+                recomputeNoteVisuals(child, isNextInProgress);
+                break;
+            }
 
-                        if (parent.data._treeVisualsGoRight) {
-                            // we've already been here
-                            return;
-                        }
-
-                        const parentParent = getNoteOrUndefined(state.notes, parent.parentId);
-                        if (!parentParent) {
-                            return;
-                        }
-
-                        parent.data._treeVisualsGoRight = true;
-                        for (let i = parent.idxInParentList - 1; i >= 0 ; i--) {
-                            const child = getNote(state.notes, parentParent.childIds[i]);
-                            if (child.data._treeVisualsGoDown) {
-                                // we've already been here
-                                break;
-                            }
-                            child.data._treeVisualsGoDown = true;
-                        }
-                    })
-
-                    if (child.childIds.length === 0) {
-                        child.data._treeVisualsFlowEndsHere = true;
-                    }
+            if (isHlt) {
+                recomputeNoteVisuals(child, false);
+                dfs(child);
+            } else {
+                if (dfs(child)) {
+                    foundInProgress = true;
+                    break;
                 }
             }
         }
-    });
+
+        return foundInProgress;
+    }
+    dfs(getRootNote(state));
+
+    function recomputeNoteVisuals(note: TreeNote, isNextInProgress: boolean) {
+        note.data._treeVisualsFlowEndsHere = true;
+
+        forEachParentNote(state.notes, note, parent => {
+            if (isNextInProgress) {
+                parent.data._tasksInProgress += 1;
+            }
+
+            if (parent.data._treeVisualsGoRight) {
+                // we've already been here
+                return;
+            }
+
+            const parentParent = getNoteOrUndefined(state.notes, parent.parentId);
+            if (!parentParent) {
+                return;
+            }
+
+            parent.data._treeVisualsGoRight = true;
+            for (let i = parent.idxInParentList - 1; i >= 0; i--) {
+                const child = getNote(state.notes, parentParent.childIds[i]);
+                if (child.data._treeVisualsGoDown) {
+                    // we've already been here
+                    break;
+                }
+                child.data._treeVisualsGoDown = true;
+            }
+        })
+    }
 }
 
 function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote): boolean {
