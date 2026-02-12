@@ -189,8 +189,10 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
         imLayoutBegin(c, BLOCK); imStr(c, "Fast travel"); imLayoutEnd(c);
 
-        if (imIf(c) && s.viewRoot) {
-            imLayoutBegin(c, BLOCK); imStr(c, s.viewRoot.data.text); imLayoutEnd(c);
+        if (imIf(c) && s.viewRoot && s.viewRoot !== getRootNote(state)) {
+            imLayoutBegin(c, BLOCK); {
+                imStr(c, s.viewRoot.data.text); 
+            } imLayoutEnd(c);
         } imIfEnd(c);
     } imLayoutEnd(c);
 

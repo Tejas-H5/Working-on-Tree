@@ -671,6 +671,12 @@ export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
 
         const note = getNote(state.notes, mark);
         dfs(note, state._computedMarks[i]);
+
+        state._computedMarks[i].sort((aId, bId) => {
+            const a = getNote(state.notes, aId);
+            const b = getNote(state.notes, bId);
+            return b.data.editedAt.getTime() - a.data.editedAt.getTime();
+        });
     }
 }
 
@@ -813,17 +819,27 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
         if (note.childIds.length === 0) return;
         if (note.data._status !== STATUS_IN_PROGRESS) return;
 
+        let foundNextInProgress = false;
         for (let i = 0; i < note.childIds.length; i++) {
             const id = note.childIds[i];
             const child = getNote(state.notes, id);
 
-            if (child.data._status === STATUS_IN_PROGRESS && child.childIds.length === 0) {
-                // NOTE: this case covers regular tasks, as well as >> High level tasks with 0 children, i.e haven't been started yet.
-                // Which is correct.
+            const isHlt = isHigherLevelTask(child);
+            if (child.data._status === STATUS_IN_PROGRESS && (child.childIds.length === 0 || isHlt)) {
+                let isNextInProgress = false;
+                if (!foundNextInProgress && child.childIds.length === 0 && !isHlt) {
+                    isNextInProgress = true;
+                    foundNextInProgress = true;
+                }
 
                 // update tree visuals
-                {
+                if (isNextInProgress || isHlt) {
+
                     forEachParentNote(state.notes, child, parent => {
+                        if (isNextInProgress) {
+                            parent.data._tasksInProgress += 1;
+                        }
+
                         if (parent.data._treeVisualsGoRight) {
                             // we've already been here
                             return;
@@ -844,12 +860,11 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
                             child.data._treeVisualsGoDown = true;
                         }
                     })
+
+                    if (child.childIds.length === 0) {
+                        child.data._treeVisualsFlowEndsHere = true;
+                    }
                 }
-
-                child.data._treeVisualsFlowEndsHere = true;
-
-                // Only the first of such tasks is 'in progress' - the rest are being blocked by this task
-                break;
             }
         }
     });
