@@ -87,6 +87,7 @@ import {
     state,
     STATUS_DONE,
     STATUS_IN_PROGRESS,
+    STATUS_INFO,
     toggleNoteRootMark,
     TreeNote
 } from "src/state";
@@ -134,6 +135,7 @@ function setNote(
 
         s.note = note;
         setCurrentNote(state, note.id);
+        recomputeNoteStatusRecursively(state, note, true, true, true);
 
         recomputeVisibleNotes(s);
     }
@@ -906,11 +908,15 @@ function imNoteTreeRow(
                 }
 
                 imLayoutBegin(c, ROW); imFlex(c); {
-                    if (imMemo(c, itemSelected)) {
-                        elSetClass(c, cn.preWrap, itemSelected);
-                        elSetClass(c, cn.pre, !itemSelected);
-                        elSetClass(c, cn.noWrap, !itemSelected);
-                        elSetClass(c, cn.overflowHidden, !itemSelected);
+                    let shouldPreserveNewlines = itemSelected;
+                    if (note.data._status === STATUS_INFO) {
+                        shouldPreserveNewlines = true;
+                    }
+
+                    if (imMemo(c, shouldPreserveNewlines)) {
+                        elSetClass(c, cn.preWrap, shouldPreserveNewlines);
+                        elSetClass(c, cn.noWrap, !shouldPreserveNewlines);
+                        elSetClass(c, cn.overflowHidden, !shouldPreserveNewlines);
                     }
 
                     imLayoutBegin(c, ROW); {
@@ -919,10 +925,6 @@ function imNoteTreeRow(
                         }
 
                         imLayoutBegin(c, BLOCK); {
-                            // const isFocusTask = note.data._treeVisualsGoRight; // && note.childIds.length === 0;
-                            // if (imMemo(c, isFocusTask)) {
-                            //     elSetStyle(c, "fontWeight", isFocusTask ? "bold" : "");
-                            // }
                             imStr(c, noteStatusToString(note)); 
                         } imLayoutEnd(c);
 
