@@ -723,13 +723,15 @@ function completeNote(note: TreeNote): void {
         note.data.text += DONE_SUFFIX;
     }
 
-    // After marking the current note as DONE, we create and move to a new note directly under it.
-    
-    const newNote = createNewNote(state, "");
-    tree.addAfter(state.notes, note, newNote);
+    if (state._isEditingFocusedNote) {
+        // After marking a note as DONE while editing, we create and move to a new note directly under it.
 
-    setCurrentNote(state, newNote.id);
-    setIsEditingCurrentNote(state, true);
+        const newNote = createNewNote(state, "");
+        tree.addAfter(state.notes, note, newNote);
+
+        setCurrentNote(state, newNote.id);
+        setIsEditingCurrentNote(state, true);
+    }
 
     recomputeNoteStatusRecursively(state, note, true, true, true);
     notesMutated(state);
