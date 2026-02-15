@@ -659,7 +659,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 9);
     }
 
-    if (hasDiscoverableCommand(ctx, keyboard.dKey, "Toggle DONE", SHIFT)) {
+    if (hasDiscoverableCommand(ctx, keyboard.dKey, "Toggle DONE", CTRL | BYPASS_TEXT_AREA)) {
         if (!reviveNote(currentNote)) {
             completeNote(currentNote)
         }
@@ -705,13 +705,7 @@ function reviveNote(note: TreeNote): boolean {
 }
 
 function completeNote(note: TreeNote): void {
-    if (note.childIds.length === 0) {
-        if (note.data.text.endsWith(DONE_SUFFIX)) {
-            return;
-        }
-
-        note.data.text += DONE_SUFFIX;
-    } else {
+    if (note.childIds.length > 0) {
         let incompleteChild: TreeNote | undefined;
         forEachChildNote(state, note, child => {
             if (child.data._status === STATUS_IN_PROGRESS && !incompleteChild) {
@@ -723,36 +717,21 @@ function completeNote(note: TreeNote): void {
             setCurrentNote(state, incompleteChild.id);
             return;
         }
-
-        // This notes should already be done
     }
 
-    let nextNotDone: TreeNote | undefined;
-    const parent = getNote(state.notes, note.parentId);
-    forEachChildNote(state, parent, child => {
-        if (nextNotDone) return;
-        if (child === note) return;
-        if (child.data._status === STATUS_IN_PROGRESS) {
-            nextNotDone = child;
-        }
-    });
-
-    let setEditing = false;
-
-    if (!nextNotDone) {
-        // There was no note to move to. Let's create it and add it
-        const newNote = createNewNote(state, "");
-        tree.addAfter(state.notes, note, newNote);
-        nextNotDone = newNote;
-        setEditing = true;
+    if (!note.data.text.endsWith(DONE_SUFFIX)) {
+        note.data.text += DONE_SUFFIX;
     }
 
-    setCurrentNote(state, nextNotDone.id);
-    if (setEditing) {
-        setIsEditingCurrentNote(state, true);
-    }
+    // After marking the current note as DONE, we create and move to a new note directly under it.
+    
+    const newNote = createNewNote(state, "");
+    tree.addAfter(state.notes, note, newNote);
 
-    recomputeNoteStatusRecursively(state, nextNotDone, true, true, true);
+    setCurrentNote(state, newNote.id);
+    setIsEditingCurrentNote(state, true);
+
+    recomputeNoteStatusRecursively(state, note, true, true, true);
     notesMutated(state);
 }
 

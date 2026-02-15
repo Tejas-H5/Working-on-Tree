@@ -168,14 +168,14 @@ export type Activity = {
 };
 
 // bro uses git? no way dude.
-const doneSuffixes = [ "DONE", "MERGED", "DECLINED" ];
+const doneSuffixes = ["DONE", "MERGED", "DECLINED"];
 
 export const DONE_SUFFIX = " DONE";
 
-function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
+function getDoneNoteSuffix(note: Note): string | undefined {
     for (let i = 0; i < doneSuffixes.length; i++) {
         const suffix = doneSuffixes[i];
-        if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
+        if (note.text.trimEnd().endsWith(suffix)) {
             return suffix;
         }
     }
@@ -515,6 +515,16 @@ export function recomputeNoteStatusRecursivelyLegacyComputation(
         }
     }
 
+    function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
+        for (let i = 0; i < doneSuffixes.length; i++) {
+            const suffix = doneSuffixes[i];
+            if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
+                return suffix;
+            }
+        }
+
+        return undefined;
+    }
 
     /** --------------------- Deprecated ----------------------- */
     if (note.childIds.length === 0) {
@@ -711,7 +721,7 @@ export function recomputeNoteStatusRecursivelyInternal(
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
             } else {
-                if (getDoneNotePrefixOrSuffix(child.data)) {
+                if (getDoneNoteSuffix(child.data)) {
                     didSomething = setNoteStatus(child, STATUS_DONE) || didSomething;
                 } else if (isNoteShelved(child.data) || foundShelvedNoteUnderThisParent) {
                     foundShelvedNoteUnderThisParent = true;
@@ -739,24 +749,13 @@ export function recomputeNoteStatusRecursivelyInternal(
             }
         }
 
-        // Sort children - done notes should be moved back, in-progress notes should be moved forwards.
-        note.childIds.sort((aId, bId) => {
-            const a = getNote(state.notes, aId);
-            const b = getNote(state.notes, bId);
-            return getNoteSortPriority(a) - getNoteSortPriority(b);
-        });
-        if (itree.reindexChildren(state.notes, note, 0)) {
-            notesMutated(state);
-            didSomething = true;
-        }
-
         const previousStatus = note.data._status;
-        if (foundInProgressNoteUnderThisParent || foundNothingUnderThisParent) {
-            didSomething = setNoteStatus(note, STATUS_IN_PROGRESS) || didSomething;
+        if (getDoneNoteSuffix(note.data) && !foundInProgressNoteUnderThisParent) {
+            didSomething = setNoteStatus(note, STATUS_DONE) || didSomething;
         } else if (lastNoteWasShelved) {
             didSomething = setNoteStatus(note, STATUS_SHELVED) || didSomething;
         } else {
-            didSomething = setNoteStatus(note, STATUS_DONE) || didSomething;
+            didSomething = setNoteStatus(note, STATUS_IN_PROGRESS) || didSomething;
         }
 
         const noteStatusChanged = previousStatus !== note.data._status;
@@ -814,7 +813,7 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
         note.data._treeVisualsFlowEndsHere = false;
     });
 
-    const dfs = (note: TreeNote, foundInProgress = false): boolean => {
+    const dfs = (note: TreeNote, foundInProgress: boolean): boolean => {
         for (const id of note.childIds) {
             const child = getNote(state.notes, id);
             if (child.data._status !== STATUS_IN_PROGRESS) continue;
@@ -830,26 +829,24 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
 
             if (isNextInProgress) {
                 foundInProgress = true;
-                recomputeNoteVisuals(child, isNextInProgress);
-                break;
+                drawTreeFlowFromHereToRoot(child, isNextInProgress);
             }
 
             if (isHlt) {
-                recomputeNoteVisuals(child, false);
-                dfs(child);
+                drawTreeFlowFromHereToRoot(child, false);
+                dfs(child, false);
             } else {
-                if (dfs(child)) {
+                if (dfs(child, foundInProgress)) {
                     foundInProgress = true;
-                    break;
                 }
             }
         }
 
         return foundInProgress;
     }
-    dfs(getRootNote(state));
+    dfs(getRootNote(state), false);
 
-    function recomputeNoteVisuals(note: TreeNote, isNextInProgress: boolean) {
+    function drawTreeFlowFromHereToRoot(note: TreeNote, isNextInProgress: boolean) {
         note.data._treeVisualsFlowEndsHere = true;
 
         forEachParentNote(state.notes, note, parent => {
