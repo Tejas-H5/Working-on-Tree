@@ -662,7 +662,8 @@ export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
     const dfs = (note: TreeNote, marks: NoteId[]) => {
         if (
             note.data._treeVisualsFlowEndsHere && 
-            note.childIds.length === 0
+            note.childIds.length === 0 &&
+            !isHigherLevelTask(note)
         ) {
             marks.push(note.id);
         }

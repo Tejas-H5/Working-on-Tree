@@ -43,16 +43,20 @@ if (!templateEnd) {
 	throw new Error(`Target (${target}) was not found anywhere in the template`);
 }
 
+function getLogPrefix() {
+	return "[" + config + "]";
+}
+
 function log(...messages: any[]) {
-	console.log("[dev-server]", ...messages);
+	console.log(getLogPrefix(), ...messages);
 }
 
 function logTrace(...messages: any[]) {
-	// console.log("[dev-server]", ...messages);
+	// console.log(getLogPrefix(), ...messages);
 }
 
 function logError(...messages: any[]) {
-	console.error("[dev-server]", ...messages);
+	console.error(getLogPrefix(), ...messages);
 }
 
 const commonBuildOptions: esbuild.BuildOptions = {
