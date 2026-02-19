@@ -6,7 +6,7 @@ import { serializeToJSON } from "src/utils/serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { asNoteTreeGlobalState } from "./schema";
-import { filterInPlace } from "./utils/array-utils";
+import { arrayAt, filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 // Used by webworker and normal code
@@ -144,9 +144,9 @@ export type Note = {
     _durationRangedOpenSince?: Date;
 
     _tasksInProgress: number; // recursive in nature
-    _treeVisualsGoDown: boolean;
-    _treeVisualsGoRight: boolean;
-    _treeVisualsFlowEndsHere: boolean;
+    _treeVisualsGoDown: number;
+    _treeVisualsGoRight: number;
+    _treeVisualsFlowEndsHere: number;
 };
 
 
@@ -461,9 +461,9 @@ export function defaultNote(): Note {
         _durationUnranged: 0,
         _durationRanged: 0,
         _tasksInProgress: 0,
-        _treeVisualsGoDown: false,
-        _treeVisualsGoRight: false,
-        _treeVisualsFlowEndsHere: false,
+        _treeVisualsGoDown: 0,
+        _treeVisualsGoRight: 0,
+        _treeVisualsFlowEndsHere: 0,
     };
 }
 
@@ -660,7 +660,10 @@ export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
     }
 
     const dfs = (note: TreeNote, marks: NoteId[]) => {
-        if (note.data._treeVisualsFlowEndsHere) {
+        if (
+            note.data._treeVisualsFlowEndsHere && 
+            note.childIds.length === 0
+        ) {
             marks.push(note.id);
         }
 
@@ -808,12 +811,32 @@ const PRIORITY_IN_PROGRESS = 3;
 export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalState) {
     itree.forEachNode(state.notes, note => {
         note.data._tasksInProgress = 0;
-        note.data._treeVisualsGoDown = false;
-        note.data._treeVisualsGoRight = false;
-        note.data._treeVisualsFlowEndsHere = false;
+        note.data._treeVisualsGoDown = 0;
+        note.data._treeVisualsGoRight = 0;
+        note.data._treeVisualsFlowEndsHere = 0;
     });
 
-    const dfs = (note: TreeNote, foundInProgress: boolean): boolean => {
+    // NOT_FOUND < HLT < TASK
+    const NOT_FOUND  = 0;
+    const FOUND_HLT  = 1;
+    const FOUND_TASK = 2;
+
+    const dfs = (
+        note: TreeNote,
+        found = NOT_FOUND,
+        blockHasLastSelectedInProgress = false
+    ): number => {
+        let hasLastSelectedInProgress = false;
+        const lastSelectedChildId = arrayAt(note.childIds, note.data.lastSelectedChildIdx);
+        if (!blockHasLastSelectedInProgress) {
+            if (lastSelectedChildId) {
+                const lastSelectedChild = getNote(state.notes, lastSelectedChildId);
+                hasLastSelectedInProgress =
+                    lastSelectedChild.data._status === STATUS_IN_PROGRESS &&
+                    !isHigherLevelTask(lastSelectedChild);
+            }
+        }
+
         for (const id of note.childIds) {
             const child = getNote(state.notes, id);
             if (child.data._status !== STATUS_IN_PROGRESS) continue;
@@ -821,57 +844,70 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
             const isHlt  = isHigherLevelTask(child);
             const isTask = !isHlt && child.childIds.length === 0;
 
-            let isNextInProgress = false;
-            if (!foundInProgress && isTask) {
-                foundInProgress = true;
-                isNextInProgress = true;
-            }
-
-            if (isNextInProgress) {
-                foundInProgress = true;
-                drawTreeFlowFromHereToRoot(child, isNextInProgress);
+            if (isTask && found < FOUND_TASK) {
+                if (!blockHasLastSelectedInProgress) {
+                    if (!hasLastSelectedInProgress || lastSelectedChildId === child.id) {
+                        found = FOUND_TASK;
+                        drawTreeFlowFromHereToRoot(child, FOUND_TASK, true);
+                    }
+                }
             }
 
             if (isHlt) {
-                drawTreeFlowFromHereToRoot(child, false);
-                dfs(child, false);
+                if (found < FOUND_HLT) found = FOUND_HLT;
+                drawTreeFlowFromHereToRoot(child, FOUND_HLT, false);
+                dfs(child, NOT_FOUND, false);
             } else {
-                if (dfs(child, foundInProgress)) {
-                    foundInProgress = true;
+                const foundType = dfs(
+                    child,
+                    found,
+                    hasLastSelectedInProgress && lastSelectedChildId !== child.id
+                );
+                if (found < foundType) {
+                    found = foundType;
                 }
             }
         }
 
-        return foundInProgress;
+        return found;
     }
-    dfs(getRootNote(state), false);
+    dfs(getRootNote(state), NOT_FOUND, false);
 
-    function drawTreeFlowFromHereToRoot(note: TreeNote, isNextInProgress: boolean) {
-        note.data._treeVisualsFlowEndsHere = true;
+    function drawTreeFlowFromHereToRoot(note: TreeNote, type: number, isNextInProgress: boolean) {
+        if (note.data._treeVisualsFlowEndsHere < type) {
+            note.data._treeVisualsFlowEndsHere = type;
+        }
+
+        if (isNextInProgress) {
+            forEachParentNote(state.notes, note, parent => {
+                parent.data._tasksInProgress += 1;
+            });
+        }
 
         forEachParentNote(state.notes, note, parent => {
-            if (isNextInProgress) {
-                parent.data._tasksInProgress += 1;
+            if (isHigherLevelTask(parent) && type === FOUND_TASK) {
+                type = FOUND_HLT;
             }
 
-            if (parent.data._treeVisualsGoRight) {
+            if (parent.data._treeVisualsGoRight >= type) {
                 // we've already been here
                 return;
             }
+            parent.data._treeVisualsGoRight = type;
 
             const parentParent = getNoteOrUndefined(state.notes, parent.parentId);
             if (!parentParent) {
                 return;
             }
 
-            parent.data._treeVisualsGoRight = true;
             for (let i = parent.idxInParentList - 1; i >= 0; i--) {
                 const child = getNote(state.notes, parentParent.childIds[i]);
-                if (child.data._treeVisualsGoDown) {
+                if (child.data._treeVisualsGoDown >= type) {
                     // we've already been here
                     break;
                 }
-                child.data._treeVisualsGoDown = true;
+
+                child.data._treeVisualsGoDown = type;
             }
         })
     }

@@ -29,7 +29,6 @@ import {
     imOpacity,
     imRelative,
     imSize,
-    INLINE,
     NA,
     PX,
     ROW,
@@ -66,11 +65,13 @@ import {
     getNoteDurationUsingCurrentRange,
     getNoteDurationWithoutRange,
     getNoteOrUndefined,
+    getNoteTextWithoutPriority,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
     idIsRoot,
     isBreak,
+    isCurrentlyTakingABreak,
     isNoteCollapsed,
     isNoteEmpty,
     isStatusInProgressOrInfo,
@@ -457,49 +458,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         if (imIf(c) && hasMarks) {
             imLine(c, LINE_HORIZONTAL, 1);
 
-            imLayoutBegin(c, COL); {
-                imFor(c); for (let i = 0; i < state._computedMarks.length; i++) {
-                    const allMarks = state._computedMarks[i];
-                    const mark = state.rootMarks[i];
-                    if (!mark) continue;
-
-                    imLayoutBegin(c, ROW); imNoWrap(c); {
-                        if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
-
-                        imLayoutBegin(c, INLINE); {
-                            if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
-                            imStrFmt(c, i, markIdxToString);
-                            imStr(c, ": ");
-                        } imLayoutEnd(c);
-
-                        imLayoutBegin(c, ROW); imFlex(c); {
-
-                            if (imIf(c) && allMarks.length === 0) {
-                                imLayoutBegin(c, ROW); {
-                                    imStr(c, "Nothing in progress under this mark");
-                                } imLayoutEnd(c);
-                            } else {
-                                imIfElse(c);
-
-                                imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
-                                    const noteId = allMarks[slotIdx];
-                                    const note = getNote(state.notes, noteId);
-                                    const isSelected = noteId === state.currentNoteId;
-
-                                    const flexRatio = isSelected ? 3 : 1;
-                                    imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
-                                        imArrow(c);
-
-                                        if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
-                                        imStr(c, note.data.text);
-                                    } imLayoutEnd(c);
-                                } imForEnd(c);
-                            } imIfEnd(c);
-
-                        } imLayoutEnd(c);
-                    } imLayoutEnd(c);
-                } imForEnd(c);
-            } imLayoutEnd(c);
+            imMarksList(c);
         } imIfEnd(c);
 
         imLine(c, LINE_HORIZONTAL, 1);
@@ -510,6 +469,58 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             imLayoutBegin(c, BLOCK); imStr(c, "|"); imLayoutEnd(c);
             imLayoutBegin(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
         } imLayoutEnd(c);
+    } imLayoutEnd(c);
+}
+
+function imMarksList(c: ImCache) {
+    imLayoutBegin(c, COL); {
+        imFor(c); for (let i = 0; i < state._computedMarks.length; i++) {
+            const allMarks = state._computedMarks[i];
+            const mark = state.rootMarks[i];
+            if (!mark) continue;
+
+            const rootMarkNote = getNote(state.notes, mark);
+
+            imLayoutBegin(c, ROW); imNoWrap(c); {
+                if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+
+                imLayoutBegin(c, ROW); {
+                    if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
+                    imStrFmt(c, i, markIdxToString);
+                    imStr(c, ": ");
+                } imLayoutEnd(c);
+
+                imLayoutBegin(c, ROW); imFlex(c); {
+
+                    if (imIf(c) && allMarks.length === 0) {
+                        imLayoutBegin(c, ROW); {
+                            imStr(c, "Nothing in progress under this mark");
+                        } imLayoutEnd(c);
+                    } else {
+                        imIfElse(c);
+
+                        imStrFmt(c, rootMarkNote.data, getNoteTextWithoutPriority);
+
+                        imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
+                            const noteId = allMarks[slotIdx];
+                            const note = getNote(state.notes, noteId);
+                            const isSelected = noteId === state.currentNoteId;
+
+                            const flexRatio = isSelected ? 10 : 1;
+                            imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
+                                imArrow(c);
+
+                                if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+                                if (imMemo(c, isSelected)) elSetStyle(c, "maxWidth", isSelected ? "1fr" : "");
+
+                                imStr(c, note.data.text);
+                            } imLayoutEnd(c);
+                        } imForEnd(c);
+                    } imIfEnd(c);
+
+                } imLayoutEnd(c);
+            } imLayoutEnd(c);
+        } imForEnd(c);
     } imLayoutEnd(c);
 }
 
@@ -705,6 +716,10 @@ function reviveNote(note: TreeNote): boolean {
 }
 
 function completeNote(note: TreeNote): void {
+    if (isCurrentlyTakingABreak(state)) {
+        pushNoteActivity(state, note.id, false);
+    }
+
     if (note.childIds.length > 0) {
         let incompleteChild: TreeNote | undefined;
         forEachChildNote(state, note, child => {
@@ -735,6 +750,11 @@ function completeNote(note: TreeNote): void {
 
     recomputeNoteStatusRecursively(state, note, true, true, true);
     notesMutated(state);
+}
+
+function getTreeColor(val: number): string {
+    if (val === 2) return cssVarsApp.fgColor;
+    return cssVarsApp.bgColorFocus;
 }
 
 function imNoteTreeRow(
@@ -781,12 +801,14 @@ function imNoteTreeRow(
                 imFor(c); while (!idIsNil(it.parentId)) {
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
+                    const itPrevParent = getNoteOrUndefined(state.notes, itPrev.parentId);
                     it = getNote(state.notes, it.parentId);
-                    const itNext = getNoteOrUndefined(state.notes, it.parentId);
+                    let itPrevNextSibling: TreeNote | undefined;
 
-                    let nextSibling: TreeNote | undefined;
-                    if (itPrev.idxInParentList + 1 < it.childIds.length) {
-                        nextSibling = getNote(state.notes, it.childIds[itPrev.idxInParentList + 1]);
+                    if (itPrevParent) {
+                        const nextIdx = itPrev.idxInParentList + 1;
+                        const nextId = arrayAt(itPrevParent.childIds, nextIdx);
+                        itPrevNextSibling = getNoteOrUndefined(state.notes, nextId);
                     }
 
                     depth++;
@@ -796,8 +818,8 @@ function imNoteTreeRow(
                         // idx <= s.listPos.idx &&
                         // idx <= s.childNextTaskIdx && 
                         // itPrev.data._tasksInProgress > 0 
-                        itPrev.data._treeVisualsGoDown || 
-                        (itPrev === note && itPrev.data._treeVisualsGoRight);
+                        itPrev.data._treeVisualsGoDown > 0 || 
+                        (itPrev === note && itPrev.data._treeVisualsGoRight > 0);
                         // itIsParent;
 
                     foundLineInPath ||= isLineInPath;
@@ -841,35 +863,41 @@ function imNoteTreeRow(
                                         bulletStart, PX,
                                         isThick ? largeThicnkess : smallThicnkess, PX,
                                     );
-                                    imBg(c, cssVarsApp.fgColor); 
+                                    imBg(c, getTreeColor(itPrev.data._treeVisualsGoRight)); 
                                 } imLayoutEnd(c);
                             } imIfEnd(c);
 
                             const canDrawVerticalLine = !isLast || note === itPrev;
 
                             if (imIf(c) && canDrawVerticalLine) {
-                                // Vertical line part 1. xd. We need a better API
-                                imLayoutBegin(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
-                                    imSize(
-                                        c,
-                                        isLineInPath ? largeThicnkess : smallThicnkess, PX,
-                                        midpointLen, midpointUnits
-                                    );
-                                    imBg(c, cssVarsApp.fgColor); 
-                                } imLayoutEnd(c);
+                                const toUse = itPrev === note ? itPrev : itPrevNextSibling;
+                                if (toUse) {
+                                    // Vertical line part 1. xd. We need a better API
+                                    imLayoutBegin(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
+                                        imSize(
+                                            c,
+                                            isLineInPath ? largeThicnkess : smallThicnkess, PX,
+                                            midpointLen, midpointUnits
+                                        );
+                                        imBg(
+                                            c,
+                                            getTreeColor(Math.max(toUse.data._treeVisualsGoDown, toUse.data._treeVisualsGoRight))
+                                        );
+                                    } imLayoutEnd(c);
 
-                                // Vertical line part 2.
-                                imLayoutBegin(c, BLOCK); {
-                                    const isThick = isLineInPath && pathGoesDown;
-                                    imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); 
-                                    imSize(
-                                        c,
-                                        isThick ? largeThicnkess : smallThicnkess, PX,
-                                        0, NA
-                                    );
-                                    imOpacity(c, isLast ? 0 : 1);
-                                    imBg(c, cssVarsApp.fgColor);
-                                } imLayoutEnd(c);
+                                    // Vertical line part 2.
+                                    imLayoutBegin(c, BLOCK); {
+                                        const isThick = isLineInPath && pathGoesDown;
+                                        imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA);
+                                        imSize(
+                                            c,
+                                            isThick ? largeThicnkess : smallThicnkess, PX,
+                                            0, NA
+                                        );
+                                        imOpacity(c, isLast ? 0 : 1);
+                                        imBg(c, getTreeColor(itPrev.data._treeVisualsGoDown));
+                                    } imLayoutEnd(c);
+                                }
                             } imIfEnd(c);
                         } imLayoutEnd(c);
                     }

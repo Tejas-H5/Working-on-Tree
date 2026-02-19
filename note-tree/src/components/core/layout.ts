@@ -1,4 +1,6 @@
-import { newCssBuilder } from 'src/utils/cssb';
+// CORE::LAYOUT V.0.1.1
+
+import { newCssBuilder } from 'src/utils/cssb'; // TODO: remove dependency 
 import { ImCache, imGet, imMemo, imSet, inlineTypeId, isFirstishRender } from 'src/utils/im-core';
 import { EL_DIV, elSetClass, elSetStyle, imElBegin, imElEnd } from 'src/utils/im-dom';
 import { cn, cssVars } from "./stylesheets";
@@ -181,6 +183,8 @@ export const COL_REVERSE = 7 as DisplayTypeInstance;
 export const TABLE = 8 as DisplayTypeInstance;
 export const TABLE_ROW = 9 as DisplayTypeInstance;
 export const TABLE_CELL = 10 as DisplayTypeInstance;
+export const INLINE_ROW = 11 as DisplayTypeInstance;
+export const INLINE_COL = 12 as DisplayTypeInstance;
 
 export type DisplayType 
     = typeof BLOCK 
@@ -191,7 +195,9 @@ export type DisplayType
     | typeof COL_REVERSE 
     | typeof TABLE 
     | typeof TABLE_ROW  
-    | typeof TABLE_CELL;
+    | typeof TABLE_CELL
+    | typeof INLINE_ROW
+    | typeof INLINE_COL;
 
 /**
  * A dummy element with flex: 1. Super useful for flexbox.
@@ -224,6 +230,8 @@ export function imLayoutBeginInternal(c: ImCache, type: DisplayType) {
             case TABLE:        elSetClass(c, cn.table, false);              break;
             case TABLE_ROW:    elSetClass(c, cn.tableRow, false);           break;
             case TABLE_CELL:   elSetClass(c, cn.tableCell, false);          break;
+            case INLINE_ROW:   elSetClass(c, cn.inlineRow, false);          break;
+            case INLINE_COL:   elSetClass(c, cn.inlineCol, false);          break;
         }
 
         switch(type) {
@@ -237,6 +245,8 @@ export function imLayoutBeginInternal(c: ImCache, type: DisplayType) {
             case TABLE:        elSetClass(c, cn.table, true);               break;
             case TABLE_ROW:    elSetClass(c, cn.tableRow, true);            break;
             case TABLE_CELL:   elSetClass(c, cn.tableCell, true);           break;
+            case INLINE_ROW:   elSetClass(c, cn.inlineRow, true);           break;
+            case INLINE_COL:   elSetClass(c, cn.inlineCol, true);           break;
         }
     }
 

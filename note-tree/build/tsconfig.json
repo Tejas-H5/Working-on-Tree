@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2025",
+    "outDir": "../build/dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+    "types": ["node"],
+  },
+  "include": ["../build/src/**/*.ts"],
+  "exclude": ["../build/node_modules", "../build/**/*.spec.ts"]
+}
