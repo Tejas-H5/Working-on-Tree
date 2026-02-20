@@ -492,14 +492,16 @@ function imMarksList(c: ImCache) {
 
                 imLayoutBegin(c, ROW); imFlex(c); {
 
+                    imStrFmt(c, rootMarkNote.data, getNoteTextWithoutPriority);
+
+                    imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+
                     if (imIf(c) && allMarks.length === 0) {
                         imLayoutBegin(c, ROW); {
                             imStr(c, "Nothing in progress under this mark");
                         } imLayoutEnd(c);
                     } else {
                         imIfElse(c);
-
-                        imStrFmt(c, rootMarkNote.data, getNoteTextWithoutPriority);
 
                         imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
                             const noteId = allMarks[slotIdx];
