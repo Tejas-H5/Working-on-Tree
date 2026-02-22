@@ -492,7 +492,7 @@ function imMarksList(c: ImCache) {
 
                 imLayoutBegin(c, ROW); imFlex(c); {
 
-                    imStrFmt(c, rootMarkNote.data, getNoteTextWithoutPriority);
+                    imStr(c, getNoteTextWithoutPriority(rootMarkNote.data));
 
                     imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
