@@ -6,7 +6,7 @@ import { serializeToJSON } from "src/utils/serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { asNoteTreeGlobalState } from "./schema";
-import { arrayAt, filterInPlace } from "./utils/array-utils";
+import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 // Used by webworker and normal code
@@ -822,57 +822,43 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
     const FOUND_HLT  = 1;
     const FOUND_TASK = 2;
 
-    const dfs = (
-        note: TreeNote,
-        found = NOT_FOUND,
-        blockHasLastSelectedInProgress = false
-    ): number => {
-        let hasLastSelectedInProgress = false;
-        const lastSelectedChildId = arrayAt(note.childIds, note.data.lastSelectedChildIdx);
-        if (!blockHasLastSelectedInProgress) {
-            if (lastSelectedChildId) {
-                const lastSelectedChild = getNote(state.notes, lastSelectedChildId);
-                hasLastSelectedInProgress =
-                    lastSelectedChild.data._status === STATUS_IN_PROGRESS &&
-                    !isHigherLevelTask(lastSelectedChild);
-            }
+    itree.forEachNode(state.notes, note => {
+        const lastSelected = getLastSelectedNote(state, note);
+        if (!lastSelected) {
+            return
         }
 
-        for (const id of note.childIds) {
-            const child = getNote(state.notes, id);
-            if (child.data._status !== STATUS_IN_PROGRESS) continue;
-
-            const isHlt  = isHigherLevelTask(child);
-            const isTask = !isHlt && child.childIds.length === 0;
-
-            if (isTask && found < FOUND_TASK) {
-                if (!blockHasLastSelectedInProgress) {
-                    if (!hasLastSelectedInProgress || lastSelectedChildId === child.id) {
-                        found = FOUND_TASK;
-                        drawTreeFlowFromHereToRoot(child, FOUND_TASK, true);
-                    }
+        if (
+            lastSelected.data._status === STATUS_IN_PROGRESS &&
+            !isHigherLevelTask(lastSelected)
+        ) {
+            let allParentsAreLastSelected = true;
+            let parent = note;
+            while (!idIsNilOrRoot(parent.id) && !isHigherLevelTask(parent)) {
+                if (!isLastSelected(state, parent)) {
+                    allParentsAreLastSelected = false;
+                    break;
                 }
+
+                parent = getNote(state.notes, parent.parentId);
             }
 
-            if (isHlt) {
-                if (found < FOUND_HLT) found = FOUND_HLT;
-                drawTreeFlowFromHereToRoot(child, FOUND_HLT, false);
-                dfs(child, NOT_FOUND, false);
-            } else {
-                const foundType = dfs(
-                    child,
-                    found,
-                    hasLastSelectedInProgress && lastSelectedChildId !== child.id
-                );
-                if (found < foundType) {
-                    found = foundType;
-                }
+            if (allParentsAreLastSelected) {
+                drawTreeFlowFromHereToRoot(lastSelected, FOUND_TASK, true);
             }
+            return;
+        } 
+
+        // If the last selected note isn't in progress, we'll need to find the first in-progress note, and draw flow for that instead.
+        for (const childId of note.childIds) {
+            const child = getNote(state.notes, childId);
+            const deepestNote = findDeepestFirstInProgressNote(state, child);
+            if (!deepestNote) continue;
+
+            drawTreeFlowFromHereToRoot(deepestNote, FOUND_TASK, true);
+            break;
         }
-
-        return found;
-    }
-    dfs(getRootNote(state), NOT_FOUND, false);
+    });
 
     function drawTreeFlowFromHereToRoot(note: TreeNote, type: number, isNextInProgress: boolean) {
         if (note.data._treeVisualsFlowEndsHere < type) {
@@ -912,6 +898,22 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
             }
         })
     }
+}
+
+function findDeepestFirstInProgressNote(state: NoteTreeGlobalState, note: TreeNote): TreeNote | null {
+    if (note.data._status !== STATUS_IN_PROGRESS) return null;
+
+    for (const childId of note.childIds) {
+        const child = getNote(state.notes, childId);
+        if (
+            child.data._status !== STATUS_IN_PROGRESS ||
+            isHigherLevelTask(child)
+        ) continue;
+
+        return findDeepestFirstInProgressNote(state, child);
+    }
+
+    return note;
 }
 
 function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote): boolean {
@@ -1902,6 +1904,13 @@ export function getNumSiblings(state: NoteTreeGlobalState, note: TreeNote): numb
 export function isLastNote(state: NoteTreeGlobalState, note: TreeNote) {
     const numSiblings = getNumSiblings(state, note);
     return note.idxInParentList === numSiblings - 1;
+}
+
+export function isLastSelected(state: NoteTreeGlobalState, note: TreeNote): boolean {
+    const parent = getNoteOrUndefined(state.notes, note.parentId);
+    if (!parent) return false;
+
+    return getLastSelectedNote(state, parent) === note;
 }
 
 export function removeNoteFromNoteIds(noteIds: NoteId[], id: NoteId) {
