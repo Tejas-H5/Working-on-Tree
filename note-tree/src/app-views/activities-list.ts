@@ -25,7 +25,6 @@ import {
     getCurrentNote,
     getHigherLevelTask,
     getLastActivity,
-    getLastActivityForNoteIdx,
     getNote,
     isBreak,
     isCurrentlyTakingABreak,

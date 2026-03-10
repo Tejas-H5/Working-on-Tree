@@ -35,6 +35,8 @@ const TEMPLATE_PATH = path.join(BASE_DIR, "/template.html");
 const OUTPUT_FILE   = path.join(BASE_DIR, "/dist/index.html");
 const ENTRYPOINT    = path.join(BASE_DIR, "/src/main.ts");
 
+const USE_TSGO = false;
+
 const templateString = await fs.readFile(TEMPLATE_PATH, "utf8");
 
 const target = "{SCRIPT}";
@@ -59,6 +61,10 @@ function logError(...messages: any[]) {
 	console.error(getLogPrefix(), ...messages);
 }
 
+function logServerUrl() {
+	log(`http://${HOST}:${PORT}`);
+}
+
 const commonBuildOptions: esbuild.BuildOptions = {
 	entryPoints: [ENTRYPOINT],
 	bundle: true,
@@ -73,6 +79,7 @@ const commonBuildOptions: esbuild.BuildOptions = {
 }
 
 let tscProcessLast: ChildProcess | undefined;
+let lintingStartTime: number = 0;
 async function runTscAndGetErrors() {
 	const sb: string[] = [];
 	const sbErr: string[] = [];
@@ -86,9 +93,13 @@ async function runTscAndGetErrors() {
 		console.clear();
 	}
 
-	log("Linting ... ");
+	const process = USE_TSGO ? "npx tsgo" : "tsc";
 
-	const tscProcess = spawn("tsc", {
+	log("Linting with " + process + " ...");
+
+	lintingStartTime = performance.now();
+
+	const tscProcess = spawn(process, {
 		shell: true,
 		cwd: BASE_DIR,
 	}).on("error", err => { throw err });
@@ -159,8 +170,6 @@ if (config === "build") {
 	});
 	log("Built");
 } else {
-
-
 	function newServer() {
 		let currentFile = templateStart + `console.log("Hello there")`;
 
@@ -198,7 +207,7 @@ if (config === "build") {
 		server.keepAliveTimeout = 2147480000;
 
 		server.listen(PORT, HOST, () => {
-			log(`Server is running on http://${HOST}:${PORT}`);
+			logServerUrl();
 		});
 
 		function setCurrentFile(newFile: string) {
@@ -242,6 +251,8 @@ if (config === "build") {
 							} else {
 								log("Type errors: \n\n" + result.result);
 							}
+							log("Time taken: " + (performance.now() - lintingStartTime) + "ms");
+							logServerUrl();
 						});
 				});
 			},

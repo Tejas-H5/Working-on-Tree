@@ -127,11 +127,13 @@ function setNote(
     note: TreeNote,
     invalidate = false
 ) {
+    s.invalidateNote = false;
+
     let mutated = false;
     if (invalidate || s.note !== note) {
         if (s.note !== note) {
             mutated ||= deleteNoteIfEmpty(state, s.note);
-            invalidate ||=mutated;
+            invalidate ||= mutated;
         }
 
         s.note = note;

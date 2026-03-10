@@ -52,9 +52,11 @@ import {
     isBreak,
     NoteId,
     recomputeAllNoteDurations,
+    setCurrentNote,
     state,
     TreeNote
 } from "src/state";
+import { arrayAt } from "src/utils/array-utils";
 import { assert, mustGetDefined } from "src/utils/assert";
 import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours, isSameDate } from "src/utils/datetime";
 import { ImCache, imFor, imForEnd, imMemo } from "src/utils/im-core";
@@ -82,6 +84,8 @@ export type DurationsViewState = {
 
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
+
+    noteJumpedFromId: NoteId | undefined;
 };
 
 function getNumDays(_s: DurationsViewState) {
@@ -99,6 +103,7 @@ export function newDurationsViewState(): DurationsViewState {
         activityFilter: null,
         hltMap: new Map(),
         totals: [],
+        noteJumpedFromId: undefined,
     };
 }
 
@@ -163,6 +168,11 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
         recomputeDurations(s);
     } else { 
         recomputeActivityFilter(s);
+    }
+
+    const currentBlock = arrayAt(s.durations, s.tableRowPos.idx);
+    if (currentBlock?.hlt) {
+        setCurrentNote(state, currentBlock.hlt.id, s.noteJumpedFromId);
     }
 }
 
@@ -318,6 +328,10 @@ export function imDurationsView(
 
     const focusChanged = imMemo(c, viewHasFocus);
     const activitiesChanged = imMemo(c, state._activitiesMutationCounter);
+
+    if (focusChanged && viewHasFocus) {
+        s.noteJumpedFromId = state.currentNoteId;
+    }
 
     if (focusChanged || activitiesChanged) {
         if (!s.activitiesTo && !s.activitiesFrom) {

@@ -702,6 +702,16 @@ export function recomputeNoteStatusRecursivelyInternal(
 ): boolean {
     let didSomething = false;
 
+    if (note.data._status === STATUS_SHELVED) {
+        // Needs a full recomputation
+        itree.forEachNode(state.notes, note => {
+            note.data._status = STATUS_NOT_COMPUTED;
+            note.data._treeVisualsGoDown = 0;
+            note.data._treeVisualsGoRight = 0;
+            note.data._treeVisualsFlowEndsHere = 0;
+        });
+    }
+
     if (note.childIds.length === 0) {
         recomputeParents = true;
     } else if (note.childIds.length > 0) {
@@ -739,7 +749,7 @@ export function recomputeNoteStatusRecursivelyInternal(
                 }
             }
 
-            if (child.data._status === STATUS_SHELVED) {
+            if (!isHigherLevelTask(child) && child.data._status === STATUS_SHELVED) {
                 foundShelvedNoteUnderThisParent = true;
                 foundNothingUnderThisParent = false;
             } else if (child.data._status === STATUS_IN_PROGRESS) {
