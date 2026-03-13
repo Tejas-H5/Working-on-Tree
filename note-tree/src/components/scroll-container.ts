@@ -1,4 +1,4 @@
-import { getDeltaTimeSeconds, ImCache } from "src/utils/im-core";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 import { COL, imFlex, imLayoutBegin, imScrollOverflow, ROW } from "./core/layout";
 import { getScrollVHEx } from "src/utils/dom-utils";
 
@@ -90,7 +90,7 @@ export function scrollToItem(c: ImCache, sc: ScrollContainer, root: HTMLElement)
         sc.isScrolling = false;
     } else {
         if (sc.smoothScroll) {
-            scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * getDeltaTimeSeconds(c));
+            scrollParent.scrollTop = lerp(currentScrollTop, scrollTop, 20 * im.getDeltaTimeSeconds(c));
         } else {
             scrollParent.scrollTop = scrollTop;
         }

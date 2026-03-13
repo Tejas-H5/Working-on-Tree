@@ -23,24 +23,8 @@ import { getCurrentStateAsJSON, getLastActivity, loadStateFromJSON, LoadStateFro
 import { arrayAt } from "src/utils/array-utils";
 import { formatDateTime } from "src/utils/datetime";
 import { downloadTextAsFile, loadFile } from "src/utils/file-download";
-import {
-    getDeltaTimeSeconds,
-    ImCache,
-    imFor,
-    imForEnd,
-    imGet,
-    imIf,
-    imIfElse,
-    imIfEnd,
-    imMemo,
-    imSet,
-    imSwitch,
-    imSwitchEnd,
-    imTry,
-    inlineTypeId,
-    isFirstishRender
-} from "src/utils/im-core";
-import { EL_B, elSetClass, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 import { VERSION_NUMBER } from "src/version-number";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 
@@ -105,11 +89,11 @@ const menus: MenuItem[] = [
                 imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
                     // TODO: tab stop, tabs vs spaces, all on multiple lines -> parents on one line -> all on one line except selection
 
-                    let vSc = imGet(c, newScrollContainer);
-                    if (!vSc) vSc = imSet(c, newScrollContainer());
+                    let vSc = im.Get(c, newScrollContainer);
+                    if (!vSc) vSc = im.Set(c, newScrollContainer());
 
-                    let vPos = imGet(c, newListPosition);
-                    if (!vPos) vPos = imSet(c, newListPosition());
+                    let vPos = im.Get(c, newListPosition);
+                    if (!vPos) vPos = im.Set(c, newListPosition());
 
                     const settings = state.settings;
 
@@ -117,7 +101,7 @@ const menus: MenuItem[] = [
                         imNavListNextItem(itemList); {
                             imNavListRowBegin(c, itemList, false, false); {
                                 imLayoutBegin(c, ROW); imListRowCellStyle(c); {
-                                    imB(c); imStr(c, "Spaces or tabs?"); imBEnd(c);
+                                    imB(c); imdom.Str(c, "Spaces or tabs?"); imBEnd(c);
 
                                     imLayoutBegin(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
 
@@ -125,7 +109,7 @@ const menus: MenuItem[] = [
                                     // parentNotesOnOneLine: boolean;
                                     // tabStopSize: number;
 
-                                    imStr(c, settings.spacesInsteadOfTabs ? "Spaces" : "Tabs");
+                                    imdom.Str(c, settings.spacesInsteadOfTabs ? "Spaces" : "Tabs");
 
                                 } imLayoutEnd(c);
                             } imNavListRowEnd(c);
@@ -144,18 +128,18 @@ const menus: MenuItem[] = [
 
                             imNavListRowBegin(c, itemList, false, false); {
                                 imLayoutBegin(c, ROW); imListRowCellStyle(c); {
-                                    if (isFirstishRender(c)) {
-                                        elSetClass(c, cn.preWrap);
+                                    if (im.isFirstishRender(c)) {
+                                        imdom.setClass(c, cn.preWrap);
                                     }
 
-                                    imB(c); imStr(c, "Tab width"); imBEnd(c);
+                                    imB(c); imdom.Str(c, "Tab width"); imBEnd(c);
 
                                     imLayoutBegin(c, BLOCK); imSize(c, 20, PX, 0, NA); imLayoutEnd(c);
 
-                                    imStr(c, canNarrow ? "< " : "  ");
-                                    imStr(c, settings.tabStopSize);
-                                    imStr(c, " ".repeat(settings.tabStopSize));
-                                    imStr(c, canWiden ? ">" : "|");
+                                    imdom.Str(c, canNarrow ? "< " : "  ");
+                                    imdom.Str(c, settings.tabStopSize);
+                                    imdom.Str(c, " ".repeat(settings.tabStopSize));
+                                    imdom.Str(c, canWiden ? ">" : "|");
                                 } imLayoutEnd(c);
                             } imNavListRowEnd(c);
 
@@ -195,16 +179,16 @@ const menus: MenuItem[] = [
             imLayoutBegin(c, COL); imFlex(c); {
                 // NOTE: Don't want the export view to look similar to the import view. need to avoid action capture.
                 imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
-                    let errRef; errRef = imGet(c, inlineTypeId(imTry))
-                    if (!errRef) errRef = imSet(c, { val: null as any });
+                    let errRef; errRef = im.GetInline(c, im.Try)
+                    if (!errRef) errRef = im.Set(c, { val: null as any });
 
-                    if (imIf(c) && !errRef.val) {
-                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
-                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
+                    if (im.If(c) && !errRef.val) {
+                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.notes.nodes.length + " notes"); imBEnd(c); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.activities.length + " activities"); imBEnd(c); imLayoutEnd(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                                imElBegin(c, EL_B); imStr(c, "Download JSON"); imElEnd(c, EL_B); 
+                                imdom.ElBegin(c, el.B); imdom.Str(c, "Download JSON"); imdom.ElEnd(c, el.B); 
                             } imLayoutEnd(c);
                         } imListRowEnd(c);
 
@@ -220,14 +204,14 @@ const menus: MenuItem[] = [
                             }
                         }
                     } else {
-                        imIfElse(c);
+                        im.IfElse(c);
 
-                        imLayoutBegin(c, BLOCK); imStr(c, "An error occured: " + errRef.val); imLayoutEnd(c);
+                        imLayoutBegin(c, BLOCK); imdom.Str(c, "An error occured: " + errRef.val); imLayoutEnd(c);
 
                         if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Dismiss")) {
                             errRef.val = null;
                         }
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
         }
@@ -238,49 +222,49 @@ const menus: MenuItem[] = [
         imComponent: (c, ctx, _s, hasFocus) => {
             imLayoutBegin(c, COL); imFlex(c); {
                 imLayoutBegin(c, COL); imFlex(c); imAlign(c); imJustify(c); {
-                    let importModalState = imGet(c, importModal);
-                    if (!importModalState) importModalState = imSet(c, importModal());
+                    let importModalState = im.Get(c, importModal);
+                    if (!importModalState) importModalState = im.Set(c, importModal());
 
-                    if (imMemo(c, true)) {
+                    if (im.Memo(c, true)) {
                         resetImportModal(importModalState);
                     }
 
                     const loadResult = importModalState.state;
-                    if (imIf(c) && loadResult) {
-                        let current = imGet(c, newFocusRef);
-                        if (!current) current = imSet(c, newFocusRef());
+                    if (im.If(c) && loadResult) {
+                        let current = im.Get(c, newFocusRef);
+                        if (!current) current = im.Set(c, newFocusRef());
                         const navList = imViewsList(c, current);
 
                         imLayoutBegin(c, BLOCK); {
                             const loadedState = loadResult.state;
-                            if (imIf(c) && loadedState) {
+                            if (im.If(c) && loadedState) {
                                 const lastOnline = getLastActivity(loadedState)?.t;
 
                                 imLayoutBegin(c, ROW); imJustify(c); {
-                                    imB(c); imStr(c, "Make sure this looks reasonable before you load the backup"); imBEnd(c); 
+                                    imB(c); imdom.Str(c, "Make sure this looks reasonable before you load the backup"); imBEnd(c); 
                                 } imLayoutEnd(c);
 
                                 imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
 
                                 imLayoutBegin(c, BLOCK); {
-                                    imB(c); imStr(c, "Filename: "); imBEnd(c);
-                                    imStr(c, importModalState.filename); 
+                                    imB(c); imdom.Str(c, "Filename: "); imBEnd(c);
+                                    imdom.Str(c, importModalState.filename); 
                                 } imLayoutEnd(c);
                                 imLayoutBegin(c, BLOCK); {
-                                    imB(c); imStr(c, "Notes: "); imBEnd(c);
-                                    imStr(c, loadedState.notes.nodes.length);
+                                    imB(c); imdom.Str(c, "Notes: "); imBEnd(c);
+                                    imdom.Str(c, loadedState.notes.nodes.length);
                                 } imLayoutEnd(c);
                                 imLayoutBegin(c, BLOCK); {
-                                    imB(c); imStr(c, "Activities: "); imBEnd(c); 
-                                    imStr(c, loadedState.activities.length); 
+                                    imB(c); imdom.Str(c, "Activities: "); imBEnd(c); 
+                                    imdom.Str(c, loadedState.activities.length); 
                                 } imLayoutEnd(c);
                                 imLayoutBegin(c, BLOCK); {
-                                    imB(c); imStr(c, "Last Online: "); imBEnd(c);
-                                    imStr(c, !lastOnline ? "No idea" : formatDateTime(lastOnline));
+                                    imB(c); imdom.Str(c, "Last Online: "); imBEnd(c);
+                                    imdom.Str(c, !lastOnline ? "No idea" : formatDateTime(lastOnline));
                                 } imLayoutEnd(c);
                                 imLayoutBegin(c, BLOCK); {
-                                    imB(c); imStr(c, "Last Theme: "); imBEnd(c); 
-                                    imStr(c, loadedState.currentTheme);
+                                    imB(c); imdom.Str(c, "Last Theme: "); imBEnd(c); 
+                                    imdom.Str(c, loadedState.currentTheme);
                                 } imLayoutEnd(c);
 
                                 imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 30, PX); imLayoutEnd(c);
@@ -290,7 +274,7 @@ const menus: MenuItem[] = [
                                         const focused = current.focused === 0;
                                         imListRowBegin(c, focused, focused && hasFocus, false); {
                                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                                                imB(c); imStr(c, "Accept"); imBEnd(c); 
+                                                imB(c); imdom.Str(c, "Accept"); imBEnd(c); 
                                             } imLayoutEnd(c);
                                         } imListRowEnd(c);
 
@@ -311,7 +295,7 @@ const menus: MenuItem[] = [
                                         const focused = current.focused === 1;
                                         imListRowBegin(c, focused, focused && hasFocus, false); {
                                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                                                imB(c); imStr(c, "Reject"); imBEnd(c);
+                                                imB(c); imdom.Str(c, "Reject"); imBEnd(c);
                                             } imLayoutEnd(c);
                                         } imListRowEnd(c);
 
@@ -324,18 +308,18 @@ const menus: MenuItem[] = [
                                     }
                                 } imLayoutEnd(c);
 
-                                if (imIf(c) && importModalState.acceptPresses > 0) {
-                                    imLayoutBegin(c, BLOCK); imB(c); imListRowCellStyle(c); imStr(c, "Your existing data will be wiped and replaced with this new state"); imBEnd(c); imLayoutEnd(c);
+                                if (im.If(c) && importModalState.acceptPresses > 0) {
+                                    imLayoutBegin(c, BLOCK); imB(c); imListRowCellStyle(c); imdom.Str(c, "Your existing data will be wiped and replaced with this new state"); imBEnd(c); imLayoutEnd(c);
 
                                     imLayoutBegin(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
-                                        const countChanged = imMemo(c, importModalState.acceptPresses);
+                                        const countChanged = im.Memo(c, importModalState.acceptPresses);
 
                                         const col = "rgb(0, 255, 20)";
 
-                                        imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
+                                        im.For(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
                                             imLayoutBegin(c, BLOCK); imFlex(c); {
                                                 if (countChanged) {
-                                                    elSetStyle(
+                                                    imdom.setStyle(
                                                         c,
                                                         "backgroundColor",
                                                         importModalState.acceptPresses >= REQUIRED_PRESSES ? col
@@ -344,22 +328,22 @@ const menus: MenuItem[] = [
                                                     );
                                                 }
                                             } imLayoutEnd(c);
-                                        } imForEnd(c);
+                                        } im.ForEnd(c);
                                     } imLayoutEnd(c);
-                                } imIfEnd(c);
+                                } im.IfEnd(c);
                             } else {
-                                imIfElse(c);
+                                im.IfElse(c);
 
                                 imLayoutBegin(c, BLOCK); {
-                                    imLayoutBegin(c, BLOCK); imB(c); imStr(c, "An error occured while loading the file. It cannot be imported."); imBEnd(c); imLayoutEnd(c);
-                                    imLayoutBegin(c, BLOCK); imStr(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imB(c); imdom.Str(c, "An error occured while loading the file. It cannot be imported."); imBEnd(c); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imdom.Str(c, loadResult.error ?? loadResult.criticalError ?? "unknown error"); imLayoutEnd(c);
                                 } imLayoutEnd(c);
 
                                 addView(navList, 0, "Back button"); {
                                     const focused = current.focused === 0;
                                     imListRowBegin(c, focused, hasFocus && focused, false); {
                                         imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                                            imB(c); imStr(c, "Back");  imBEnd(c);
+                                            imB(c); imdom.Str(c, "Back");  imBEnd(c);
                                         } imLayoutEnd(c);
                                     } imListRowEnd(c);
 
@@ -372,7 +356,7 @@ const menus: MenuItem[] = [
                                         }
                                     }
                                 }
-                            } imIfEnd(c);
+                            } im.IfEnd(c);
                         } imLayoutEnd(c);
 
 
@@ -393,10 +377,10 @@ const menus: MenuItem[] = [
                             }
                         }
                     } else {
-                        imIfElse(c);
+                        im.IfElse(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
-                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imStr(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
+                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, "Import JSON"); imBEnd(c); imLayoutEnd(c);
                             if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Import JSON")) {
                                 loadFile((file) => {
                                     if (!file) {
@@ -410,7 +394,7 @@ const menus: MenuItem[] = [
                                 });
                             }
                         } imListRowEnd(c);
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
         }
@@ -429,7 +413,7 @@ const menus: MenuItem[] = [
 
                     imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                         imB(c); {
-                            imStr(c, "Be sure to download your JSON"); imI(c); imStr(c, " before "); imIEnd(c); imStr(c, "you do this."); 
+                            imdom.Str(c, "Be sure to download your JSON"); imI(c); imdom.Str(c, " before "); imIEnd(c); imdom.Str(c, "you do this."); 
                         } imBEnd(c);
                     } imLayoutEnd(c);
 
@@ -437,33 +421,33 @@ const menus: MenuItem[] = [
 
                     // bruh... 
 
-                    const focusChanged = imMemo(c, hasFocus)
-                    let clearDataState; clearDataState = imGet(c, inlineTypeId(imLayoutEnd));
-                    if (!clearDataState || focusChanged) clearDataState = imSet(c, {
+                    const focusChanged = im.Memo(c, hasFocus)
+                    let clearDataState; clearDataState = im.GetInline(c, imLayoutEnd);
+                    if (!clearDataState || focusChanged) clearDataState = im.Set(c, {
                         count: 0,
                         wiped: false,
                     });
 
-                    const countChanged = imMemo(c, clearDataState.count);
+                    const countChanged = im.Memo(c, clearDataState.count);
 
                     imListRowBegin(c, true, hasFocus, false); {
                         imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                            if (isFirstishRender(c)) {
-                                elSetStyle(c, "fontSize", "30px");
+                            if (im.isFirstishRender(c)) {
+                                imdom.setStyle(c, "fontSize", "30px");
                             }
 
                             const col = clearDataState.count < REQUIRED_PRESSES ? "red" : "white";
-                            elSetStyle(c, "color", col);
+                            imdom.setStyle(c, "color", col);
 
                             imB(c); {
-                                imStr(c, "Delete all data"); 
+                                imdom.Str(c, "Delete all data"); 
                             } imBEnd(c);
 
                             imLayoutBegin(c, ROW); imGap(c, 10, PX); imSize(c, 100, PERCENT, 30, PX); imAlign(c, STRETCH); {
-                                imFor(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
+                                im.For(c); for (let i = 0; i < REQUIRED_PRESSES; i++) {
                                     imLayoutBegin(c, BLOCK); imFlex(c); { 
                                         if (countChanged) {
-                                            elSetStyle(
+                                            imdom.setStyle(
                                                 c,
                                                 "backgroundColor",
                                                 clearDataState.count >= REQUIRED_PRESSES ? col
@@ -472,7 +456,7 @@ const menus: MenuItem[] = [
                                             );
                                         }
                                     } imLayoutEnd(c);
-                                } imForEnd(c);
+                                } im.ForEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
 
@@ -485,31 +469,31 @@ const menus: MenuItem[] = [
 
                     imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 50, PX); imLayoutEnd(c);
 
-                    if (imIf(c) && clearDataState.count >= REQUIRED_PRESSES) {
+                    if (im.If(c) && clearDataState.count >= REQUIRED_PRESSES) {
                         const REQUIRED_TIME_SECONDS = 1;
 
-                        const focusChanged = imMemo(c, hasFocus);
+                        const focusChanged = im.Memo(c, hasFocus);
 
-                        let timer = imGet(c, Math.sin);
+                        let timer = im.Get(c, Math.sin);
                         if (timer === undefined || focusChanged) {
-                            timer = imSet(c, 0);
+                            timer = im.Set(c, 0);
                         }
-                        timer = imSet(c, timer + getDeltaTimeSeconds(c));
+                        timer = im.Set(c, timer + im.getDeltaTimeSeconds(c));
 
                         imLayoutBegin(c, BLOCK); {
-                            if (isFirstishRender(c)) {
-                                elSetStyle(c, "fontSize", "30px");
-                                elSetStyle(c, "color", "red");
+                            if (im.isFirstishRender(c)) {
+                                imdom.setStyle(c, "fontSize", "30px");
+                                imdom.setStyle(c, "color", "red");
                             }
 
                             imB(c); {
-                                imStr(c, "SYSTEM WIPE IMMINENT"); 
+                                imdom.Str(c, "SYSTEM WIPE IMMINENT"); 
                             } imBEnd(c);
 
                             imLayoutBegin(c, ROW); imAlign(c, STRETCH); imSize(c, 100, PERCENT, 30, PX); {
                                 imLayoutBegin(c, BLOCK); {
-                                    elSetStyle(c, "width", ((timer / REQUIRED_TIME_SECONDS) * 100) + "%");
-                                    elSetStyle(c, "backgroundColor", "red");
+                                    imdom.setStyle(c, "width", ((timer / REQUIRED_TIME_SECONDS) * 100) + "%");
+                                    imdom.setStyle(c, "backgroundColor", "red");
                                 } imLayoutEnd(c);
                             } imLayoutEnd(c);
 
@@ -526,7 +510,7 @@ const menus: MenuItem[] = [
                                 setCurrentView(ctx, ctx.views.noteTree);
                             }, 1000);
                         }
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
         }
@@ -535,10 +519,10 @@ const menus: MenuItem[] = [
 
 export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewState) {
     const viewHasFocus = ctx.currentView === s;
-    let vPos = imGet(c, newListPosition);
-    if (!vPos) vPos = imSet(c, newListPosition());
+    let vPos = im.Get(c, newListPosition);
+    if (!vPos) vPos = im.Set(c, newListPosition());
 
-    if (imMemo(c, viewHasFocus) && viewHasFocus) {
+    if (im.Memo(c, viewHasFocus) && viewHasFocus) {
         vPos.idx = 0;
         s.mainListHasFocus = false;
     }
@@ -547,34 +531,34 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
         imLayoutBegin(c, COL); imAlign(c); imFlex(c); {
             imLayoutBegin(c, ROW); imSize(c, 0, NA, 100, PERCENT); {
                 imLayoutBegin(c, COL);  {
-                    if (isFirstishRender(c)) {
-                        elSetStyle(c, "minWidth", "100px");
+                    if (im.isFirstishRender(c)) {
+                        imdom.setStyle(c, "minWidth", "100px");
                     }
 
                     imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
-                        imB(c); imStr(c, "Note Tree v" + VERSION_NUMBER); imBEnd(c); 
+                        imB(c); imdom.Str(c, "Note Tree v" + VERSION_NUMBER); imBEnd(c); 
                     } imLayoutEnd(c);
 
                     imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
-                        imB(c); imStr(c, "Settings"); imBEnd(c); 
+                        imB(c); imdom.Str(c, "Settings"); imBEnd(c); 
                     } imLayoutEnd(c);
 
-                    let vSc = imGet(c, newScrollContainer);
-                    if (!vSc) vSc = imSet(c, newScrollContainer());
+                    let vSc = im.Get(c, newScrollContainer);
+                    if (!vSc) vSc = im.Set(c, newScrollContainer());
 
                     const hasFocus = viewHasFocus && !s.mainListHasFocus;
                     const hallwayList = imNavListBegin(c, vSc, vPos.idx, hasFocus, false); {
-                        imFor(c); while (imNavListNextItemArray(hallwayList, menus)) {
+                        im.For(c); while (imNavListNextItemArray(hallwayList, menus)) {
                             const menu = menus[hallwayList.i];
                             if (hallwayList.itemSelected) {
                                 s.selectedMenu = menu;
                             }
                             imNavListRowBegin(c, hallwayList, false, false); {
                                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                                    imB(c); imStr(c, menu.name); imBEnd(c);
+                                    imB(c); imdom.Str(c, menu.name); imBEnd(c);
                                 } imLayoutEnd(c);
                             } imNavListRowEnd(c);
-                        } imForEnd(c);
+                        } im.ForEnd(c);
 
                         if (hasFocus) {
                             const vListInput = getNavigableListInput(ctx, vPos.idx, 0, hallwayList.i);
@@ -599,8 +583,8 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                 imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
                 imLayoutBegin(c, COL); imFlex(c); {
-                    if (isFirstishRender(c)) {
-                        elSetStyle(c, "width", "800px");
+                    if (im.isFirstishRender(c)) {
+                        imdom.setStyle(c, "width", "800px");
                     }
 
                     imLayoutBegin(c, ROW); imAlign(c); imJustify(c); {
@@ -611,15 +595,15 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                                 text = s.selectedMenu.desc;
                             }
 
-                            imStr(c, text);
+                            imdom.Str(c, text);
                         } imAppHeadingEnd(c);
                     } imLayoutEnd(c);
 
                     const mainListHasFocus = viewHasFocus && s.mainListHasFocus;
 
-                    imSwitch(c, s.selectedMenu); 
+                    im.Switch(c, s.selectedMenu); 
                     if (s.selectedMenu) s.selectedMenu.imComponent(c, ctx, s, mainListHasFocus);
-                    imSwitchEnd(c);
+                    im.SwitchEnd(c);
 
                     if (mainListHasFocus) {
                         if (

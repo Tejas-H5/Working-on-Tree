@@ -24,8 +24,8 @@ import {
     TreeNote
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
-import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
-import { EL_A, elSetAttr, elSetStyle, imElBegin, imElEnd, imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 
 type UrlListViewUrl = {
@@ -121,46 +121,46 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, viewHasFocus)) {
+    if (im.Memo(c, viewHasFocus)) {
         recomputeUrls(s);
     }
 
     imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "fontWeight", "bold");
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "fontWeight", "bold");
         }
 
-        imLayoutBegin(c, BLOCK); imStr(c, "Nearby URLs"); imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); imdom.Str(c, "Nearby URLs"); imLayoutEnd(c);
     } imLayoutEnd(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
     const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        imFor(c); while (imNavListNextItemArray(list, s.urls)) {
+        im.For(c); while (imNavListNextItemArray(list, s.urls)) {
             renderedAny = true;
             const { i } = list;
             const url = s.urls[i];
 
             imNavListRowBegin(c, list, false, false); {
                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                    imElBegin(c, EL_A); {
-                        if (imMemo(c,url)) {
-                            elSetAttr(c,"href", url.url);
+                    imdom.ElBegin(c, el.A); {
+                        if (im.Memo(c,url)) {
+                            imdom.setAttr(c,"href", url.url);
                         }
 
-                        imStr(c, url.url);
-                    } imElEnd(c, EL_A);
+                        imdom.Str(c, url.url);
+                    } imdom.ElEnd(c, el.A);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);
-        } imForEnd(c);
+        } im.ForEnd(c);
 
-        imKeyedBegin(c, "empty"); {
-            if (imIf(c) && !renderedAny) {
+        im.KeyedBegin(c, "empty"); {
+            if (im.If(c) && !renderedAny) {
                 imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
-                    imStr(c, "No URLs found here.");
+                    imdom.Str(c, "No URLs found here.");
                 } imLayoutEnd(c);
-            } imIfEnd(c);
-        } imKeyedEnd(c);
+            } im.IfEnd(c);
+        } im.KeyedEnd(c);
     } imNavListEnd(c, list);
 }

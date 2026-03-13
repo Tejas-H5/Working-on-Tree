@@ -36,9 +36,9 @@ import {
 import { arrayAt, boundsCheck } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
-import { ImCache, imFor, imForEnd, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
-import { elSetStyle, EV_CHANGE, EV_INPUT, getGlobalEventSystem, imOn, imStr } from "src/utils/im-dom";
-import { isKeyPressedOrRepeated } from "src/utils/key-state";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
+
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -361,10 +361,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 insertBreak(ctx, s);
             }
 
-            const keys = getGlobalEventSystem().keyboard.keys;
+            const keys = imdom.getKeyboard();
 
             // TODO: make axis discoverable
-            const hDelta = getAxisRaw(isKeyPressedOrRepeated(keys, keyboard.leftKey), isKeyPressedOrRepeated(keys, keyboard.rightKey));
+            const hDelta = getAxisRaw(imdom.isKeyPressedOrRepeated(keys, keyboard.leftKey), imdom.isKeyPressedOrRepeated(keys, keyboard.rightKey));
             if (!ctx.handled && hDelta) {
                 ctx.handled = true;
 
@@ -511,7 +511,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     let currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
 
-    if (imMemo(c, filter)) {
+    if (im.Memo(c, filter)) {
         // recompute filtered activities
 
         if (filter) {
@@ -527,7 +527,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         }
     }
 
-    if (imMemo(c, s.filteredActivities)) {
+    if (im.Memo(c, s.filteredActivities)) {
         if (s.filteredActivities) {
             s.activities = s.filteredActivities;
         } else {
@@ -546,7 +546,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         currentActivity = arrayAt(s.activities, s.activityListPositon.idx);
     }
 
-    const viewHasFocusChanged = imMemo(c, viewHasFocus);
+    const viewHasFocusChanged = im.Memo(c, viewHasFocus);
     if (viewHasFocusChanged) {
         if (!viewHasFocus) {
             s.currentFocus = FOCUS_ACTIVITIES_LIST;
@@ -555,21 +555,21 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     // Focus the latest activity or last touched activity if possible
     {
-        const activitiesMutated = imMemo(c, state._activitiesMutationCounter);
+        const activitiesMutated = im.Memo(c, state._activitiesMutationCounter);
         let idx;
         if (state._activitiesTraversalIdx !== -1) {
             idx = state._activitiesTraversalIdx;
         } else {
             idx = state._activitiesLastTouchedIdx;
         }
-        if (activitiesMutated | viewHasFocusChanged | imMemo(c, idx)) {
+        if (activitiesMutated | viewHasFocusChanged | im.Memo(c, idx)) {
             if (!viewHasFocus) {
                 activitiesViewSetIdx(ctx, s, idx, true);
             }
         }
     }
 
-    if (imMemo(c, s.currentViewingDate)) {
+    if (im.Memo(c, s.currentViewingDate)) {
         s._startActivityIdx = getActivitiesForDateStartIdx(s.activities, s.currentViewingDate, s._startActivityIdx);
     }
 
@@ -588,8 +588,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     imLayoutBegin(c, COL); imFlex(c); {
         imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
-            if (isFirstishRender(c)) {
-                elSetStyle(c, "fontWeight", "bold");
+            if (im.isFirstishRender(c)) {
+                imdom.setStyle(c, "fontWeight", "bold");
             }
 
             let text = "[Shift+B] to take a break";
@@ -601,7 +601,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 }
             } 
 
-            imStr(c, text);
+            imdom.Str(c, text);
 
         } imLayoutEnd(c);
 
@@ -613,18 +613,18 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             dateSelectorFocused,
             viewHasFocus && dateSelectorFocused
         ); {
-            if (isFirstishRender(c)) {
-                elSetStyle(c, "fontWeight", "bold");
+            if (im.isFirstishRender(c)) {
+                imdom.setStyle(c, "fontWeight", "bold");
             }
 
             imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
 
                 imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
 
-                if (imIf(c) && dateSelectorFocused && s._canMoveToPrevDay) {
+                if (im.If(c) && dateSelectorFocused && s._canMoveToPrevDay) {
                     // TODO: buttons
-                    imLayoutBegin(c, BLOCK); imStr(c, "<-"); imLayoutEnd(c);
-                } imIfEnd(c);
+                    imLayoutBegin(c, BLOCK); imdom.Str(c, "<-"); imLayoutEnd(c);
+                } im.IfEnd(c);
 
                 imLayoutBegin(c, ROW); {
                     let dateText;
@@ -643,17 +643,17 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                         text = "Activity " + (relIdx + 1) + "/" + numActivities + dateText;
                     }
 
-                    imStr(c, text);
+                    imdom.Str(c, text);
 
-                    if (imIf(c) && filter) {
-                        imStr(c, `[Filtered, ${filter.length} entries]`);
-                    } imIfEnd(c);
+                    if (im.If(c) && filter) {
+                        imdom.Str(c, `[Filtered, ${filter.length} entries]`);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
 
-                if (imIf(c) && dateSelectorFocused && s._canMoveToNextDay) {
+                if (im.If(c) && dateSelectorFocused && s._canMoveToNextDay) {
                     // TODO: buttons
-                    imLayoutBegin(c, BLOCK); imStr(c, "->"); imLayoutEnd(c);
-                } imIfEnd(c);
+                    imLayoutBegin(c, BLOCK); imdom.Str(c, "->"); imLayoutEnd(c);
+                } im.IfEnd(c);
 
                 imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
             } imLayoutEnd(c);
@@ -679,7 +679,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             // We want to accumulate activity durations, and display it once it's large enough
             let totalDuration = 0;
 
-            imFor(c); while (navListNextItemSlice(
+            im.For(c); while (navListNextItemSlice(
                 list, 
                 s._startActivityIdx, s._endActivityIdxEx
             )) {
@@ -690,7 +690,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                 const nextActivity = arrayAt(s.activities, i + 1);
 
-                imKeyedBegin(c, activity); {
+                im.KeyedBegin(c, activity); {
                     const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                     const isEditingTime = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
@@ -711,7 +711,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     imNavListRowBegin(c, list, itemHighlighted, itemSelected); {
                         imLayoutBegin(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
                             imLayoutBegin(c, INLINE_BLOCK); {
-                                if (imIf(c) && isEditingTime) {
+                                if (im.If(c) && isEditingTime) {
                                     const lowerBound = arrayAt(s.activities, i - 1)?.t;
                                     const upperBound = arrayAt(s.activities, i + 1)?.t;
 
@@ -737,32 +737,32 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                     ctx.textAreaToFocus = textArea;
                                     ctx.focusWithAllSelected = true;
                                 } else {
-                                    imIfElse(c);
+                                    im.IfElse(c);
 
-                                    imLayoutBegin(c, BLOCK); imStr(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
-                                } imIfEnd(c);
+                                    imLayoutBegin(c, BLOCK); imdom.Str(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
+                                } im.IfEnd(c);
                             } imLayoutEnd(c);
 
                             imLayoutBegin(c, BLOCK); imSize(c, 5, PX, 0, NA); imLayoutEnd(c);
 
                             let text = getActivityText(state, activity);
                             imLayoutBegin(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
-                                if (imMemo(c, isBreakActivity)) {
-                                    elSetStyle(c, "padding", isBreakActivity ? "40px" : "0");
+                                if (im.Memo(c, isBreakActivity)) {
+                                    imdom.setStyle(c, "padding", isBreakActivity ? "40px" : "0");
                                 }
 
-                                const isEditingActivityChanged = imMemo(c, isEditingActivity);
-                                if (imIf(c) && !isEditingActivity) {
-                                    imLayoutBegin(c, BLOCK); imStr(c, text); imLayoutEnd(c);
+                                const isEditingActivityChanged = im.Memo(c, isEditingActivity);
+                                if (im.If(c) && !isEditingActivity) {
+                                    imLayoutBegin(c, BLOCK); imdom.Str(c, text); imLayoutEnd(c);
                                 } else {
-                                    imIfElse(c);
+                                    im.IfElse(c);
 
                                     const [, textArea] = imTextAreaBegin(c, {
                                         value: activity.breakInfo ?? "",
                                         placeholder: "Enter break info",
                                     }); {
-                                        const input = imOn(c, EV_INPUT);
-                                        const change = imOn(c, EV_CHANGE);
+                                        const input = imdom.On(c, ev.INPUT);
+                                        const change = imdom.On(c, ev.CHANGE);
 
                                         if (input || change) {
                                             activity.breakInfo = textArea.value;
@@ -778,29 +778,29 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                         ctx.textAreaToFocus = textArea;
                                         ctx.focusWithAllSelected = true;
                                     } imTextAreaEnd(c);
-                                } imIfEnd(c);
+                                } im.IfEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
                     } imNavListRowEnd(c);
 
                     const activityDuration = getActivityDurationMs(activity, nextActivity);
                     totalDuration += activityDuration;
-                    if (imIf(c) && totalDuration > ONE_MINUTE * 5) {
+                    if (im.If(c) && totalDuration > ONE_MINUTE * 5) {
                         imLayoutBegin(c, ROW); imAlign(c); imJustify(c); {
-                            imStr(c, formatDuration(totalDuration));
+                            imdom.Str(c, formatDuration(totalDuration));
                             totalDuration = 0
                         } imLayoutEnd(c);
-                    } imIfEnd(c);
-                } imKeyedEnd(c);
-            } imForEnd(c);
+                    } im.IfEnd(c);
+                } im.KeyedEnd(c);
+            } im.ForEnd(c);
 
-            imKeyedBegin(c, "footer"); {
-                if (imIf(c) && !hasActivities) {
+            im.KeyedBegin(c, "footer"); {
+                if (im.If(c) && !hasActivities) {
                     imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
-                        imStr(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");
+                        imdom.Str(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");
                     } imLayoutEnd(c);
-                } imIfEnd(c);
-            } imKeyedEnd(c);
+                } im.IfEnd(c);
+            } im.KeyedEnd(c);
         } imNavListEnd(c, list);
     } imLayoutEnd(c);
 }

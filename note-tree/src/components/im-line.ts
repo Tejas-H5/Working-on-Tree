@@ -1,8 +1,8 @@
 import { cssVarsApp } from "src/app-styling";
 import { BLOCK, imLayoutBegin, imLayoutEnd, imSize, NA, PERCENT, PX } from "src/components/core/layout";
 import { newCssBuilder } from "src/utils/cssb";
-import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
-import { elSetClass, elSetStyle } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 
 const cssb = newCssBuilder();
 const cnHLine = cssb.cn("hline", [
@@ -26,13 +26,13 @@ export function imLine(
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "backgroundColor", cssVarsApp.fgColor);
-            elSetClass(c, cnHLine);
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
+            imdom.setClass(c, cnHLine);
         }
 
-        if (imMemo(c, visible)) {
-            elSetStyle(c, "opacity", "" + (visible ? 1 : 0));
+        if (im.Memo(c, visible)) {
+            imdom.setStyle(c, "opacity", "" + (visible ? 1 : 0));
         }
     } imLayoutEnd(c);
 }

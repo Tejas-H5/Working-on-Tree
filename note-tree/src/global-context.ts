@@ -1,4 +1,3 @@
-import { getNormalizedKey, isKeyHeld, isKeyPressedOrRepeated, isKeyRepeated, Key } from "src/utils/key-state";
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
@@ -11,7 +10,7 @@ import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, get
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { getGlobalEventSystem } from "./utils/im-dom";
+import { imdom, NormalizedKey } from "./utils/im-js";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
@@ -122,7 +121,7 @@ export function newDiscoverableCommands(): DiscoverableCommands {
 
 
 export type DiscoverableCommand = {
-    key: Key | null;
+    key: NormalizedKey | null;
     desc: string;
     flags: number;
 
@@ -193,7 +192,7 @@ export const ANY_MODIFIERS = 1 << 6;
 // TODO: maybe SHIFT and BYPASS_TEXT_AREA at the same time should throw?
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
-    key: Key,
+    key: NormalizedKey,
     actionDescription: string,
     flags = 0,
 ) {
@@ -209,19 +208,19 @@ export function hasDiscoverableCommand(
 }
 
 function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
-    const keys = getGlobalEventSystem().keyboard.keys;
+    const keys = imdom.getKeyboard();
 
     if (ctx.handled) return false;
 
     if (!(command.flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) return false;
 
-    if (!command.key || !isKeyPressedOrRepeated(keys, command.key)) return false;
-    if (!(command.flags & REPEAT) && isKeyRepeated(keys, command.key)) return false;
+    if (!command.key || !imdom.isKeyPressedOrRepeated(keys, command.key)) return false;
+    if (!(command.flags & REPEAT) && imdom.isKeyRepeated(keys, command.key)) return false;
 
     if (!(command.flags & ANY_MODIFIERS)) {
-        if ((command.flags & ALT)   && !isKeyHeld(keys, ctx.keyboard.altKey))   return false;
-        if ((command.flags & CTRL)  && !isKeyHeld(keys, ctx.keyboard.ctrlKey))  return false;
-        if ((command.flags & SHIFT) && !isKeyHeld(keys, ctx.keyboard.shiftKey)) return false;
+        if ((command.flags & ALT)   && !imdom.isKeyHeld(keys, ctx.keyboard.altKey))   return false;
+        if ((command.flags & CTRL)  && !imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey))  return false;
+        if ((command.flags & SHIFT) && !imdom.isKeyHeld(keys, ctx.keyboard.shiftKey)) return false;
     }
 
     return true;
@@ -229,7 +228,7 @@ function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
 
 function pushDiscoverableCommand(
     ctx: GlobalContext,
-    key: Key,
+    key: NormalizedKey,
     actionDescription: string,
     flags: number,
 ): DiscoverableCommand | null {
@@ -261,12 +260,12 @@ function pushDiscoverableCommand(
     command.flags  = flags;
 
     if (!(flags & ANY_MODIFIERS)) {
-        const keys = getGlobalEventSystem().keyboard.keys;
+        const keys = imdom.getKeyboard();
 
         const currentlyHeld = (
-            (isKeyHeld(keys, ctx.keyboard.ctrlKey) ? CTRL : 0) |
-            (isKeyHeld(keys, ctx.keyboard.shiftKey) ? SHIFT : 0) |
-            (isKeyHeld(keys, ctx.keyboard.altKey) ? ALT : 0)
+            (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) ? CTRL : 0) |
+            (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) ? SHIFT : 0) |
+            (imdom.isKeyHeld(keys, ctx.keyboard.altKey) ? ALT : 0)
         );
 
         const commandWants = (CTRL | SHIFT | ALT) & flags;
@@ -294,100 +293,100 @@ function pushDiscoverableCommand(
 
 
 type KeyboardState = {
-    upKey:       Key;
-    downKey:     Key;
-    leftKey:     Key;
-    rightKey:    Key;
-    pageDownKey: Key;
-    pageUpKey:   Key;
-    homeKey:     Key;
-    endKey:      Key;
-    spaceKey:    Key;
-    slashKey:    Key;
-    commaKey:    Key;
+    upKey:       NormalizedKey;
+    downKey:     NormalizedKey;
+    leftKey:     NormalizedKey;
+    rightKey:    NormalizedKey;
+    pageDownKey: NormalizedKey;
+    pageUpKey:   NormalizedKey;
+    homeKey:     NormalizedKey;
+    endKey:      NormalizedKey;
+    spaceKey:    NormalizedKey;
+    slashKey:    NormalizedKey;
+    commaKey:    NormalizedKey;
 
-    aKey: Key;
-    sKey: Key;
-    dKey: Key;
-    bKey: Key;
-    tKey: Key;
-    fKey: Key;
-    mKey: Key;
-    hKey: Key;
-    gKey: Key;
-    wKey: Key;
+    aKey: NormalizedKey;
+    sKey: NormalizedKey;
+    dKey: NormalizedKey;
+    bKey: NormalizedKey;
+    tKey: NormalizedKey;
+    fKey: NormalizedKey;
+    mKey: NormalizedKey;
+    hKey: NormalizedKey;
+    gKey: NormalizedKey;
+    wKey: NormalizedKey;
 
-    enterKey:  Key;
-    escapeKey: Key;
+    enterKey:  NormalizedKey;
+    escapeKey: NormalizedKey;
 
-    ctrlKey:  Key;
-    shiftKey: Key;
-    altKey:   Key;
-    tabKey:   Key;
+    ctrlKey:  NormalizedKey;
+    shiftKey: NormalizedKey;
+    altKey:   NormalizedKey;
+    tabKey:   NormalizedKey;
 
-    num0Key: Key;
-    num1Key: Key;
-    num2Key: Key;
-    num3Key: Key;
-    num4Key: Key;
-    num5Key: Key;
-    num6Key: Key;
-    num7Key: Key;
-    num8Key: Key;
-    num9Key: Key;
+    num0Key: NormalizedKey;
+    num1Key: NormalizedKey;
+    num2Key: NormalizedKey;
+    num3Key: NormalizedKey;
+    num4Key: NormalizedKey;
+    num5Key: NormalizedKey;
+    num6Key: NormalizedKey;
+    num7Key: NormalizedKey;
+    num8Key: NormalizedKey;
+    num9Key: NormalizedKey;
 };
 
 
 function newKeyboardState(): KeyboardState {
     const state: KeyboardState = {
         // CONSIDER: hjkl to move around, as well as arrows!
-        upKey:       getNormalizedKey("ArrowUp"),
-        downKey:     getNormalizedKey("ArrowDown"),
-        leftKey:     getNormalizedKey("ArrowLeft"),
-        rightKey:    getNormalizedKey("ArrowRight"),
-        pageDownKey: getNormalizedKey("PageDown"),
-        pageUpKey:   getNormalizedKey("PageUp"),
-        homeKey:     getNormalizedKey("Home"),
-        endKey:      getNormalizedKey("End"),
-        spaceKey:    getNormalizedKey(" "),
-        slashKey:    getNormalizedKey("?"),
-        commaKey:    getNormalizedKey(","),
+        upKey:       imdom.getNormalizedKey("ArrowUp"),
+        downKey:     imdom.getNormalizedKey("ArrowDown"),
+        leftKey:     imdom.getNormalizedKey("ArrowLeft"),
+        rightKey:    imdom.getNormalizedKey("ArrowRight"),
+        pageDownKey: imdom.getNormalizedKey("PageDown"),
+        pageUpKey:   imdom.getNormalizedKey("PageUp"),
+        homeKey:     imdom.getNormalizedKey("Home"),
+        endKey:      imdom.getNormalizedKey("End"),
+        spaceKey:    imdom.getNormalizedKey(" "),
+        slashKey:    imdom.getNormalizedKey("?"),
+        commaKey:    imdom.getNormalizedKey(","),
 
-        aKey: getNormalizedKey("A"),
-        sKey: getNormalizedKey("S"),
-        dKey: getNormalizedKey("D"),
-        bKey: getNormalizedKey("B"),
-        tKey: getNormalizedKey("T"),
-        fKey: getNormalizedKey("F"),
-        mKey: getNormalizedKey("M"),
-        hKey: getNormalizedKey("H"),
-        gKey: getNormalizedKey("G"),
-        wKey: getNormalizedKey("W"),
+        aKey: imdom.getNormalizedKey("A"),
+        sKey: imdom.getNormalizedKey("S"),
+        dKey: imdom.getNormalizedKey("D"),
+        bKey: imdom.getNormalizedKey("B"),
+        tKey: imdom.getNormalizedKey("T"),
+        fKey: imdom.getNormalizedKey("F"),
+        mKey: imdom.getNormalizedKey("M"),
+        hKey: imdom.getNormalizedKey("H"),
+        gKey: imdom.getNormalizedKey("G"),
+        wKey: imdom.getNormalizedKey("W"),
 
-        enterKey:  getNormalizedKey("Enter"),
-        escapeKey: getNormalizedKey("Escape"),
+        enterKey:  imdom.getNormalizedKey("Enter"),
+        escapeKey: imdom.getNormalizedKey("Escape"),
 
-        ctrlKey:  getNormalizedKey("Modifier"),
-        shiftKey: getNormalizedKey("Shift"),
-        altKey:   getNormalizedKey("Alt"),
-        tabKey:   getNormalizedKey("Tab"),
+        ctrlKey:  imdom.getNormalizedKey("Modifier"),
+        shiftKey: imdom.getNormalizedKey("Shift"),
+        altKey:   imdom.getNormalizedKey("Alt"),
+        tabKey:   imdom.getNormalizedKey("Tab"),
 
-        num0Key: getNormalizedKey("0"),
-        num1Key: getNormalizedKey("1"),
-        num2Key: getNormalizedKey("2"),
-        num3Key: getNormalizedKey("3"),
-        num4Key: getNormalizedKey("4"),
-        num5Key: getNormalizedKey("5"),
-        num6Key: getNormalizedKey("6"),
-        num7Key: getNormalizedKey("7"),
-        num8Key: getNormalizedKey("8"),
-        num9Key: getNormalizedKey("9"),
+        num0Key: imdom.getNormalizedKey("0"),
+        num1Key: imdom.getNormalizedKey("1"),
+        num2Key: imdom.getNormalizedKey("2"),
+        num3Key: imdom.getNormalizedKey("3"),
+        num4Key: imdom.getNormalizedKey("4"),
+        num5Key: imdom.getNormalizedKey("5"),
+        num6Key: imdom.getNormalizedKey("6"),
+        num7Key: imdom.getNormalizedKey("7"),
+        num8Key: imdom.getNormalizedKey("8"),
+        num9Key: imdom.getNormalizedKey("9"),
     };
 
     return state;
 }
 
-export function getKeyStringRepr(key: Key) {
+export function getKeyStringRepr(key: NormalizedKey) {
     switch (key) {
         case "ArrowUp":    return "↑";
         case "ArrowDown":  return "↓";
@@ -450,7 +449,7 @@ export function handleImKeysInput(ctx: GlobalContext) {
 }
 
 export function preventImKeysDefault() {
-    const { keyDown, keyUp } = getGlobalEventSystem().keyboard;
+    const { keyDown, keyUp } = imdom.getKeyboard();
     if (keyDown) keyDown.preventDefault();
     if (keyUp)   keyUp.preventDefault();
 }

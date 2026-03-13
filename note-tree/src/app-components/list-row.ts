@@ -1,7 +1,7 @@
 import { cssVarsApp } from "src/app-styling";
 import { BLOCK, DisplayType, imLayoutBegin, imLayoutEnd, imPadding, imSize, NA, PX, ROW, SizeUnits, TABLE_CELL, TABLE_ROW } from "src/components/core/layout";
-import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
-import { elSetStyle } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 
 type RowStatusInstance = number & { __rowStatus: void; };
 
@@ -62,9 +62,9 @@ export function imListTableRowBegin(
     const root = imLayoutBegin(c, TABLE_ROW); {
         imListCursorBg(c, status);
 
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "borderLeft", "10px solid " + getCursorBgColourForStatus(status));
-            elSetStyle(c, "paddingRight", "10px");
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "borderLeft", "10px solid " + getCursorBgColourForStatus(status));
+            imdom.setStyle(c, "paddingRight", "10px");
         }
 
     } // imLayoutEnd(c);
@@ -87,13 +87,13 @@ export function imTableCellFlexBegin(
     colWidth: number = 0, units: SizeUnits = NA,
 ) {
     imLayoutBegin(c, TABLE_CELL); imSize(c, colWidth, units, 0, NA); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "verticalAlign", "middle");
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "verticalAlign", "middle");
         }
 
         imLayoutBegin(c, type); {
-            if (isFirstishRender(c)) {
-                elSetStyle(c, "height", "100%");
+            if (im.isFirstishRender(c)) {
+                imdom.setStyle(c, "height", "100%");
             }
         } // imLayoutEnd(c);
     } // imLayoutEnd(c);
@@ -135,9 +135,9 @@ export function imListRowEnd(c: ImCache) {
 
 
 export function imListCursorBg(c: ImCache, status: RowStatus) {
-    const statusChanged = imMemo(c, status);
+    const statusChanged = im.Memo(c, status);
     if (statusChanged) {
-        elSetStyle(c, "backgroundColor", getBg(status));
+        imdom.setStyle(c, "backgroundColor", getBg(status));
     }
 }
 
@@ -149,9 +149,9 @@ function getCursorBgColourForStatus(status: RowStatus) {
 }
 
 export function imListCursorColor(c: ImCache, status: RowStatus) {
-    const statusChanged = imMemo(c, status);
+    const statusChanged = im.Memo(c, status);
     if (statusChanged) {
-        elSetStyle(c, "backgroundColor", getCursorBgColourForStatus(status));
+        imdom.setStyle(c, "backgroundColor", getCursorBgColourForStatus(status));
     }
 }
 
@@ -162,8 +162,8 @@ export function imEndListRowNoPadding(c: ImCache) {
 }
 
 export function imListRowCellStyle(c: ImCache) {
-    if (isFirstishRender(c)) {
-        elSetStyle(c, "minHeight", "1em");
+    if (im.isFirstishRender(c)) {
+        imdom.setStyle(c, "minHeight", "1em");
     }
     imPadding(c, 3, PX, 8, PX, 3, PX, 3, PX);
 }

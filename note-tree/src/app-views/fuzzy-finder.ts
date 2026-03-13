@@ -31,8 +31,8 @@ import {
 } from "src/state";
 import { truncate } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imMemo, imSet, inlineTypeId, isFirstishRender } from "src/utils/im-core";
-import { elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, imOn, imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 
 
 const SCOPE_EVERTHING = 0;
@@ -261,13 +261,13 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
 
     }
 
-    const viewHasFocusChanged = imMemo(c, viewHasFocus);
+    const viewHasFocusChanged = im.Memo(c, viewHasFocus);
     if (viewHasFocusChanged && viewHasFocus) {
         finderState.scope = SCOPE_EVERTHING;
     }
 
-    const queryChanged = imMemo(c, finderState.query);
-    const scopeChanged = imMemo(c, finderState.scope);
+    const queryChanged = im.Memo(c, finderState.query);
+    const scopeChanged = im.Memo(c, finderState.scope);
     let t0 = 0;
     if (queryChanged || scopeChanged) {
         t0 = performance.now();
@@ -281,12 +281,12 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
     imLayoutBegin(c, COL); imFlex(c); {
 
         imLayoutBegin(c, ROW); imListRowCellStyle(c); imJustify(c); {
-            if (isFirstishRender(c)) {
-                elSetStyle(c, "fontWeight", "bold");
+            if (im.isFirstishRender(c)) {
+                imdom.setStyle(c, "fontWeight", "bold");
             }
 
             let scope = scopeToString(finderState.scope);
-            imStr(c, `Finder [${scope}]`);
+            imdom.Str(c, `Finder [${scope}]`);
         } imLayoutEnd(c);
 
         imListRowBegin(c, viewHasFocus, viewHasFocus, true); {
@@ -294,8 +294,8 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                 const [, textArea] = imTextAreaBegin(c, {
                     value: finderState.query,
                 }); {
-                    const input = imOn(c, EV_INPUT);
-                    const change = imOn(c, EV_CHANGE);
+                    const input = imdom.On(c, ev.INPUT);
+                    const change = imdom.On(c, ev.CHANGE);
 
                     if (input || change) {
                         finderState.query = textArea.value;
@@ -310,11 +310,11 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             } imLayoutEnd(c);
         } imListRowEnd(c);
 
-        if (imIf(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
+        if (im.If(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
             imLayoutBegin(c, ROW); imListRowCellStyle(c); {
-                imStr(c, `Found 0 exact matches, fell back to a fuzzy search`);
+                imdom.Str(c, `Found 0 exact matches, fell back to a fuzzy search`);
             } imLayoutEnd(c);
-        } imIfEnd(c);
+        } im.IfEnd(c);
 
         const list = imNavListBegin(
             c,
@@ -323,23 +323,23 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             viewHasFocus
         ); {
             const matches = s.fuzzyFindState.matches;
-            imFor(c); while (imNavListNextItemArray(list, matches)) {
+            im.For(c); while (imNavListNextItemArray(list, matches)) {
                 const { i } = list;
                 const item = matches[i];
 
                 imNavListRowBegin(c, list, false, false); {
                     imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
 
-                        if (imIf(c) && item.ranges) {
-                            let diffState; diffState = imGet(c, inlineTypeId(imFuzzyFinder));
-                            if (!diffState) diffState = imSet<{
+                        if (im.If(c) && item.ranges) {
+                            let diffState; diffState = im.GetInline(c, imFuzzyFinder);
+                            if (!diffState) diffState = im.Set<{
                                 text: string;
                                 ranges: FuzzyFindRange[]
                             }>(c, {
                                 text: "",
                                 ranges: []
                             });
-                            if (imMemo(c, item)) {
+                            if (im.Memo(c, item)) {
                                 let text = item.note.data.text;
                                 let ranges = item.ranges;
 
@@ -383,7 +383,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                             {
                                 let lastStart = 0;
                                 const { text, ranges } = diffState;
-                                imFor(c); for (let i = 0; i < ranges.length; i++) {
+                                im.For(c); for (let i = 0; i < ranges.length; i++) {
                                     const [start, nextLastStart] = ranges[i];
 
                                     const beforeHighlighted = text.substring(lastStart, start);
@@ -392,39 +392,39 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                                     lastStart = nextLastStart;
 
                                     imLayoutBegin(c, INLINE); {
-                                        if (isFirstishRender(c)) {
-                                            elSetClass(c, cnApp.defocusedText); 
+                                        if (im.isFirstishRender(c)) {
+                                            imdom.setClass(c, cnApp.defocusedText); 
                                         }
 
-                                        imStr(c, beforeHighlighted); 
+                                        imdom.Str(c, beforeHighlighted); 
                                     } imLayoutEnd(c);
-                                    imLayoutBegin(c, INLINE); imStr(c, highlighted); imLayoutEnd(c);
-                                } imForEnd(c);
+                                    imLayoutBegin(c, INLINE); imdom.Str(c, highlighted); imLayoutEnd(c);
+                                } im.ForEnd(c);
 
-                                if (imIf(c) && lastStart !== text.length) {
+                                if (im.If(c) && lastStart !== text.length) {
                                     imLayoutBegin(c, INLINE); {
-                                        if (isFirstishRender(c)) {
-                                            elSetClass(c, cnApp.defocusedText);
+                                        if (im.isFirstishRender(c)) {
+                                            imdom.setClass(c, cnApp.defocusedText);
                                         }
 
-                                        imStr(c, text.substring(lastStart)); 
+                                        imdom.Str(c, text.substring(lastStart)); 
                                     } imLayoutEnd(c);
-                                } imIfEnd(c);
+                                } im.IfEnd(c);
                             }
                         } else {
-                            imIfElse(c);
-                            imLayoutBegin(c, INLINE); imStr(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
-                        } imIfEnd(c);
+                            im.IfElse(c);
+                            imLayoutBegin(c, INLINE); imdom.Str(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
+                        } im.IfEnd(c);
                     } imLayoutEnd(c);
                 } imNavListRowEnd(c);
-            } imForEnd(c);
+            } im.ForEnd(c);
         } imNavListEnd(c, list);
 
         imLayoutBegin(c, ROW); imJustify(c); {
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
-            imStr(c, `Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
+            imdom.Str(c, `Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
         } imLayoutEnd(c);
     } imLayoutEnd(c);
 

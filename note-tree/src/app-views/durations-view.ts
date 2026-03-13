@@ -59,8 +59,8 @@ import {
 import { arrayAt } from "src/utils/array-utils";
 import { assert, mustGetDefined } from "src/utils/assert";
 import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours, isSameDate } from "src/utils/datetime";
-import { ImCache, imFor, imForEnd, imMemo } from "src/utils/im-core";
-import { imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 
 type TaskBlockInfo = {
     // null means it's a break
@@ -326,8 +326,8 @@ export function imDurationsView(
         handleKeyboardInput(ctx, s);
     }
 
-    const focusChanged = imMemo(c, viewHasFocus);
-    const activitiesChanged = imMemo(c, state._activitiesMutationCounter);
+    const focusChanged = im.Memo(c, viewHasFocus);
+    const activitiesChanged = im.Memo(c, state._activitiesMutationCounter);
 
     if (focusChanged && viewHasFocus) {
         s.noteJumpedFromId = state.currentNoteId;
@@ -369,10 +369,10 @@ export function imDurationsView(
 
                         imLayoutBegin(c, BLOCK); {
                             imB(c); {
-                                imStr(c, "Duration Timesheet - ");
-                                imStr(c, formatDate(s.activitiesFrom, true));
-                                imStr(c, " to ");
-                                imStr(c, formatDate(s.activitiesTo, true));
+                                imdom.Str(c, "Duration Timesheet - ");
+                                imdom.Str(c, formatDate(s.activitiesFrom, true));
+                                imdom.Str(c, " to ");
+                                imdom.Str(c, formatDate(s.activitiesTo, true));
                             } imBEnd(c);
                         } imLayoutEnd(c);
 
@@ -380,7 +380,7 @@ export function imDurationsView(
                     } imTableCellFlexEnd(c);
 
 
-                    imFor(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
+                    im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
                         imTableCellFlexBegin(c, COL, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
                             const colSelectedIndividual = s.tableColPos.idx === colIdx;
                             const colSelected = colSelectedIndividual || allColsSelected;
@@ -399,22 +399,22 @@ export function imDurationsView(
 
                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                 let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
-                                imB(c).root; imStr(c, str); imBEnd(c);
+                                imB(c).root; imdom.Str(c, str); imBEnd(c);
                             } imLayoutEnd(c);
                         } imTableCellFlexEnd(c);
-                    } imForEnd(c);
+                    } im.ForEnd(c);
                 } imListTableRowEnd(c);
 
                 imListTableRowBegin(c, false, false, false); {
                     imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
-                        imStr(c, "Total");
+                        imdom.Str(c, "Total");
                     } imTableCellFlexEnd(c);
 
                     // imLine(c, LINE_VERTICAL, 1);
 
                     const numDays = getNumDays(s);
 
-                    imFor(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
+                    im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
                         imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
                             const colSelectedIndividual = s.tableColPos.idx === colIdx;
                             const colSelected = colSelectedIndividual || allColsSelected;
@@ -426,10 +426,10 @@ export function imDurationsView(
 
                             imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                                 const totalMs = s.totals[colIdx].time;
-                                imStr(c, formatDurationAsHours(totalMs));
+                                imdom.Str(c, formatDurationAsHours(totalMs));
                             } imLayoutEnd(c);
                         } imTableCellFlexEnd(c);
-                    } imForEnd(c);
+                    } im.ForEnd(c);
                 } imListTableRowEnd(c);
             } imLayoutEnd(c);
         } imLayoutEnd(c);
@@ -439,7 +439,7 @@ export function imDurationsView(
         const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imAlign(c, STRETCH); {
             imLayoutBegin(c, TABLE); {
 
-                imFor(c); while (imNavListNextItemArray(list, s.durations)) {
+                im.For(c); while (imNavListNextItemArray(list, s.durations)) {
                     const { i: rowIdx } = list;
                     const block = s.durations[rowIdx];
 
@@ -463,11 +463,11 @@ export function imDurationsView(
                                     getRowStatus(rowSelected, rowSelected, viewHasFocus && selected),
                                 );
 
-                                imStr(c, block.name);
+                                imdom.Str(c, block.name);
                             } imLayoutEnd(c);
                         } imTableCellFlexEnd(c);
 
-                        imFor(c); for (let colIdx = 0; colIdx < block.slots.length; colIdx++) {
+                        im.For(c); for (let colIdx = 0; colIdx < block.slots.length; colIdx++) {
                             const slot = block.slots[colIdx];
 
                             const colSelectedIndividual = s.tableColPos.idx === colIdx;
@@ -481,15 +481,15 @@ export function imDurationsView(
                                     getRowStatus(rowSelected || colSelected, rowSelected || colSelected, viewHasFocus && cellSelected),
                                 );
 
-                                imStr(c, formatDurationAsHours(slot.time));
+                                imdom.Str(c, formatDurationAsHours(slot.time));
                             } imTableCellFlexEnd(c);
-                        } imForEnd(c);
+                        } im.ForEnd(c);
                     } imListTableRowEnd(c);
 
                     if (rowSelectedIndividual && list.scrollContainer) {
                         scrollToItem(c, list.scrollContainer, root);
                     }
-                } imForEnd(c);
+                } im.ForEnd(c);
             } imLayoutEnd(c);
         } imNavListEnd(c, list);
     } imLayoutEnd(c);

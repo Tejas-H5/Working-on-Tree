@@ -1,12 +1,10 @@
-import { getGlobalEventSystem } from "src/utils/im-dom";
-import { isKeyPressedOrRepeated } from "src/utils/key-state";
+import { im, ImCache, imdom, ValidKey } from "src/utils/im-js";
 import { COL, imLayoutEnd, ROW } from "../components/core/layout";
 import { imScrollContainerBegin, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { getWrappedIdx } from "../utils/array-utils";
 import { assert } from "../utils/assert";
 import { isEditingTextSomewhereInDocument } from "../utils/dom-utils";
-import { ImCache, imGet, imSet, ValidKey } from "../utils/im-core";
 import { imListRowBegin, imListRowEnd } from "./list-row";
 
 
@@ -74,13 +72,13 @@ export function getNavigableListInput(
         if (hasDiscoverableCommand(ctx, keyboard.rightKey, "Right", hdcFlags)) newIdx = oldIdx + 1;
     }
 
-    const keys = getGlobalEventSystem().keyboard.keys;
-    if (isKeyPressedOrRepeated(keys, keyboard.pageUpKey)) newIdx = oldIdx - 10;
-    if (isKeyPressedOrRepeated(keys, keyboard.pageDownKey)) newIdx = oldIdx + 10;
+    const keys = imdom.getKeyboard();
+    if (imdom.isKeyPressedOrRepeated(keys, keyboard.pageUpKey)) newIdx = oldIdx - 10;
+    if (imdom.isKeyPressedOrRepeated(keys, keyboard.pageDownKey)) newIdx = oldIdx + 10;
     // if I'm editing text, I want to use these for horizontal movements instead of list movements.
     if (!isEditingTextSomewhereInDocument()) {
-        if (isKeyPressedOrRepeated(keys, keyboard.homeKey)) newIdx = lo;
-        if (isKeyPressedOrRepeated(keys, keyboard.endKey)) newIdx = hi - 1;
+        if (imdom.isKeyPressedOrRepeated(keys, keyboard.homeKey)) newIdx = lo;
+        if (imdom.isKeyPressedOrRepeated(keys, keyboard.endKey)) newIdx = hi - 1;
     }
 
     if (newIdx === undefined) return null;
@@ -168,8 +166,8 @@ export function imNavListBegin(
     isEditing: boolean = false,
     row = false,
 ): NavigableListState {
-    let s = imGet(c, newNavigabeListState);
-    if (!s) s = imSet(c, newNavigabeListState());
+    let s = im.Get(c, newNavigabeListState);
+    if (!s) s = im.Set(c, newNavigabeListState());
 
     if (
         s.currentListIdx !== listPositionIdx || 
@@ -265,8 +263,8 @@ export function newFocusRef(): FocusRef {
 }
 
 export function imViewsList(c: ImCache, focusRef: FocusRef): ViewsList {
-    let s = imGet(c, newViewsList);
-    if (!s) s = imSet(c, newViewsList());
+    let s = im.Get(c, newViewsList);
+    if (!s) s = im.Set(c, newViewsList());
 
     s.idx = clampedListIdx(s.idx, s.imLength);
 

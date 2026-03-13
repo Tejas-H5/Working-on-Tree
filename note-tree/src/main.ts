@@ -4,42 +4,8 @@ import { imNoteTraversal } from "src/app-views/fast-travel";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
 import { imUrlViewer } from "src/app-views/url-viewer";
-import {
-    getDeltaTimeSeconds,
-    ImCache,
-    imCacheBegin,
-    imCacheEnd,
-    imFor,
-    imForEnd,
-    imGet,
-    imIf,
-    imIfElse,
-    imIfEnd,
-    imMemo,
-    imSet,
-    imSwitch,
-    imSwitchEnd,
-    imTry,
-    imTryCatch,
-    imTryEnd,
-    inlineTypeId,
-    isFirstishRender,
-    MEMO_CHANGED,
-    USE_REQUEST_ANIMATION_FRAME
-} from "src/utils/im-core";
-import {
-    elHasMouseClick,
-    elHasMouseOver,
-    elHasMousePress,
-    elSetStyle,
-    getGlobalEventSystem,
-    imDomRootBegin,
-    imDomRootEnd,
-    imGlobalEventSystemBegin,
-    imGlobalEventSystemEnd,
-    imStr,
-    imStrFmt
-} from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, NormalizedKey, } from "src/utils/im-js";
+
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
 import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components/navigable-list";
@@ -116,7 +82,7 @@ import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
 import { validateSchemas } from "./schema";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
-import { isKeyHeld, isKeyPressed, Key } from "./utils/key-state";
+
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
@@ -127,36 +93,36 @@ function getIcon(theme: AppTheme) {
 const IS_RUNNING_FROM_FILE = window.location.protocol.startsWith("file");
 
 function imMainInner(c: ImCache) {
-    let fpsCounter = imGet(c, newFpsCounterState);
-    if (!fpsCounter) fpsCounter = imSet(c, newFpsCounterState());
+    let fpsCounter = im.Get(c, newFpsCounterState);
+    if (!fpsCounter) fpsCounter = im.Set(c, newFpsCounterState());
 
     fpsMarkRenderingStart(fpsCounter); 
 
-    let ctx = imGet(c, newGlobalContext);
-    if (!ctx) ctx = imSet(c, newGlobalContext());
+    let ctx = im.Get(c, newGlobalContext);
+    if (!ctx) ctx = im.Set(c, newGlobalContext());
 
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
-    if (imMemo(c, state.currentTheme)) setTheme(state.currentTheme);
+    if (im.Memo(c, state.currentTheme)) setTheme(state.currentTheme);
 
-    if (imMemo(c, state.settings.tabStopSize)) {
-        elSetStyle(c, "tabSize", "" + state.settings.tabStopSize);
+    if (im.Memo(c, state.settings.tabStopSize)) {
+        imdom.setStyle(c, "tabSize", "" + state.settings.tabStopSize);
     }
 
     ctx.now = new Date();
 
-    let errorState; errorState = imGet(c, inlineTypeId(imTry));
+    let errorState; errorState = im.GetInline(c, im.Try);
     if (!errorState) {
-        errorState = imSet(c, {
+        errorState = im.Set(c, {
             error: null as any,
             framesSinceError: 0,
             irrecoverableError: null as any,
         })
     }
 
-    if (!imGet(c, inlineTypeId(imGet))) {
-        imSet(c, true);
+    if (!im.GetInline(c, im.Get)) {
+        im.Set(c, true);
 
         // some side-effects
 
@@ -188,16 +154,16 @@ function imMainInner(c: ImCache) {
         autoInsertBreakIfRequired(state);
     }
 
-    const tryState = imTry(c); try {
-        if (imIf(c) && !errorState.error && !errorState.irrecoverableError) {
+    const tryState = im.Try(c); try {
+        if (im.If(c) && !errorState.error && !errorState.irrecoverableError) {
             handleImKeysInput(ctx);
 
-            if (imMemo(c, state._notesMutationCounter) === MEMO_CHANGED) {
+            if (im.Memo(c, state._notesMutationCounter) === im.MEMO_CHANGED) {
                 if (state._notesMutationCounter !== 0) {
                     debouncedSave(ctx, state, "ImMain memoizer - notes mutation");
                 }
             }
-            if (imMemo(c, state._activitiesMutationCounter) === MEMO_CHANGED) {
+            if (im.Memo(c, state._activitiesMutationCounter) === im.MEMO_CHANGED) {
                 if (state._activitiesMutationCounter !== 0) {
                     debouncedSave(ctx, state, "ImMain memoizer - activities mutation");
                 }
@@ -206,38 +172,38 @@ function imMainInner(c: ImCache) {
             {
                 imLayoutBegin(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
                     const error = state.criticalSavingError || state._criticalLoadingError;
-                    if (imIf(c) && error) {
+                    if (im.If(c) && error) {
                         imLayoutBegin(c, BLOCK); {
-                            if (isFirstishRender(c)) {
-                                elSetStyle(c, "color", "white");
-                                elSetStyle(c, "backgroundColor", "red");
+                            if (im.isFirstishRender(c)) {
+                                imdom.setStyle(c, "color", "white");
+                                imdom.setStyle(c, "backgroundColor", "red");
                             }
 
-                            imStr(c, error);
+                            imdom.Str(c, error);
                         } imLayoutEnd(c);
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
 
-                    let displayColon; displayColon = imGet(c, inlineTypeId(Boolean));
-                    if (!displayColon) displayColon = imSet(c, { val: false });
+                    let displayColon; displayColon = im.GetInline(c, Boolean);
+                    if (!displayColon) displayColon = im.Set(c, { val: false });
 
                     if (imTimerRepeat(c, 1.0)) {
                         displayColon.val = !displayColon.val;
                     }
 
-                    if (imIf(c) && ctx.notLockedIn) {
+                    if (im.If(c) && ctx.notLockedIn) {
                         imLayoutBegin(c, ROW); imAlign(c, CENTER); {
                             imLayoutBegin(c, ROW); imButton(c); imAlign(c); imJustify(c); imSize(c, 0, NA, 100, PERCENT); {
                                 imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
                                 const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                 let icon = getIcon(state.currentTheme);
-                                if (elHasMouseOver(c)) {
+                                if (imdom.hasMouseOver(c)) {
                                     icon = getIcon(nextTheme);
                                 }
 
                                 imAsciiIcon(c, icon, 4.5);
 
-                                if (elHasMousePress(c)) {
+                                if (imdom.hasMousePress(c)) {
                                     state.currentTheme = nextTheme;
                                     debouncedSave(ctx, state, "Theme change");
                                 }
@@ -249,100 +215,100 @@ function imMainInner(c: ImCache) {
 
                             imLayoutBegin(c, ROW); imFlex(c); {
                                 imAppHeadingBegin(c); {
-                                    imStr(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
+                                    imdom.Str(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
                                 } imAppHeadingEnd(c);
                             } imLayoutEnd(c);
 
                             const root = imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
-                                if (isFirstishRender(c)) {
+                                if (im.isFirstishRender(c)) {
                                     // TODO: standardize
-                                    elSetStyle(c, "fontSize", "20px");
-                                    elSetStyle(c, "fontWeight", "bold");
+                                    imdom.setStyle(c, "fontSize", "20px");
+                                    imdom.setStyle(c, "fontWeight", "bold");
                                 }
 
-                                if (imIf(c) && ctx.status.statusTextTimeLeftSeconds > 0) {
-                                    ctx.status.statusTextTimeLeftSeconds -= getDeltaTimeSeconds(c);
-                                    const statusTextChanged = imMemo(c, ctx.status.statusText);
+                                if (im.If(c) && ctx.status.statusTextTimeLeftSeconds > 0) {
+                                    ctx.status.statusTextTimeLeftSeconds -= im.getDeltaTimeSeconds(c);
+                                    const statusTextChanged = im.Memo(c, ctx.status.statusText);
 
-                                    let t = imGet(c, Math.sin);
+                                    let t = im.Get(c, Math.sin);
                                     if (t === undefined || statusTextChanged) t = 0;
-                                    t = imSet(c, t + getDeltaTimeSeconds(c));
+                                    t = im.Set(c, t + im.getDeltaTimeSeconds(c));
 
                                     // bruh
-                                    if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                    if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                         const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
-                                        elSetStyle(c, "opacity", "" + opacity, root);
+                                        imdom.setStyle(c, "opacity", "" + opacity, root);
 
                                         imLayoutBegin(c, BLOCK); {
-                                            if (isFirstishRender(c)) {
-                                                elSetStyle(c, "width", "20px");
-                                                elSetStyle(c, "height", "20px");
+                                            if (im.isFirstishRender(c)) {
+                                                imdom.setStyle(c, "width", "20px");
+                                                imdom.setStyle(c, "height", "20px");
                                             }
 
-                                            elSetStyle(c, "transform", "rotate(" + 5 * t + "rad)");
-                                            elSetStyle(c, "backgroundColor", cssVarsApp.fgColor);
+                                            imdom.setStyle(c, "transform", "rotate(" + 5 * t + "rad)");
+                                            imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
                                         } imLayoutEnd(c);
                                     } else {
-                                        imIfElse(c);
+                                        im.IfElse(c);
 
-                                        elSetStyle(c, "opacity", "1", root);
-                                    } imIfEnd(c);
+                                        imdom.setStyle(c, "opacity", "1", root);
+                                    } im.IfEnd(c);
 
                                     imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                                    imLayoutBegin(c, BLOCK); imStr(c, ctx.status.statusText); imLayoutEnd(c);
+                                    imLayoutBegin(c, BLOCK); imdom.Str(c, ctx.status.statusText); imLayoutEnd(c);
 
-                                    if (imIf(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                    if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                         imLayoutBegin(c, BLOCK); {
-                                            imStr(c, ".".repeat(Math.ceil(2 * t % 3)));
+                                            imdom.Str(c, ".".repeat(Math.ceil(2 * t % 3)));
                                         } imLayoutEnd(c);
-                                    } imIfEnd(c);
+                                    } im.IfEnd(c);
                                 } else {
-                                    imIfElse(c);
+                                    im.IfElse(c);
 
                                     imLayoutBegin(c, COL); imAlign(c); {
                                         imFpsCounterSimple(c, fpsCounter);
                                         imExtraDiagnosticInfo(c);
                                     } imLayoutEnd(c);
-                                } imIfEnd(c);
+                                } im.IfEnd(c);
                             } imLayoutEnd(c);
 
                             imLayoutBegin(c, BLOCK); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
-                                if (isFirstishRender(c)) {
+                                if (im.isFirstishRender(c)) {
                                     // TODO: standardize
-                                    elSetStyle(c, "fontSize", "18px");
-                                    elSetStyle(c, "fontWeight", "bold");
-                                    elSetStyle(c, "textAlign", "right");
+                                    imdom.setStyle(c, "fontSize", "18px");
+                                    imdom.setStyle(c, "fontWeight", "bold");
+                                    imdom.setStyle(c, "textAlign", "right");
                                 }
 
                                 const commands = ctx.discoverableCommands; {
-                                    imFor(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                    im.For(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
                                         const command = commands.stabilized[i];
                                         if (!command.key) continue;
 
                                         imCommandDescription(c, command.key, command.desc);
-                                    } imForEnd(c);
+                                    } im.ForEnd(c);
 
-                                    const keys = getGlobalEventSystem().keyboard.keys;
+                                    const keys = imdom.getKeyboard();
 
-                                    const anyFulfilled = (isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
-                                        (isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
-                                        (isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
+                                    const anyFulfilled = (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
+                                        (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
+                                        (imdom.isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
 
-                                    if (imIf(c) && !anyFulfilled) {
-                                        if (imIf(c) && commands.shiftAvailable) {
+                                    if (im.If(c) && !anyFulfilled) {
+                                        if (im.If(c) && commands.shiftAvailable) {
                                             imCommandDescription(c, ctx.keyboard.shiftKey, "Hold");
-                                        } imIfEnd(c);
+                                        } im.IfEnd(c);
 
-                                        if (imIf(c) && commands.ctrlAvailable) {
+                                        if (im.If(c) && commands.ctrlAvailable) {
                                             imCommandDescription(c, ctx.keyboard.ctrlKey, "Hold");
-                                        } imIfEnd(c);
+                                        } im.IfEnd(c);
 
-                                        if (imIf(c) && commands.altAvailable) {
+                                        if (im.If(c) && commands.altAvailable) {
                                             imCommandDescription(c, ctx.keyboard.altKey, "Hold");
-                                        } imIfEnd(c);
-                                    } imIfEnd(c);
+                                        } im.IfEnd(c);
+                                    } im.IfEnd(c);
 
                                     commands.shiftAvailable = false;
                                     commands.ctrlAvailable = false;
@@ -352,26 +318,26 @@ function imMainInner(c: ImCache) {
                                 imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
                             } imLayoutEnd(c);
                         } imLayoutEnd(c);
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
 
                     imLine(c, LINE_HORIZONTAL, 4);
 
-                    if (imIf(c) && ctx.currentView === ctx.views.settings) {
+                    if (im.If(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
-                    } else if (imIfElse(c) && ctx.currentView === ctx.views.mappings) {
+                    } else if (im.IfElse(c) && ctx.currentView === ctx.views.mappings) {
                         imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
-                        const graphChanged = imMemo(c, state.mappingGraph._version) === MEMO_CHANGED;
-                        const graphViewChanged = imMemo(c, state.mappingGraphView._version) === MEMO_CHANGED;
+                        const graphChanged = im.Memo(c, state.mappingGraph._version) === im.MEMO_CHANGED;
+                        const graphViewChanged = im.Memo(c, state.mappingGraphView._version) === im.MEMO_CHANGED;
                         if (graphChanged || graphViewChanged) {
                             debouncedSave(ctx, state, "ImMain - graph edit");
                         }
                     } else {
-                        imIfElse(c);
+                        im.IfElse(c);
 
                         imLayoutBegin(c, ROW); imFlex(c); {
                             // TODO: think about this.
-                            let focusRef = imGet(c, newFocusRef);
-                            if (!focusRef) focusRef = imSet(c, newFocusRef());
+                            let focusRef = im.Get(c, newFocusRef);
+                            if (!focusRef) focusRef = im.Set(c, newFocusRef());
 
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(c, focusRef);
@@ -380,18 +346,18 @@ function imMainInner(c: ImCache) {
                                 imNoteTreeView(c, ctx, ctx.views.noteTree);
                                 addView(navList, ctx.views.noteTree, "Notes");
 
-                                if (imIf(c) && ctx.viewingDurations) {
+                                if (im.If(c) && ctx.viewingDurations) {
                                     imLine(c, LINE_HORIZONTAL, 1);
 
                                     imLayoutBegin(c, COL); imFlex(c); {
-                                        if (isFirstishRender(c)) {
-                                            elSetStyle(c, "maxHeight", "33%");
+                                        if (im.isFirstishRender(c)) {
+                                            imdom.setStyle(c, "maxHeight", "33%");
                                         }
 
                                         imDurationsView(c, ctx, ctx.views.durations);
                                         addView(navList, ctx.views.durations, "Durations");
                                     } imLayoutEnd(c);
-                                } imIfEnd(c);
+                                } im.IfEnd(c);
                             } imLayoutEnd(c);
 
                             imLine(c, LINE_VERTICAL, 1);
@@ -406,13 +372,13 @@ function imMainInner(c: ImCache) {
                                 ctx.leftTab = ctx.views.activities;
                             }
 
-                            if (imIf(c) && ctx.notLockedIn) {
+                            if (im.If(c) && ctx.notLockedIn) {
                                 imLayoutBegin(c, COL); {
-                                    if (isFirstishRender(c)) {
-                                        elSetStyle(c, "width", "33%");
+                                    if (im.isFirstishRender(c)) {
+                                        imdom.setStyle(c, "width", "33%");
                                     }
 
-                                    imSwitch(c, ctx.leftTab); switch (ctx.leftTab) {
+                                    im.Switch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
                                             imLayoutBegin(c, COL); imFlex(c); {
                                                 imActivitiesList(c, ctx, ctx.views.activities);
@@ -420,16 +386,16 @@ function imMainInner(c: ImCache) {
 
                                                 if (!IS_RUNNING_FROM_FILE) {
                                                     imLayoutBegin(c, BLOCK); imButton(c); {
-                                                        if (isFirstishRender(c)) {
-                                                            elSetStyle(c, "padding", "10px");
-                                                            elSetStyle(c, "borderTop", "1px solid " + cssVars.fg);
-                                                            elSetStyle(c, "fontWeight", "bold");
-                                                            elSetStyle(c, "textAlign", "center");
+                                                        if (im.isFirstishRender(c)) {
+                                                            imdom.setStyle(c, "padding", "10px");
+                                                            imdom.setStyle(c, "borderTop", "1px solid " + cssVars.fg);
+                                                            imdom.setStyle(c, "fontWeight", "bold");
+                                                            imdom.setStyle(c, "textAlign", "center");
                                                         }
 
-                                                        imStr(c, "Download this page, and run it offline!");
+                                                        imdom.Str(c, "Download this page, and run it offline!");
 
-                                                        if (elHasMouseClick(c)) {
+                                                        if (imdom.hasMouseClick(c)) {
                                                             const linkEl = document.createElement("a");
                                                             linkEl.setAttribute("download", "note-tree.html");
                                                             linkEl.setAttribute("href", window.location.href);
@@ -451,9 +417,9 @@ function imMainInner(c: ImCache) {
                                             imUrlViewer(c, ctx, ctx.views.urls);
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
-                                    } imSwitchEnd(c);
+                                    } im.SwitchEnd(c);
                                 } imLayoutEnd(c);
-                            } imIfEnd(c);
+                            } im.IfEnd(c);
 
                             // navigate list
                             {
@@ -469,7 +435,7 @@ function imMainInner(c: ImCache) {
                                 }
                             }
                         } imLayoutEnd(c);
-                    } imIfEnd(c);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
             } 
 
@@ -577,10 +543,10 @@ function imMainInner(c: ImCache) {
 
                 // Traverse the history
                 {
-                    const keys = getGlobalEventSystem().keyboard.keys;
+                    const keys = imdom.getKeyboard();
 
-                    const ctrlAndShiftHeld = isKeyHeld(keys, ctx.keyboard.shiftKey) && isKeyHeld(keys, ctx.keyboard.ctrlKey);
-                    if (imMemo(c, ctrlAndShiftHeld)) {
+                    const ctrlAndShiftHeld = imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey);
+                    if (im.Memo(c, ctrlAndShiftHeld)) {
                         if (ctrlAndShiftHeld) {
                             // Start traversal from the most recent activity
                             const newActivityIdx = state.activities.length - 1;
@@ -645,15 +611,15 @@ function imMainInner(c: ImCache) {
                 }
 
                 if (!ctx.handled) {
-                    const keys = getGlobalEventSystem().keyboard.keys;
+                    const keys = imdom.getKeyboard();
 
                     const keyboard = ctx.keyboard;
-                    if (isKeyPressed(keys, keyboard.aKey) && isKeyPressed(keys, keyboard.ctrlKey) && !isEditingTextSomewhereInDocument()) {
+                    if (imdom.isKeyPressed(keys, keyboard.aKey) && imdom.isKeyPressed(keys, keyboard.ctrlKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to select all text being in the DOM, actually
                         ctx.handled = true;
                     }
 
-                    if (isKeyPressed(keys, keyboard.tabKey) && !isEditingTextSomewhereInDocument()) {
+                    if (imdom.isKeyPressed(keys, keyboard.tabKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to defucs the program, actually
                         ctx.handled = true;
                     }
@@ -664,10 +630,10 @@ function imMainInner(c: ImCache) {
                 }
 
 
-                const textAreaToFocusChanged = imMemo(c, ctx.textAreaToFocus);
+                const textAreaToFocusChanged = im.Memo(c, ctx.textAreaToFocus);
 
                 // Only one text area can be focued at a time in the entire document.
-                // imMemo here, because we still want to select text with the mouse.
+                // im.Memo here, because we still want to select text with the mouse.
                 // Not ideal for a real app, but preventing it makes it not feel like a real website.
                 if (textAreaToFocusChanged || ctx.focusNextFrame) {
                     ctx.focusNextFrame = false;
@@ -683,7 +649,7 @@ function imMainInner(c: ImCache) {
                 }
                 ctx.textAreaToFocus = null;
 
-                const lockedInChanged = imMemo(c, ctx.notLockedIn);
+                const lockedInChanged = im.Memo(c, ctx.notLockedIn);
                 if (lockedInChanged) {
                     ctx.focusNextFrame = true;
                 }
@@ -699,15 +665,15 @@ function imMainInner(c: ImCache) {
 
             errorState.framesSinceError++;
         } else {
-            imIfElse(c);
+            im.IfElse(c);
 
             // TODO: provide a way to recover from errors that _are_ recoverable
 
-            imLayoutBegin(c, BLOCK); imStr(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
-        } imIfEnd(c);
+            imLayoutBegin(c, BLOCK); imdom.Str(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
+        } im.IfEnd(c);
     } catch (e) {
         // unmounts imComponent1 immediately, rewinds the stack back to this list.
-        imTryCatch(c, tryState, e);
+        im.Catch(c, tryState, e);
 
         console.error("An error occured while rendering: ", e);
 
@@ -719,7 +685,7 @@ function imMainInner(c: ImCache) {
             errorState.irrecoverableError = true;
             errorState.error = e;
         }
-    } imTryEnd(c, tryState);
+    } im.TryEnd(c, tryState);
 
 
     fpsMarkRenderingEnd(fpsCounter);
@@ -728,22 +694,22 @@ function imMainInner(c: ImCache) {
 const cGlobal: ImCache = [];
 
 function imMainEntryPoint(c: ImCache) {
-    imCacheBegin(c, imMainEntryPoint, USE_REQUEST_ANIMATION_FRAME); {
-        imDomRootBegin(c, document.body); {
-            const ev = imGlobalEventSystemBegin(c);
+    im.CacheBegin(c, imMainEntryPoint); {
+        imdom.RootBegin(c, document.body); {
+            const ev = imdom.GlobalEventSystemBegin(c);
 
             imMainInner(c);
 
-            imGlobalEventSystemEnd(c, ev);
-        } imDomRootEnd(c, document.body);
-    } imCacheEnd(c);
+            imdom.GlobalEventSystemEnd(c, ev);
+        } imdom.RootEnd(c, document.body);
+    } im.CacheEnd(c);
 };
 
-function imCommandDescription(c: ImCache, key: Key, action: string) {
+function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
     imLayoutBegin(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
-        imStr(c, "["); imStrFmt(c, key, getKeyStringRepr); imStr(c, " - ");
-        imStr(c, action);
-        imStr(c, "]");
+        imdom.Str(c, "["); imdom.StrFmt(c, key, getKeyStringRepr); imdom.Str(c, " - ");
+        imdom.Str(c, action);
+        imdom.Str(c, "]");
     } imLayoutEnd(c);
 }
 

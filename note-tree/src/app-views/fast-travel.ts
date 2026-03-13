@@ -26,8 +26,8 @@ import {
     TreeNote
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
-import { ImCache, imFor, imForEnd, imIf, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, isFirstishRender } from "src/utils/im-core";
-import { elSetStyle, imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 import { getNoteViewRoot } from "./note-tree-view";
 
 export type NoteTraversalViewState = {
@@ -178,29 +178,29 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
         handleKeyboardInput(ctx, s);
     }
 
-    if (imMemo(c, state._notesMutationCounter)) {
+    if (im.Memo(c, state._notesMutationCounter)) {
         recomputeTraversal(s, state.currentNoteId, true);
     }
 
     imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "fontWeight", "bold");
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "fontWeight", "bold");
         }
 
-        imLayoutBegin(c, BLOCK); imStr(c, "Fast travel"); imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); imdom.Str(c, "Fast travel"); imLayoutEnd(c);
 
-        if (imIf(c) && s.viewRoot && s.viewRoot !== getRootNote(state)) {
+        if (im.If(c) && s.viewRoot && s.viewRoot !== getRootNote(state)) {
             imLayoutBegin(c, BLOCK); {
-                imStr(c, s.viewRoot.data.text); 
+                imdom.Str(c, s.viewRoot.data.text); 
             } imLayoutEnd(c);
-        } imIfEnd(c);
+        } im.IfEnd(c);
     } imLayoutEnd(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
 
     let renderedAny = false;
     const list = imNavListBegin(c, s.scrollContainer, s.listPosition.idx, viewHasFocus); {
-        imFor(c); while (imNavListNextItemArray(list, s.notes)) {
+        im.For(c); while (imNavListNextItemArray(list, s.notes)) {
             renderedAny = true;
             const { i } = list;
             const note = s.notes[i];
@@ -209,33 +209,33 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
                 imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
                     imLayoutBegin(c, INLINE); {
                         const isBold = note.data._tasksInProgress > 0;
-                        if (imMemo(c, isBold)) elSetStyle(c, "fontWeight", isBold ? "bold" : "");
+                        if (im.Memo(c, isBold)) imdom.setStyle(c, "fontWeight", isBold ? "bold" : "");
 
-                        imStr(c, "(");
-                        imStr(c, note.data._tasksInProgress);
-                        imStr(c, ") ");
+                        imdom.Str(c, "(");
+                        imdom.Str(c, note.data._tasksInProgress);
+                        imdom.Str(c, ") ");
                         
                         const text = note.data.text;
-                        imStr(c, text); 
+                        imdom.Str(c, text); 
 
                         const canGoIn = note.childIds.length > 0;
-                        if (imIf(c) && canGoIn) {
+                        if (im.If(c) && canGoIn) {
                             imLayoutBegin(c, INLINE_BLOCK); imPadding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
-                                imStr(c, " ->");
+                                imdom.Str(c, " ->");
                             } imLayoutEnd(c);
-                        } imIfEnd(c);
+                        } im.IfEnd(c);
                     } imLayoutEnd(c);
                 } imLayoutEnd(c);
             } imNavListRowEnd(c);
-        } imForEnd(c);
+        } im.ForEnd(c);
 
-        imKeyedBegin(c, "empty"); {
-            if (imIf(c) && !renderedAny) {
+        im.KeyedBegin(c, "empty"); {
+            if (im.If(c) && !renderedAny) {
                 imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
-                    imStr(c, "This level has been cleared!");
+                    imdom.Str(c, "This level has been cleared!");
                 } imLayoutEnd(c);
-            } imIfEnd(c);
-        } imKeyedEnd(c);
+            } im.IfEnd(c);
+        } im.KeyedEnd(c);
     } imNavListEnd(c, list);
 }
 

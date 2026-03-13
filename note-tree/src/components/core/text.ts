@@ -1,14 +1,14 @@
-import { ImCache } from "src/utils/im-core";
-import { EL_A, EL_B, EL_I, EL_S, EL_U, imElBegin, imElEnd } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
-export function imB(c: ImCache) { return imElBegin(c, EL_B); }
-export function imBEnd(c: ImCache) { return imElEnd(c, EL_B); }
-export function imI(c: ImCache) { return imElBegin(c, EL_I); }
-export function imIEnd(c: ImCache) { return imElEnd(c, EL_I); }
-export function imU(c: ImCache) { return imElBegin(c, EL_U); }
-export function imUEnd(c: ImCache) { return imElEnd(c, EL_U); }
-export function imA(c: ImCache) { return imElBegin(c, EL_A); }
-export function imAEnd(c: ImCache) { return imElEnd(c, EL_A); }
-export function imS(c: ImCache) { return imElBegin(c, EL_S); }
-export function imSEnd(c: ImCache) { return imElEnd(c, EL_S); }
+
+export function imB(c: ImCache) { return imdom.ElBegin(c, el.B); }
+export function imBEnd(c: ImCache) { return imdom.ElEnd(c, el.B); }
+export function imI(c: ImCache) { return imdom.ElBegin(c, el.I); }
+export function imIEnd(c: ImCache) { return imdom.ElEnd(c, el.I); }
+export function imU(c: ImCache) { return imdom.ElBegin(c, el.U); }
+export function imUEnd(c: ImCache) { return imdom.ElEnd(c, el.U); }
+export function imA(c: ImCache) { return imdom.ElBegin(c, el.A); }
+export function imAEnd(c: ImCache) { return imdom.ElEnd(c, el.A); }
+export function imS(c: ImCache) { return imdom.ElBegin(c, el.S); }
+export function imSEnd(c: ImCache) { return imdom.ElEnd(c, el.S); }
 

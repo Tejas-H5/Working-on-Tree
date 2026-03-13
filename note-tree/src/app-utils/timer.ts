@@ -1,4 +1,4 @@
-import { ImCache, imGet, imSet } from "src/utils/im-core";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
 export type TimerState = {
     t0: number;
@@ -45,8 +45,8 @@ export function getTimeElapsedSinceRepeat(s: TimerState, t: number) {
 
 // NOTE: There will reach a point where you'll want to put this timer into your state, which should be easy enough
 export function imTimerRepeat(c: ImCache, repeatTime: number, enabled = true) {
-    let s = imGet(c, newTimer);
-    if (!s) s = imSet(c, newTimer());
+    let s = im.Get(c, newTimer);
+    if (!s) s = im.Set(c, newTimer());
     // TODO: proper timer
     return timerRepeat(s, performance.now() / 1000, repeatTime, enabled);
 }

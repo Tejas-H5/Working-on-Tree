@@ -2,8 +2,8 @@ import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-are
 import { assert } from "src/utils/assert";
 import { addMinutes, clampDate, cloneDate, dateSetLocalTime, formatTimeForInput, parseDurationInput, parseTimeInput, roundToNearestMinutes } from "src/utils/datetime";
 import { setInputValue } from "src/utils/dom-utils";
-import { CACHE_IDX, ImCache, imGet, imSet } from "src/utils/im-core";
-import { EV_CHANGE, EV_FOCUS, EV_INPUT, EV_KEYDOWN, imOn } from "src/utils/im-dom";
+import { ev, im, ImCache, imdom } from "src/utils/im-js";
+
 
 type TimeInputStateEditEvent = {
     timeInput?: Date | null;
@@ -41,12 +41,10 @@ export function imEditableTime(
         assert(lowerBound.getTime() < upperBound.getTime());
     }
 
-    let s = imGet(c, newTimeInputState);
-    if (!s) s = imSet(c, newTimeInputState());
+    let s = im.Get(c, newTimeInputState);
+    if (!s) s = im.Set(c, newTimeInputState());
     s.textArea = null;
     s.edit = null;
-
-    const idx = c[CACHE_IDX];
 
     [, textArea] = imTextAreaBegin(c, {
         value: s.text,
@@ -54,10 +52,10 @@ export function imEditableTime(
     }); {
         s.textArea = textArea;
 
-        const focus = imOn(c, EV_FOCUS);
-        const input = imOn(c, EV_INPUT);
-        const change = imOn(c, EV_CHANGE);
-        const keyDown = imOn(c, EV_KEYDOWN);
+        const focus = imdom.On(c, ev.FOCUS);
+        const input = imdom.On(c, ev.INPUT);
+        const change = imdom.On(c, ev.CHANGE);
+        const keyDown = imdom.On(c, ev.KEYDOWN);
 
         if (
             // Refocus -> synced
@@ -114,8 +112,6 @@ export function imEditableTime(
             }
         }
     } imTextAreaEnd(c);
-
-    assert(c[CACHE_IDX] === idx);
 
     return s;
 }

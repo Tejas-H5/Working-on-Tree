@@ -1,13 +1,5 @@
-import {
-    CACHE_ITEMS_ITERATED_LAST_FRAME,
-    CACHE_TOTAL_DESTRUCTORS,
-    CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME,
-    ImCache,
-    imGet,
-    imSet,
-    inlineTypeId
-} from "src/utils/im-core";
-import { imStr } from "src/utils/im-dom";
+import { im, ImCache, imdom } from "src/utils/im-js";
+
 import { BLOCK, imLayoutBegin, imLayoutEnd } from "./core/layout";
 
 export type FpsCounterState = {
@@ -42,8 +34,8 @@ export function fpsMarkRenderingEnd(fps: FpsCounterState) {
 
 export function imFpsCounterSimple(c: ImCache, fpsCounter: FpsCounterState) {
     const RINGBUFFER_SIZE = 20;
-    let arr; arr = imGet(c, inlineTypeId(Array));
-    if (!arr) arr = imSet(c, {
+    let arr; arr = im.GetInline(c, Array);
+    if (!arr) arr = im.Set(c, {
         frameMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
         idx1: 0,
         renderMsRingbuffer: new Array(RINGBUFFER_SIZE).fill(0),
@@ -65,22 +57,22 @@ export function imFpsCounterSimple(c: ImCache, fpsCounter: FpsCounterState) {
     renderMs /= arr.frameMsRingbuffer.length;
     frameMs /= arr.frameMsRingbuffer.length;
 
-    imLayoutBegin(c, BLOCK); imStr(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
+    imLayoutBegin(c, BLOCK); imdom.Str(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
 }
 
 export function imExtraDiagnosticInfo(c: ImCache) {
-    const itemsIterated  = c[CACHE_ITEMS_ITERATED_LAST_FRAME];
-    const numDestructors = c[CACHE_TOTAL_DESTRUCTORS];
-    const numMapEntries  = c[CACHE_TOTAL_MAP_ENTRIES_LAST_FRAME];
+    const itemsIterated  = im.getItemsIterated(c);
+    const numDestructors = im.getTotalDestructors(c);
+    const numMapEntries  = im.getTotalMapEntries(c);
 
     imLayoutBegin(c, BLOCK); {
-        imStr(c, itemsIterated);
-        imStr(c, "i ");
+        imdom.Str(c, itemsIterated);
+        imdom.Str(c, "i ");
 
         // If either of these just keep increasing forever, you have a memory leak.
-        imStr(c, numDestructors);
-        imStr(c, "d ");
-        imStr(c, numMapEntries);
-        imStr(c, "m");
+        imdom.Str(c, numDestructors);
+        imdom.Str(c, "d ");
+        imdom.Str(c, numMapEntries);
+        imdom.Str(c, "m");
     } imLayoutEnd(c);
 }

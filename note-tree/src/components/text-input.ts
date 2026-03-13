@@ -1,6 +1,6 @@
 import { newCssBuilder } from "src/utils/cssb";
-import { ImCache, imMemo, isFirstishRender } from "src/utils/im-core";
-import { EL_INPUT, elSetAttr, elSetClass, EV_BLUR, EV_INPUT, getGlobalEventSystem, imElBegin, imElEnd, imOn } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 import { imFlex } from "./core/layout";
 import { cssVars } from "./core/stylesheets";
 import { imTextAreaBegin, imTextAreaEnd } from "./editable-text-area";
@@ -30,27 +30,27 @@ export function imTextInputBegin(c: ImCache, {
     value: string;
     placeholder?: string;
 }) {
-    const input = imElBegin(c, EL_INPUT); {
-        if (isFirstishRender(c)) {
-            elSetClass(c, cnInput);
-            elSetAttr(c, "type", "text");
+    const input = imdom.ElBegin(c, el.INPUT); {
+        if (im.isFirstishRender(c)) {
+            imdom.setClass(c, cnInput);
+            imdom.setAttr(c, "type", "text");
         }
 
-        if (imMemo(c, placeholder)) {
-            elSetAttr(c, "placeholder", placeholder);
+        if (im.Memo(c, placeholder)) {
+            imdom.setAttr(c, "placeholder", placeholder);
         }
 
-        if (imMemo(c, value)) {
+        if (im.Memo(c, value)) {
             input.root.value = value;
         }
 
-    } // imElEnd(c, EL_INPUT);
+    } // imdom.ElEnd(c, el.INPUT);
 
     return input;
 }
 
 export function imTextInputEnd(c: ImCache) {
-    imElEnd(c, EL_INPUT);
+    imdom.ElEnd(c, el.INPUT);
 }
 
 function getLineEnding(str: string): string {
@@ -74,16 +74,16 @@ export function imTextInputOneLine(
         value: currentName,
         placeholder: placeholder,
     }); imFlex(c); {
-        if (imMemo(c, hasFocus)) {
+        if (im.Memo(c, hasFocus)) {
             setTimeout(() => {
                 input.focus();
                 input.select();
             }, 20);
         }
 
-        const inputEvent = imOn(c, EV_INPUT);
-        const blur = imOn(c, EV_BLUR);
-        const keyboard = getGlobalEventSystem().keyboard;
+        const inputEvent = imdom.On(c, ev.INPUT);
+        const blur = imdom.On(c, ev.BLUR);
+        const keyboard = imdom.getKeyboard();
 
         let lineEnding: string | undefined;
         if (inputEvent) {

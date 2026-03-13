@@ -96,10 +96,10 @@ import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/ar
 import { assert } from "src/utils/assert";
 import { formatDateTime, formatDurationAsHours } from "src/utils/datetime";
 import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
-import { ImCache, imFor, imForEnd, imGet, imIf, imIfElse, imIfEnd, imKeyedBegin, imKeyedEnd, imMemo, imSet, isFirstishRender } from "src/utils/im-core";
-import { EL_B, elSetClass, elSetStyle, EV_CHANGE, EV_INPUT, EV_KEYDOWN, getGlobalEventSystem, imElBegin, imElEnd, imOn, imStr, imStrFmt } from "src/utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 import * as tree from "src/utils/int-tree";
-import { isKeyHeld, isKeyPressed } from "src/utils/key-state";
+
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
 
 export type NoteTreeViewState = {
@@ -342,13 +342,13 @@ function moveIntoCurrent(
 export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewState) {
     const viewFocused = ctx.currentView === s;
 
-    if (imMemo(c, state._notesMutationCounter)) {
+    if (im.Memo(c, state._notesMutationCounter)) {
         s.invalidateVisibleNotes = true;
     }
 
     // Only push an activity for the current note once we've moved to it, _AND_ this view is in focus.
     const currentNote = getCurrentNote(state);
-    if (imMemo(c, currentNote) | imMemo(c, viewFocused)) {
+    if (im.Memo(c, currentNote) | im.Memo(c, viewFocused)) {
         if (viewFocused) {
             const lastActivity = getLastActivity(state);
             if (lastActivity && !isBreak(lastActivity)) {
@@ -365,7 +365,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     {
         // When we reload our state, the note object reference will change, so we need to memoize on that, not the ID.
         const currentNote = getCurrentNote(state);
-        if (imMemo(c, currentNote)) {
+        if (im.Memo(c, currentNote)) {
             setNote(s, currentNote);
         }
     }
@@ -396,11 +396,11 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     imLayoutBegin(c, COL); imFlex(c); {
         imLayoutBegin(c, BLOCK); {
             s.numVisible = 0;
-            imFor(c); for (const row of s.viewRootParentNotes) {
-                imKeyedBegin(c, row); {
+            im.For(c); for (const row of s.viewRootParentNotes) {
+                im.KeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
-                } imKeyedEnd(c);
-            } imForEnd(c);
+                } im.KeyedEnd(c);
+            } im.ForEnd(c);
         } imLayoutEnd(c);
 
         imLine(
@@ -410,19 +410,19 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         );
 
         imLayoutBegin(c, BLOCK); {
-            imFor(c); for (const row of s.stickyNotes) {
-                imKeyedBegin(c, row); {
+            im.For(c); for (const row of s.stickyNotes) {
+                im.KeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
-                } imKeyedEnd(c);
-            } imForEnd(c);
+                } im.KeyedEnd(c);
+            } im.ForEnd(c);
         } imLayoutEnd(c);
 
         const list = imNavListBegin(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
-            imFor(c); while (imNavListNextItemArray(list, s.childNotes)) {
+            im.For(c); while (imNavListNextItemArray(list, s.childNotes)) {
                 const { i, itemSelected } = list;
                 const note = s.childNotes[i];
 
-                imKeyedBegin(c, note); {
+                im.KeyedBegin(c, note); {
                     const root = imNoteTreeRow(c, ctx, list, s, note, viewFocused, i, itemSelected);
 
                     // Add or remove this note as 'sticky', if it is an offscreen parent.
@@ -443,13 +443,13 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
                             }
                         }
                     }
-                } imKeyedEnd(c);
-            } imForEnd(c);;
+                } im.KeyedEnd(c);
+            } im.ForEnd(c);;
 
             // Want to scroll off the bottom a bit
-            imKeyedBegin(c, "scrolloff"); {
+            im.KeyedBegin(c, "scrolloff"); {
                 imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
-            } imKeyedEnd(c);
+            } im.KeyedEnd(c);
         } imNavListEnd(c, list);
 
         let hasMarks = false;
@@ -457,26 +457,26 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             if (m != null) hasMarks = true;
         }
 
-        if (imIf(c) && hasMarks) {
+        if (im.If(c) && hasMarks) {
             imLine(c, LINE_HORIZONTAL, 1);
 
             imMarksList(c);
-        } imIfEnd(c);
+        } im.IfEnd(c);
 
         imLine(c, LINE_HORIZONTAL, 1);
 
         const currentNote = getCurrentNote(state);
         imLayoutBegin(c, ROW); imGap(c, 10, PX); {
-            imLayoutBegin(c, BLOCK); imStr(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
-            imLayoutBegin(c, BLOCK); imStr(c, "|"); imLayoutEnd(c);
-            imLayoutBegin(c, BLOCK); imStr(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imdom.Str(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imdom.Str(c, "|"); imLayoutEnd(c);
+            imLayoutBegin(c, BLOCK); imdom.Str(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
         } imLayoutEnd(c);
     } imLayoutEnd(c);
 }
 
 function imMarksList(c: ImCache) {
     imLayoutBegin(c, COL); {
-        imFor(c); for (let i = 0; i < state._computedMarks.length; i++) {
+        im.For(c); for (let i = 0; i < state._computedMarks.length; i++) {
             const allMarks = state._computedMarks[i];
             const mark = state.rootMarks[i];
             if (!mark) continue;
@@ -484,28 +484,28 @@ function imMarksList(c: ImCache) {
             const rootMarkNote = getNote(state.notes, mark);
 
             imLayoutBegin(c, ROW); imNoWrap(c); {
-                if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
+                if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
 
                 imLayoutBegin(c, ROW); {
-                    if (isFirstishRender(c)) elSetStyle(c, "fontWeight", "bold");
-                    imStrFmt(c, i, markIdxToString);
-                    imStr(c, ": ");
+                    if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
+                    imdom.StrFmt(c, i, markIdxToString);
+                    imdom.Str(c, ": ");
                 } imLayoutEnd(c);
 
                 imLayoutBegin(c, ROW); imFlex(c); {
 
-                    imStr(c, getNoteTextWithoutPriority(rootMarkNote.data));
+                    imdom.Str(c, getNoteTextWithoutPriority(rootMarkNote.data));
 
                     imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
 
-                    if (imIf(c) && allMarks.length === 0) {
+                    if (im.If(c) && allMarks.length === 0) {
                         imLayoutBegin(c, ROW); {
-                            imStr(c, "Nothing in progress under this mark");
+                            imdom.Str(c, "Nothing in progress under this mark");
                         } imLayoutEnd(c);
                     } else {
-                        imIfElse(c);
+                        im.IfElse(c);
 
-                        imFor(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
+                        im.For(c); for (let slotIdx = 0; slotIdx < allMarks.length; slotIdx++) {
                             const noteId = allMarks[slotIdx];
                             const note = getNote(state.notes, noteId);
                             const isSelected = noteId === state.currentNoteId;
@@ -514,26 +514,26 @@ function imMarksList(c: ImCache) {
                             imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
                                 imArrow(c);
 
-                                if (isFirstishRender(c)) elSetStyle(c, "overflow", "hidden");
-                                if (imMemo(c, isSelected)) elSetStyle(c, "maxWidth", isSelected ? "1fr" : "");
+                                if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
+                                if (im.Memo(c, isSelected)) imdom.setStyle(c, "maxWidth", isSelected ? "1fr" : "");
 
-                                imStr(c, note.data.text);
+                                imdom.Str(c, note.data.text);
                             } imLayoutEnd(c);
-                        } imForEnd(c);
-                    } imIfEnd(c);
+                        } im.ForEnd(c);
+                    } im.IfEnd(c);
 
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
-        } imForEnd(c);
+        } im.ForEnd(c);
     } imLayoutEnd(c);
 }
 
 function imArrow(c: ImCache) {
-    imElBegin(c, EL_B); {
-        if (isFirstishRender(c)) elSetStyle(c, "padding", "0 10px");
+    imdom.ElBegin(c, el.B); {
+        if (im.isFirstishRender(c)) imdom.setStyle(c, "padding", "0 10px");
 
-        imStr(c, " -> ");
-    } imElEnd(c, EL_B);
+        imdom.Str(c, " -> ");
+    } imdom.ElEnd(c, el.B);
 }
 
 const UNDER = 1;
@@ -621,18 +621,18 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 
     if (!state._isEditingFocusedNote) {
         if (!ctx.handled) {
-            const keys = getGlobalEventSystem().keyboard.keys;
+            const keys = imdom.getKeyboard();
 
-            const moveNote = isKeyHeld(keys, keyboard.altKey);
+            const moveNote = imdom.isKeyHeld(keys, keyboard.altKey);
             const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
-            const ctrlOrShift = isKeyHeld(keys, keyboard.ctrlKey) || isKeyHeld(keys, keyboard.shiftKey);
+            const ctrlOrShift = imdom.isKeyHeld(keys, keyboard.ctrlKey) || imdom.isKeyHeld(keys, keyboard.shiftKey);
 
             if (listNavInput) {
                 moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
-            } else if (isKeyPressed(keys, keyboard.leftKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressed(keys, keyboard.leftKey) && !ctrlOrShift) {
                 moveOutOfCurrent(ctx, s, moveNote);
                 ctx.handled = true;
-            } else if (isKeyPressed(keys, keyboard.rightKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressed(keys, keyboard.rightKey) && !ctrlOrShift) {
                 moveIntoCurrent(ctx, s, moveNote);
                 ctx.handled = true;
             }
@@ -774,8 +774,8 @@ function imNoteTreeRow(
     s.numVisible++;
 
     const isEditing = viewFocused && itemSelected && state._isEditingFocusedNote;
-    const isEditingChanged = imMemo(c, isEditing);
-    const selectedChanged = imMemo(c, itemSelected);
+    const isEditingChanged = im.Memo(c, isEditing);
+    const selectedChanged = im.Memo(c, itemSelected);
 
     let numInProgress = 0;
     let numDone = 0;
@@ -791,7 +791,7 @@ function imNoteTreeRow(
     const root = imNavListRowBegin(c, list, false, false); {
         imLayoutBegin(c, ROW); imFlex(c); {
             if (selectedChanged) {
-                elSetClass(c, cn.preWrap, itemSelected);
+                imdom.setClass(c, cn.preWrap, itemSelected);
             }
 
             // The tree visuals
@@ -802,7 +802,7 @@ function imNoteTreeRow(
                 let foundLineInPath = false;
                 let depth = -1;
 
-                imFor(c); while (!idIsNil(it.parentId)) {
+                im.For(c); while (!idIsNil(it.parentId)) {
                     const itPrev = it;
                     const itPrevNumSiblings = getNumSiblings(state, itPrev);
                     const itPrevParent = getNoteOrUndefined(state.notes, itPrev.parentId);
@@ -855,10 +855,10 @@ function imNoteTreeRow(
 
                         imLayoutBegin(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
                             // horizontal line xD
-                            if (imIf(c) && hasHLine) {
+                            if (im.If(c) && hasHLine) {
                                 imLayoutBegin(c, BLOCK); imAbsolute(c, midpointLen, midpointUnits, 0, PX, 0, NA, 0, NA); {
-                                    if (isFirstishRender(c)) {
-                                        elSetStyle(c, "transform", "translate(0, -100%)");
+                                    if (im.isFirstishRender(c)) {
+                                        imdom.setStyle(c, "transform", "translate(0, -100%)");
                                     }
 
                                     const isThick = isLineInPath && pathGoesRight;
@@ -869,11 +869,11 @@ function imNoteTreeRow(
                                     );
                                     imBg(c, getTreeColor(itPrev.data._treeVisualsGoRight)); 
                                 } imLayoutEnd(c);
-                            } imIfEnd(c);
+                            } im.IfEnd(c);
 
                             const canDrawVerticalLine = !isLast || note === itPrev;
 
-                            if (imIf(c) && canDrawVerticalLine) {
+                            if (im.If(c) && canDrawVerticalLine) {
                                 const toUse = itPrev === note ? itPrev : itPrevNextSibling;
                                 if (toUse) {
                                     // Vertical line part 1. xd. We need a better API
@@ -902,14 +902,14 @@ function imNoteTreeRow(
                                         imBg(c, getTreeColor(itPrev.data._treeVisualsGoDown));
                                     } imLayoutEnd(c);
                                 }
-                            } imIfEnd(c);
+                            } im.IfEnd(c);
                         } imLayoutEnd(c);
                     }
-                } imForEnd(c);
+                } im.ForEnd(c);
             } imLayoutEnd(c);
 
             imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
-                if (imMemo(c, note.data._status)) {
+                if (im.Memo(c, note.data._status)) {
                     let color;
                     if (isStatusInProgressOrInfo(note)) {
                         color = "";
@@ -917,7 +917,7 @@ function imNoteTreeRow(
                         color = cssVarsApp.unfocusTextColor;
                     }
 
-                    elSetStyle(c, "color", color);
+                    imdom.setStyle(c, "color", color);
                 }
 
                 imLayoutBegin(c, ROW); imFlex(c); {
@@ -926,34 +926,34 @@ function imNoteTreeRow(
                         shouldPreserveNewlines = true;
                     }
 
-                    if (imMemo(c, shouldPreserveNewlines)) {
-                        elSetClass(c, cn.preWrap, shouldPreserveNewlines);
-                        elSetClass(c, cn.noWrap, !shouldPreserveNewlines);
-                        elSetClass(c, cn.overflowHidden, !shouldPreserveNewlines);
+                    if (im.Memo(c, shouldPreserveNewlines)) {
+                        imdom.setClass(c, cn.preWrap, shouldPreserveNewlines);
+                        imdom.setClass(c, cn.noWrap, !shouldPreserveNewlines);
+                        imdom.setClass(c, cn.overflowHidden, !shouldPreserveNewlines);
                     }
 
                     imLayoutBegin(c, ROW); {
-                        if (isFirstishRender(c)) {
-                            elSetClass(c, cn.noWrap);
+                        if (im.isFirstishRender(c)) {
+                            imdom.setClass(c, cn.noWrap);
                         }
 
                         imLayoutBegin(c, BLOCK); {
-                            imStr(c, noteStatusToString(note)); 
+                            imdom.Str(c, noteStatusToString(note)); 
                         } imLayoutEnd(c);
 
-                        if (imIf(c) && (numInProgress + numDone) > 0) {
+                        if (im.If(c) && (numInProgress + numDone) > 0) {
                             imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
-                            imStr(c, `(${numDone}/${numInProgress + numDone})`);
-                        } imIfEnd(c);
+                            imdom.Str(c, `(${numDone}/${numInProgress + numDone})`);
+                        } im.IfEnd(c);
                         imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
                     } imLayoutEnd(c);
 
-                    if (imIf(c) && isEditing) {
+                    if (im.If(c) && isEditing) {
                         const [, textArea] = imTextAreaBegin(c, {
                             value: note.data.text,
                         }); {
-                            const input = imOn(c, EV_INPUT);
-                            const change = imOn(c, EV_CHANGE);
+                            const input = imdom.On(c, ev.INPUT);
+                            const change = imdom.On(c, ev.CHANGE);
 
                             if (input || change) {
                                 let status = s.note.data._status;
@@ -970,7 +970,7 @@ function imNoteTreeRow(
                                 }
                             }
 
-                            const keyDown = imOn(c, EV_KEYDOWN);
+                            const keyDown = imdom.On(c, ev.KEYDOWN);
                             if (keyDown) {
                                 ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {
                                     tabStopSize: state.settings.tabStopSize,
@@ -994,9 +994,9 @@ function imNoteTreeRow(
                             const end = textArea.selectionEnd;
                             const text = note.data.text;
 
-                            const textLengthChanged = imMemo(c, text.length);
-                            const startChanged = imMemo(c, start);
-                            const endChanged = imMemo(c, end);
+                            const textLengthChanged = im.Memo(c, text.length);
+                            const startChanged = im.Memo(c, start);
+                            const endChanged = im.Memo(c, end);
 
                             if (textLengthChanged || startChanged || endChanged) {
                                 let posToScrollTo;
@@ -1025,10 +1025,10 @@ function imNoteTreeRow(
                             }
                         }
                     } else {
-                        imIfElse(c);
+                        im.IfElse(c);
 
-                        const textChanged = imMemo(c, note.data.text);
-                        let text = imGet(c, String);
+                        const textChanged = im.Memo(c, note.data.text);
+                        let text = im.Get(c, String);
                         if (text === undefined || textChanged || selectedChanged) {
                             let val = note.data.text;
 
@@ -1054,23 +1054,23 @@ function imNoteTreeRow(
                                 }
                             }
 
-                            text = imSet(c, val);
+                            text = im.Set(c, val);
                         }
 
-                        imStr(c, text);
-                    } imIfEnd(c);
+                        imdom.Str(c, text);
+                    } im.IfEnd(c);
                 } imLayoutEnd(c);
             } imLayoutEnd(c);
 
-            if (imIf(c) && ctx.viewingDurations) {
+            if (im.If(c) && ctx.viewingDurations) {
                 imLayoutBegin(c, ROW); {
                     const durationTimesheet = getNoteDurationUsingCurrentRange(state, note);
                     const durationAllTime = getNoteDurationWithoutRange(state, note);
-                    imStrFmt(c, durationTimesheet, formatDurationAsHours);
-                    imStr(c, " / ");
-                    imStrFmt(c, durationAllTime, formatDurationAsHours);
+                    imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
+                    imdom.Str(c, " / ");
+                    imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
                 } imLayoutEnd(c);
-            } imIfEnd(c);
+            } im.IfEnd(c);
         } imLayoutEnd(c);
     } imNavListRowEnd(c);
 

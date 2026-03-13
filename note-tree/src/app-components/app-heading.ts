@@ -1,19 +1,19 @@
 import { imPadding, NA, PX } from "../components/core/layout";
-import { ImCache, isFirstishRender } from "../utils/im-core";
-import { EL_H1, elSetStyle, imElBegin, imElEnd } from "../utils/im-dom";
+import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+
 
 
 export function imAppHeadingBegin(c: ImCache) {
-    imElBegin(c, EL_H1); 
+    imdom.ElBegin(c, el.H1); 
     imPadding(c, 0, NA, 0, NA, 0, NA, 10, PX); {
-        if (isFirstishRender(c)) {
-            elSetStyle(c, "textOverflow", "ellipsis");
-            elSetStyle(c, "fontSize", "28px");
+        if (im.isFirstishRender(c)) {
+            imdom.setStyle(c, "textOverflow", "ellipsis");
+            imdom.setStyle(c, "fontSize", "28px");
         }
     } // imLayoutEnd(c);
 }
 
 export function imAppHeadingEnd(c: ImCache) {
-    imElEnd(c, EL_H1);
+    imdom.ElEnd(c, el.H1);
 }
 
