@@ -41,7 +41,7 @@ const WORKING_SOURCEMAPS_OR_FASTER_RELOAD = "working-sourcemaps"
 // const WORKING_SOURCEMAPS_OR_FASTER_RELOAD = "faster-reload"
 
 // It isn't faster for some reason??
-const USE_TSGO = true;
+const USE_TSGO = false;
 
 const templateString = await fs.readFile(TEMPLATE_PATH, "utf8");
 
