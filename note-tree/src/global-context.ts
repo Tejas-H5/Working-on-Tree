@@ -190,6 +190,7 @@ export const ANY_MODIFIERS = 1 << 6;
 // NOTE: always false if ctx.handled.
 // if true, will set ctx.handled = true.
 // TODO: maybe SHIFT and BYPASS_TEXT_AREA at the same time should throw?
+// NOTE: try to make the action description a short as possible.
 export function hasDiscoverableCommand(
     ctx: GlobalContext,
     key: NormalizedKey,

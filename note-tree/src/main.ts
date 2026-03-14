@@ -22,6 +22,7 @@ import {
     imButton,
     imFixed,
     imFlex,
+    imFlexWrap,
     imGap,
     imJustify,
     imLayoutBegin,
@@ -273,7 +274,7 @@ function imMainInner(c: ImCache) {
                                 } im.IfEnd(c);
                             } imLayoutEnd(c);
 
-                            imLayoutBegin(c, BLOCK); imSize(c, 65, PERCENT, 0, NA); imGap(c, 1, CH); imJustify(c, RIGHT); {
+                            imLayoutBegin(c, ROW); imFlexWrap(c); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
                                 if (im.isFirstishRender(c)) {
                                     // TODO: standardize
@@ -426,7 +427,7 @@ function imMainInner(c: ImCache) {
                                 const prev = arrayAt(navList.views, getWrappedIdx(navList.idx - 1, navList.imLength));
                                 const next = arrayAt(navList.views, getWrappedIdx(navList.idx + 1, navList.imLength));
                                 if (prev && next) {
-                                    const tabInput = getTabInput(ctx, "Go to " + prev.name, "Go to " + next.name);
+                                    const tabInput = getTabInput(ctx, prev.name, next.name);
                                     if (tabInput < 0) {
                                         setCurrentView(ctx, prev.focusRef);
                                     } else if (tabInput > 0) {
@@ -472,7 +473,7 @@ function imMainInner(c: ImCache) {
 
                 if (
                     !ctx.viewingDurations && 
-                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Duration timesheet")
+                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
                 ) {
                     ctx.viewingDurations = true;
                     setCurrentView(ctx, ctx.views.durations);
@@ -492,7 +493,7 @@ function imMainInner(c: ImCache) {
 
                 if (
                     !ctx.viewingDurations && 
-                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Duration timesheet")
+                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
                 ) {
                     ctx.viewingDurations = true;
                     setCurrentView(ctx, ctx.views.durations);
@@ -520,7 +521,7 @@ function imMainInner(c: ImCache) {
 
                 if (
                     ctx.currentView !== ctx.views.mappings &&
-                    hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Mappings Graph")
+                    hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Graph")
                 ) {
                     setCurrentView(ctx, ctx.views.mappings);
                 }
@@ -706,10 +707,17 @@ function imMainEntryPoint(c: ImCache) {
 };
 
 function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
-    imLayoutBegin(c, INLINE_BLOCK); imAlign(c, CENTER); imPre(c); {
-        imdom.Str(c, "["); imdom.StrFmt(c, key, getKeyStringRepr); imdom.Str(c, " - ");
-        imdom.Str(c, action);
-        imdom.Str(c, "]");
+    imLayoutBegin(c, COL); imAlign(c, CENTER); imPre(c); {
+        imLayoutBegin(c, BLOCK); {
+            imdom.Str(c, "["); 
+            imdom.StrFmt(c, key, getKeyStringRepr);
+            // imdom.Str(c, " - ");
+            // imdom.Str(c, action);
+            imdom.Str(c, "]");
+        } imLayoutEnd(c);
+        imLayoutBegin(c, BLOCK); {
+            imdom.Str(c, action);
+        } imLayoutEnd(c);
     } imLayoutEnd(c);
 }
 

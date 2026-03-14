@@ -325,7 +325,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     }
 
     if (s.currentFocus === FOCUS_ACTIVITIES_LIST) {
-        if (s.activityListPositon.idx === lo && hasDiscoverableCommand(ctx, keyboard.upKey, "Select date", REPEAT)) {
+        if (s.activityListPositon.idx === lo && hasDiscoverableCommand(ctx, keyboard.upKey, "Date", REPEAT)) {
             s.currentFocus = FOCUS_DATE_SELECTOR;
         }
 
@@ -357,7 +357,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 s.isEditing = EDITING_TIME;
             } 
 
-            if (canInsertBreak(ctx, s) && hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break under", SHIFT)) {
+            if (canInsertBreak(ctx, s) && hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert break", SHIFT)) {
                 insertBreak(ctx, s);
             }
 
@@ -405,7 +405,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             let command;
             let editNext: EditingStatus;
             if (s.isEditing === EDITING_TIME) {
-                command = "Edit break info";
+                command = "Edit break";
                 editNext = EDITING_ACTIVITY;
             } else {
                 command = "Edit time";
@@ -417,7 +417,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
                 s.isEditing = editNext;
             }
         } else {
-            if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothign", BYPASS_TEXT_AREA | REPEAT)) { /* xddd */ }
+            if (hasDiscoverableCommand(ctx, keyboard.tabKey, "Do literally nothing", BYPASS_TEXT_AREA | REPEAT)) { /* xddd */ }
         }
     }
 
@@ -440,7 +440,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
 
         if (
             lo > 0 && 
-            hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day - end", REPEAT)
+            hasDiscoverableCommand(ctx, keyboard.upKey, "Prev day", REPEAT)
         ) {
             moveToPrevDay(ctx, s);
             s.currentFocus = FOCUS_ACTIVITIES_LIST;

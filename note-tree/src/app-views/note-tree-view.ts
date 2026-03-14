@@ -638,7 +638,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
             }
         }
         
-        if (hasDiscoverableCommand(ctx, keyboard.aKey, "Note activity", REPEAT)) {
+        if (hasDiscoverableCommand(ctx, keyboard.aKey, "Activities", REPEAT)) {
             // TODO: just recompute this when we set the note
             const idx = findLastIndex(state.activities, a => a.nId === state.currentNoteId && !a.deleted)
             if (idx !== -1) {
@@ -674,7 +674,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN | REPEAT)) navigateToMark(s, currentNote, 9);
     }
 
-    if (hasDiscoverableCommand(ctx, keyboard.dKey, "Toggle DONE", CTRL | BYPASS_TEXT_AREA)) {
+    if (hasDiscoverableCommand(ctx, keyboard.dKey, "DONE", CTRL | BYPASS_TEXT_AREA)) {
         if (!reviveNote(currentNote)) {
             completeNote(currentNote)
         }
@@ -685,9 +685,9 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
         let noteToSet: TreeNote | undefined;
 
         if (!isNoteEmpty(currentNote)) {
-            if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note after", SHIFT | BYPASS_TEXT_AREA)) {
+            if (hasDiscoverableCommand(ctx, keyboard.enterKey, "New after", SHIFT | BYPASS_TEXT_AREA)) {
                 noteToSet = addNoteAtCurrent(ctx, s, AFTER);
-            } else if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Insert note under", CTRL | BYPASS_TEXT_AREA)) {
+            } else if (hasDiscoverableCommand(ctx, keyboard.enterKey, "New under", CTRL | BYPASS_TEXT_AREA)) {
                 noteToSet = addNoteAtCurrent(ctx, s, UNDER);
             }
         }
@@ -700,7 +700,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
     }
 
     if (!state._isEditingFocusedNote) {
-        if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit note")) {
+        if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit")) {
             setIsEditingCurrentNote(state, true);
         }
     }

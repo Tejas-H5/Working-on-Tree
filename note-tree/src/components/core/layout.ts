@@ -278,6 +278,10 @@ export function imFlex(c: ImCache, ratio = 1) {
     }
 }
 
+export function imFlexWrap(c: ImCache) {
+    if (im.isFirstishRender(c)) imdom.setStyle(c, "flexWrap", "wrap");
+}
+
 export function imGap(c: ImCache, val = 0, units: SizeUnits) {
     const valChanged = im.Memo(c, val);
     const unitsChanged = im.Memo(c, units);
