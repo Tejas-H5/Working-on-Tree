@@ -273,7 +273,7 @@ function imMainInner(c: ImCache) {
                                 } im.IfEnd(c);
                             } imLayoutEnd(c);
 
-                            imLayoutBegin(c, BLOCK); imFlex(c, 2); imGap(c, 1, CH); imJustify(c, RIGHT); {
+                            imLayoutBegin(c, BLOCK); imSize(c, 65, PERCENT, 0, NA); imGap(c, 1, CH); imJustify(c, RIGHT); {
                                 // NOTE: these could be buttons.
                                 if (im.isFirstishRender(c)) {
                                     // TODO: standardize

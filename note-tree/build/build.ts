@@ -28,14 +28,20 @@ const IMPORT_META_ENV = {
 };
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-const BASE_DIR   = path.join(__dirname, "../");
+const __dirname = path.dirname(__filename);
+const BASE_DIR = path.join(__dirname, "../");
 
 const TEMPLATE_PATH = path.join(BASE_DIR, "/template.html");
-const OUTPUT_FILE   = path.join(BASE_DIR, "/dist/index.html");
-const ENTRYPOINT    = path.join(BASE_DIR, "/src/main.ts");
+const OUTPUT_FILE = path.join(BASE_DIR, "/dist/index.html");
+const ENTRYPOINT = path.join(BASE_DIR, "/src/main.ts");
 
-const USE_TSGO = false;
+// NOTE: faster-reload is only really noticeable if you have your code and your website open at once.
+// If you use a single-monitor alt-tab setup like me, you won't notice the difference.
+const WORKING_SOURCEMAPS_OR_FASTER_RELOAD = "working-sourcemaps"
+// const WORKING_SOURCEMAPS_OR_FASTER_RELOAD = "faster-reload"
+
+// It isn't faster for some reason??
+const USE_TSGO = true;
 
 const templateString = await fs.readFile(TEMPLATE_PATH, "utf8");
 
@@ -69,13 +75,13 @@ const commonBuildOptions: esbuild.BuildOptions = {
 	entryPoints: [ENTRYPOINT],
 	bundle: true,
 	treeShaking: true,
-	sourceRoot: path.join(__dirname, '/../src'),
 	define: Object.fromEntries(
 		Object
 			.entries(IMPORT_META_ENV)
 			.map(([k, v]) => [k, JSON.stringify(v)])
 	),
 	write: false,
+	sourcemap: config === "devserver" ? "inline" : undefined,
 }
 
 let tscProcessLast: ChildProcess | undefined;
@@ -94,11 +100,8 @@ async function runTscAndGetErrors() {
 	}
 
 	const process = USE_TSGO ? "npx tsgo" : "tsc";
-
 	log("Linting with " + process + " ...");
-
 	lintingStartTime = performance.now();
-
 	const tscProcess = spawn(process, {
 		shell: true,
 		cwd: BASE_DIR,
@@ -134,15 +137,46 @@ async function runTscAndGetErrors() {
 	};
 }
 
-function getOutputHtml(result: esbuild.BuildResult) {
+function getBundledJs(result: esbuild.BuildResult): string {
 	const singlarFile = result.outputFiles?.[0];
 	if (!singlarFile) {
 		throw new Error("Build not working as expected");
 	}
 
-	// TODO: handle the </script> edgecase - if this text appears anywhere in our code, right now, we're toast
-	let outputText = templateStart + singlarFile.text + templateEnd;
-	return outputText;
+	return singlarFile.text;
+}
+
+function getSingleFileScript(bundledJs: string) {
+	return `
+<script>${bundledJs}</script>
+`;
+}
+
+function getProdHtml(bundledJs: string) {
+	return templateStart + getSingleFileScript(bundledJs) + templateEnd;
+}
+
+function getSSEAutoReloadScript() {
+		return `
+<script>
+new EventSource('/events').addEventListener('change', (e) => location.reload())
+</script>
+`;
+}
+
+function getDevHtmlFastReload(bundledJs: string) {
+	return templateStart + 
+		getSingleFileScript(bundledJs) + 
+		getSSEAutoReloadScript() +
+		templateEnd;
+}
+
+function getDevHtmlWorkingSourcemaps() {
+	// The sourcemaps won't work in the normal thing for some reason.
+	return templateStart + `
+<script src="/index.js"></script>
+` + getSSEAutoReloadScript() +
+		templateEnd;
 }
 
 if (config === "build") {
@@ -161,23 +195,25 @@ if (config === "build") {
 			name: "Custom dev server plugin",
 			setup(build) {
 				build.onEnd((result) => {
-					const outputText = getOutputHtml(result);
+					const bundedJs = getBundledJs(result);
+					const output = getProdHtml(bundedJs);
 					fs.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
-					fs.writeFile(OUTPUT_FILE, outputText);
+					fs.writeFile(OUTPUT_FILE, output);
 				});
 			},
 		}],
 	});
 	log("Built");
-} else {
+} else if (config === "devserver") {
 	function newServer() {
-		let currentFile = templateStart + `console.log("Hello there")`;
+		let currentFile = `console.log("Hello there")`;
+		let currentScript = `console.log("Hello there 2")`
 
 		const clients = new Set<http.ServerResponse>();
 
 		const server = http.createServer((req, res) => {
 			if (req.url === "/events") {
-				res.writeHead(200, { 
+				res.writeHead(200, {
 					'Content-Type': 'text/event-stream',
 					'Cache-Control': 'no-cache',
 					'Connection': 'keep-alive',
@@ -196,14 +232,25 @@ if (config === "build") {
 				return;
 			}
 
+			if (req.url === "/index.js") {
+				res.writeHead(200, { 'Content-Type': 'text/javascript', });
+				res.write(currentScript);
+				res.end();
+				return;
+			}
+
 			res.writeHead(200, { 'Content-Type': 'text/html', });
 			res.write(currentFile);
 			res.end();
 		});
 
-		// MASSIVE performance boost. 
+		// MASSIVE performance boost. Web devs hate me for this one wierd trick.
 		// Seems stupid, and it would be if it was a production server, but it isn't - 
 		// it will only ever have 1 connection. So this should actually work just fine.
+		// The Vite maintainers have been informed: https://github.com/vitejs/vite/issues/21653
+		// and in the meantime, we will just use this custom dev-server with ESBuild.
+		// I am curious if this will be triaged before I ship this framework. 
+		// In the meantime, I will open it a couple of times every hour, ever day
 		server.keepAliveTimeout = 2147480000;
 
 		server.listen(PORT, HOST, () => {
@@ -212,6 +259,10 @@ if (config === "build") {
 
 		function setCurrentFile(newFile: string) {
 			currentFile = newFile;
+		}
+
+		function setCurrentScript(newScript: string) {
+			currentScript = newScript;
 		}
 
 		function broadcastRefreshMessage() {
@@ -225,32 +276,41 @@ if (config === "build") {
 		return {
 			server,
 			setCurrentFile,
+			setCurrentScript,
 			broadcastRefreshMessage,
 		};
 	}
 
-	const { setCurrentFile, broadcastRefreshMessage } = newServer();
+	const { setCurrentScript, setCurrentFile, broadcastRefreshMessage } = newServer();
 
 	const ctx = await esbuild.context({
 		...commonBuildOptions,
-		footer: {
-			js: "new EventSource('/events').addEventListener('change', (e) => location.reload())",
-		},
 		plugins: [{
 			name: "Custom dev server plugin",
 			setup(build) {
 				build.onEnd((result) => {
-					const outputText = getOutputHtml(result);
-					setCurrentFile(outputText);
+					// TODO: fix bug where we put the PC to sleep, reopen and auto-reload is broken
+
+					const bundledJs = getBundledJs(result);
+					if (WORKING_SOURCEMAPS_OR_FASTER_RELOAD === "working-sourcemaps") {
+						setCurrentFile(getDevHtmlWorkingSourcemaps());
+						setCurrentScript(bundledJs);
+					} else {
+						setCurrentFile(getDevHtmlFastReload(bundledJs));
+						setCurrentScript("");
+					}
+
 					broadcastRefreshMessage();
 					runTscAndGetErrors()
 						.then((result) => {
 							if (result.killed) return;
+
 							if (result.result.length === 0) {
 								log("Type errors: None!");
 							} else {
 								log("Type errors: \n\n" + result.result);
 							}
+
 							log("Time taken: " + (performance.now() - lintingStartTime) + "ms");
 							logServerUrl();
 						});
@@ -260,5 +320,7 @@ if (config === "build") {
 	});
 
 	await ctx.watch();
+} else {
+	throw new Error("Invalid config");
 }
 
