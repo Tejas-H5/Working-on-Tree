@@ -18,21 +18,7 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import {
-    BLOCK,
-    COL,
-    imAlign,
-    imFlex,
-    imJustify,
-    imLayoutBegin,
-    imLayoutEnd,
-    imSize,
-    PERCENT,
-    PX,
-    ROW,
-    STRETCH,
-    TABLE
-} from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA, STRETCH, PERCENT, TABLE } from "src/utils/im-js/im-ui";
 import { imB, imBEnd } from "src/components/core/text";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import {
@@ -58,7 +44,14 @@ import {
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert, mustGetDefined } from "src/utils/assert";
-import { addDays, DAYS_OF_THE_WEEK_ABBREVIATED, floorDateToWeekLocalTime, formatDate, formatDurationAsHours, isSameDate } from "src/utils/datetime";
+import {
+    addDays,
+    DAYS_OF_THE_WEEK_ABBREVIATED,
+    floorDateToWeekLocalTime,
+    formatDate,
+    formatDurationAsHours,
+    isSameDate
+} from "src/utils/datetime";
 import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
 
@@ -360,28 +353,28 @@ export function imDurationsView(
     const allColsSelected = s.tableColPos.idx === -1;
     const allSelected = allRowsSelected && allColsSelected;
 
-    imLayoutBegin(c, COL); imFlex(c); {
-        imLayoutBegin(c, COL); {
-            imLayoutBegin(c, TABLE); imFlex(c); {
-                imListTableRowBegin(c, allSelected, allSelected, viewHasFocus && allSelected); imAlign(c, STRETCH); {
-                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imJustify(c); imAlign(c); {
-                        imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
+    imui.Begin(c, COL); imui.Flex(c); {
+        imui.Begin(c, COL); {
+            imui.Begin(c, TABLE); imui.Flex(c); {
+                imListTableRowBegin(c, allSelected, allSelected, viewHasFocus && allSelected); imui.Align(c, STRETCH); {
+                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Justify(c); imui.Align(c); {
+                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
-                        imLayoutBegin(c, BLOCK); {
+                        imui.Begin(c, BLOCK); {
                             imB(c); {
                                 imdom.Str(c, "Duration Timesheet - ");
                                 imdom.Str(c, formatDate(s.activitiesFrom, true));
                                 imdom.Str(c, " to ");
                                 imdom.Str(c, formatDate(s.activitiesTo, true));
                             } imBEnd(c);
-                        } imLayoutEnd(c);
+                        } imui.End(c);
 
-                        imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
                     } imTableCellFlexEnd(c);
 
 
                     im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
-                        imTableCellFlexBegin(c, COL, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                        imTableCellFlexBegin(c, COL, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
                             const colSelectedIndividual = s.tableColPos.idx === colIdx;
                             const colSelected = colSelectedIndividual || allColsSelected;
 
@@ -390,23 +383,23 @@ export function imDurationsView(
                                 getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
                             );
 
-                            imLayoutBegin(c, BLOCK); imSize(c, 100, PERCENT, 7, PX); {
+                            imui.Begin(c, BLOCK); imui.Size(c, 100, PERCENT, 7, PX); {
                                 imListCursorColor(
                                     c,
                                     getRowStatus(colSelected, colSelected, viewHasFocus && colSelectedIndividual)
                                 );
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
-                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                            imui.Begin(c, BLOCK); imListRowCellStyle(c); {
                                 let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
                                 imB(c).root; imdom.Str(c, str); imBEnd(c);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } imTableCellFlexEnd(c);
                     } im.ForEnd(c);
                 } imListTableRowEnd(c);
 
                 imListTableRowBegin(c, false, false, false); {
-                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
                         imdom.Str(c, "Total");
                     } imTableCellFlexEnd(c);
 
@@ -415,7 +408,7 @@ export function imDurationsView(
                     const numDays = getNumDays(s);
 
                     im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
-                        imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                        imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
                             const colSelectedIndividual = s.tableColPos.idx === colIdx;
                             const colSelected = colSelectedIndividual || allColsSelected;
 
@@ -424,20 +417,20 @@ export function imDurationsView(
                                 getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
                             );
 
-                            imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                            imui.Begin(c, BLOCK); imListRowCellStyle(c); {
                                 const totalMs = s.totals[colIdx].time;
                                 imdom.Str(c, formatDurationAsHours(totalMs));
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } imTableCellFlexEnd(c);
                     } im.ForEnd(c);
                 } imListTableRowEnd(c);
-            } imLayoutEnd(c);
-        } imLayoutEnd(c);
+            } imui.End(c);
+        } imui.End(c);
 
         imLine(c, LINE_HORIZONTAL, 1);
 
-        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imAlign(c, STRETCH); {
-            imLayoutBegin(c, TABLE); {
+        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imui.Align(c, STRETCH); {
+            imui.Begin(c, TABLE); {
 
                 im.For(c); while (imNavListNextItemArray(list, s.durations)) {
                     const { i: rowIdx } = list;
@@ -447,15 +440,15 @@ export function imDurationsView(
                     const rowSelected = rowSelectedIndividual || allRowsSelected;
 
                     const root = imListTableRowBegin(c, false, false, false); {
-                        imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imAlign(c, STRETCH); imJustify(c); {
-                            imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 100, PERCENT); {
+                        imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Align(c, STRETCH); imui.Justify(c); {
+                            imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 100, PERCENT); {
                                 imListCursorColor(
                                     c,
                                     getRowStatus(rowSelectedIndividual, rowSelectedIndividual, viewHasFocus && rowSelectedIndividual),
                                 );
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
-                            imLayoutBegin(c, BLOCK); imFlex(c); imListRowCellStyle(c); {
+                            imui.Begin(c, BLOCK); imui.Flex(c); imListRowCellStyle(c); {
                                 const selected = (rowSelected || allRowsSelected) && allColsSelected;
 
                                 imListRowBg(
@@ -464,7 +457,7 @@ export function imDurationsView(
                                 );
 
                                 imdom.Str(c, block.name);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } imTableCellFlexEnd(c);
 
                         im.For(c); for (let colIdx = 0; colIdx < block.slots.length; colIdx++) {
@@ -475,7 +468,7 @@ export function imDurationsView(
 
                             const cellSelected = (rowSelected || allRowsSelected) && (colSelected || allColsSelected);
 
-                            imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imAlign(c); imJustify(c); {
+                            imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
                                 imListRowBg(
                                     c,
                                     getRowStatus(rowSelected || colSelected, rowSelected || colSelected, viewHasFocus && cellSelected),
@@ -490,7 +483,7 @@ export function imDurationsView(
                         scrollToItem(c, list.scrollContainer, root);
                     }
                 } im.ForEnd(c);
-            } imLayoutEnd(c);
+            } imui.End(c);
         } imNavListEnd(c, list);
-    } imLayoutEnd(c);
+    } imui.End(c);
 }

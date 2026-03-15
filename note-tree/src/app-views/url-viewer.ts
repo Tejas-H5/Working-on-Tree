@@ -10,7 +10,7 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { BLOCK, COL, imAlign, imFlex, imJustify, imLayoutBegin, imLayoutEnd, ROW } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
@@ -125,13 +125,13 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
         recomputeUrls(s);
     }
 
-    imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
+    imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {
         if (im.isFirstishRender(c)) {
             imdom.setStyle(c, "fontWeight", "bold");
         }
 
-        imLayoutBegin(c, BLOCK); imdom.Str(c, "Nearby URLs"); imLayoutEnd(c);
-    } imLayoutEnd(c);
+        imui.Begin(c, BLOCK); imdom.Str(c, "Nearby URLs"); imui.End(c);
+    } imui.End(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
 
@@ -143,7 +143,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
             const url = s.urls[i];
 
             imNavListRowBegin(c, list, false, false); {
-                imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                imui.Begin(c, BLOCK); imListRowCellStyle(c); {
                     imdom.ElBegin(c, el.A); {
                         if (im.Memo(c,url)) {
                             imdom.setAttr(c,"href", url.url);
@@ -151,15 +151,15 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState)
 
                         imdom.Str(c, url.url);
                     } imdom.ElEnd(c, el.A);
-                } imLayoutEnd(c);
+                } imui.End(c);
             } imNavListRowEnd(c);
         } im.ForEnd(c);
 
         im.KeyedBegin(c, "empty"); {
             if (im.If(c) && !renderedAny) {
-                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); imui.Justify(c); {
                     imdom.Str(c, "No URLs found here.");
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
         } im.KeyedEnd(c);
     } imNavListEnd(c, list);

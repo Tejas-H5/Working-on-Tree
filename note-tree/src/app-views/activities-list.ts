@@ -12,7 +12,7 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { imEditableTime } from "src/app-components/time-input";
-import { BLOCK, CENTER, CH, COL, imAlign, imFlex, imGap, imJustify, imLayoutBegin, imLayoutEnd, imNoWrap, imSize, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA, INLINE_BLOCK, CENTER, NONE, CH } from "src/utils/im-js/im-ui";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
@@ -586,8 +586,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
         handleKeyboardInput(ctx, s);
     }
 
-    imLayoutBegin(c, COL); imFlex(c); {
-        imLayoutBegin(c, ROW); imListRowCellStyle(c); imAlign(c); imJustify(c); {
+    imui.Begin(c, COL); imui.Flex(c); {
+        imui.Begin(c, ROW); imListRowCellStyle(c); imui.Align(c); imui.Justify(c); {
             if (im.isFirstishRender(c)) {
                 imdom.setStyle(c, "fontWeight", "bold");
             }
@@ -603,7 +603,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
             imdom.Str(c, text);
 
-        } imLayoutEnd(c);
+        } imui.End(c);
 
         const dateSelectorFocused = currentFocus === FOCUS_DATE_SELECTOR;
 
@@ -617,16 +617,16 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                 imdom.setStyle(c, "fontWeight", "bold");
             }
 
-            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); imGap(c, 1, CH); {
+            imui.Begin(c, ROW); imui.Flex(c); imListRowCellStyle(c); imui.Gap(c, 1, CH); {
 
-                imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
+                imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
                 if (im.If(c) && dateSelectorFocused && s._canMoveToPrevDay) {
                     // TODO: buttons
-                    imLayoutBegin(c, BLOCK); imdom.Str(c, "<-"); imLayoutEnd(c);
+                    imui.Begin(c, BLOCK); imdom.Str(c, "<-"); imui.End(c);
                 } im.IfEnd(c);
 
-                imLayoutBegin(c, ROW); {
+                imui.Begin(c, ROW); {
                     let dateText;
                     if (isSameDate(s.currentViewingDate, s.now)) {
                         dateText = " today (" + formatDate(s.currentViewingDate, true) + ")";
@@ -648,15 +648,15 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     if (im.If(c) && filter) {
                         imdom.Str(c, `[Filtered, ${filter.length} entries]`);
                     } im.IfEnd(c);
-                } imLayoutEnd(c);
+                } imui.End(c);
 
                 if (im.If(c) && dateSelectorFocused && s._canMoveToNextDay) {
                     // TODO: buttons
-                    imLayoutBegin(c, BLOCK); imdom.Str(c, "->"); imLayoutEnd(c);
+                    imui.Begin(c, BLOCK); imdom.Str(c, "->"); imui.End(c);
                 } im.IfEnd(c);
 
-                imLayoutBegin(c, BLOCK); imFlex(c); imLayoutEnd(c);
-            } imLayoutEnd(c);
+                imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
+            } imui.End(c);
 
         } imListRowEnd(c);
 
@@ -709,8 +709,8 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     const isBreakActivity = isBreak(activity);
 
                     imNavListRowBegin(c, list, itemHighlighted, itemSelected); {
-                        imLayoutBegin(c, ROW); imListRowCellStyle(c); imGap(c, 10, PX); imFlex(c); imAlign(c); {
-                            imLayoutBegin(c, INLINE_BLOCK); {
+                        imui.Begin(c, ROW); imListRowCellStyle(c); imui.Gap(c, 10, PX); imui.Flex(c); imui.Align(c); {
+                            imui.Begin(c, INLINE_BLOCK); {
                                 if (im.If(c) && isEditingTime) {
                                     const lowerBound = arrayAt(s.activities, i - 1)?.t;
                                     const upperBound = arrayAt(s.activities, i + 1)?.t;
@@ -739,21 +739,21 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                 } else {
                                     im.IfElse(c);
 
-                                    imLayoutBegin(c, BLOCK); imdom.Str(c, formatTime(activity.t)); imNoWrap(c); imLayoutEnd(c);
+                                    imui.Begin(c, BLOCK); imdom.Str(c, formatTime(activity.t)); imui.NoWrap(c); imui.End(c);
                                 } im.IfEnd(c);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
-                            imLayoutBegin(c, BLOCK); imSize(c, 5, PX, 0, NA); imLayoutEnd(c);
+                            imui.Begin(c, BLOCK); imui.Size(c, 5, PX, 0, NA); imui.End(c);
 
                             let text = getActivityText(state, activity);
-                            imLayoutBegin(c, ROW); imAlign(c); imJustify(c, isBreakActivity ? CENTER : NONE); imFlex(c); {
+                            imui.Begin(c, ROW); imui.Align(c); imui.Justify(c, isBreakActivity ? CENTER : NONE); imui.Flex(c); {
                                 if (im.Memo(c, isBreakActivity)) {
                                     imdom.setStyle(c, "padding", isBreakActivity ? "40px" : "0");
                                 }
 
                                 const isEditingActivityChanged = im.Memo(c, isEditingActivity);
                                 if (im.If(c) && !isEditingActivity) {
-                                    imLayoutBegin(c, BLOCK); imdom.Str(c, text); imLayoutEnd(c);
+                                    imui.Begin(c, BLOCK); imdom.Str(c, text); imui.End(c);
                                 } else {
                                     im.IfElse(c);
 
@@ -779,28 +779,28 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                                         ctx.focusWithAllSelected = true;
                                     } imTextAreaEnd(c);
                                 } im.IfEnd(c);
-                            } imLayoutEnd(c);
-                        } imLayoutEnd(c);
+                            } imui.End(c);
+                        } imui.End(c);
                     } imNavListRowEnd(c);
 
                     const activityDuration = getActivityDurationMs(activity, nextActivity);
                     totalDuration += activityDuration;
                     if (im.If(c) && totalDuration > ONE_MINUTE * 5) {
-                        imLayoutBegin(c, ROW); imAlign(c); imJustify(c); {
+                        imui.Begin(c, ROW); imui.Align(c); imui.Justify(c); {
                             imdom.Str(c, formatDuration(totalDuration));
                             totalDuration = 0
-                        } imLayoutEnd(c);
+                        } imui.End(c);
                     } im.IfEnd(c);
                 } im.KeyedEnd(c);
             } im.ForEnd(c);
 
             im.KeyedBegin(c, "footer"); {
                 if (im.If(c) && !hasActivities) {
-                    imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                    imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); imui.Justify(c); {
                         imdom.Str(c, s.activities.length === 0 ? "No activities yet!" : "No activities today");
-                    } imLayoutEnd(c);
+                    } imui.End(c);
                 } im.IfEnd(c);
             } im.KeyedEnd(c);
         } imNavListEnd(c, list);
-    } imLayoutEnd(c);
+    } imui.End(c);
 }

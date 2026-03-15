@@ -1,49 +1,21 @@
 import { imDurationsView } from "src/app-views/durations-view";
-import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
 import { imNoteTraversal } from "src/app-views/fast-travel";
+import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
 import { imUrlViewer } from "src/app-views/url-viewer";
-import { im, ImCache, imdom, el, ev, NormalizedKey, } from "src/utils/im-js";
-
+import { im, ImCache, imdom, NormalizedKey } from "src/utils/im-js";
+import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "src/utils/im-js/im-ui";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
+import { imButton } from "./app-components/button";
 import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components/navigable-list";
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
+import { imGraphMappingsEditorView } from "./app-views/graph-view";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
-import {
-    BLOCK,
-    CENTER,
-    CH,
-    COL,
-    imAlign,
-    imButton,
-    imFixed,
-    imFlex,
-    imFlexWrap,
-    imGap,
-    imJustify,
-    imLayoutBegin,
-    imLayoutEnd,
-    imPre,
-    imSize,
-    INLINE_BLOCK,
-    NA,
-    PERCENT,
-    PX,
-    RIGHT,
-    ROW
-} from "./components/core/layout";
-import { cssVars } from "./components/core/stylesheets";
-import {
-    fpsMarkRenderingEnd,
-    fpsMarkRenderingStart,
-    imExtraDiagnosticInfo,
-    imFpsCounterSimple,
-    newFpsCounterState,
-} from "./components/fps-counter";
+import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
 import {
     AUTO_INSERT_BREAK_CHECK_INTERVAL,
@@ -64,6 +36,7 @@ import {
     TASK_IN_PROGRESS,
     updateDiscoverableCommands
 } from "./global-context";
+import { validateSchemas } from "./schema";
 import {
     Activity,
     AppTheme,
@@ -76,13 +49,9 @@ import {
     state
 } from "./state";
 import { arrayAt, getWrappedIdx } from "./utils/array-utils";
-import { initCssbStyles } from "./utils/cssb";
 import { formatDateTime } from "./utils/datetime";
-import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
-import { newWebWorker } from "./utils/web-workers";
 import { NIL_ID } from "./utils/int-tree";
-import { validateSchemas } from "./schema";
-import { imGraphMappingsEditorView } from "./app-views/graph-view";
+import { newWebWorker } from "./utils/web-workers";
 
 
 function getIcon(theme: AppTheme) {
@@ -94,11 +63,6 @@ function getIcon(theme: AppTheme) {
 const IS_RUNNING_FROM_FILE = window.location.protocol.startsWith("file");
 
 function imMainInner(c: ImCache) {
-    let fpsCounter = im.Get(c, newFpsCounterState);
-    if (!fpsCounter) fpsCounter = im.Set(c, newFpsCounterState());
-
-    fpsMarkRenderingStart(fpsCounter); 
-
     let ctx = im.Get(c, newGlobalContext);
     if (!ctx) ctx = im.Set(c, newGlobalContext());
 
@@ -171,17 +135,17 @@ function imMainInner(c: ImCache) {
             }
 
             {
-                imLayoutBegin(c, COL); imFixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
+                imui.Begin(c, COL); imui.Fixed(c, 0, PX, 0, PX, 0, PX, 0, PX); {
                     const error = state.criticalSavingError || state._criticalLoadingError;
                     if (im.If(c) && error) {
-                        imLayoutBegin(c, BLOCK); {
+                        imui.Begin(c, BLOCK); {
                             if (im.isFirstishRender(c)) {
                                 imdom.setStyle(c, "color", "white");
                                 imdom.setStyle(c, "backgroundColor", "red");
                             }
 
                             imdom.Str(c, error);
-                        } imLayoutEnd(c);
+                        } imui.End(c);
                     } im.IfEnd(c);
 
                     let displayColon; displayColon = im.GetInline(c, Boolean);
@@ -192,9 +156,9 @@ function imMainInner(c: ImCache) {
                     }
 
                     if (im.If(c) && ctx.notLockedIn) {
-                        imLayoutBegin(c, ROW); imAlign(c, CENTER); {
-                            imLayoutBegin(c, ROW); imButton(c); imAlign(c); imJustify(c); imSize(c, 0, NA, 100, PERCENT); {
-                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                        imui.Begin(c, ROW); imui.Align(c); {
+                            imui.Begin(c, ROW); imButton(c); imui.Align(c); imui.Justify(c); imui.Size(c, 0, NA, 100, PERCENT); {
+                                imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
 
                                 const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
                                 let icon = getIcon(state.currentTheme);
@@ -209,18 +173,18 @@ function imMainInner(c: ImCache) {
                                     debouncedSave(ctx, state, "Theme change");
                                 }
 
-                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
-                            } imLayoutEnd(c);
+                                imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+                            } imui.End(c);
 
                             imLine(c, LINE_VERTICAL);
 
-                            imLayoutBegin(c, ROW); imFlex(c); {
+                            imui.Begin(c, ROW); imui.Flex(c); {
                                 imAppHeadingBegin(c); {
                                     imdom.Str(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
                                 } imAppHeadingEnd(c);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
-                            const root = imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                            const root = imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); imui.Justify(c); {
                                 if (im.isFirstishRender(c)) {
                                     // TODO: standardize
                                     imdom.setStyle(c, "fontSize", "20px");
@@ -240,7 +204,7 @@ function imMainInner(c: ImCache) {
                                         const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
                                         imdom.setStyle(c, "opacity", "" + opacity, root);
 
-                                        imLayoutBegin(c, BLOCK); {
+                                        imui.Begin(c, BLOCK); {
                                             if (im.isFirstishRender(c)) {
                                                 imdom.setStyle(c, "width", "20px");
                                                 imdom.setStyle(c, "height", "20px");
@@ -248,33 +212,34 @@ function imMainInner(c: ImCache) {
 
                                             imdom.setStyle(c, "transform", "rotate(" + 5 * t + "rad)");
                                             imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
-                                        } imLayoutEnd(c);
+                                        } imui.End(c);
                                     } else {
                                         im.IfElse(c);
 
                                         imdom.setStyle(c, "opacity", "1", root);
                                     } im.IfEnd(c);
 
-                                    imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                                    imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
 
-                                    imLayoutBegin(c, BLOCK); imdom.Str(c, ctx.status.statusText); imLayoutEnd(c);
+                                    imui.Begin(c, BLOCK); imdom.Str(c, ctx.status.statusText); imui.End(c);
 
                                     if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        imLayoutBegin(c, BLOCK); {
+                                        imui.Begin(c, BLOCK); {
                                             imdom.Str(c, ".".repeat(Math.ceil(2 * t % 3)));
-                                        } imLayoutEnd(c);
+                                        } imui.End(c);
                                     } im.IfEnd(c);
                                 } else {
                                     im.IfElse(c);
 
-                                    imLayoutBegin(c, COL); imAlign(c); {
+                                    imui.Begin(c, COL); imui.Align(c); {
+                                        const fpsCounter = im.getFpsCounterState(c);
                                         imFpsCounterSimple(c, fpsCounter);
                                         imExtraDiagnosticInfo(c);
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
                                 } im.IfEnd(c);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
-                            imLayoutBegin(c, ROW); imFlexWrap(c); imGap(c, 1, CH); imJustify(c, RIGHT); {
+                            imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 1, CH); imui.Justify(c, RIGHT); {
                                 // NOTE: these could be buttons.
                                 if (im.isFirstishRender(c)) {
                                     // TODO: standardize
@@ -316,9 +281,9 @@ function imMainInner(c: ImCache) {
                                     commands.altAvailable = false;
                                 } 
 
-                                imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
-                            } imLayoutEnd(c);
-                        } imLayoutEnd(c);
+                                imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+                            } imui.End(c);
+                        } imui.End(c);
                     } im.IfEnd(c);
 
                     imLine(c, LINE_HORIZONTAL, 4);
@@ -335,7 +300,7 @@ function imMainInner(c: ImCache) {
                     } else {
                         im.IfElse(c);
 
-                        imLayoutBegin(c, ROW); imFlex(c); {
+                        imui.Begin(c, ROW); imui.Flex(c); {
                             // TODO: think about this.
                             let focusRef = im.Get(c, newFocusRef);
                             if (!focusRef) focusRef = im.Set(c, newFocusRef());
@@ -343,23 +308,23 @@ function imMainInner(c: ImCache) {
                             focusRef.focused = ctx.currentView;
                             const navList = imViewsList(c, focusRef);
 
-                            imLayoutBegin(c, COL); imFlex(c); {
+                            imui.Begin(c, COL); imui.Flex(c); {
                                 imNoteTreeView(c, ctx, ctx.views.noteTree);
                                 addView(navList, ctx.views.noteTree, "Notes");
 
                                 if (im.If(c) && ctx.viewingDurations) {
                                     imLine(c, LINE_HORIZONTAL, 1);
 
-                                    imLayoutBegin(c, COL); imFlex(c); {
+                                    imui.Begin(c, COL); imui.Flex(c); {
                                         if (im.isFirstishRender(c)) {
                                             imdom.setStyle(c, "maxHeight", "33%");
                                         }
 
                                         imDurationsView(c, ctx, ctx.views.durations);
                                         addView(navList, ctx.views.durations, "Durations");
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
                                 } im.IfEnd(c);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
 
                             imLine(c, LINE_VERTICAL, 1);
 
@@ -374,19 +339,19 @@ function imMainInner(c: ImCache) {
                             }
 
                             if (im.If(c) && ctx.notLockedIn) {
-                                imLayoutBegin(c, COL); {
+                                imui.Begin(c, COL); {
                                     if (im.isFirstishRender(c)) {
                                         imdom.setStyle(c, "width", "33%");
                                     }
 
                                     im.Switch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
-                                            imLayoutBegin(c, COL); imFlex(c); {
+                                            imui.Begin(c, COL); imui.Flex(c); {
                                                 imActivitiesList(c, ctx, ctx.views.activities);
                                                 addView(navList, ctx.views.activities, "Activities");
 
                                                 if (!IS_RUNNING_FROM_FILE) {
-                                                    imLayoutBegin(c, BLOCK); imButton(c); {
+                                                    imui.Begin(c, BLOCK); imButton(c); {
                                                         if (im.isFirstishRender(c)) {
                                                             imdom.setStyle(c, "padding", "10px");
                                                             imdom.setStyle(c, "borderTop", "1px solid " + cssVars.fg);
@@ -402,9 +367,9 @@ function imMainInner(c: ImCache) {
                                                             linkEl.setAttribute("href", window.location.href);
                                                             linkEl.click();
                                                         }
-                                                    } imLayoutEnd(c);
+                                                    } imui.End(c);
                                                 }
-                                            } imLayoutEnd(c);
+                                            } imui.End(c);
                                         } break;
                                         case ctx.views.fastTravel: {
                                             imNoteTraversal(c, ctx, ctx.views.fastTravel);
@@ -419,7 +384,7 @@ function imMainInner(c: ImCache) {
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
                                     } im.SwitchEnd(c);
-                                } imLayoutEnd(c);
+                                } imui.End(c);
                             } im.IfEnd(c);
 
                             // navigate list
@@ -435,9 +400,9 @@ function imMainInner(c: ImCache) {
                                     }
                                 }
                             }
-                        } imLayoutEnd(c);
+                        } imui.End(c);
                     } im.IfEnd(c);
-                } imLayoutEnd(c);
+                } imui.End(c);
             } 
 
 
@@ -670,7 +635,7 @@ function imMainInner(c: ImCache) {
 
             // TODO: provide a way to recover from errors that _are_ recoverable
 
-            imLayoutBegin(c, BLOCK); imdom.Str(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imLayoutEnd(c);
+            imui.Begin(c, BLOCK); imdom.Str(c, "An error occured in the main render loop. It's irrecoverable, I'm afraid"); imui.End(c);
         } im.IfEnd(c);
     } catch (e) {
         // unmounts imComponent1 immediately, rewinds the stack back to this list.
@@ -687,9 +652,6 @@ function imMainInner(c: ImCache) {
             errorState.error = e;
         }
     } im.TryEnd(c, tryState);
-
-
-    fpsMarkRenderingEnd(fpsCounter);
 }
 
 const cGlobal: ImCache = [];
@@ -707,18 +669,18 @@ function imMainEntryPoint(c: ImCache) {
 };
 
 function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
-    imLayoutBegin(c, COL); imAlign(c, CENTER); imPre(c); {
-        imLayoutBegin(c, BLOCK); {
+    imui.Begin(c, COL); imui.Align(c, CENTER); imui.Pre(c); {
+        imui.Begin(c, BLOCK); {
             imdom.Str(c, "["); 
             imdom.StrFmt(c, key, getKeyStringRepr);
             // imdom.Str(c, " - ");
             // imdom.Str(c, action);
             imdom.Str(c, "]");
-        } imLayoutEnd(c);
-        imLayoutBegin(c, BLOCK); {
+        } imui.End(c);
+        imui.Begin(c, BLOCK); {
             imdom.Str(c, action);
-        } imLayoutEnd(c);
-    } imLayoutEnd(c);
+        } imui.End(c);
+    } imui.End(c);
 }
 
 validateSchemas();
@@ -728,4 +690,4 @@ loadState(() => {
 });
 
 // Using a custom styling solution
-initCssbStyles();
+imui.init();

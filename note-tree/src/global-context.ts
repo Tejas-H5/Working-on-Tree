@@ -9,8 +9,9 @@ import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, loadState, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
-import { isEditingTextSomewhereInDocument } from "./utils/dom-utils";
+
 import { imdom, NormalizedKey } from "./utils/im-js";
+import { isEditingTextSomewhereInDocument } from "./utils/im-js/im-ui";
 import { logTrace } from "./utils/log";
 import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";

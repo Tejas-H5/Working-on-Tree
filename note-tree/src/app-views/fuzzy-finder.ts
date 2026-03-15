@@ -1,5 +1,5 @@
 import { cnApp } from "src/app-styling";
-import { BLOCK, COL, imFlex, imJustify, imLayoutBegin, imLayoutEnd, INLINE, ROW } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA, INLINE } from "src/utils/im-js/im-ui";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "src/global-context";
@@ -278,19 +278,19 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
     } 
     
     // Both items are focused at the same time !!! LFG
-    imLayoutBegin(c, COL); imFlex(c); {
+    imui.Begin(c, COL); imui.Flex(c); {
 
-        imLayoutBegin(c, ROW); imListRowCellStyle(c); imJustify(c); {
+        imui.Begin(c, ROW); imListRowCellStyle(c); imui.Justify(c); {
             if (im.isFirstishRender(c)) {
                 imdom.setStyle(c, "fontWeight", "bold");
             }
 
             let scope = scopeToString(finderState.scope);
             imdom.Str(c, `Finder [${scope}]`);
-        } imLayoutEnd(c);
+        } imui.End(c);
 
         imListRowBegin(c, viewHasFocus, viewHasFocus, true); {
-            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
+            imui.Begin(c, ROW); imui.Flex(c); imListRowCellStyle(c); {
                 const [, textArea] = imTextAreaBegin(c, {
                     value: finderState.query,
                 }); {
@@ -307,13 +307,13 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                         ctx.focusWithAllSelected = false;
                     }
                 } imTextAreaEnd(c);
-            } imLayoutEnd(c);
+            } imui.End(c);
         } imListRowEnd(c);
 
         if (im.If(c) && finderState.query.length > 0 && !finderState.exactMatchSucceeded) {
-            imLayoutBegin(c, ROW); imListRowCellStyle(c); {
+            imui.Begin(c, ROW); imListRowCellStyle(c); {
                 imdom.Str(c, `Found 0 exact matches, fell back to a fuzzy search`);
-            } imLayoutEnd(c);
+            } imui.End(c);
         } im.IfEnd(c);
 
         const list = imNavListBegin(
@@ -328,7 +328,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
                 const item = matches[i];
 
                 imNavListRowBegin(c, list, false, false); {
-                    imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
+                    imui.Begin(c, BLOCK); imListRowCellStyle(c); {
 
                         if (im.If(c) && item.ranges) {
                             let diffState; diffState = im.GetInline(c, imFuzzyFinder);
@@ -391,42 +391,42 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
 
                                     lastStart = nextLastStart;
 
-                                    imLayoutBegin(c, INLINE); {
+                                    imui.Begin(c, INLINE); {
                                         if (im.isFirstishRender(c)) {
                                             imdom.setClass(c, cnApp.defocusedText); 
                                         }
 
                                         imdom.Str(c, beforeHighlighted); 
-                                    } imLayoutEnd(c);
-                                    imLayoutBegin(c, INLINE); imdom.Str(c, highlighted); imLayoutEnd(c);
+                                    } imui.End(c);
+                                    imui.Begin(c, INLINE); imdom.Str(c, highlighted); imui.End(c);
                                 } im.ForEnd(c);
 
                                 if (im.If(c) && lastStart !== text.length) {
-                                    imLayoutBegin(c, INLINE); {
+                                    imui.Begin(c, INLINE); {
                                         if (im.isFirstishRender(c)) {
                                             imdom.setClass(c, cnApp.defocusedText);
                                         }
 
                                         imdom.Str(c, text.substring(lastStart)); 
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
                                 } im.IfEnd(c);
                             }
                         } else {
                             im.IfElse(c);
-                            imLayoutBegin(c, INLINE); imdom.Str(c, truncate(item.note.data.text, 50)); imLayoutEnd(c);
+                            imui.Begin(c, INLINE); imdom.Str(c, truncate(item.note.data.text, 50)); imui.End(c);
                         } im.IfEnd(c);
-                    } imLayoutEnd(c);
+                    } imui.End(c);
                 } imNavListRowEnd(c);
             } im.ForEnd(c);
         } imNavListEnd(c, list);
 
-        imLayoutBegin(c, ROW); imJustify(c); {
+        imui.Begin(c, ROW); imui.Justify(c); {
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
             imdom.Str(c, `Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
-        } imLayoutEnd(c);
-    } imLayoutEnd(c);
+        } imui.End(c);
+    } imui.End(c);
 
     if (queryChanged || scopeChanged) {
         s.timeTakenMs = performance.now() - t0;

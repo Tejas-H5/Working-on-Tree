@@ -1,5 +1,5 @@
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, DisplayType, imLayoutBegin, imLayoutEnd, imPadding, imSize, NA, PX, ROW, SizeUnits, TABLE_CELL, TABLE_ROW } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA, TABLE_ROW, DisplayType, TABLE_CELL, SizeUnits } from "src/utils/im-js/im-ui";
 import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
 
@@ -59,7 +59,7 @@ export function imListTableRowBegin(
     isEditing = false
 ) {
     const status = getRowStatus(highlighted, selected, focused, isEditing);
-    const root = imLayoutBegin(c, TABLE_ROW); {
+    const root = imui.Begin(c, TABLE_ROW); {
         imListCursorBg(c, status);
 
         if (im.isFirstishRender(c)) {
@@ -67,13 +67,13 @@ export function imListTableRowBegin(
             imdom.setStyle(c, "paddingRight", "10px");
         }
 
-    } // imLayoutEnd(c);
+    } // imui.End(c);
 
     return root;
 } 
 export function imListTableRowEnd(c: ImCache) {
     {
-    } imLayoutEnd(c);
+    } imui.End(c);
 }
 
 /** 
@@ -86,24 +86,24 @@ export function imTableCellFlexBegin(
     type: DisplayType,
     colWidth: number = 0, units: SizeUnits = NA,
 ) {
-    imLayoutBegin(c, TABLE_CELL); imSize(c, colWidth, units, 0, NA); {
+    imui.Begin(c, TABLE_CELL); imui.Size(c, colWidth, units, 0, NA); {
         if (im.isFirstishRender(c)) {
             imdom.setStyle(c, "verticalAlign", "middle");
         }
 
-        imLayoutBegin(c, type); {
+        imui.Begin(c, type); {
             if (im.isFirstishRender(c)) {
                 imdom.setStyle(c, "height", "100%");
             }
-        } // imLayoutEnd(c);
-    } // imLayoutEnd(c);
+        } // imui.End(c);
+    } // imui.End(c);
 }
 
 export function imTableCellFlexEnd(c: ImCache) {
     {
         {
-        } imLayoutEnd(c);
-    } imLayoutEnd(c);
+        } imui.End(c);
+    } imui.End(c);
 }
 
 
@@ -115,22 +115,22 @@ export function imListRowBegin(
     isEditing = false
 ) {
     const status = getRowStatus(highlighted, selected, focused, isEditing);
-    const root = imLayoutBegin(c, ROW); {
+    const root = imui.Begin(c, ROW); {
         imListCursorBg(c, status);
 
-        imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); {
+        imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); {
             imListCursorColor(c, status);
-        } imLayoutEnd(c);
+        } imui.End(c);
 
-    } // imLayoutEnd(c);
+    } // imui.End(c);
 
     return root;
 }
 
 export function imListRowEnd(c: ImCache) {
     {
-        imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
-    } imLayoutEnd(c);
+        imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+    } imui.End(c);
 }
 
 
@@ -158,12 +158,12 @@ export function imListCursorColor(c: ImCache, status: RowStatus) {
 
 export function imEndListRowNoPadding(c: ImCache) {
     {
-    } imLayoutEnd(c);
+    } imui.End(c);
 }
 
 export function imListRowCellStyle(c: ImCache) {
     if (im.isFirstishRender(c)) {
         imdom.setStyle(c, "minHeight", "1em");
     }
-    imPadding(c, 3, PX, 8, PX, 3, PX, 3, PX);
+    imui.Padding(c, 3, PX, 8, PX, 3, PX, 3, PX);
 }

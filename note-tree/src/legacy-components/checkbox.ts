@@ -1,8 +1,8 @@
 // TODO: port this accross - it was kinda based
 // import { cssVars } from "src/legacy-app-components/legacy-styling";
-// import { cn, div, newCssBuilder, RenderGroup } from "src/utils/dom-utils";
+// 
 //
-// const sg = newCssBuilder("checkbox");
+// const sg = imui.newCssBuilder("checkbox");
 //
 // const FG_COLOR = cssVars.fgColor;
 // const DISBALED_COLOR = cssVars.unfocusTextColor;

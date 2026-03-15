@@ -1,6 +1,6 @@
 import { im, ImCache, imdom } from "src/utils/im-js";
 
-import { BLOCK, imLayoutBegin, imLayoutEnd } from "./core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
 
 export type FpsCounterState = {
     renderStart: number;
@@ -57,7 +57,7 @@ export function imFpsCounterSimple(c: ImCache, fpsCounter: FpsCounterState) {
     renderMs /= arr.frameMsRingbuffer.length;
     frameMs /= arr.frameMsRingbuffer.length;
 
-    imLayoutBegin(c, BLOCK); imdom.Str(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imLayoutEnd(c);
+    imui.Begin(c, BLOCK); imdom.Str(c, Math.round(renderMs) + "ms/" + Math.round(frameMs) + "ms"); imui.End(c);
 }
 
 export function imExtraDiagnosticInfo(c: ImCache) {
@@ -65,7 +65,7 @@ export function imExtraDiagnosticInfo(c: ImCache) {
     const numDestructors = im.getTotalDestructors(c);
     const numMapEntries  = im.getTotalMapEntries(c);
 
-    imLayoutBegin(c, BLOCK); {
+    imui.Begin(c, BLOCK); {
         imdom.Str(c, itemsIterated);
         imdom.Str(c, "i ");
 
@@ -74,5 +74,5 @@ export function imExtraDiagnosticInfo(c: ImCache) {
         imdom.Str(c, "d ");
         imdom.Str(c, numMapEntries);
         imdom.Str(c, "m");
-    } imLayoutEnd(c);
+    } imui.End(c);
 }

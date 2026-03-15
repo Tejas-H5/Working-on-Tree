@@ -1,5 +1,3 @@
-// DOM-utils v1.1
-
 /** Sets an input's value while retaining it's selection */
 export function setInputValue(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
     if (
@@ -117,7 +115,6 @@ export function getScrollVHEx(
     return { scrollTop, scrollLeft };
 }
 
-
 /**
  * Scrolls {@link scrollParent} to bring scrollTo into view.
  * {@link scrollToRelativeOffset} specifies where to to scroll to. 0 = bring it to the top of the scroll container, 1 = bring it to the bottom
@@ -191,6 +188,4 @@ export function getElementExtentNormalized(scrollParent: HTMLElement, scrollTo: 
 
     return result;
 }
-
-
 

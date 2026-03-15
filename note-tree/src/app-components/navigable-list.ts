@@ -1,10 +1,10 @@
 import { im, ImCache, imdom, ValidKey } from "src/utils/im-js";
-import { COL, imLayoutEnd, ROW } from "../components/core/layout";
+import { COL, imui, isEditingTextSomewhereInDocument, ROW } from "src/utils/im-js/im-ui";
 import { imScrollContainerBegin, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { getWrappedIdx } from "../utils/array-utils";
 import { assert } from "../utils/assert";
-import { isEditingTextSomewhereInDocument } from "../utils/dom-utils";
+
 import { imListRowBegin, imListRowEnd } from "./list-row";
 
 
@@ -196,7 +196,7 @@ export function imNavListBegin(
           */
          
 
-    } // imLayoutEnd(c);
+    } // imui.End(c);
 
     return s;
 }
@@ -206,7 +206,7 @@ export function imNavListEnd(c: ImCache, _list: NavigableListState) {
 
     {
 
-    } imLayoutEnd(c);
+    } imui.End(c);
 }
 
 // might need to render a component outside of a list, and inside of a list. hence list | null.

@@ -1,8 +1,6 @@
-import { cssVars } from "./components/core/stylesheets";
-import { newColor, newColorFromHex } from "./utils/colour";
-import { newCssBuilder, setCssVars } from "./utils/cssb";
+import { cssVars, imui } from "src/utils/im-js/im-ui";
 
-const cssb = newCssBuilder();
+const cssb = imui.newCssBuilder();
 
 export const cssVarsApp = {
     bgInProgress: "var(--bgInProgress)",
@@ -25,14 +23,14 @@ background: ${cssVars.bg};
 font-size: 18px; `;
 
 export const lightTheme = {
-    bgInProgress: newColor(1, 0, 0, 0.1),
-    fgInProgress: newColorFromHex("#FFF"),
-    bgEditing: newColorFromHex("#F00"),
-    bgColor: newColorFromHex("#FFFFFF"),
-    bgColorFocus: newColorFromHex("#CCC"),
-    bgColorFocus2: newColorFromHex("#F2F2F2"),
-    fgColor: newColorFromHex("#000"),
-    unfocusTextColor: newColorFromHex("#A0A0A0"),
+    bgInProgress: imui.newColor(1, 0, 0, 0.1),
+    fgInProgress: imui.newColorFromHex("#FFF"),
+    bgEditing: imui.newColorFromHex("#F00"),
+    bgColor: imui.newColorFromHex("#FFFFFF"),
+    bgColorFocus: imui.newColorFromHex("#CCC"),
+    bgColorFocus2: imui.newColorFromHex("#F2F2F2"),
+    fgColor: imui.newColorFromHex("#000"),
+    unfocusTextColor: imui.newColorFromHex("#A0A0A0"),
     focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 } as const satisfies Record<keyof typeof cssVarsApp, any>;
@@ -40,14 +38,14 @@ export const lightTheme = {
 type AppTheme = typeof lightTheme;
 
 export const darkTheme: AppTheme = {
-    bgInProgress: newColor(1, 0, 0, 0.1),
-    fgInProgress: newColorFromHex("#FFF"),
-    bgEditing: newColorFromHex("#F00"),
-    bgColor: newColorFromHex("#000"),
-    bgColorFocus: newColorFromHex("#333"),
-    bgColorFocus2: newColorFromHex("#222"),
-    fgColor: newColorFromHex("#DDDDDD"),
-    unfocusTextColor: newColorFromHex("#707070"),
+    bgInProgress: imui.newColor(1, 0, 0, 0.1),
+    fgInProgress: imui.newColorFromHex("#FFF"),
+    bgEditing: imui.newColorFromHex("#F00"),
+    bgColor: imui.newColorFromHex("#000"),
+    bgColorFocus: imui.newColorFromHex("#333"),
+    bgColorFocus2: imui.newColorFromHex("#222"),
+    fgColor: imui.newColorFromHex("#DDDDDD"),
+    unfocusTextColor: imui.newColorFromHex("#707070"),
     focusedTreePathWidth: "4px",
     unfocusedTreePathWidth: "1px",
 };
@@ -56,7 +54,7 @@ let currentAppTheme: AppTheme = lightTheme;
 
 export function setAppTheme(theme: AppTheme) {
     currentAppTheme = theme;
-    setCssVars({
+    imui.setCurrentTheme({
         ...currentAppTheme,
         fg: theme.fgColor,
         fg2: theme.bgColorFocus2,

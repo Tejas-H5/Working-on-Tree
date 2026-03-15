@@ -10,7 +10,7 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { BLOCK, COL, imAlign, imFlex, imJustify, imLayoutBegin, imLayoutEnd, imPadding, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA, INLINE_BLOCK, INLINE } from "src/utils/im-js/im-ui";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
@@ -182,19 +182,19 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
         recomputeTraversal(s, state.currentNoteId, true);
     }
 
-    imLayoutBegin(c, COL); imListRowCellStyle(c); imAlign(c); {
+    imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {
         if (im.isFirstishRender(c)) {
             imdom.setStyle(c, "fontWeight", "bold");
         }
 
-        imLayoutBegin(c, BLOCK); imdom.Str(c, "Fast travel"); imLayoutEnd(c);
+        imui.Begin(c, BLOCK); imdom.Str(c, "Fast travel"); imui.End(c);
 
         if (im.If(c) && s.viewRoot && s.viewRoot !== getRootNote(state)) {
-            imLayoutBegin(c, BLOCK); {
+            imui.Begin(c, BLOCK); {
                 imdom.Str(c, s.viewRoot.data.text); 
-            } imLayoutEnd(c);
+            } imui.End(c);
         } im.IfEnd(c);
-    } imLayoutEnd(c);
+    } imui.End(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
 
@@ -206,8 +206,8 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
             const note = s.notes[i];
 
             imNavListRowBegin(c, list, false, false); {
-                imLayoutBegin(c, BLOCK); imListRowCellStyle(c); {
-                    imLayoutBegin(c, INLINE); {
+                imui.Begin(c, BLOCK); imListRowCellStyle(c); {
+                    imui.Begin(c, INLINE); {
                         const isBold = note.data._tasksInProgress > 0;
                         if (im.Memo(c, isBold)) imdom.setStyle(c, "fontWeight", isBold ? "bold" : "");
 
@@ -220,20 +220,20 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
                         const canGoIn = note.childIds.length > 0;
                         if (im.If(c) && canGoIn) {
-                            imLayoutBegin(c, INLINE_BLOCK); imPadding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
+                            imui.Begin(c, INLINE_BLOCK); imui.Padding(c, 0, NA, 10, PX, 0, NA, 10, PX); {
                                 imdom.Str(c, " ->");
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } im.IfEnd(c);
-                    } imLayoutEnd(c);
-                } imLayoutEnd(c);
+                    } imui.End(c);
+                } imui.End(c);
             } imNavListRowEnd(c);
         } im.ForEnd(c);
 
         im.KeyedBegin(c, "empty"); {
             if (im.If(c) && !renderedAny) {
-                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); imJustify(c); {
+                imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); imui.Justify(c); {
                     imdom.Str(c, "This level has been cleared!");
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
         } im.KeyedEnd(c);
     } imNavListEnd(c, list);

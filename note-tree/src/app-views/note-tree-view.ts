@@ -14,27 +14,8 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { cssVarsApp } from "src/app-styling";
-import {
-    BLOCK,
-    CH,
-    COL,
-    EM,
-    imAbsolute,
-    imBg,
-    imFlex,
-    imGap,
-    imLayoutBegin,
-    imLayoutEnd,
-    imNoWrap,
-    imOpacity,
-    imRelative,
-    imSize,
-    NA,
-    PX,
-    ROW,
-    ROW_REVERSE
-} from "src/components/core/layout";
-import { cn } from "src/components/core/stylesheets";
+import { imui, BLOCK, ROW, COL, PX, NA, CH, EXTENT_VERTICAL, EXTENT_END, getElementExtentNormalized, ROW_REVERSE, EM } from "src/utils/im-js/im-ui";
+
 import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import {
@@ -95,7 +76,7 @@ import {
 import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { formatDateTime, formatDurationAsHours } from "src/utils/datetime";
-import { EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized } from "src/utils/dom-utils";
+
 import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
 import * as tree from "src/utils/int-tree";
@@ -393,15 +374,15 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     }
 
 
-    imLayoutBegin(c, COL); imFlex(c); {
-        imLayoutBegin(c, BLOCK); {
+    imui.Begin(c, COL); imui.Flex(c); {
+        imui.Begin(c, BLOCK); {
             s.numVisible = 0;
             im.For(c); for (const row of s.viewRootParentNotes) {
                 im.KeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
                 } im.KeyedEnd(c);
             } im.ForEnd(c);
-        } imLayoutEnd(c);
+        } imui.End(c);
 
         imLine(
             c,
@@ -409,13 +390,13 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
             !!s.scrollContainer.root && s.scrollContainer.root.scrollTop > 1,
         );
 
-        imLayoutBegin(c, BLOCK); {
+        imui.Begin(c, BLOCK); {
             im.For(c); for (const row of s.stickyNotes) {
                 im.KeyedBegin(c, row); {
                     imNoteTreeRow(c, ctx, null, s, row, viewFocused);
                 } im.KeyedEnd(c);
             } im.ForEnd(c);
-        } imLayoutEnd(c);
+        } imui.End(c);
 
         const list = imNavListBegin(c, s.scrollContainer, s.listPos.idx, viewFocused, state._isEditingFocusedNote); {
             im.For(c); while (imNavListNextItemArray(list, s.childNotes)) {
@@ -448,7 +429,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
             // Want to scroll off the bottom a bit
             im.KeyedBegin(c, "scrolloff"); {
-                imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 500, PX); imLayoutEnd(c);
+                imui.Begin(c, BLOCK); imui.Size(c, 0, NA, 500, PX); imui.End(c);
             } im.KeyedEnd(c);
         } imNavListEnd(c, list);
 
@@ -466,16 +447,16 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
         imLine(c, LINE_HORIZONTAL, 1);
 
         const currentNote = getCurrentNote(state);
-        imLayoutBegin(c, ROW); imGap(c, 10, PX); {
-            imLayoutBegin(c, BLOCK); imdom.Str(c, "Created " + formatDateTime(currentNote.data.openedAt)); imLayoutEnd(c);
-            imLayoutBegin(c, BLOCK); imdom.Str(c, "|"); imLayoutEnd(c);
-            imLayoutBegin(c, BLOCK); imdom.Str(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imLayoutEnd(c);
-        } imLayoutEnd(c);
-    } imLayoutEnd(c);
+        imui.Begin(c, ROW); imui.Gap(c, 10, PX); {
+            imui.Begin(c, BLOCK); imdom.Str(c, "Created " + formatDateTime(currentNote.data.openedAt)); imui.End(c);
+            imui.Begin(c, BLOCK); imdom.Str(c, "|"); imui.End(c);
+            imui.Begin(c, BLOCK); imdom.Str(c, "Last Edited " + formatDateTime(currentNote.data.editedAt)); imui.End(c);
+        } imui.End(c);
+    } imui.End(c);
 }
 
 function imMarksList(c: ImCache) {
-    imLayoutBegin(c, COL); {
+    imui.Begin(c, COL); {
         im.For(c); for (let i = 0; i < state._computedMarks.length; i++) {
             const allMarks = state._computedMarks[i];
             const mark = state.rootMarks[i];
@@ -483,25 +464,25 @@ function imMarksList(c: ImCache) {
 
             const rootMarkNote = getNote(state.notes, mark);
 
-            imLayoutBegin(c, ROW); imNoWrap(c); {
+            imui.Begin(c, ROW); imui.NoWrap(c); {
                 if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
 
-                imLayoutBegin(c, ROW); {
+                imui.Begin(c, ROW); {
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
                     imdom.StrFmt(c, i, markIdxToString);
                     imdom.Str(c, ": ");
-                } imLayoutEnd(c);
+                } imui.End(c);
 
-                imLayoutBegin(c, ROW); imFlex(c); {
+                imui.Begin(c, ROW); imui.Flex(c); {
 
                     imdom.Str(c, getNoteTextWithoutPriority(rootMarkNote.data));
 
-                    imLayoutBegin(c, BLOCK); imSize(c, 10, PX, 0, NA); imLayoutEnd(c);
+                    imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
 
                     if (im.If(c) && allMarks.length === 0) {
-                        imLayoutBegin(c, ROW); {
+                        imui.Begin(c, ROW); {
                             imdom.Str(c, "Nothing in progress under this mark");
-                        } imLayoutEnd(c);
+                        } imui.End(c);
                     } else {
                         im.IfElse(c);
 
@@ -511,21 +492,21 @@ function imMarksList(c: ImCache) {
                             const isSelected = noteId === state.currentNoteId;
 
                             const flexRatio = isSelected ? 10 : 1;
-                            imLayoutBegin(c, ROW); imFlex(c, flexRatio); imBg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
+                            imui.Begin(c, ROW); imui.Flex(c, flexRatio); imui.Bg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
                                 imArrow(c);
 
                                 if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
                                 if (im.Memo(c, isSelected)) imdom.setStyle(c, "maxWidth", isSelected ? "1fr" : "");
 
                                 imdom.Str(c, note.data.text);
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } im.ForEnd(c);
                     } im.IfEnd(c);
 
-                } imLayoutEnd(c);
-            } imLayoutEnd(c);
+                } imui.End(c);
+            } imui.End(c);
         } im.ForEnd(c);
-    } imLayoutEnd(c);
+    } imui.End(c);
 }
 
 function imArrow(c: ImCache) {
@@ -629,10 +610,10 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTreeViewState) {
 
             if (listNavInput) {
                 moveToLocalidx(ctx, s, listNavInput.newIdx, moveNote);
-            } else if (imdom.isKeyPressed(keys, keyboard.leftKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.leftKey) && !ctrlOrShift) {
                 moveOutOfCurrent(ctx, s, moveNote);
                 ctx.handled = true;
-            } else if (imdom.isKeyPressed(keys, keyboard.rightKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.rightKey) && !ctrlOrShift) {
                 moveIntoCurrent(ctx, s, moveNote);
                 ctx.handled = true;
             }
@@ -789,13 +770,13 @@ function imNoteTreeRow(
     }
 
     const root = imNavListRowBegin(c, list, false, false); {
-        imLayoutBegin(c, ROW); imFlex(c); {
+        imui.Begin(c, ROW); imui.Flex(c); {
             if (selectedChanged) {
-                imdom.setClass(c, cn.preWrap, itemSelected);
+                imdom.setStyle(c, "whiteSpace", itemSelected ? "pre-wrap" : "");
             }
 
             // The tree visuals
-            imLayoutBegin(c, ROW_REVERSE); {
+            imui.Begin(c, ROW_REVERSE); {
                 const noteIsParent = s.viewRootParentNotes.includes(note) || idIsRoot(note.id);
 
                 let it = note;
@@ -853,22 +834,22 @@ function imNoteTreeRow(
                         let midpointLen = 0.9;
                         let midpointUnits = EM;
 
-                        imLayoutBegin(c, BLOCK); imRelative(c); imSize(c, indent, PX, 0, NA); {
+                        imui.Begin(c, BLOCK); imui.Relative(c); imui.Size(c, indent, PX, 0, NA); {
                             // horizontal line xD
                             if (im.If(c) && hasHLine) {
-                                imLayoutBegin(c, BLOCK); imAbsolute(c, midpointLen, midpointUnits, 0, PX, 0, NA, 0, NA); {
+                                imui.Begin(c, BLOCK); imui.Absolute(c, midpointLen, midpointUnits, 0, PX, 0, NA, 0, NA); {
                                     if (im.isFirstishRender(c)) {
                                         imdom.setStyle(c, "transform", "translate(0, -100%)");
                                     }
 
                                     const isThick = isLineInPath && pathGoesRight;
-                                    imSize(
+                                    imui.Size(
                                         c,
                                         bulletStart, PX,
                                         isThick ? largeThicnkess : smallThicnkess, PX,
                                     );
-                                    imBg(c, getTreeColor(itPrev.data._treeVisualsGoRight)); 
-                                } imLayoutEnd(c);
+                                    imui.Bg(c, getTreeColor(itPrev.data._treeVisualsGoRight)); 
+                                } imui.End(c);
                             } im.IfEnd(c);
 
                             const canDrawVerticalLine = !isLast || note === itPrev;
@@ -877,38 +858,38 @@ function imNoteTreeRow(
                                 const toUse = itPrev === note ? itPrev : itPrevNextSibling;
                                 if (toUse) {
                                     // Vertical line part 1. xd. We need a better API
-                                    imLayoutBegin(c, BLOCK); imAbsolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
-                                        imSize(
+                                    imui.Begin(c, BLOCK); imui.Absolute(c, 0, PX, bulletStart, PX, 0, isLast ? NA : PX, 0, NA); {
+                                        imui.Size(
                                             c,
                                             isLineInPath ? largeThicnkess : smallThicnkess, PX,
                                             midpointLen, midpointUnits
                                         );
-                                        imBg(
+                                        imui.Bg(
                                             c,
                                             getTreeColor(Math.max(toUse.data._treeVisualsGoDown, toUse.data._treeVisualsGoRight))
                                         );
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
 
                                     // Vertical line part 2.
-                                    imLayoutBegin(c, BLOCK); {
+                                    imui.Begin(c, BLOCK); {
                                         const isThick = isLineInPath && pathGoesDown;
-                                        imAbsolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA);
-                                        imSize(
+                                        imui.Absolute(c, midpointLen, midpointUnits, bulletStart, PX, 0, isLast ? NA : PX, 0, NA);
+                                        imui.Size(
                                             c,
                                             isThick ? largeThicnkess : smallThicnkess, PX,
                                             0, NA
                                         );
-                                        imOpacity(c, isLast ? 0 : 1);
-                                        imBg(c, getTreeColor(itPrev.data._treeVisualsGoDown));
-                                    } imLayoutEnd(c);
+                                        imui.Opacity(c, isLast ? 0 : 1);
+                                        imui.Bg(c, getTreeColor(itPrev.data._treeVisualsGoDown));
+                                    } imui.End(c);
                                 }
                             } im.IfEnd(c);
-                        } imLayoutEnd(c);
+                        } imui.End(c);
                     }
                 } im.ForEnd(c);
-            } imLayoutEnd(c);
+            } imui.End(c);
 
-            imLayoutBegin(c, ROW); imFlex(c); imListRowCellStyle(c); {
+            imui.Begin(c, ROW); imui.Flex(c); imListRowCellStyle(c); {
                 if (im.Memo(c, note.data._status)) {
                     let color;
                     if (isStatusInProgressOrInfo(note)) {
@@ -920,33 +901,27 @@ function imNoteTreeRow(
                     imdom.setStyle(c, "color", color);
                 }
 
-                imLayoutBegin(c, ROW); imFlex(c); {
+                imui.Begin(c, ROW); imui.Flex(c); imui.NoWrap(c); imui.ScrollOverflow(c, false); {
                     let shouldPreserveNewlines = itemSelected;
                     if (note.data._status === STATUS_INFO) {
                         shouldPreserveNewlines = true;
                     }
 
                     if (im.Memo(c, shouldPreserveNewlines)) {
-                        imdom.setClass(c, cn.preWrap, shouldPreserveNewlines);
-                        imdom.setClass(c, cn.noWrap, !shouldPreserveNewlines);
-                        imdom.setClass(c, cn.overflowHidden, !shouldPreserveNewlines);
+                        imdom.setStyle(c, "overflow", !shouldPreserveNewlines ? "hidden" : "");
                     }
 
-                    imLayoutBegin(c, ROW); {
-                        if (im.isFirstishRender(c)) {
-                            imdom.setClass(c, cn.noWrap);
-                        }
-
-                        imLayoutBegin(c, BLOCK); {
+                    imui.Begin(c, ROW); imui.NoWrap(c); {
+                        imui.Begin(c, BLOCK); {
                             imdom.Str(c, noteStatusToString(note)); 
-                        } imLayoutEnd(c);
+                        } imui.End(c);
 
                         if (im.If(c) && (numInProgress + numDone) > 0) {
-                            imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
+                            imui.Begin(c, BLOCK); imui.Size(c, 0.5, CH, 0, NA); imui.End(c);
                             imdom.Str(c, `(${numDone}/${numInProgress + numDone})`);
                         } im.IfEnd(c);
-                        imLayoutBegin(c, BLOCK); imSize(c, 0.5, CH, 0, NA); imLayoutEnd(c);
-                    } imLayoutEnd(c);
+                        imui.Begin(c, BLOCK); imui.Size(c, 0.5, CH, 0, NA); imui.End(c);
+                    } imui.End(c);
 
                     if (im.If(c) && isEditing) {
                         const [, textArea] = imTextAreaBegin(c, {
@@ -1059,19 +1034,19 @@ function imNoteTreeRow(
 
                         imdom.Str(c, text);
                     } im.IfEnd(c);
-                } imLayoutEnd(c);
-            } imLayoutEnd(c);
+                } imui.End(c);
+            } imui.End(c);
 
             if (im.If(c) && ctx.viewingDurations) {
-                imLayoutBegin(c, ROW); {
+                imui.Begin(c, ROW); {
                     const durationTimesheet = getNoteDurationUsingCurrentRange(state, note);
                     const durationAllTime = getNoteDurationWithoutRange(state, note);
                     imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
                     imdom.Str(c, " / ");
                     imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
-        } imLayoutEnd(c);
+        } imui.End(c);
     } imNavListRowEnd(c);
 
     return root;

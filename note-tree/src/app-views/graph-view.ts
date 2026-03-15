@@ -1,35 +1,13 @@
 import { imListRowCellStyle } from "src/app-components/list-row";
 import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "src/components/context-menu";
-import {
-    BLOCK,
-    COL,
-    DisplayType,
-    imAbsolute,
-    imAbsoluteXY,
-    imAlign,
-    imBg,
-    imButton,
-    imFg,
-    imFlex,
-    imJustify,
-    imLayoutBegin,
-    imLayoutEnd,
-    imPadding,
-    imRelative,
-    imScrollOverflow,
-    imSize,
-    imZIndex,
-    NA,
-    PX,
-    ROW,
-    STRETCH
-} from "src/components/core/layout";
-import { cn, cssVars } from "src/components/core/stylesheets";
+import { imui, BLOCK, ROW, COL, PX, NA, cssVars, STRETCH, DisplayType } from "src/utils/im-js/im-ui";
+
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { imTextInputOneLine } from "src/components/text-input";
 import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { im, ImCache, imdom, el, ev, elsvg, } from "src/utils/im-js";
+import { imButton } from "src/app-components/button";
 
 
 
@@ -543,10 +521,8 @@ export function imGraphMappingsEditorView(
 
     ensureParallelUiSate(s, graph);
 
-    const root = imLayoutBegin(c, COL); imFlex(c); imRelative(c); imScrollOverflow(c, true, true);
-    const rootRect = root.getBoundingClientRect(); {
-        if (im.isFirstishRender(c)) imdom.setClass(c, cn.userSelectNone);
-
+    const root = imui.Begin(c, COL); imui.Flex(c); imui.Relative(c); imui.ScrollOverflow(c, true, true);
+    const rootRect = root.getBoundingClientRect(); imui.NoSelect(c); {
         const isDraggingEdge = s.dragEdge.srcId !== -1;
         if (im.Memo(c, view.zoom)) imdom.setStyle(c, "fontSize", view.zoom + "rem");
         if (im.Memo(c, isDraggingEdge)) imdom.setStyle(c, "cursor", isDraggingEdge ? "crosshair" : "move");
@@ -636,23 +612,22 @@ export function imGraphMappingsEditorView(
             s.dragEdge.currentX = toGraphX(view, mouse.X - rootRect.x);
             s.dragEdge.currentY = toGraphY(view, mouse.Y - rootRect.y);
 
-            const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imAlign(c); imJustify(c); {
-                if (im.isFirstishRender(c)) imdom.setClass(c, cn.userSelectNone);
+            const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imui.Align(c); imui.Justify(c); imui.NoSelect(c); {
                 if (im.If(c) && lineState.isUpsideDown === s.dragEdge.srcToDst) {
-                    imLayoutBegin(c, ROW); imSize(c, 20 * view.zoom, PX, 0, NA); imAlign(c); {
+                    imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
                         imArrowHeadSvg(c);
-                    } imLayoutEnd(c);
+                    } imui.End(c);
                 } im.IfEnd(c);
 
-                imLayoutBegin(c, ROW); imFlex(c); {
+                imui.Begin(c, ROW); imui.Flex(c); {
                     imLine(c, LINE_HORIZONTAL, 3);
-                } imLayoutEnd(c);
+                } imui.End(c);
 
                 if (im.If(c) && lineState.isUpsideDown  !== s.dragEdge.srcToDst) {
-                    imLayoutBegin(c, ROW); imSize(c, 20 * view.zoom, PX, 0, NA); imAlign(c); {
+                    imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
                         if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
                         imArrowHeadSvg(c);
-                    } imLayoutEnd(c);
+                    } imui.End(c);
                 } im.IfEnd(c);
             } imLayoutLineEnd(c);
 
@@ -660,10 +635,10 @@ export function imGraphMappingsEditorView(
             if (im.If(c) && rel) {
                 const labelX = mx;
                 const labelY = my;
-                imLayoutBegin(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); imZIndex(c, 10); {
+                imui.Begin(c, COL); imui.AbsoluteXY(c, labelX, PX, labelY, PX); imui.ZIndex(c, 10); {
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
                     imRelationshipLabel(c, s, rel, s.dragEdge.relId, ctxEv);
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
         } im.IfEnd(c);
 
@@ -676,18 +651,17 @@ export function imGraphMappingsEditorView(
 
             im.KeyedBegin(c, conceptId); {
                 const editing = conceptId === s.currentlyEditing.conceptId;
-                imLayoutBegin(c, BLOCK); {
-                    imZIndex(c, 1); // raise above edges
-                    imAbsoluteXY(c, toContainerX(view, concept.x), PX, toContainerY(view, concept.y), PX);
-                    imPadding(c, 20, PX, 20, PX, 20, PX, 20, PX);
+                imui.Begin(c, BLOCK); imui.Pre(c); {
+                    imui.ZIndex(c, 1); // raise above edges
+                    imui.AbsoluteXY(c, toContainerX(view, concept.x), PX, toContainerY(view, concept.y), PX);
+                    imui.Padding(c, 20, PX, 20, PX, 20, PX, 20, PX);
 
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "cursor", "pointer");
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "borderRadius", (4 * view.zoom) + "px");
-                    if (im.isFirstishRender(c)) imdom.setClass(c, cn.pre);
 
                     let hoveredInner = false;
-                    const innerRoot = imLayoutBegin(c, COL); {
+                    const innerRoot = imui.Begin(c, COL); {
                         hoveredInner = imdom.hasMouseOver(c)
 
                         const innerRect = innerRoot.getBoundingClientRect();
@@ -699,8 +673,8 @@ export function imGraphMappingsEditorView(
                         conceptUiState.width  = conceptUiState.right - conceptUiState.left;
                         conceptUiState.height = conceptUiState.top - conceptUiState.bottom;
 
-                        imPadding(c, 4 * view.zoom, PX, 10 * view.zoom, PX, 4 * view.zoom, PX, 10 * view.zoom, PX);
-                        imBg(c, cssVars.bg);
+                        imui.Padding(c, 4 * view.zoom, PX, 10 * view.zoom, PX, 4 * view.zoom, PX, 10 * view.zoom, PX);
+                        imui.Bg(c, cssVars.bg);
 
                         if (
                             im.Memo(c, hoveredInner) |
@@ -746,18 +720,16 @@ export function imGraphMappingsEditorView(
                                 s.rightClicked = { conceptId };
                             }
 
-                            imLayoutBegin(c, BLOCK); {
-                                if (im.isFirstishRender(c)) imdom.setClass(c, cn.userSelectNone);
-
+                            imui.Begin(c, BLOCK); imui.NoSelect(c); {
                                 imdom.Str(c, concept.conceptName || "Unnamed");
 
                                 const dblClickEv = imdom.On(c, ev.DBLCLICK);
                                 if (dblClickEv) {
                                     s.currentlyEditing.conceptId = conceptId;
                                 }
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } im.IfEnd(c);
-                    } imLayoutEnd(c);
+                    } imui.End(c);
 
                     let canAcceptInEdge = false;
                     let canDragOutEdge = false;
@@ -811,9 +783,9 @@ export function imGraphMappingsEditorView(
                         }
                     }
 
-                    imBg(c, canDragOutEdge ? "" : canAcceptInEdge ? "rgba(0, 255, 0, 0.2)" : "");
+                    imui.Bg(c, canDragOutEdge ? "" : canAcceptInEdge ? "rgba(0, 255, 0, 0.2)" : "");
                     if (im.Memo(c, canDragOutEdge)) imdom.setStyle(c, "cursor", canDragOutEdge ? "crosshair" : "");
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.KeyedEnd(c);
         } im.ForEnd(c);
 
@@ -868,7 +840,7 @@ export function imGraphMappingsEditorView(
 
                 const labelX = mx;
                 const labelY = my;
-                imLayoutBegin(c, COL); imAbsoluteXY(c, labelX, PX, labelY, PX); imZIndex(c, 10); {
+                imui.Begin(c, COL); imui.AbsoluteXY(c, labelX, PX, labelY, PX); imui.ZIndex(c, 10); {
                     if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
 
                     im.For(c); for (let idxInGroup = 0; idxInGroup < edgeGroup.relIds.length; idxInGroup++) {
@@ -881,9 +853,9 @@ export function imGraphMappingsEditorView(
                             s.edited = imRelationshipLabel(c, s, rel, relId, ctxEv) || s.edited;
                         } im.KeyedEnd(c);
                     } im.ForEnd(c);
-                } imLayoutEnd(c);
+                } imui.End(c);
 
-                const lineState = imLayoutLine(c, COL, x0Line, y0Line, x1Line, y1Line); imAlign(c, STRETCH); {
+                const lineState = imLayoutLine(c, COL, x0Line, y0Line, x1Line, y1Line); imui.Align(c, STRETCH); {
                     im.For(c); for (let idxInGroup = 0; idxInGroup < edgeGroup.relIds.length; idxInGroup++) {
                         const relId = edgeGroup.relIds[idxInGroup];
                         const rel = graph.relationships[relId];
@@ -901,9 +873,9 @@ export function imGraphMappingsEditorView(
                             const dstUiState = s.conceptsUiState[rel.dstId]; assert(!!dstUiState);
                             const relUiState = s.relUiState[relId]; assert(!!relUiState);
 
-                            imLayoutBegin(c, ROW); {
+                            imui.Begin(c, ROW); {
                                 let col = s.hoveredRelId === relId ? "red" : cssVars.fg;
-                                imFg(c, col);
+                                imui.Fg(c, col);
 
                                 if (imdom.hasMouseOver(c)) {
                                     s.hoveredRelIdNext = relId;
@@ -936,29 +908,29 @@ export function imGraphMappingsEditorView(
 
                                 // arrow. only one should appear at a time
                                 if (im.If(c) && lineState.isUpsideDown === isSrc) {
-                                    imLayoutBegin(c, ROW); imSize(c, 20 * view.zoom, PX, 0, NA); imAlign(c); {
+                                    imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
                                         imArrowHeadSvg(c);
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
                                 } im.IfEnd(c);
 
-                                imLayoutBegin(c, ROW); imFlex(c); imAlign(c); {
+                                imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); {
 
                                     if (imdom.hasMouseOver(c) && ctxEv) {
                                         s.rightClicked = { relId };
                                     }
 
-                                    imLayoutBegin(c, ROW); imFlex(c); imSize(c, 0, NA, 3, PX); imBg(c, col); imLayoutEnd(c);
-                                } imLayoutEnd(c);
+                                    imui.Begin(c, ROW); imui.Flex(c); imui.Size(c, 0, NA, 3, PX); imui.Bg(c, col); imui.End(c);
+                                } imui.End(c);
 
                                 // arrow
                                 if (im.If(c) && lineState.isUpsideDown !== isSrc) {
-                                    imLayoutBegin(c, ROW); imSize(c, 20 * view.zoom, PX, 0, NA); imAlign(c); {
+                                    imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
                                         if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
                                         imArrowHeadSvg(c);
-                                    } imLayoutEnd(c);
+                                    } imui.End(c);
                                 } im.IfEnd(c);
 
-                            } imLayoutEnd(c);
+                            } imui.End(c);
                         } im.KeyedEnd(c);
 
                     } im.ForEnd(c);
@@ -1014,7 +986,7 @@ export function imGraphMappingsEditorView(
         }
 
         if (im.If(c) && s.boxSelect.isBoxSelecting) {
-            imLayoutBegin(c, BLOCK); imZIndex(c, 10000); imBg(c, cssVars.fg025a); {
+            imui.Begin(c, BLOCK); imui.ZIndex(c, 10000); imui.Bg(c, cssVars.fg025a); {
                 if (im.isFirstishRender(c)) imdom.setStyle(c, "border", "3px dashed " + cssVars.fg);
 
                 let x0 = toContainerX(view, s.boxSelect.startX);
@@ -1032,8 +1004,8 @@ export function imGraphMappingsEditorView(
                 const maxX = Math.max(x0, x1);
                 const maxY = Math.max(y0, y1);
 
-                imAbsoluteXY(c, minX, PX, minY, PX);
-                imSize(c, maxX - minX, PX, maxY - minY, PX);
+                imui.AbsoluteXY(c, minX, PX, minY, PX);
+                imui.Size(c, maxX - minX, PX, maxY - minY, PX);
 
 
                 if (!mouse.leftMouseButton) {
@@ -1073,7 +1045,7 @@ export function imGraphMappingsEditorView(
 
                     onSelectionUpdated(s);
                 }
-            } imLayoutEnd(c);
+            } imui.End(c);
         } im.IfEnd(c);
 
         if (ctxEv) {
@@ -1081,13 +1053,12 @@ export function imGraphMappingsEditorView(
             ctxEv.preventDefault();
         }
 
-        imLayoutBegin(c, ROW); imAbsolute(c, 0, NA, 10, PX, 10, PX, 0, NA); {
+        imui.Begin(c, ROW); imui.Absolute(c, 0, NA, 10, PX, 10, PX, 0, NA); imui.NoSelect(c); {
             if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "1rem");
-            if (im.isFirstishRender(c)) imdom.setClass(c, cn.userSelectNone);
             imdom.Str(c, view.pan.x); imdom.Str(c, ", "); imdom.Str(c, view.pan.y);
             imdom.Str(c, " @ "); imdom.Str(c, view.zoom); imdom.Str(c, "x");
-        } imLayoutEnd(c);
-    } imLayoutEnd(c);
+        } imui.End(c);
+    } imui.End(c);
 
 
     if (im.If(c) && contextMenu.open) {
@@ -1406,7 +1377,7 @@ function startDraggingConcepts(s: GraphMappingsViewState, graph: MappingGraph, v
 }
 
 function imArrowHeadSvg(c: ImCache) {
-    imdom.ElSvgBegin(c, elsvg.SVG); imRelative(c); {
+    imdom.ElSvgBegin(c, elsvg.SVG); imui.Relative(c); {
         if (im.isFirstishRender(c)) imdom.setAttr(c, "viewBox", "0 0 10 10");
         if (im.isFirstishRender(c)) imdom.setStyle(c, "width", "100%")
         if (im.isFirstishRender(c)) imdom.setStyle(c, "height", "100%")
@@ -1431,16 +1402,16 @@ function imRelationshipLabel(
 
         const editing = s.currentlyEditing.relId === relId;
 
-        imLayoutBegin(c, ROW); imBg(c, cssVars.bg); {
+        imui.Begin(c, ROW); imui.Bg(c, cssVars.bg); imui.Pre(c); {
+            if (im.isFirstishRender(c)) imdom.setStyle(c, "padding", "3px 10px");
+
             const hovered = s.hoveredRelId === relId;
 
             if (imdom.hasMouseOver(c)) {
                 s.hoveredRelIdNext = relId;
             }
 
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "padding", "3px 10px");
             if (im.Memo(c, hovered)) imdom.setStyle(c, "border", hovered ? `2px solid ${cssVars.fg}` : "");
-            if (im.isFirstishRender(c)) imdom.setClass(c, cn.pre);
 
             if (im.If(c) && editing) {
                 if (im.Memo(c, true)) {
@@ -1469,18 +1440,16 @@ function imRelationshipLabel(
                     s.rightClicked = { relId };
                 }
 
-                imLayoutBegin(c, ROW); {
-                    if (im.isFirstishRender(c)) imdom.setClass(c, cn.userSelectNone);
-
+                imui.Begin(c, ROW); imui.NoSelect(c); {
                     imdom.Str(c, rel.relationshipName);
 
                     const dblClickEv = imdom.On(c, ev.DBLCLICK);
                     if (dblClickEv) {
                         s.currentlyEditing = { relId };
                     }
-                } imLayoutEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
-        } imLayoutEnd(c);
+        } imui.End(c);
     } im.IfEnd(c);
 
     return edited;
@@ -1518,8 +1487,8 @@ function imLayoutLine(
         }
     }
 
-    imLayoutBegin(c, type);
-    imAbsoluteXY(c, x0, PX, y0, PX);
+    imui.Begin(c, type);
+    imui.AbsoluteXY(c, x0, PX, y0, PX);
 
     const dx = x1 - x0;
     const dy = y1 - y0;
@@ -1530,19 +1499,19 @@ function imLayoutLine(
     const len = Math.sqrt(dx * dx + dy * dy);
     imdom.setStyle(c, "width", len + "px");
 
-    // imLayoutEnd
+    // imui.End
 
     return s;
 }
 
 function imLayoutLineEnd(c: ImCache) {
-    // imLayoutBegin
-    imLayoutEnd(c);
+    // imui.Begin
+    imui.End(c);
 }
 
 function imContextMenuItem(c: ImCache) {
-    imLayoutBegin(c, BLOCK); imListRowCellStyle(c); imButton(c); {
-    } // imLayoutEnd
+    imui.Begin(c, BLOCK); imListRowCellStyle(c); imButton(c); {
+    } // imui.End
 }
 
 // If you pass cleanup = false, don't forget to call cleanupInvalidRelationships yourself!
@@ -1626,7 +1595,7 @@ function imSubset(
         const x1 = maxX + padding;
         const y0 = minY - padding;
         const y1 = maxY + padding;
-        imLayoutBegin(c, BLOCK); imAbsoluteXY(c, x0, PX, y0, PX);  imSize(c, x1 - x0, PX, y1 - y0, PX); {
+        imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0, PX, y0, PX);  imui.Size(c, x1 - x0, PX, y1 - y0, PX); {
             const hovered = imdom.hasMouseOver(c);
 
             if (im.isFirstishRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
@@ -1648,7 +1617,7 @@ function imSubset(
                     s.conceptsUiState[conceptIdx].dragging.isDragging = true;
                 }
             } im.IfEnd(c);
-        } imLayoutEnd(c);
+        } imui.End(c);
     } im.IfEnd(c);
 }
 

@@ -1,11 +1,8 @@
-import { newCssBuilder } from "src/utils/cssb";
 import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
-
-import { imFlex } from "./core/layout";
-import { cssVars } from "./core/stylesheets";
+import { imui, BLOCK, ROW, COL, PX, NA, cssVars } from "src/utils/im-js/im-ui";
 import { imTextAreaBegin, imTextAreaEnd } from "./editable-text-area";
 
-const cssb = newCssBuilder();
+const cssb = imui.newCssBuilder();
 
 const cnInput = cssb.newClassName("im-text-input");
 cssb.s(`
@@ -73,7 +70,7 @@ export function imTextInputOneLine(
     const [,input] = imTextAreaBegin(c, {
         value: currentName,
         placeholder: placeholder,
-    }); imFlex(c); {
+    }); imui.Flex(c); {
         if (im.Memo(c, hasFocus)) {
             setTimeout(() => {
                 input.focus();

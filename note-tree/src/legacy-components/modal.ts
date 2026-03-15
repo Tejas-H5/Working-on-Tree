@@ -1,11 +1,11 @@
 // TODO: port
 // import { cssVars } from "src/legacy-app-components/legacy-styling";
-// import { DomUtilsChildren, RenderGroup, div, newCssBuilder } from "src/utils/dom-utils";
+// 
 //
 // const BG_COLOR = cssVars.bgColor;
 // const UNDERLAY_COLOR = "rgba(0, 0, 0, 0.5)";
 //
-// const sg = newCssBuilder();
+// const sg = imui.newCssBuilder();
 // const cnModal = sg.cn("cnModal", [` { 
 //     top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; 
 //     background-color: ${UNDERLAY_COLOR}; pointer-events: all; 

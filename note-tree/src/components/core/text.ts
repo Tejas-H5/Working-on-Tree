@@ -1,5 +1,4 @@
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
-
+import { el, ImCache, imdom } from "src/utils/im-js";
 
 export function imB(c: ImCache) { return imdom.ElBegin(c, el.B); }
 export function imBEnd(c: ImCache) { return imdom.ElEnd(c, el.B); }

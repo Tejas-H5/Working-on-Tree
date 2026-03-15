@@ -1,10 +1,8 @@
 import { cssVarsApp } from "src/app-styling";
-import { BLOCK, imLayoutBegin, imLayoutEnd, imSize, NA, PERCENT, PX } from "src/components/core/layout";
-import { newCssBuilder } from "src/utils/cssb";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { BLOCK, imui, NA, PERCENT, PX } from "src/utils/im-js/im-ui";
+import { im, ImCache, imdom } from "src/utils/im-js";
 
-
-const cssb = newCssBuilder();
+const cssb = imui.newCssBuilder();
 const cnHLine = cssb.cn("hline", [
     ` { transition: opacity 0.1s linear, height 0.1s linear; }`
 ]);
@@ -22,7 +20,7 @@ export function imLine(
     let heightUnit = PX;
     const isH = type === LINE_HORIZONTAL;
 
-    imLayoutBegin(c, BLOCK); imSize(c,
+    imui.Begin(c, BLOCK); imui.Size(c,
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
@@ -34,10 +32,10 @@ export function imLine(
         if (im.Memo(c, visible)) {
             imdom.setStyle(c, "opacity", "" + (visible ? 1 : 0));
         }
-    } imLayoutEnd(c);
+    } imui.End(c);
 }
 
 export function imHLineDivider(c: ImCache) {
-    imLayoutBegin(c, BLOCK); imSize(c, 0, NA, 10, PX); imLayoutEnd(c);
+    imui.Begin(c, BLOCK); imui.Size(c, 0, NA, 10, PX); imui.End(c);
 }
 

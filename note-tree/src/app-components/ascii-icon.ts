@@ -1,11 +1,11 @@
 import { cssVarsApp } from "src/app-styling";
 import { AsciiIconData } from "src/assets/icons";
-import { BLOCK, imLayoutBegin, imLayoutEnd } from "src/components/core/layout";
+import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
 import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
 
 
 export function imAsciiIcon(c: ImCache, icon: AsciiIconData, sizePx: number) {
-    imLayoutBegin(c, BLOCK); {
+    imui.Begin(c, BLOCK); {
         if (im.isFirstishRender(c)) {
             imdom.setStyle(c, "userSelect", "none");
             imdom.setStyle(c, "whiteSpace", "pre");
@@ -18,7 +18,7 @@ export function imAsciiIcon(c: ImCache, icon: AsciiIconData, sizePx: number) {
         if (im.Memo(c, sizePx)) imdom.setStyle(c, "fontSize", sizePx + "px");
 
         imdom.Str(c, icon);
-    } imLayoutEnd(c);
+    } imui.End(c);
 
     return icon;
 }
