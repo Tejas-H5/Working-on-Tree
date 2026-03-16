@@ -1,4 +1,4 @@
-// IM-DOM 1.71
+// IM-DOM 1.72
 
 import { assert } from "./assert";
 import { im, ImCache, ImCacheEntries } from "./im-core";
@@ -482,6 +482,19 @@ function setStyle<K extends (keyof ValidElement["style"])>(
 ) {
     // @ts-expect-error its fine tho
     root.style[key] = value;
+}
+
+function setStyleProperty(
+    c: ImCache,
+    key: string,
+    value: string,
+    root = getElement(c),
+) {
+    if (!value) {
+        root.style.removeProperty(key);
+    } else {
+        root.style.setProperty(key, value);
+    }
 }
 
 function setTextUnsafe(c: ImCache, val: string) {
@@ -1690,6 +1703,7 @@ export const imdom = {
 
     /** Setting properties on DOM node */
     setStyle,
+    setStyleProperty,
     setClass,
     setAttr,
     setTextUnsafe, // Don't call this on an element that has non-text children! You'll delete them.

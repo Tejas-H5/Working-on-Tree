@@ -613,6 +613,7 @@ export function parseIsoDate(str: string): Date | null {
     return new Date(year, month - 1, date);
 }
 
+// NOTE: local time and not utc
 export function formatIsoDate(date: Date): string {
     return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
 }

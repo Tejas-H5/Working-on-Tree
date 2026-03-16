@@ -3,6 +3,7 @@ import { DurationsViewState, newDurationsViewState } from "./app-views/durations
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
+import { JournalViewState, newJournalViewState } from "./app-views/journal-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
@@ -41,6 +42,7 @@ export type GlobalContext = {
         settings:   SettingsViewState;
         durations:  DurationsViewState;
         mappings:   GraphMappingsViewState;
+        journalView: JournalViewState;
     };
     currentView: unknown;
     leftTab: unknown;
@@ -154,6 +156,7 @@ export function newGlobalContext(): GlobalContext {
             settings:   newSettingsViewState(),
             durations:  newDurationsViewState(),
             mappings:   newGraphMappingsViewState(),
+            journalView: newJournalViewState(),
         },
         notLockedIn: true,
 
@@ -217,7 +220,7 @@ function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
     if (!(command.flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) return false;
 
     if (!command.key || !imdom.isKeyPressedOrRepeated(keys, command.key)) return false;
-    if (!(command.flags & REPEAT) && imdom.isKeyRepeated(keys, command.key)) return false;
+    if (!(command.flags & REPEAT) && !imdom.isKeyPressed(keys, command.key)) return false;
 
     if (!(command.flags & ANY_MODIFIERS)) {
         if ((command.flags & ALT)   && !imdom.isKeyHeld(keys, ctx.keyboard.altKey))   return false;
@@ -310,13 +313,16 @@ type KeyboardState = {
     aKey: NormalizedKey;
     sKey: NormalizedKey;
     dKey: NormalizedKey;
+    jKey: NormalizedKey;
     bKey: NormalizedKey;
     tKey: NormalizedKey;
     fKey: NormalizedKey;
+    pKey: NormalizedKey;
     mKey: NormalizedKey;
     hKey: NormalizedKey;
     gKey: NormalizedKey;
     wKey: NormalizedKey;
+    rKey: NormalizedKey;
 
     enterKey:  NormalizedKey;
     escapeKey: NormalizedKey;
@@ -357,13 +363,16 @@ function newKeyboardState(): KeyboardState {
         aKey: imdom.getNormalizedKey("A"),
         sKey: imdom.getNormalizedKey("S"),
         dKey: imdom.getNormalizedKey("D"),
+        jKey: imdom.getNormalizedKey("J"),
         bKey: imdom.getNormalizedKey("B"),
         tKey: imdom.getNormalizedKey("T"),
         fKey: imdom.getNormalizedKey("F"),
+        pKey: imdom.getNormalizedKey("P"),
         mKey: imdom.getNormalizedKey("M"),
         hKey: imdom.getNormalizedKey("H"),
         gKey: imdom.getNormalizedKey("G"),
         wKey: imdom.getNormalizedKey("W"),
+        rKey: imdom.getNormalizedKey("R"),
 
         enterKey:  imdom.getNormalizedKey("Enter"),
         escapeKey: imdom.getNormalizedKey("Escape"),

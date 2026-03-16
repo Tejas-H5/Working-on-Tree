@@ -65,6 +65,10 @@ export function imScrollContainerBegin(
     return scrollParent;
 }
 
+export function imScrollContainerEnd(c: ImCache) {
+    imui.End(c);
+}
+
 // NOTE: it's up to you to only ever call this on one item at a time
 // TODO: move this into ScrollContainer, make this a side-effect of ending the container
 export function scrollToItem(c: ImCache, sc: ScrollContainer, root: HTMLElement) {
@@ -100,7 +104,6 @@ export function scrollToItem(c: ImCache, sc: ScrollContainer, root: HTMLElement)
         sc._scrollTopStableFramesLast = 0;
     }
     sc._scrollTopStableFramesLast += 1;
-
 }
 
 function lerp(a: number, b: number, t: number): number {

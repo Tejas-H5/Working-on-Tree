@@ -1,6 +1,6 @@
 import { im, ImCache, imdom, ValidKey } from "src/utils/im-js";
-import { COL, imui, isEditingTextSomewhereInDocument, ROW } from "src/utils/im-js/im-ui";
-import { imScrollContainerBegin, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
+import { COL, isEditingTextSomewhereInDocument, ROW } from "src/utils/im-js/im-ui";
+import { imScrollContainerBegin, imScrollContainerEnd, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { getWrappedIdx } from "../utils/array-utils";
 import { assert } from "../utils/assert";
@@ -206,7 +206,7 @@ export function imNavListEnd(c: ImCache, _list: NavigableListState) {
 
     {
 
-    } imui.End(c);
+    } imScrollContainerEnd(c);
 }
 
 // might need to render a component outside of a list, and inside of a list. hence list | null.

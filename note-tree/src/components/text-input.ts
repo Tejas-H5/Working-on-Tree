@@ -1,5 +1,5 @@
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
-import { imui, BLOCK, ROW, COL, PX, NA, cssVars } from "src/utils/im-js/im-ui";
+import { el, ev, im, ImCache, imdom, } from "src/utils/im-js";
+import { cssVars, imui } from "src/utils/im-js/im-ui";
 import { imTextAreaBegin, imTextAreaEnd } from "./editable-text-area";
 
 const cssb = imui.newCssBuilder();

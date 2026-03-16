@@ -1,4 +1,4 @@
-import { im, ImCache, imdom, el } from "src/utils/im-js";
+import { el, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, cssVars, imui, INLINE, NA, PERCENT, setInputValue } from "src/utils/im-js/im-ui";
 
 export function getLineBeforePos(text: string, pos: number): string {
@@ -39,13 +39,14 @@ const cssb = imui.newCssBuilder();
 const cnTextAreaRoot = cssb.newClassName("customTextArea");
 cssb.s(`
 .${cnTextAreaRoot} textarea { 
+    all: unset;
     white-space: pre-wrap; 
     padding: 5px; 
     caret-color: ${cssVars.fg};
     color: transparent;
 }
 .${cnTextAreaRoot}:has(textarea:focus), .${cnTextAreaRoot}:has(textarea:hover) { 
-    background-color: ${cssVars.bg2};
+    background-color: var(--focusColor);
 }
 `);
 
@@ -54,6 +55,7 @@ export type TextAreaArgs = {
     value: string;
     isOneLine?: boolean;
     placeholder?: string;
+    version?: number; // use this to manually trigger a re-sync
 };
 
 // My best attempt at making a text input with the layout semantics of a div.
@@ -63,6 +65,7 @@ export function imTextAreaBegin(c: ImCache, {
     value,
     isOneLine,
     placeholder = "",
+    version,
 }: TextAreaArgs) {
     let textArea: HTMLTextAreaElement;
 
@@ -73,6 +76,7 @@ export function imTextAreaBegin(c: ImCache, {
             imdom.setStyle(c, "height",    "100%");
             imdom.setStyle(c, "overflowY", "auto");
             imdom.setClass(c, cnTextAreaRoot);
+            imdom.setStyleProperty(c, "--focusColor", cssVars.bg2);
         }
 
         // This is now always present.
@@ -113,7 +117,6 @@ export function imTextAreaBegin(c: ImCache, {
 
             textArea = imdom.ElBegin(c, el.TEXTAREA).root; {
                 if (im.isFirstishRender(c)) {
-                    imdom.setStyle(c, "all", "unset");
                     imdom.setStyle(c, "position", "absolute");
                     imdom.setStyle(c, "top", "0");
                     imdom.setStyle(c, "left", "0");
@@ -128,7 +131,7 @@ export function imTextAreaBegin(c: ImCache, {
                     imdom.setStyle(c, "padding", "0");
                 }
 
-                if (im.Memo(c, value)) {
+                if (im.Memo(c, value) | im.Memo(c, version)) {
                     // don't update the value out from under the user implicitly
                     setInputValue(textArea, value);
                 }

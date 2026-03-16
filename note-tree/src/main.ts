@@ -4,7 +4,7 @@ import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
 import { imUrlViewer } from "src/app-views/url-viewer";
-import { im, ImCache, imdom, NormalizedKey } from "src/utils/im-js";
+import { im, ImCache, imdom, key, NormalizedKey } from "src/utils/im-js";
 import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "src/utils/im-js/im-ui";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
@@ -52,6 +52,7 @@ import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { formatDateTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
+import { imJournalView } from "./app-views/journal-view";
 
 
 function getIcon(theme: AppTheme) {
@@ -288,8 +289,11 @@ function imMainInner(c: ImCache) {
 
                     imLine(c, LINE_HORIZONTAL, 4);
 
+
                     if (im.If(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
+                    } else if (im.IfElse(c) && ctx.currentView === ctx.views.journalView) {
+                        imJournalView(c, ctx, ctx.views.journalView, state.journal);
                     } else if (im.IfElse(c) && ctx.currentView === ctx.views.mappings) {
                         imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
                         const graphChanged = im.Memo(c, state.mappingGraph._version) === im.MEMO_CHANGED;
@@ -408,6 +412,8 @@ function imMainInner(c: ImCache) {
 
             // post-process events, etc
             {
+
+
                 // toggle activity view open
                 {
                     if (hasDiscoverableCommand(
@@ -476,6 +482,10 @@ function imMainInner(c: ImCache) {
                     ctx.views.activities.inputs.activityFilter = null;
                 } 
 
+                const viewingJournal = ctx.currentView === ctx.views.journalView;
+                if (!viewingJournal && hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal")) {
+                    setCurrentView(ctx, ctx.views.journalView);
+                }
 
                 if (
                     ctx.currentView !== ctx.views.settings &&
@@ -594,7 +604,6 @@ function imMainInner(c: ImCache) {
                 if (ctx.handled) {
                     preventImKeysDefault();
                 }
-
 
                 const textAreaToFocusChanged = im.Memo(c, ctx.textAreaToFocus);
 

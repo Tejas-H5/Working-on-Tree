@@ -31,6 +31,7 @@ import {
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
 import { logTrace } from "./utils/log";
+import { Journal, newJournalEntry, newJournalPage } from "./app-views/journal-view";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -170,6 +171,32 @@ export function asNoteTreeGlobalState(val: unknown) {
     const rootMarksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "rootMarks"));
     if (rootMarksArr) {
         state.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
+    }
+
+    const journalObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "journal"));
+    if (journalObj) {
+        const entries = mustGetDefined(asArray(extractKey<Journal>(journalObj, "entries")));
+        state.journal.entries = entries.map((val) => {
+            const obj = mustGetDefined(asObject(val));
+            const value = newJournalEntry("");
+
+            deserializeObject(value, obj, "state.journal.entries");
+            return value;
+        });
+
+        state.journal.entries.sort((a, b) => a.date.localeCompare(b.date));
+
+        const pagesObj = mustGetDefined(asObject(extractKey<Journal>(journalObj, "pages")));
+        const nodesArr = mustGetDefined(asArray(extractKey<tree.TreeStore<Note>>(pagesObj, "nodes")));
+        state.journal.pages.nodes = nodesArr.map((val) => {
+            const obj = mustGetDefined(asObject(val));
+            const node = tree.newTreeNode(newJournalPage(""));
+            node.childIds = mustGetDefined(asNoteIds(extractKey<TreeNote>(obj, "childIds")));
+            deserializeObject(node, obj, "state.journal.pages.nodes[]");
+            return node;
+        });
+
+        deserializeObject(state.journal.pages, pagesObj);
     }
 
     deserializeObject(state, stateObj);

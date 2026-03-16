@@ -213,6 +213,10 @@ export function addAfter(tree: TreeStore<unknown>, child: TreeNode<unknown>, nod
 export function insertAt(tree: TreeStore<unknown>, parent: TreeNode<unknown>, nodeToAdd: TreeNode<unknown>, idx: number) {
     addAsRoot(tree, nodeToAdd);
     const nodeToAddIdx = nodeToAdd.id;
+
+    if (idx > parent.childIds.length) {
+        throw new Error("Invalid index");
+    }
     
     nodeToAdd.parentId = parent.id;
     parent.childIds.splice(idx, 0, nodeToAddIdx);

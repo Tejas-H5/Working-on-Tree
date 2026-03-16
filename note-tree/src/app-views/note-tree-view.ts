@@ -294,10 +294,7 @@ function moveIntoCurrent(
             const parent = getNote(state.notes, s.note.parentId);
             const prevNoteId = parent.childIds[parentIdx - 1];
             const prevNote = getNote(state.notes, prevNoteId);
-            let idxUnderPrev = clampedListIdx(
-                prevNote.data.lastSelectedChildIdx + 1,
-                prevNote.childIds.length
-            ) + 1;
+            let idxUnderPrev = clampedListIdx(prevNote.data.lastSelectedChildIdx, prevNote.childIds.length) + 1;
             tree.insertAt(state.notes, prevNote, s.note, idxUnderPrev);
             prevNote.data.lastSelectedChildIdx = idxUnderPrev;
             setNote(s, s.note, true);

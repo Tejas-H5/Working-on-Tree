@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import * as http from "http";
 import { ChildProcess, spawn } from "node:child_process"
 
-// @Tejas-H5: esbuild-build-script V0.0.2
+// @Tejas-H5: esbuild-build-script V0.0.4
 // Add these scripts to your package.json
 /** 
 	"dev": "node ./build/build.ts devserver",
@@ -199,11 +199,16 @@ if (config === "build") {
 					const output = getProdHtml(bundedJs);
 					fs.mkdir(path.dirname(OUTPUT_FILE), { recursive: true });
 					fs.writeFile(OUTPUT_FILE, output);
+
+					function bytesToMegabytes(bytes: number) {
+						return bytes / 1024 / 1024;
+					}
+
+					log("Built - wrote " + bytesToMegabytes(output.length) + "mb");
 				});
 			},
 		}],
 	});
-	log("Built");
 } else if (config === "devserver") {
 	function newServer() {
 		let currentFile = `console.log("Hello there")`;

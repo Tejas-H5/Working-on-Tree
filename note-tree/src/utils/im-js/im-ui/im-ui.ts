@@ -1,3 +1,5 @@
+// imui v0.00.3
+
 import { im, ImCache } from '../im-core';
 import { imdom, el } from '../im-dom';
 
@@ -256,6 +258,10 @@ function imFontSize(c: ImCache, size: number, units: SizeUnits) {
     if (im.Memo(c, size) | im.Memo(c, units)) imdom.setStyle(c, "fontSize", getSize(size, units));
 }
 
+function imFontSizeCss(c: ImCache, style: string) {
+    if (im.Memo(c, style)) imdom.setStyle(c, "fontSize", style);
+}
+
 export type DisplayTypeInstance = number & { __displayType: void; };
 
 /**
@@ -406,6 +412,9 @@ export const RIGHT   = 3 as Alignment;
 export const START   = 2 as Alignment;
 export const END     = 3 as Alignment;
 export const STRETCH = 4 as Alignment;
+export const SPACE_BETWEEN = 5 as Alignment;
+export const SPACE_AROUND  = 6 as Alignment;
+export const SPACE_EVENLY  = 7 as Alignment;
 
 function getAlignment(alignment: Alignment) {
     switch(alignment) {
@@ -416,6 +425,9 @@ function getAlignment(alignment: Alignment) {
         case START:   return "start";
         case END:     return "end";
         case STRETCH: return "stretch";
+        case SPACE_BETWEEN: return "space-between";
+        case SPACE_AROUND:  return "space-around";
+        case SPACE_EVENLY:  return "space-evenly";
     }
     return "";
 }
@@ -451,6 +463,30 @@ function imFixed(
     if (im.Memo(c, left) | im.Memo(c, leftType))     imdom.setStyle(c, "left",   getSize(left, leftType)); 
 }
 
+function imFixedXY(c: ImCache, x: number, xUnits: SizeUnits, y: number, yUnits: SizeUnits) {
+    if (im.isFirstishRender(c)) imdom.setStyle(c, "position", "fixed");
+    if (im.Memo(c, x) | im.Memo(c, xUnits)) imdom.setStyle(c, "left",  getSize(x, xUnits)); 
+    if (im.Memo(c, y) | im.Memo(c, yUnits)) imdom.setStyle(c, "top", getSize(y, yUnits)); 
+}
+
+function imPaddingTB(
+    c: ImCache,
+    top: number,    topType: SizeUnits,
+    bottom: number, bottomType: SizeUnits, 
+) {
+    if (im.Memo(c, top) | im.Memo(c, topType))       { imdom.setStyle(c, "paddingTop", getSize(top, topType)); }
+    if (im.Memo(c, bottom) | im.Memo(c, bottomType)) { imdom.setStyle(c, "paddingBottom", getSize(bottom, bottomType)); }
+}
+
+function imPaddingRL(
+    c: ImCache,
+    right: number,  rightType: SizeUnits, 
+    left: number,   leftType: SizeUnits,
+) {
+    if (im.Memo(c, right) | im.Memo(c, rightType)) { imdom.setStyle(c, "paddingRight", getSize(right, rightType)); }
+    if (im.Memo(c, left) | im.Memo(c, leftType))   { imdom.setStyle(c, "paddingLeft", getSize(left, leftType)); }
+}
+
 function imPadding(
     c: ImCache,
     top: number,    topType: SizeUnits,
@@ -458,10 +494,8 @@ function imPadding(
     bottom: number, bottomType: SizeUnits, 
     left: number,   leftType: SizeUnits,
 ) {
-    if (im.Memo(c, top) | im.Memo(c, topType))       imdom.setStyle(c, "paddingTop",    getSize(top, topType)); 
-    if (im.Memo(c, right) | im.Memo(c, rightType))   imdom.setStyle(c, "paddingRight",  getSize(right, rightType)); 
-    if (im.Memo(c, bottom) | im.Memo(c, bottomType)) imdom.setStyle(c, "paddingBottom", getSize(bottom, bottomType)); 
-    if (im.Memo(c, left) | im.Memo(c, leftType))     imdom.setStyle(c, "paddingLeft",   getSize(left, leftType)); 
+    imPaddingRL(c, right, rightType, left, leftType);
+    imPaddingTB(c, top, topType, bottom, bottomType);
 }
 
 /**
@@ -524,12 +558,16 @@ export type CssColor = {
     toString(): string;
 }
 
+function rgbaToCssString(r: number, g: number, b: number, a: number) {
+    return `rgba(${Math.floor(r * 255)}, ${Math.floor(g * 255)}, ${Math.floor(b * 255)}, ${a})`;
+}
+
 function newColor(r: number, g: number, b: number, a: number): CssColor {
     return {
         r, g, b, a,
         toCssString(aOverride?: number) {
             const { r, g, b, a } = this;
-            return `rgba(${Math.floor(r * 255)}, ${Math.floor(g * 255)}, ${Math.floor(b * 255)}, ${aOverride ?? a})`;
+            return rgbaToCssString(r, g, b, aOverride ?? a);
         },
         toString() {
             return this.toCssString();
@@ -584,7 +622,7 @@ function newColorFromHex(hex: string): CssColor {
 }
 
 /**
- * Taken from https://gist.github.com/mjackson/5311256
+ * Adapted from https://gist.github.com/mjackson/5311256
  */
 function newColorFromHsv(h: number, s: number, v: number): CssColor {
     let r = 0, g = 0, b = 0;
@@ -613,6 +651,7 @@ function hue2rgb(p: number, q: number, t: number) {
     return p;
 }
 
+
 function lerp(a: number, b: number, factor: number) {
     if (factor < 0) {
         return a;
@@ -635,6 +674,16 @@ function lerpColor(c1: CssColor, c2: CssColor, factor: number, dst: CssColor) {
     dst.a = lerp(c1.a, c2.a, factor);
 }
 
+function copyColor(c1: CssColor, dst: CssColor) {
+    dst.r = c1.r;
+    dst.g = c1.g;
+    dst.b = c1.b;
+    dst.a = c1.a;
+}
+
+///////////////////////////
+// Exports
+
 export const imui = {
     init: initImUi,     // Need to call this for the css builder and theme to work.
 
@@ -644,30 +693,28 @@ export const imui = {
     // Theme management
     getCssVarsDict,     // Generate a css var dictionary for your own app's theme
     getCurrentTheme, setCurrentTheme,
+    defaultTheme,
     setCssVar,
 
     // Common layout logic
     // NOTE: enum values are used so frequently, that they are exported on their own instead of via this namespace object
     LayoutBeginInternal: imLayoutBeginInternal, Layout: imLayout, Begin: imLayoutBegin, End: imLayoutEnd, LayoutBegin: imLayoutBegin, LayoutEnd: imLayoutEnd,
-    Size: imSize, Padding: imPadding, Gap: imGap, AspectRatio: imAspectRatio,
+    Size: imSize, Padding: imPadding, PaddingRL: imPaddingRL, PaddingTB: imPaddingTB,
+    Gap: imGap, AspectRatio: imAspectRatio,
     Flex: imFlex, FlexWrap: imFlexWrap, 
     Pre: imPre, PreWrap: imPreWrap, NoWrap: imNoWrap, HandleLongWords: imHandleLongWords,
     NoSelect: imNoSelect,
     Align: imAlign, Justify: imJustify,
-    Relative: imRelative, Fixed: imFixed, Absolute: imAbsolute, AbsoluteXY: imAbsoluteXY,
+    Relative: imRelative, Fixed: imFixed, FixedXY: imFixedXY, Absolute: imAbsolute, AbsoluteXY: imAbsoluteXY,
     ScrollOverflow: imScrollOverflow,
     ZIndex: imZIndex,
 
     // Styling logic
-    Opacity: imOpacity, Bg: imBg, Fg: imFg, FontSize: imFontSize, 
+    Opacity: imOpacity, Bg: imBg, Fg: imFg, FontSize: imFontSize,  FontSizeCss: imFontSizeCss,
     
     // Common space reserving component
     Flex1: imFlex1,
     
     // Colours
-    newColor,
-    newColorFromHexOrUndefined,
-    newColorFromHex,
-    newColorFromHsv,
-    lerpColor,
+    newColor, newColorFromHexOrUndefined, newColorFromHex, newColorFromHsv, lerpColor, copyColor, rgbaToCssString
 };
