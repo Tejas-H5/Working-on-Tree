@@ -238,6 +238,24 @@ function imSize(
     }
 }
 
+function imMinSize(
+    c: ImCache,
+    width: number, wType: SizeUnits,
+    height: number, hType: SizeUnits, 
+) {
+    // TODO: Cross browser testing. Seems a bit sus here
+
+    if (im.Memo(c, width) | im.Memo(c, wType)) {
+        const sizeCss = getSize(width, wType);
+        imdom.setStyle(c, "minWidth", sizeCss);
+    }
+
+    if (im.Memo(c, height) | im.Memo(c, hType)) {
+        const sizeCss = getSize(height, hType);
+        imdom.setStyle(c, "minHeight", sizeCss);
+    }
+}
+
 function imOpacity(c: ImCache, val: number) {
     if (im.Memo(c, val)) imdom.setStyle(c, "opacity", "" + val);
 }
@@ -699,7 +717,7 @@ export const imui = {
     // Common layout logic
     // NOTE: enum values are used so frequently, that they are exported on their own instead of via this namespace object
     LayoutBeginInternal: imLayoutBeginInternal, Layout: imLayout, Begin: imLayoutBegin, End: imLayoutEnd, LayoutBegin: imLayoutBegin, LayoutEnd: imLayoutEnd,
-    Size: imSize, Padding: imPadding, PaddingRL: imPaddingRL, PaddingTB: imPaddingTB,
+    Size: imSize, MinSize: imMinSize, Padding: imPadding, PaddingRL: imPaddingRL, PaddingTB: imPaddingTB,
     Gap: imGap, AspectRatio: imAspectRatio,
     Flex: imFlex, FlexWrap: imFlexWrap, 
     Pre: imPre, PreWrap: imPreWrap, NoWrap: imNoWrap, HandleLongWords: imHandleLongWords,

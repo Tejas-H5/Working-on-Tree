@@ -70,7 +70,7 @@ export function imTextInputOneLine(
     const [,input] = imTextAreaBegin(c, {
         value: currentName,
         placeholder: placeholder,
-    }); imui.Flex(c); {
+    }); {
         if (im.Memo(c, hasFocus)) {
             setTimeout(() => {
                 input.focus();

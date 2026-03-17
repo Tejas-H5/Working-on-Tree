@@ -1,4 +1,4 @@
-// IM-CORE 1.080
+// IM-CORE 1.081
 // NOTE: I'm currently working on 3 different apps with this framework,
 // so even though I thought it was mostly finished, the API appears to still be changing slightly.
 // Majority of the last changes have just been updates to the documentation though
@@ -1281,7 +1281,7 @@ export const im = {
     /** Conditional rendering, list rendering */
 
     KeyedBegin: imKeyedBegin, KeyedEnd: imKeyedEnd,
-    If: imIf, IfElse: imIfElse, Else: imElse, IfEnd: imIfEnd,
+    If: imIf, ElseIf: imIfElse, IfElse: imIfElse, Else: imElse, IfEnd: imIfEnd,
     Switch: imSwitch, SwitchEnd: imSwitchEnd,
     For: imFor, ForEnd: imForEnd,
     Try: imTry, Catch: imCatch, TryEnd: imTryEnd, TryCatch: imCatch,

@@ -70,6 +70,10 @@ export function getNode<T>(tree: TreeStore<T>, idx: number): TreeNode<T> {
     return data;
 }
 
+export function getNodeOrUndefined<T>(tree: TreeStore<T>, idx: number): TreeNode<T> | undefined {
+    return tree.nodes[idx] ?? undefined;
+}
+
 // You can be sure that a node's parentIdx and idxInParent aren't null if this isn't undefined
 export function getParent<T>(tree: TreeStore<T>, node: TreeNode<unknown>): TreeNode<T> | undefined {
     const parentIdx = node.parentId;

@@ -483,7 +483,7 @@ function imMainInner(c: ImCache) {
                 } 
 
                 const viewingJournal = ctx.currentView === ctx.views.journalView;
-                if (!viewingJournal && hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal")) {
+                if (!viewingJournal && hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
                     setCurrentView(ctx, ctx.views.journalView);
                 }
 

@@ -1,5 +1,5 @@
 import { imListRowCellStyle } from "src/app-components/list-row";
-import { clampedListIdx, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListNextItemArray, imNavListRowBegin, imNavListRowEnd, NavigableListState } from "src/app-components/navigable-list";
+import { AXIS_FLAG_BYPASS_TEXT_AREA, AXIS_VERTICAL, clampedListIdx, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListNextItemArray, imNavListRowBegin, imNavListRowEnd, NavigableListState } from "src/app-components/navigable-list";
 import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { newScrollContainer } from "src/components/scroll-container";
@@ -9,13 +9,20 @@ import { state } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { formatDate, formatIsoDate } from "src/utils/datetime";
+import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
 import { BLOCK, COL, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
+import { imTextWithHighlightedRanges } from "./fuzzy-finder";
 
 const JOURNAL = 1;
 const PAGE = 2;
+
+type FinderResult = {
+    id: number;
+    ranges: FuzzyFindRange[];
+}
 
 export type JournalViewState = {
     currentlyEditing: {
@@ -23,12 +30,20 @@ export type JournalViewState = {
         entryIdx: number;
         pageIdx: number;
     };
+
     sidebarHasFocus: boolean;
 
     pages: {
         parents: TreePage[];
         version: number;
         isRenaming: boolean;
+    };
+
+    finder: {
+        query: string;
+        isFinding: boolean;
+        results: FinderResult[] | null;
+        resultsIdx: number;
     };
 }
 
@@ -39,13 +54,21 @@ export function newJournalViewState(): JournalViewState {
             entryIdx: 0,
             pageIdx: 0,
         },
+
         sidebarHasFocus: false,
 
         pages: {
             parents: [],
             version: 0,
             isRenaming: false,
-        }
+        },
+
+        finder: {
+            query: "",
+            isFinding: false,
+            results: null,
+            resultsIdx: 0,
+        },
     };
 }
 
@@ -203,7 +226,7 @@ export function imJournalView(
                 if (n === null) continue;
 
                 found = true;
-                s.currentlyEditing.pageIdx = pageIdx;
+                setCurrentlyEditingPageIdx(s, journal, pageIdx);
             }
 
             if (!found) {
@@ -216,7 +239,7 @@ export function imJournalView(
                 const node = itree.newTreeNode(page);
                 itree.addUnder(tree, root, node);
 
-                s.currentlyEditing.pageIdx = node.id;
+                setCurrentlyEditingPageIdx(s, journal, node.id);
             }
         }
     }
@@ -232,11 +255,49 @@ export function imJournalView(
         );
     }
 
+    if (im.Memo(c, s.finder.query) | im.Memo(c, s.finder.isFinding)) {
+        if (!s.finder.isFinding || !s.finder.query) {
+            s.finder.results = null
+        } else {
+            findJournalResults(s, journal, false);
+            if (!s.finder.results) {
+                findJournalResults(s, journal, true);
+            }
+        }
+    }
 
     imui.Begin(c, ROW); imui.Flex(c); {
-        if (im.If(c) && s.currentlyEditing.type === JOURNAL) {
-            // Journal entries
-            imui.Begin(c, COL); {
+        imui.Begin(c, COL); imui.MinSize(c, 200, PX, 0, NA); {
+            if (im.If(c) && s.finder.isFinding && s.finder.results) {
+                // Journal entries
+                const sc = im.State(c, newScrollContainer);
+                const list = imNavListBegin(c, sc, s.finder.resultsIdx, viewHasFocus && s.finder.isFinding); {
+                    im.For(c); while (imNavListNextItemArray(list, s.finder.results)) {
+                        const { i } = list;
+                        const result = s.finder.results[i];
+
+                        const itemHighlighted = viewHasFocus && s.finder.resultsIdx === i;
+                        const itemSelected = s.finder.isFinding && itemHighlighted;
+
+                        imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
+                            imui.Begin(c, BLOCK); imListRowCellStyle(c); {
+
+                                if (im.If(c) && s.currentlyEditing.type === JOURNAL) {
+                                    const entry = journal.entries[result.id]; assert(!!entry);
+                                    imdom.StrFmt(c, entry, getJournalEntryName);
+                                } else if (im.IfElse(c) && s.currentlyEditing.type === PAGE) {
+                                    im.Else(c);
+
+                                    const page = getPage(journal, result.id);
+                                    imdom.Str(c, getPageName(page.data));
+                                } im.IfEnd(c);
+                            } imui.End(c);
+                        } imNavListRowEnd(c);
+                    } im.ForEnd(c);
+                } imNavListEnd(c, list);
+
+            } else if (im.IfElse(c) && s.currentlyEditing.type === JOURNAL) {
+                // Journal entries
                 const sc = im.State(c, newScrollContainer);
                 const list = imNavListBegin(c, sc, s.currentlyEditing.entryIdx, viewHasFocus && s.sidebarHasFocus); {
                     im.For(c); while (imNavListNextItemArray(list, journal.entries)) {
@@ -253,23 +314,21 @@ export function imJournalView(
                         } imNavListRowEnd(c);
                     } im.ForEnd(c);
                 } imNavListEnd(c, list);
-            } imui.End(c);
-        } else if (im.IfElse(c) && s.currentlyEditing.type === PAGE && currentPage) {
-            const currentPageParent = itree.getNode(journal.pages, currentPage.parentId);
+            } else if (im.IfElse(c) && s.currentlyEditing.type === PAGE && currentPage) {
+                const currentPageParent = itree.getNode(journal.pages, currentPage.parentId);
 
-            imui.Begin(c, COL); {
                 const sc = im.State(c, newScrollContainer);
 
 
-                {
+                if (im.If(c) && !s.finder.isFinding && s.pages.parents.length > 0) {
                     let i = 0;
                     im.For(c); for (const page of s.pages.parents) {
                         imPageListRow(c, ctx, s, null, page, i);
                         i++;
                     } im.ForEnd(c);
-                }
 
-                imLine(c, LINE_HORIZONTAL);
+                    imLine(c, LINE_HORIZONTAL);
+                } im.IfEnd(c);
 
                 const list = imNavListBegin(c, sc, currentPageParent.data.focusedChildIdx, viewHasFocus && s.sidebarHasFocus); {
                     im.For(c); while (imNavListNextItemArray(list, currentPageParent.childIds)) {
@@ -280,13 +339,76 @@ export function imJournalView(
                         imPageListRow(c, ctx, s, list, page, s.pages.parents.length);
                     } im.ForEnd(c);
                 } imNavListEnd(c, list);
-            } imui.End(c);
-        } im.IfEnd(c);
+            } im.IfEnd(c);
+        } imui.End(c);
 
         imLine(c, LINE_VERTICAL, 1);
 
         imui.Begin(c, COL); imui.Flex(c); {
-            if (im.If(c) && currentJournalEntry) {
+            if (im.If(c) && s.finder.isFinding) {
+                const finder = s.finder;
+
+                const currentFilterResult = finder.results && arrayAt(finder.results, finder.resultsIdx);
+                imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
+                    if (im.If(c) && currentFilterResult == null) {
+                        imdom.Str(c, "No results");
+                    } else if (im.ElseIf(c) && s.currentlyEditing.type === JOURNAL) {
+                        const entry = journal.entries[currentFilterResult!.id]; assert(!!entry);
+                        imdom.Str(c, "Log - ");
+                        imdom.StrFmt(c, entry, getJournalEntryName);
+                    } else if (im.ElseIf(c) && s.currentlyEditing.type === PAGE) {
+                        const page = getPage(journal, currentFilterResult!.id);
+                        imdom.Str(c, "Page - ");
+                        imdom.Str(c, getPageName(page.data));
+                    } im.IfEnd(c);
+                } imdom.ElEnd(c, el.H2);
+
+                imLine(c, LINE_HORIZONTAL, 1);
+
+                imui.Begin(c, BLOCK); {
+                    const ev = imTextInputOneLine(c, finder.query, "Search for text...", true, false);
+                    if (ev) {
+                        if (ev.newName !== undefined) {
+                            finder.query = ev.newName;
+                        }
+                        if (ev.submit) {
+                            finder.isFinding = false;
+                            ctx.handled = true;
+
+                            const result = s.finder.results && arrayAt(s.finder.results, s.finder.resultsIdx);
+                            if (result) {
+                                if (s.currentlyEditing.type === JOURNAL) {
+                                    s.currentlyEditing.entryIdx = result.id;
+                                } else if (s.currentlyEditing.type === PAGE) {
+                                    setCurrentlyEditingPageIdx(s, journal, result.id);
+                                }
+                            }
+                        }
+                        if (ev.cancel) {
+                            finder.isFinding = false;
+                            ctx.handled = true;
+                        }
+                    }
+                } imui.End(c);
+
+                imLine(c, LINE_HORIZONTAL, 1);
+
+                imui.Begin(c, BLOCK); imui.Flex(c); {
+                    if (im.If(c) && currentFilterResult == null) {
+                        imdom.Str(c, "No results");
+                    } else if (im.ElseIf(c) && s.currentlyEditing.type === JOURNAL) {
+                        assert(!!currentFilterResult);
+                        const entry = journal.entries[currentFilterResult.id]; assert(!!entry);
+                        // imdom.Str(c, entry.page.content);
+                        imTextWithHighlightedRanges(c, entry.page.content, currentFilterResult.ranges, false);
+                    } else if (im.ElseIf(c) && s.currentlyEditing.type === PAGE) {
+                        assert(!!currentFilterResult);
+                        const page = getPage(journal, currentFilterResult.id);
+                        // imdom.Str(c, page.data.content);
+                        imTextWithHighlightedRanges(c, page.data.content, currentFilterResult.ranges, false);
+                    } im.IfEnd(c);
+                } imui.End(c);
+            } else if (im.ElseIf(c) && currentJournalEntry) {
                 imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
                     imdom.Str(c, "Log - ");
                     imdom.StrFmt(c, currentJournalEntry, getJournalEntryName);
@@ -304,6 +426,7 @@ export function imJournalView(
 
                 imLine(c, LINE_HORIZONTAL, 1);
 
+
                 imPageEditor(c, ctx, currentPage.data, !s.sidebarHasFocus, false);
             } else {
                 im.Else(c);
@@ -316,7 +439,7 @@ export function imJournalView(
     } imui.End(c);
 
     const viewingPages = s.currentlyEditing.type === PAGE;
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.pKey, viewingPages ? "Journal" : "Pages", CTRL | BYPASS_TEXT_AREA)) {
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.jKey, viewingPages ? "Journal" : "Pages", CTRL | BYPASS_TEXT_AREA | REPEAT)) {
         if (viewingPages) {
             s.currentlyEditing.type = JOURNAL;
         } else {
@@ -324,8 +447,9 @@ export function imJournalView(
         }
     }
 
-    
-    if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
+    if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
+        s.finder.isFinding = false;
+    } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
         s.sidebarHasFocus = true;
     } else if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
         setCurrentView(ctx, ctx.views.noteTree);
@@ -347,7 +471,7 @@ function imPageListRow(
 
     imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
         if (im.If(c) && itemSelected && s.pages.isRenaming) {
-            const ev = imTextInputOneLine(c, page.data.name, "Name...", true, true);
+            const ev = imTextInputOneLine(c, page.data.name, "Name...", true, false);
             if (ev) {
                 if (ev.newName !== undefined) {
                     page.data.name = ev.newName;
@@ -366,7 +490,7 @@ function imPageListRow(
         } im.IfEnd(c);
 
         if (im.If(c) && page.childIds.length > 0) {
-            imui.Begin(c, BLOCK); imui.Size(c, 40, PX, 0, NA); imui.End(c);
+            imui.Begin(c, BLOCK); imui.MinSize(c, 40, PX, 0, NA); imui.Flex(c); imui.End(c);
 
             imdom.Str(c, "(");
             imdom.Str(c, page.childIds.length);
@@ -450,36 +574,44 @@ function handleKeyboardInput(
 ): boolean {
     let handled = false;
 
-    if (s.sidebarHasFocus) {
-        if (s.currentlyEditing.type === JOURNAL && currentJournalEntry) {
-            const input = getNavigableListInput(ctx, s.currentlyEditing.entryIdx, 0, journal.entries.length);
+    if (s.finder.isFinding && s.finder.results) {
+        const input = getNavigableListInput(ctx, s.finder.resultsIdx, 0, s.finder.results.length, AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA);
+        if (input) {
+            s.finder.resultsIdx = input.newIdx;
+            handled = true;
+        }
+    } else if (s.currentlyEditing.type === JOURNAL && currentJournalEntry) {
+        if (s.sidebarHasFocus) {
+            const input = getNavigableListInput(ctx, s.currentlyEditing.entryIdx, 0, journal.entries.length, AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA);
             if (input) {
                 s.currentlyEditing.entryIdx = input.newIdx;
                 handled = true;
             }
 
             if (
-                currentJournalEntry && 
-                hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, entryIsReadonly(journal, currentJournalEntry)  ? "View entry" : "Edit entry") ||
-                hasDiscoverableCommand(ctx, ctx.keyboard.tabKey,   entryIsReadonly(journal, currentJournalEntry)  ? "View entry" : "Edit entry")
+                currentJournalEntry &&
+                hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, entryIsReadonly(journal, currentJournalEntry) ? "View entry" : "Edit entry") ||
+                hasDiscoverableCommand(ctx, ctx.keyboard.tabKey, entryIsReadonly(journal, currentJournalEntry) ? "View entry" : "Edit entry")
             ) {
                 s.sidebarHasFocus = false;
                 handled = true;
             }
-        } else if (s.currentlyEditing.type === PAGE && currentPage) {
+        }
+    } else if (s.currentlyEditing.type === PAGE && currentPage) {
+        if (s.sidebarHasFocus) {
             const parent = itree.getNode(journal.pages, currentPage.parentId);
             const parentPage = parent.data;
 
             const keys = imdom.getKeyboard();
             const movePage = imdom.isKeyHeld(keys, ctx.keyboard.altKey);
 
-            const input = getNavigableListInput(ctx, parentPage.focusedChildIdx, 0, parent.childIds.length);
+            const input = getNavigableListInput(ctx, parentPage.focusedChildIdx, 0, parent.childIds.length, AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA);
             if (input) {
                 if (movePage) {
                     itree.insertAt(journal.pages, parent, currentPage, input.newIdx);
                 } else {
                     const childId = parent.childIds[input.newIdx]; assert(childId != null);
-                    s.currentlyEditing.pageIdx = childId;
+                    setCurrentlyEditingPageIdx(s, journal, childId);
                 }
 
                 handled = true;
@@ -493,7 +625,7 @@ function handleKeyboardInput(
                         const prevPage = getPage(journal, prevIdx);
                         let idxUnderPrev = clampedListIdx(prevPage.data.focusedChildIdx, prevPage.childIds.length) + 1;
                         itree.insertAt(journal.pages, prevPage, currentPage, idxUnderPrev);
-                        s.currentlyEditing.pageIdx = currentPage.id;
+                        setCurrentlyEditingPageIdx(s, journal, currentPage.id);
                     }
 
                     handled = true;
@@ -501,7 +633,7 @@ function handleKeyboardInput(
 
                 if (currentPage.childIds.length > 0 && hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)) {
                     let nextPageIdx = arrayAt(currentPage.childIds, currentPage.data.focusedChildIdx) ?? 0;
-                    s.currentlyEditing.pageIdx = nextPageIdx;
+                    setCurrentlyEditingPageIdx(s, journal, nextPageIdx);
                     handled = true;
                 }
 
@@ -520,7 +652,7 @@ function handleKeyboardInput(
                 }
 
                 if (parent.id !== itree.ROOT_ID && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)) {
-                    s.currentlyEditing.pageIdx = parent.id;
+                    setCurrentlyEditingPageIdx(s, journal, parent.id);
                     handled = true;
                 }
             }
@@ -529,7 +661,7 @@ function handleKeyboardInput(
                 const newPage = newJournalPage("");
                 const node = itree.newTreeNode(newPage);
                 itree.addAfter(journal.pages, currentPage, node);
-                s.currentlyEditing.pageIdx = node.id;
+                setCurrentlyEditingPageIdx(s, journal, node.id);
 
                 handled = true;
             }
@@ -538,7 +670,7 @@ function handleKeyboardInput(
                 const newPage = newJournalPage("");
                 const node = itree.newTreeNode(newPage);
                 itree.addUnder(journal.pages, currentPage, node);
-                s.currentlyEditing.pageIdx = node.id;
+                setCurrentlyEditingPageIdx(s, journal, node.id);
                 handled = true;
             }
 
@@ -551,7 +683,7 @@ function handleKeyboardInput(
             }
 
             if (
-                !s.pages.isRenaming && 
+                !s.pages.isRenaming &&
                 hasDiscoverableCommand(ctx, ctx.keyboard.rKey, "Rename")
             ) {
                 s.pages.isRenaming = true;
@@ -572,33 +704,91 @@ function handleKeyboardInput(
 
             if (handled) {
                 s.pages.version++;
+            }
 
-                const currentPage = itree.getNode(journal.pages, s.currentlyEditing.pageIdx);
-                const parent = itree.getParent(journal.pages, currentPage);
-                if (parent) {
-                    const newFocusedIdx = parent.childIds.indexOf(currentPage.id);
-                    if (newFocusedIdx !== -1) {
-                        parent.data.focusedChildIdx = newFocusedIdx;
+            if (!handled) {
+                const keys = imdom.getKeyboard();
+                if (imdom.isKeyPressedOrRepeated(keys, key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(keys, key.ARROW_LEFT)) {
+                    if (imdom.isKeyHeld(keys, key.ALT)) {
+                        handled = true;
                     }
                 }
             }
         }
     }
 
-    if (!handled) {
-        const keys = imdom.getKeyboard();
-        if (imdom.isKeyPressedOrRepeated(keys, key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(keys, key.ARROW_LEFT)) {
-            if (imdom.isKeyHeld(keys, key.ALT)) {
-                handled = true;
-            }
-        }
+    if (
+        !s.finder.isFinding &&
+        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)
+    ) {
+        s.finder.isFinding = true;
+        s.sidebarHasFocus = true;
+        handled = true;
     }
 
     return handled;
+}
+
+
+function setCurrentlyEditingPageIdx(s: JournalViewState, journal: Journal, pageIdx: number) {
+    s.currentlyEditing.pageIdx = pageIdx;
+
+    // Update the current page's parent's focus index
+    const currentPage = itree.getNode(journal.pages, s.currentlyEditing.pageIdx);
+    const parent = itree.getParent(journal.pages, currentPage);
+    if (parent) {
+        const newFocusedIdx = parent.childIds.indexOf(currentPage.id);
+        if (newFocusedIdx !== -1) {
+            parent.data.focusedChildIdx = newFocusedIdx;
+        }
+    }
 }
 
 function entryIsReadonly(s: Journal, entry: JournalEntry): boolean {
     // Prob don't want to edit older entries. 
     const finalEntry = arrayAt(s.entries, s.entries.length - 1);
     return entry !== finalEntry;
+}
+function findJournalResults(
+    s: JournalViewState,
+    journal: Journal,
+    isFuzzySearch: boolean
+) {
+    const options = { allowableMistakes: isFuzzySearch ? 1 : 0 };
+    const results: FinderResult[] = [];
+    s.finder.results = results;
+
+    if (s.currentlyEditing.type === PAGE) {
+        itree.forEachNode(journal.pages, (n) => {
+            if (n.id === itree.ROOT_ID) return;
+
+            let findResults = fuzzyFind(n.data.name, s.finder.query, options);
+            if (findResults.ranges.length > 0) {
+                results.push({ id: n.id, ranges: [], });
+                return;
+            }
+
+            findResults = fuzzyFind(n.data.content, s.finder.query, options);
+            if (findResults.ranges.length > 0) {
+                results.push({ id: n.id, ranges: findResults.ranges, });
+                return;
+            }
+        });
+    } else if (s.currentlyEditing.type === JOURNAL) {
+        for (let entryIdx = 0; entryIdx < journal.entries.length; entryIdx++) {
+            const entry = journal.entries[entryIdx];
+            if (entry.date.includes(s.finder.query)) {
+                results.push({ id: entryIdx, ranges: [], });
+                continue
+            }
+
+            let findResults = fuzzyFind(entry.page.content, s.finder.query, options);
+            if (findResults.ranges.length > 0) {
+                results.push({ id: entryIdx, ranges: findResults.ranges, });
+                continue
+            }
+        }
+    }
+
+    if (s.finder.results.length === 0) s.finder.results = null;
 }

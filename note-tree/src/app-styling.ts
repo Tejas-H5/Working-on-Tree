@@ -57,9 +57,9 @@ export function setAppTheme(theme: AppTheme) {
     imui.setCurrentTheme({
         ...currentAppTheme,
         fg: theme.fgColor,
-        fg2: theme.bgColorFocus2,
-        mg: theme.unfocusTextColor,
-        bg2: theme.bgColorFocus,
+        fg2: theme.unfocusTextColor,
+        mg: theme.bgColorFocus,
+        bg2: theme.bgColorFocus2,
         bg: theme.bgColor,
     });
 }
