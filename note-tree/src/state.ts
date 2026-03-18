@@ -8,7 +8,7 @@ import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } 
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { getJournalEntry, getJournalEntryName, getPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
+import { getJournalEntry, getJournalEntryName, getJournalEntryOrPageName, getPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -152,6 +152,11 @@ export type Note = {
     _treeVisualsFlowEndsHere: number;
 };
 
+export type JournalId = {
+    type: number;
+    idx: number;
+}
+
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
 // Yeah it isn't the best practice, but it works
@@ -166,10 +171,7 @@ export type Activity = {
     // only apply to breaks:
     breakInfo: string | undefined;
 
-    journal: {
-        type: number;
-        idx: number;
-    } | undefined;
+    journal: JournalId | undefined;
 
     locked: true | undefined;
     deleted: true | undefined;
@@ -952,9 +954,14 @@ export function recomputeAllNoteDurations(
     for (let i = 0; i < activities.length; i++) {
         // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
         const a0 = activities[i];
-        const note = getNoteOrUndefined(state.notes, a0.nId);
-        if (!note) {
-            continue;
+        let note;
+        if (a0.nId) {
+            note = getNoteOrUndefined(state.notes, a0.nId);
+            if (!note) continue;
+        }
+        if (a0.journal) {
+            const journal = getJournalEntryOrPageName(state.journal, a0.journal);
+            if (!journal) continue;
         }
 
         const a1 = activities[i + 1] as Activity | undefined;
@@ -962,7 +969,7 @@ export function recomputeAllNoteDurations(
 
         const isCurrentActivity = !a1;
 
-        {
+        if (note) {
             let parentNote = note;
             while (!idIsNil(parentNote.parentId)) {
                 if (!isCurrentActivity) {
@@ -985,7 +992,7 @@ export function recomputeAllNoteDurations(
             }
             state._activitiesToIdx = i;
 
-            {
+            if (note) {
                 let parentNote = note;
                 while (!idIsNil(parentNote.parentId)) {
                     if (!isCurrentActivity) {
@@ -1123,7 +1130,7 @@ function canActivityBeReplacedWithNewActivity(state: NoteTreeGlobalState, lastAc
         return false;
     }
 
-    const IRREPLACEABLE_ACTIVITY_DURATION = 60 * ONE_SECOND;
+    const IRREPLACEABLE_ACTIVITY_DURATION = 10 * ONE_SECOND;
     return activityDurationMs < IRREPLACEABLE_ACTIVITY_DURATION;
 }
 

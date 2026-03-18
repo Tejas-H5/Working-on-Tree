@@ -3,11 +3,11 @@ import { DurationsViewState, newDurationsViewState } from "./app-views/durations
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
-import { JournalViewState, newJournalViewState } from "./app-views/journal-view";
+import { journalSetCurrentlyEditing, JournalViewState, newJournalViewState } from "./app-views/journal-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, loadState, newBreakActivity, NoteTreeGlobalState, pushBreakActivity, saveState, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, JOURNAL_TYPE_JOURNAL, JournalId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 
@@ -677,3 +677,19 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
 }
 
 
+
+export function focusItem(
+    ctx: GlobalContext,
+    state: NoteTreeGlobalState,
+    noteId: NoteId | null | undefined,
+    journalId: JournalId | null | undefined,
+) {
+    // This view should only move the note if it is focused
+    if (noteId != null) {
+        ctx.viewingJournal = false;
+        setCurrentNote(state, noteId, ctx.noteBeforeFocus?.id);
+    } else if (journalId) {
+        ctx.viewingJournal = true;
+        journalSetCurrentlyEditing(ctx.views.journalView, journalId);
+    }
+}

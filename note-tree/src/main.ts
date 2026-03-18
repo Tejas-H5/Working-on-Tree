@@ -488,7 +488,12 @@ function imMainInner(c: ImCache) {
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
-                } 
+                }  
+
+                if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close journal", BYPASS_TEXT_AREA)) {
+                    setCurrentView(ctx, ctx.views.noteTree);
+                    ctx.viewingJournal = false;
+                }
 
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
                     ctx.viewingJournal = !ctx.viewingJournal;

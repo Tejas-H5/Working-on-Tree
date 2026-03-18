@@ -5,7 +5,7 @@ import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { newScrollContainer } from "src/components/scroll-container";
 import { imTextInputOneLine } from "src/components/text-input";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView, SHIFT } from "src/global-context";
-import { JOURNAL_TYPE_JOURNAL, JOURNAL_TYPE_PAGE, pushJournalActivity, state } from "src/state";
+import { JOURNAL_TYPE_JOURNAL, JOURNAL_TYPE_PAGE, JournalId, pushJournalActivity, state } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { formatDate, formatIsoDate } from "src/utils/datetime";
@@ -463,9 +463,6 @@ export function imJournalView(
         s.finder.isFinding = false;
     } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
         s.sidebarHasFocus = true;
-    } else if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
-        setCurrentView(ctx, ctx.views.noteTree);
-        ctx.viewingJournal = false;
     }
 }
 
@@ -761,13 +758,36 @@ function setCurrentlyEditingPageIdx(s: JournalViewState, journal: Journal, pageI
     pushJournalActivity(state, JOURNAL_TYPE_PAGE, pageIdx);
 }
 
-export function journalSetCurrentlyEditing(s: JournalViewState, type: number, idx: number) {
+export function journalSetCurrentlyEditing(s: JournalViewState, id: JournalId) {
+    const { type, idx } = id;
     s.currentlyEditing.type = type;
     if (type === JOURNAL_TYPE_PAGE) {
         s.currentlyEditing.pageIdx = idx;
     } else {
         s.currentlyEditing.entryIdx = idx;
     }
+}
+
+// NOTE: not the standard way to get a journal page
+export function getJournalEntryOrPageById(s: Journal, id: JournalId): JournalPage | undefined {
+    if (id.type === JOURNAL_TYPE_JOURNAL) return getJournalEntry(s, id.idx).page;
+    if (id.type === JOURNAL_TYPE_PAGE) return getPageOrUndefined(s, id.idx)?.data;
+    return undefined;
+}
+
+export function getJournalEntryOrPageName(s: Journal, id: JournalId): string {
+    const page = getJournalEntryOrPageById(s, id);
+    if (!page) return "<deleted>";
+    if (id.type === JOURNAL_TYPE_JOURNAL) {
+        const entry = getJournalEntry(s, id.idx)
+        return "Journal: " + getJournalEntryName(entry);
+    }
+    if (id.type === JOURNAL_TYPE_PAGE) {
+        const page = getPageOrUndefined(s, id.idx);
+        if (!page) return "<deleted>";
+        return "Page: " + page.data.name;
+    } 
+    throw new Error("Unhandled type!");
 }
 
 function setCurrentlyEditingJournalIdx(s: JournalViewState, journal: Journal, entryIdx: number) {

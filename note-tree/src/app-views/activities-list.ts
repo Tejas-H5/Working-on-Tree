@@ -15,7 +15,7 @@ import { imEditableTime } from "src/app-components/time-input";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
-import { BYPASS_TEXT_AREA, debouncedSave, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
+import { BYPASS_TEXT_AREA, debouncedSave, focusItem, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
 import {
     Activity,
     getActivityDate,
@@ -246,15 +246,7 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
 
         const activity = s.activities[newIdx];
         if (viewHasFocus) {
-            // This view should only move the note if it is focused
-            if (activity.nId !== undefined) {
-                ctx.viewingJournal = false;
-                setCurrentNote(state, activity.nId, ctx.noteBeforeFocus?.id);
-            } else if (activity.journal) {
-                ctx.viewingJournal = true;
-                ctx.views.journalView.currentlyEditing.type = activity.journal.type;
-                journalSetCurrentlyEditing(ctx.views.journalView, activity.journal.type, activity.journal.idx);
-            }
+            focusItem(ctx, state, activity.nId, activity.journal);
         }
     }
 

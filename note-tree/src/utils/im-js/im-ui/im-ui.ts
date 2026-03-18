@@ -300,9 +300,6 @@ export const ROW = 4 as DisplayTypeInstance;
 export const ROW_REVERSE = 5 as DisplayTypeInstance;
 export const COL = 6 as DisplayTypeInstance;
 export const COL_REVERSE = 7 as DisplayTypeInstance;
-export const TABLE = 8 as DisplayTypeInstance;
-export const TABLE_ROW = 9 as DisplayTypeInstance;
-export const TABLE_CELL = 10 as DisplayTypeInstance;
 export const INLINE_ROW = 11 as DisplayTypeInstance;
 export const INLINE_COL = 12 as DisplayTypeInstance;
 
@@ -313,9 +310,6 @@ export type DisplayType
     | typeof ROW_REVERSE 
     | typeof COL 
     | typeof COL_REVERSE 
-    | typeof TABLE 
-    | typeof TABLE_ROW  
-    | typeof TABLE_CELL
     | typeof INLINE_ROW
     | typeof INLINE_COL;
 

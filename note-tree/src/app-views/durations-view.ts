@@ -3,10 +3,6 @@ import {
     imListCursorColor,
     imListCursorBg as imListRowBg,
     imListRowCellStyle,
-    imListTableRowBegin,
-    imListTableRowEnd,
-    imTableCellFlexBegin,
-    imTableCellFlexEnd
 } from "src/app-components/list-row";
 import {
     AXIS_HORIZONTAL,
@@ -18,16 +14,14 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { imui, BLOCK, ROW, COL, PX, NA, STRETCH, PERCENT, TABLE } from "src/utils/im-js/im-ui";
 import { imB, imBEnd } from "src/components/core/text";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import {
     newScrollContainer,
     ScrollContainer,
     scrollToItem,
     startScrolling
 } from "src/components/scroll-container";
-import { GlobalContext } from "src/global-context";
+import { focusItem, GlobalContext } from "src/global-context";
 import {
     Activity,
     getActivityDate,
@@ -36,6 +30,7 @@ import {
     getNote,
     getNoteTextWithoutPriority,
     isBreak,
+    JournalId,
     NoteId,
     recomputeAllNoteDurations,
     setCurrentNote,
@@ -52,12 +47,15 @@ import {
     formatDurationAsHours,
     isSameDate
 } from "src/utils/datetime";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH, } from "src/utils/im-js/im-ui";
+import { getJournalEntryOrPageById, getJournalEntryOrPageName } from "./journal-view";
 
 
 type TaskBlockInfo = {
     // null means it's a break
     hlt: TreeNote | null;
+    journalId: JournalId | null;
     name: string;
     slots: {
         time: number;
@@ -72,14 +70,28 @@ export type DurationsViewState = {
 
     durations: TaskBlockInfo[];
     activityFilter: number[] | null;
-    hltMap: Map<NoteId | null, TaskBlockInfo>;
-    totals: { time: number; }[];
+    hltMap: TaskBlockInfo[];
 
     activitiesFrom: Date | null;
     activitiesTo: Date | null;
 
     noteJumpedFromId: NoteId | undefined;
 };
+
+function getBlockForHlt(s: DurationsViewState, hlt: TreeNote | null): TaskBlockInfo | undefined {
+    for (const val of s.hltMap) {
+        if (val.hlt === hlt) return val;
+    }
+    return undefined;
+}
+
+function getBlockForJournal(s: DurationsViewState, journalId: JournalId): TaskBlockInfo | undefined {
+    for (const val of s.hltMap) {
+        if (!val.journalId) continue;
+        if (val.journalId.idx === journalId.idx && val.journalId.type === journalId.type) return val;
+    }
+    return undefined;
+}
 
 function getNumDays(_s: DurationsViewState) {
     return 7;
@@ -94,8 +106,7 @@ export function newDurationsViewState(): DurationsViewState {
         activitiesFrom: null,
         activitiesTo: null,
         activityFilter: null,
-        hltMap: new Map(),
-        totals: [],
+        hltMap: [],
         noteJumpedFromId: undefined,
     };
 }
@@ -164,8 +175,8 @@ function setTableCol(ctx: GlobalContext, s: DurationsViewState, newCol: number) 
     }
 
     const currentBlock = arrayAt(s.durations, s.tableRowPos.idx);
-    if (currentBlock?.hlt) {
-        setCurrentNote(state, currentBlock.hlt.id, s.noteJumpedFromId);
+    if (currentBlock) {
+        focusItem(ctx, state, currentBlock.hlt?.id, currentBlock.journalId);
     }
 }
 
@@ -174,12 +185,7 @@ function recomputeDurations(s: DurationsViewState) {
 
     const numDays = getNumDays(s);
 
-    s.hltMap = new Map<NoteId | null, TaskBlockInfo>();
-
-    s.totals = [];
-    for (let i = 0; i < numDays; i++) {
-        s.totals.push({ time: 0 });
-    }
+    s.hltMap = [];
 
     for (let i = state._activitiesFromIdx; i >= 0 && i <= state._activitiesToIdx; i++) {
         const activity = state.activities[i];
@@ -199,54 +205,71 @@ function recomputeDurations(s: DurationsViewState) {
         let newBlock = false;
 
         if (isBreak(activity)) {
-            block = s.hltMap.get(null);
+            block = getBlockForHlt(s, null);
             if (!block) {
                 block = {
                     hlt: null,
+                    journalId: null,
                     slots: [],
                     name: "Breaks",
                 };
-                s.hltMap.set(null, block);
+                s.hltMap.push(block);
                 newBlock = true;
             }
         } else {
             const nId = activity.nId;
-            if (!nId) {
-                continue;
-            }
+            if (nId) {
+                const note = getNote(state.notes, nId);
+                const hlt = getHigherLevelTask(state, note);
+                if (!hlt) {
+                    continue;
+                }
 
-            const note = getNote(state.notes, nId);
-            const hlt = getHigherLevelTask(state, note);
-            if (!hlt) {
-                continue;
-            }
+                block = getBlockForHlt(s, hlt);
+                if (!block) {
+                    block = {
+                        hlt,
+                        journalId: null,
+                        slots: [],
+                        name: getNoteTextWithoutPriority(hlt.data),
+                    };
+                    newBlock = true;
+                    s.hltMap.push(block);
+                }
+            } else if (activity.journal) {
+                const page = getJournalEntryOrPageById(state.journal, activity.journal);
+                if (!page) continue;
 
-            block = s.hltMap.get(hlt.id);
-            if (!block) {
-                block = {
-                    hlt,
-                    slots: [],
-                    name: getNoteTextWithoutPriority(hlt.data),
-                };
-                newBlock = true;
-                s.hltMap.set(hlt.id, block);
+                block = getBlockForJournal(s, activity.journal);
+                if (!block) {
+                    block = {
+                        hlt: null,
+                        journalId: activity.journal,
+                        slots: [],
+                        name: getJournalEntryOrPageName(state.journal, activity.journal),
+                    };
+                    newBlock = true;
+                    s.hltMap.push(block);
+                }
+            } else {
+                continue;
             }
         }
 
         if (newBlock) {
-            for (let i = 0; i < numDays; i++) {
+            for (let i = 0; i < numDays + 1; i++) {
                 block.slots.push({
                     time: 0,
                     activityIndices: [],
                 });
             }
         }
-        assert(block.slots.length === 7);
+        assert(block.slots.length === 8);
 
         const dayOfWeek = activityDate.getDay();
         block.slots[dayOfWeek].time += durationMs;
         block.slots[dayOfWeek].activityIndices.push(i);
-        s.totals[dayOfWeek].time += durationMs;
+        block.slots[DAYS_OF_THE_WEEK_ABBREVIATED.length].time += durationMs;
     }
 
     if (s.tableRowPos.idx >= s.durations.length) {
@@ -340,27 +363,25 @@ export function imDurationsView(
 
     ctx.views.activities.inputs.activityFilter = s.activityFilter;
 
-    // NOTE: the 'correct' thing to do here is a CSS table. But that doesn't work with all the UI primitives we've already made. We also sacfice a LOT of control over how the rows are sized.
-    // But the layout is shit when we try to roll it ourselves, so I will just give in and use table. :(
-    // And as it turns out, even after we use css table, it is even worse. 
-    // there are all sorts of ways that the table API won't work properly, and all sorts
-    // of workarounds you need to use. 
-    // It would have been better to just get around to learning css grid, but
-    // I'm in too deep. We gotta get this done.
-    // TODO: use css grid to do this, now that we know how
-
     const allRowsSelected = s.tableRowPos.idx === -1;
     const allColsSelected = s.tableColPos.idx === -1;
-    const allSelected = allRowsSelected && allColsSelected;
 
     imui.Begin(c, COL); imui.Flex(c); {
-        imui.Begin(c, COL); {
-            imui.Begin(c, TABLE); imui.Flex(c); {
-                imListTableRowBegin(c, allSelected, allSelected, viewHasFocus && allSelected); imui.Align(c, STRETCH); {
-                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Justify(c); imui.Align(c); {
-                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
+        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imui.Align(c, STRETCH); {
+            imui.Begin(c, BLOCK); {
+                if (im.isFirstishRender(c)) {
+                    imdom.setStyle(c, "display", "grid");
+                    imdom.setStyle(c, "gridTemplateColumns", "7fr " + "1fr ".repeat(DAYS_OF_THE_WEEK_ABBREVIATED.length + 1));
+                }
 
-                        imui.Begin(c, BLOCK); {
+                // HEADER
+                {
+                    imui.Begin(c, COL); {
+                        imui.Begin(c, BLOCK); imui.Size(c, 0, NA, 10, PX); {
+                            // Cursor cant come here
+                        } imui.End(c);
+
+                        imui.Begin(c, BLOCK); imListRowCellStyle(c); {
                             imB(c); {
                                 imdom.Str(c, "Duration Timesheet - ");
                                 imdom.Str(c, formatDate(s.activitiesFrom, true));
@@ -368,79 +389,57 @@ export function imDurationsView(
                                 imdom.Str(c, formatDate(s.activitiesTo, true));
                             } imBEnd(c);
                         } imui.End(c);
-
-                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
-                    } imTableCellFlexEnd(c);
-
+                    } imui.End(c);
 
                     im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
-                        imTableCellFlexBegin(c, COL, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
-                            const colSelectedIndividual = s.tableColPos.idx === colIdx;
-                            const colSelected = colSelectedIndividual || allColsSelected;
+                        const colSelectedIndividual = s.tableColPos.idx === colIdx;
+                        const colSelected = colSelectedIndividual || allColsSelected;
 
+                        imui.Begin(c, COL); {
                             imListRowBg(
                                 c,
                                 getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
                             );
 
-                            imui.Begin(c, BLOCK); imui.Size(c, 100, PERCENT, 7, PX); {
-                                imListCursorColor(
-                                    c,
+                            imui.Begin(c, BLOCK); imui.Size(c, 0, NA, 10, PX); {
+                                imListCursorColor(c,
                                     getRowStatus(colSelected, colSelected, viewHasFocus && colSelectedIndividual)
                                 );
                             } imui.End(c);
-
+ 
                             imui.Begin(c, BLOCK); imListRowCellStyle(c); {
                                 let str = DAYS_OF_THE_WEEK_ABBREVIATED[colIdx];
                                 imB(c).root; imdom.Str(c, str); imBEnd(c);
                             } imui.End(c);
-                        } imTableCellFlexEnd(c);
+                        } imui.End(c);
                     } im.ForEnd(c);
-                } imListTableRowEnd(c);
 
-                imListTableRowBegin(c, false, false, false); {
-                    imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
-                        imdom.Str(c, "Total");
-                    } imTableCellFlexEnd(c);
+                    imui.Begin(c, COL); {
+                        imui.Begin(c, BLOCK); imui.Size(c, 0, NA, 10, PX); {
+                            // Cursor cant come here
+                        } imui.End(c);
 
-                    // imLine(c, LINE_VERTICAL, 1);
+                        imui.Begin(c, BLOCK); imListRowCellStyle(c); {
+                            imB(c); imdom.Str(c, "Total"); imBEnd(c);
+                        } imui.End(c);
+                    } imui.End(c);
+                }
 
-                    const numDays = getNumDays(s);
+                // ROWS
+                {
+                    im.For(c); while (imNavListNextItemArray(list, s.durations)) {
+                        const { i: rowIdx } = list;
+                        const block = s.durations[rowIdx];
 
-                    im.For(c); for (let colIdx = 0; colIdx < numDays; colIdx++) {
-                        imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
-                            const colSelectedIndividual = s.tableColPos.idx === colIdx;
-                            const colSelected = colSelectedIndividual || allColsSelected;
+                        const rowSelectedIndividual = s.tableRowPos.idx === rowIdx;
+                        const rowSelected = rowSelectedIndividual || allRowsSelected;
 
+                        const root = imui.Begin(c, ROW); {
+                            const selected = (rowSelected || allRowsSelected) && allColsSelected;
                             imListRowBg(
                                 c,
-                                getRowStatus(colSelected, colSelected, viewHasFocus && allRowsSelected)
+                                getRowStatus(rowSelected, rowSelected, viewHasFocus && selected),
                             );
-
-                            imui.Begin(c, BLOCK); imListRowCellStyle(c); {
-                                const totalMs = s.totals[colIdx].time;
-                                imdom.Str(c, formatDurationAsHours(totalMs));
-                            } imui.End(c);
-                        } imTableCellFlexEnd(c);
-                    } im.ForEnd(c);
-                } imListTableRowEnd(c);
-            } imui.End(c);
-        } imui.End(c);
-
-        imLine(c, LINE_HORIZONTAL, 1);
-
-        const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imui.Align(c, STRETCH); {
-            imui.Begin(c, TABLE); {
-
-                im.For(c); while (imNavListNextItemArray(list, s.durations)) {
-                    const { i: rowIdx } = list;
-                    const block = s.durations[rowIdx];
-
-                    const rowSelectedIndividual = s.tableRowPos.idx === rowIdx;
-                    const rowSelected = rowSelectedIndividual || allRowsSelected;
-
-                    const root = imListTableRowBegin(c, false, false, false); {
-                        imTableCellFlexBegin(c, ROW, firstColumnWidthPercentage, PERCENT); imui.Align(c, STRETCH); imui.Justify(c); {
                             imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 100, PERCENT); {
                                 imListCursorColor(
                                     c,
@@ -449,16 +448,9 @@ export function imDurationsView(
                             } imui.End(c);
 
                             imui.Begin(c, BLOCK); imui.Flex(c); imListRowCellStyle(c); {
-                                const selected = (rowSelected || allRowsSelected) && allColsSelected;
-
-                                imListRowBg(
-                                    c,
-                                    getRowStatus(rowSelected, rowSelected, viewHasFocus && selected),
-                                );
-
                                 imdom.Str(c, block.name);
                             } imui.End(c);
-                        } imTableCellFlexEnd(c);
+                        } imui.End(c);
 
                         im.For(c); for (let colIdx = 0; colIdx < block.slots.length; colIdx++) {
                             const slot = block.slots[colIdx];
@@ -468,21 +460,21 @@ export function imDurationsView(
 
                             const cellSelected = (rowSelected || allRowsSelected) && (colSelected || allColsSelected);
 
-                            imTableCellFlexBegin(c, ROW, restColumnWidthPercentage, PERCENT); imui.Align(c); imui.Justify(c); {
+                            imui.Begin(c, ROW); {
                                 imListRowBg(
                                     c,
                                     getRowStatus(rowSelected || colSelected, rowSelected || colSelected, viewHasFocus && cellSelected),
                                 );
 
                                 imdom.Str(c, formatDurationAsHours(slot.time));
-                            } imTableCellFlexEnd(c);
+                            } imui.End(c);
                         } im.ForEnd(c);
-                    } imListTableRowEnd(c);
 
-                    if (rowSelectedIndividual && list.scrollContainer) {
-                        scrollToItem(c, list.scrollContainer, root);
-                    }
-                } im.ForEnd(c);
+                        if (rowSelectedIndividual && list.scrollContainer) {
+                            scrollToItem(c, list.scrollContainer, root);
+                        }
+                    } im.ForEnd(c);
+                }
             } imui.End(c);
         } imNavListEnd(c, list);
     } imui.End(c);

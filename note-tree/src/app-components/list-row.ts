@@ -1,6 +1,6 @@
 import { cssVarsApp } from "src/app-styling";
-import { imui, BLOCK, ROW, COL, PX, NA, TABLE_ROW, DisplayType, TABLE_CELL, SizeUnits } from "src/utils/im-js/im-ui";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, DisplayType, imui, NA, PX, ROW, SizeUnits } from "src/utils/im-js/im-ui";
 
 
 type RowStatusInstance = number & { __rowStatus: void; };
@@ -50,62 +50,6 @@ export function getRowStatus(
     }
     return status;
 }
-
-export function imListTableRowBegin(
-    c: ImCache,
-    highlighted: boolean,
-    selected: boolean,
-    focused: boolean,
-    isEditing = false
-) {
-    const status = getRowStatus(highlighted, selected, focused, isEditing);
-    const root = imui.Begin(c, TABLE_ROW); {
-        imListCursorBg(c, status);
-
-        if (im.isFirstishRender(c)) {
-            imdom.setStyle(c, "borderLeft", "10px solid " + getCursorBgColourForStatus(status));
-            imdom.setStyle(c, "paddingRight", "10px");
-        }
-
-    } // imui.End(c);
-
-    return root;
-} 
-export function imListTableRowEnd(c: ImCache) {
-    {
-    } imui.End(c);
-}
-
-/** 
- * Contains a flex container immediately afterwards.
- * The amount of hacks I have had to do to get even css table working is insane.
- * TODO: learn css grid asap. Table sucks
- */
-export function imTableCellFlexBegin(
-    c: ImCache,
-    type: DisplayType,
-    colWidth: number = 0, units: SizeUnits = NA,
-) {
-    imui.Begin(c, TABLE_CELL); imui.Size(c, colWidth, units, 0, NA); {
-        if (im.isFirstishRender(c)) {
-            imdom.setStyle(c, "verticalAlign", "middle");
-        }
-
-        imui.Begin(c, type); {
-            if (im.isFirstishRender(c)) {
-                imdom.setStyle(c, "height", "100%");
-            }
-        } // imui.End(c);
-    } // imui.End(c);
-}
-
-export function imTableCellFlexEnd(c: ImCache) {
-    {
-        {
-        } imui.End(c);
-    } imui.End(c);
-}
-
 
 export function imListRowBegin(
     c: ImCache,

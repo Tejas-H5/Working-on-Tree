@@ -117,7 +117,7 @@ export function asNoteTreeGlobalState(val: unknown) {
 
         return activity;
     });
-    filterInPlace(state.activities, a => a.breakInfo != null || a.nId != null);
+    filterInPlace(state.activities, a => a.breakInfo != null || a.nId != null || !!a.journal);
 
     // self-healing code. fr fr. Also not sure if good idea or shit idea
     {
