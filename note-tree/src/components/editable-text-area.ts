@@ -136,6 +136,15 @@ export function imTextAreaBegin(c: ImCache, {
                     setInputValue(textArea, value);
                 }
 
+                // HACK: total hack. Making a text area that sizes to it's content is unsolved HTML problem
+                // (Actually contenteditable became generally available recently, but I refuse to use it. It is deeply disgusting that the entire DOM is just a word doc that can just be edited. Wysiwig editors just got alot easier to make tho).
+                const scrollTop = textArea.scrollTop;
+                if (im.Memo(c, scrollTop)) {
+                    // Oh yeah its working.. :( stupid text area bruh. shiiii
+                    // console.log("working: ", scrollTop);
+                    root.scrollTop += scrollTop;
+                    textArea.scrollTop = 0;
+                }
             } // imdom.ElEnd(c, el.TEXTAREA);
         } // imui.End(c);
 
