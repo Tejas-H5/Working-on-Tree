@@ -203,6 +203,8 @@ export function asNoteTreeGlobalState(val: unknown) {
         });
 
         deserializeObject(state.journal.pages, pagesObj);
+
+        deserializeObject(state.journal, journalObj);
     }
 
     deserializeObject(state, stateObj);

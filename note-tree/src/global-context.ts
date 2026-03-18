@@ -690,6 +690,6 @@ export function focusItem(
         setCurrentNote(state, noteId, ctx.noteBeforeFocus?.id);
     } else if (journalId) {
         ctx.viewingJournal = true;
-        journalSetCurrentlyEditing(ctx.views.journalView, journalId);
+        journalSetCurrentlyEditing(state.journal, journalId);
     }
 }
