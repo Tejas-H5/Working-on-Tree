@@ -8,7 +8,7 @@ import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } 
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { Journal, newJournal } from "./app-views/journal-view";
+import { getJournalEntry, getJournalEntryName, getPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -166,6 +166,11 @@ export type Activity = {
     // only apply to breaks:
     breakInfo: string | undefined;
 
+    journal: {
+        type: number;
+        idx: number;
+    } | undefined;
+
     locked: true | undefined;
     deleted: true | undefined;
 };
@@ -265,6 +270,9 @@ export const STATUS_SHELVED = 4 as NoteStatusInstance;
  */
 export const STATUS_INFO = 5 as NoteStatusInstance;
 
+
+export const JOURNAL_TYPE_JOURNAL = 1;
+export const JOURNAL_TYPE_PAGE    = 2;
 
 export function isStatusInProgressOrInfo(note: TreeNote) {
     return note.data._status === STATUS_IN_PROGRESS || note.data._status === STATUS_INFO;
@@ -1042,8 +1050,21 @@ export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity:
         return activity.breakInfo;
     }
 
+    if (activity.journal) {
+        if (activity.journal.type === JOURNAL_TYPE_PAGE) {
+            const page = getPageOrUndefined(state.journal, activity.journal.idx);
+            return "Page: " + (page?.data.name ?? "<deleted>");
+        }
+
+        if (activity.journal.type === JOURNAL_TYPE_JOURNAL) {
+            const entry = getJournalEntry(state.journal, activity.journal.idx);
+            return "Log: " + getJournalEntryName(entry);
+        }
+    }
+
     return undefined;
 }
+
 
 export function getActivityText(state: NoteTreeGlobalState, activity: Activity): string {
     return getActivityTextOrUndefined(state, activity) || "< unknown activity text! >";
@@ -1070,7 +1091,7 @@ export function createNewNote(state: NoteTreeGlobalState, text: string): TreeNot
 }
 
 
-export function activityNoteIdMatchesLastActivity(state: NoteTreeGlobalState, activity: Activity): boolean {
+export function activityMatchesLastActivity(state: NoteTreeGlobalState, activity: Activity): boolean {
     const lastActivity = getLastActivity(state);
     if (!lastActivity) {
         return false;
@@ -1078,6 +1099,12 @@ export function activityNoteIdMatchesLastActivity(state: NoteTreeGlobalState, ac
 
     if (isBreak(lastActivity)) {
         return lastActivity.breakInfo === activity.breakInfo;
+    }
+
+    if (lastActivity.journal) {
+        return !!activity.journal &&
+            lastActivity.journal.type === activity.journal.type &&
+            lastActivity.journal.idx === activity.journal.idx;
     }
 
     return lastActivity.nId === activity.nId;
@@ -1102,7 +1129,7 @@ function canActivityBeReplacedWithNewActivity(state: NoteTreeGlobalState, lastAc
 
 function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
     const lastActivity = getLastActivity(state);
-    if (activityNoteIdMatchesLastActivity(state, activity)) {
+    if (activityMatchesLastActivity(state, activity)) {
         // Don't push the same activity twice in a row
         return;
     }
@@ -1111,7 +1138,7 @@ function pushActivity(state: NoteTreeGlobalState, activity: Activity) {
         // this activity may be popped - effectively replaced with the new activity
         state.activities.pop();
 
-        if (activityNoteIdMatchesLastActivity(state, activity)) {
+        if (activityMatchesLastActivity(state, activity)) {
             // Still, don't push the same activity twice in a row
             return;
         }
@@ -1285,6 +1312,12 @@ export function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isN
     pushActivity(state, activity);
 }
 
+export function pushJournalActivity(state: NoteTreeGlobalState, type: number, idx: number) {
+    const activity = defaultActivity(new Date());
+    activity.journal =  { type, idx };
+    pushActivity(state, activity);
+}
+
 export function defaultActivity(t: Date): Activity {
     return {
         // at least one of these must be defined:
@@ -1294,6 +1327,7 @@ export function defaultActivity(t: Date): Activity {
         c: undefined,
         locked: undefined,
         deleted: undefined,
+        journal: undefined,
     };
 }
 

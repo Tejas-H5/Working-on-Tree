@@ -107,6 +107,12 @@ export function asNoteTreeGlobalState(val: unknown) {
         activity.deleted   = asTrue(extractKey<Activity>(activityObj, "deleted"));
         activity.c         = asNumber(extractKey<Activity>(activityObj, "c"));
 
+        const journalObj = asObject(extractKey<Activity>(activityObj, "journal"));
+        if (journalObj) {
+            activity.journal = { type: 0, idx: 0 };
+            deserializeObject(activity.journal, journalObj, "activity.journal");
+        }
+
         deserializeObject(activity, activityObj, "activities");
 
         return activity;

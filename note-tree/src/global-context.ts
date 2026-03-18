@@ -44,9 +44,11 @@ export type GlobalContext = {
         mappings:   GraphMappingsViewState;
         journalView: JournalViewState;
     };
+
     currentView: unknown;
     leftTab: unknown;
     viewingDurations: boolean;
+    viewingJournal: boolean;
 
     notLockedIn: boolean;
 
@@ -165,6 +167,7 @@ export function newGlobalContext(): GlobalContext {
         currentView: null,
         leftTab: null,
         viewingDurations: false,
+        viewingJournal: false,
 
         navListPrevious: { view: null, name: "" },
         navListNext: { view: null, name: "" },

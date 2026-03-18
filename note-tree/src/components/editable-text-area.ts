@@ -76,7 +76,7 @@ export function imTextAreaBegin(c: ImCache, {
             imdom.setStyle(c, "height",    "100%");
             imdom.setStyle(c, "overflowY", "auto");
             imdom.setClass(c, cnTextAreaRoot);
-            imdom.setStyleProperty(c, "--focusColor", cssVars.bg2);
+            imdom.setStyleProperty(c, "--focusColor", cssVars.mg);
         }
 
         // This is now always present.

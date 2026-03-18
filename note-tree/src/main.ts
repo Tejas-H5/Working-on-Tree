@@ -292,8 +292,6 @@ function imMainInner(c: ImCache) {
 
                     if (im.If(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
-                    } else if (im.IfElse(c) && ctx.currentView === ctx.views.journalView) {
-                        imJournalView(c, ctx, ctx.views.journalView, state.journal);
                     } else if (im.IfElse(c) && ctx.currentView === ctx.views.mappings) {
                         imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
                         const graphChanged = im.Memo(c, state.mappingGraph._version) === im.MEMO_CHANGED;
@@ -313,8 +311,18 @@ function imMainInner(c: ImCache) {
                             const navList = imViewsList(c, focusRef);
 
                             imui.Begin(c, COL); imui.Flex(c); {
-                                imNoteTreeView(c, ctx, ctx.views.noteTree);
-                                addView(navList, ctx.views.noteTree, "Notes");
+                                if (im.If(c) && ctx.viewingJournal) {
+                                    imJournalView(c, ctx, ctx.views.journalView, state.journal);
+                                    addView(
+                                        navList,
+                                        ctx.views.noteTree, // not a typo
+                                        "Journal"
+                                    );
+                                } else {
+                                    im.Else(c);
+                                    imNoteTreeView(c, ctx, ctx.views.noteTree);
+                                    addView(navList, ctx.views.noteTree, "Notes");
+                                } im.IfEnd(c);
 
                                 if (im.If(c) && ctx.viewingDurations) {
                                     imLine(c, LINE_HORIZONTAL, 1);
@@ -482,9 +490,8 @@ function imMainInner(c: ImCache) {
                     ctx.views.activities.inputs.activityFilter = null;
                 } 
 
-                const viewingJournal = ctx.currentView === ctx.views.journalView;
-                if (!viewingJournal && hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
-                    setCurrentView(ctx, ctx.views.journalView);
+                if (hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
+                    ctx.viewingJournal = !ctx.viewingJournal;
                 }
 
                 if (

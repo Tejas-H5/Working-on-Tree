@@ -12,7 +12,6 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { imEditableTime } from "src/app-components/time-input";
-import { imui, BLOCK, ROW, COL, PX, NA, INLINE_BLOCK, CENTER, NONE, CH } from "src/utils/im-js/im-ui";
 import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
@@ -36,7 +35,9 @@ import {
 import { arrayAt, boundsCheck } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { ev, im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/utils/im-js/im-ui";
+import { journalSetCurrentlyEditing } from "./journal-view";
 
 
 
@@ -244,10 +245,15 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
         s.activityListPositon.idx = newIdx;
 
         const activity = s.activities[newIdx];
-        if (activity.nId) {
-            if (viewHasFocus) {
-                // This view should only move the note if it is focused
+        if (viewHasFocus) {
+            // This view should only move the note if it is focused
+            if (activity.nId !== undefined) {
+                ctx.viewingJournal = false;
                 setCurrentNote(state, activity.nId, ctx.noteBeforeFocus?.id);
+            } else if (activity.journal) {
+                ctx.viewingJournal = true;
+                ctx.views.journalView.currentlyEditing.type = activity.journal.type;
+                journalSetCurrentlyEditing(ctx.views.journalView, activity.journal.type, activity.journal.idx);
             }
         }
     }
