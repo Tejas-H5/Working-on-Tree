@@ -1,4 +1,4 @@
-// imui v0.00.3
+// imui v0.00.4
 
 import { im, ImCache } from '../im-core';
 import { imdom, el } from '../im-dom';

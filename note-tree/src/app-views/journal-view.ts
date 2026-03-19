@@ -627,6 +627,7 @@ function handleKeyboardInput(
             if (input) {
                 if (movePage) {
                     itree.insertAt(journal.pages, parent, currentPage, input.newIdx);
+                    setCurrentlyEditingPageIdx(s, journal, journal.currentlyEditing.pageIdx);
                 } else {
                     const childId = parent.childIds[input.newIdx]; assert(childId != null);
                     setCurrentlyEditingPageIdx(s, journal, childId);
