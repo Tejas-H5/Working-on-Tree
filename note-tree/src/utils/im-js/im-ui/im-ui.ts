@@ -193,6 +193,7 @@ export const PERCENT = 30001 as SizeUnitInstance;
 export const REM = 40001 as SizeUnitInstance;
 export const CH = 50001 as SizeUnitInstance;
 export const NA = 60001 as SizeUnitInstance; // Not applicable. Nahh. 
+export const FIT_CONTENT = 60002 as SizeUnitInstance; 
 
 export type SizeUnits = typeof PX |
     typeof EM |
@@ -213,6 +214,7 @@ function getUnits(num: SizeUnits) {
 }
 
 function getSize(num: number, units: SizeUnits) {
+    if (units === FIT_CONTENT) return "fit-content";
     return units === NA ? ("") : (num + getUnits(units));
 }
 

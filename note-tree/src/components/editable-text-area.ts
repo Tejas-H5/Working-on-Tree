@@ -1,5 +1,5 @@
 import { el, im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, cssVars, imui, INLINE, NA, PERCENT, setInputValue } from "src/utils/im-js/im-ui";
+import { BLOCK, cssVars, FIT_CONTENT, imui, INLINE, PERCENT, setInputValue } from "src/utils/im-js/im-ui";
 
 export function getLineBeforePos(text: string, pos: number): string {
     const i = getLineStartPos(text, pos);
@@ -80,11 +80,7 @@ export function imTextAreaBegin(c: ImCache, {
         }
 
         // This is now always present.
-        imui.Begin(c, BLOCK); imui.HandleLongWords(c); imui.Relative(c); imui.Size(c, 100, PERCENT, 0, NA); {
-            if (im.isFirstishRender(c)) {
-                imdom.setStyle(c, "height", "fit-content");
-            }
-
+        imui.Begin(c, BLOCK); imui.HandleLongWords(c); imui.Relative(c); imui.Size(c, 100, PERCENT, 0, FIT_CONTENT); {
             if (im.Memo(c, isOneLine)) {
                 imdom.setStyle(c, "whiteSpace", isOneLine ? "nowrap" : "pre-wrap");
                 imdom.setStyle(c, "overflow", isOneLine ? "hidden" : "");
@@ -139,12 +135,12 @@ export function imTextAreaBegin(c: ImCache, {
                 // HACK: total hack. Making a text area that sizes to it's content is unsolved HTML problem
                 // (Actually contenteditable became generally available recently, but I refuse to use it. It is deeply disgusting that the entire DOM is just a word doc that can just be edited. Wysiwig editors just got alot easier to make tho).
                 const scrollTop = textArea.scrollTop;
-                if (im.Memo(c, scrollTop)) {
+                // if (im.Memo(c, scrollTop)) {
                     // Oh yeah its working.. :( stupid text area bruh. shiiii
                     // console.log("working: ", scrollTop);
                     root.scrollTop += scrollTop;
                     textArea.scrollTop = 0;
-                }
+                // }
             } // imdom.ElEnd(c, el.TEXTAREA);
         } // imui.End(c);
 
