@@ -222,10 +222,28 @@ export function asNoteTreeGlobalState(val: unknown) {
                 deserializeObject(value, obj, "state.journal.entries");
                 return value;
             });
+            const remap = new Map<number, number>();
+            let pageIdx = 0;
             for (const entry of oldEntries) {
-                const date = new Date(entry.page.name)
-                const page = getOrCreateJournalLogPageForDate(state.journal, date)
-                page.data.content = entry.page.content;
+                if (pageIdx > 0) {
+                    const date = new Date(entry.page.name)
+                    const page = getOrCreateJournalLogPageForDate(state.journal, date)
+                    page.data.content = entry.page.content;
+                    remap.set(pageIdx, page.id)
+                }
+                pageIdx += 1;
+            }
+            const JOURNAL_TYPE_JOURNAL = 1; // const JOURNAL_TYPE_PAGE    = 2;
+            for (const activity of state.activities) {
+                if (activity.journal) {
+                    // @ts-expect-error .type is a legacy field
+                    if (activity.journal.type === JOURNAL_TYPE_JOURNAL) {
+                        const remapped = remap.get(activity.journal.idx);
+                        if (remapped !== undefined) {
+                            activity.journal.idx = remapped
+                        }
+                    }
+                }
             }
         }
 
