@@ -598,6 +598,21 @@ export const MONTH_NAMES_ABBREVIATED = [
     "dec"
 ];
 
+export const MONTH_NAMES = [
+    "January",
+    "Febuary",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "Novermber",
+    "December"
+];
+
 // yyyy-mm-dd
 export function parseIsoDate(str: string): Date | null {
     const segments = str.split("-");

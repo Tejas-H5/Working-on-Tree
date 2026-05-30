@@ -3,11 +3,11 @@ import { DurationsViewState, newDurationsViewState } from "./app-views/durations
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
-import { journalSetCurrentlyEditing, JournalViewState, newJournalViewState } from "./app-views/journal-view";
+import { JournalViewState, newJournalViewState, setCurrentlyEditingPageIdx } from "./app-views/journal-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, JOURNAL_TYPE_JOURNAL, JournalId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, JournalId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 
@@ -46,11 +46,11 @@ export type GlobalContext = {
     };
 
     currentView: unknown;
-    leftTab: unknown;
+    leftTab: unknown; // It's actually the right tab?? xd
     viewingDurations: boolean;
     viewingJournal: boolean;
 
-    notLockedIn: boolean;
+    sideTabExpanded: boolean;
 
     requestSave: boolean;
 
@@ -160,14 +160,14 @@ export function newGlobalContext(): GlobalContext {
             mappings:   newGraphMappingsViewState(),
             journalView: newJournalViewState(),
         },
-        notLockedIn: true,
+        sideTabExpanded: false,
 
         requestSave: false,
 
         currentView: null,
         leftTab: null,
         viewingDurations: false,
-        viewingJournal: false,
+        viewingJournal: true,
 
         navListPrevious: { view: null, name: "" },
         navListNext: { view: null, name: "" },
@@ -690,6 +690,6 @@ export function focusItem(
         setCurrentNote(state, noteId, ctx.noteBeforeFocus?.id);
     } else if (journalId) {
         ctx.viewingJournal = true;
-        journalSetCurrentlyEditing(state.journal, journalId);
+        setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, journalId.idx);
     }
 }

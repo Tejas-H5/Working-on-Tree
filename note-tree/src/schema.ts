@@ -31,7 +31,8 @@ import {
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
 import { logTrace } from "./utils/log";
-import { Journal, newJournalEntry, newJournalPage } from "./app-views/journal-view";
+import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage } from "./app-views/journal-view";
+import { formatIsoDate } from "./utils/datetime";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -109,8 +110,9 @@ export function asNoteTreeGlobalState(val: unknown) {
 
         const journalObj = asObject(extractKey<Activity>(activityObj, "journal"));
         if (journalObj) {
+            // @ts-expect-error type: 0 required for backwards compatibility
             activity.journal = { type: 0, idx: 0 };
-            deserializeObject(activity.journal, journalObj, "activity.journal");
+            deserializeObject(activity.journal!, journalObj, "activity.journal");
         }
 
         deserializeObject(activity, activityObj, "activities");
@@ -181,21 +183,25 @@ export function asNoteTreeGlobalState(val: unknown) {
 
     const journalObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "journal"));
     if (journalObj) {
-        const entries = mustGetDefined(asArray(extractKey<Journal>(journalObj, "entries")));
-        state.journal.entries = entries.map((val) => {
-            const obj = mustGetDefined(asObject(val));
-            const value = newJournalEntry("");
+        // legacy method
+        function newJournalEntry(name: string, createdAt = new Date()): JournalEntry {
+            return {
+                date: formatIsoDate(createdAt),
+                page: newJournalPage(name, createdAt),
+            };
+        }
 
-            deserializeObject(value, obj, "state.journal.entries");
-            return value;
-        });
-
-        state.journal.entries.sort((a, b) => a.date.localeCompare(b.date));
+        // legacy type
+        type JournalEntry = {
+            date: string; // yyyy-mm-dd
+            page: JournalPage;
+        };
 
         const pagesObj = mustGetDefined(asObject(extractKey<Journal>(journalObj, "pages")));
         const nodesArr = mustGetDefined(asArray(extractKey<tree.TreeStore<Note>>(pagesObj, "nodes")));
         state.journal.pages.nodes = nodesArr.map((val) => {
-            const obj = mustGetDefined(asObject(val));
+            const obj = asObject(val);
+            if (!obj) return null;
             const node = tree.newTreeNode(newJournalPage(""));
             node.childIds = mustGetDefined(asNoteIds(extractKey<TreeNote>(obj, "childIds")));
             deserializeObject(node, obj, "state.journal.pages.nodes[]");
@@ -203,6 +209,25 @@ export function asNoteTreeGlobalState(val: unknown) {
         });
 
         deserializeObject(state.journal.pages, pagesObj);
+
+        // @ts-expect-error We've removed entries in favour of a dedicated journal page.
+        // This code handles the migration.
+        // TODO: remap journal activities {type, idx} type of journal -> the page we moved it to
+        const entries = asArray(extractKey<Journal>(journalObj, "entries"));
+        if (entries) {
+            const oldEntries = entries.map((val) => {
+                const obj = mustGetDefined(asObject(val));
+                const value = newJournalEntry("");
+
+                deserializeObject(value, obj, "state.journal.entries");
+                return value;
+            });
+            for (const entry of oldEntries) {
+                const date = new Date(entry.page.name)
+                const page = getOrCreateJournalLogPageForDate(state.journal, date)
+                page.data.content = entry.page.content;
+            }
+        }
 
         deserializeObject(state.journal, journalObj);
     }

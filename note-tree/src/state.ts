@@ -8,7 +8,7 @@ import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } 
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { getJournalEntry, getJournalEntryName, getJournalEntryOrPageName, getPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
+import { getJournalPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -152,11 +152,6 @@ export type Note = {
     _treeVisualsFlowEndsHere: number;
 };
 
-export type JournalId = {
-    type: number;
-    idx: number;
-}
-
 
 // Since we may have a lot of these, I am somewhat compressing this thing so the JSON will be smaller.
 // Yeah it isn't the best practice, but it works
@@ -176,6 +171,12 @@ export type Activity = {
     locked: true | undefined;
     deleted: true | undefined;
 };
+
+// Legacy artifiact - this used to be a {type,idx} pair.
+export type JournalId = {
+    idx: number;
+}
+
 
 // bro uses git? no way dude.
 const doneSuffixes = ["DONE", "MERGED", "DECLINED"];
@@ -272,9 +273,6 @@ export const STATUS_SHELVED = 4 as NoteStatusInstance;
  */
 export const STATUS_INFO = 5 as NoteStatusInstance;
 
-
-export const JOURNAL_TYPE_JOURNAL = 1;
-export const JOURNAL_TYPE_PAGE    = 2;
 
 export function isStatusInProgressOrInfo(note: TreeNote) {
     return note.data._status === STATUS_IN_PROGRESS || note.data._status === STATUS_INFO;
@@ -960,7 +958,7 @@ export function recomputeAllNoteDurations(
             if (!note) continue;
         }
         if (a0.journal) {
-            const journal = getJournalEntryOrPageName(state.journal, a0.journal);
+            const journal = getJournalPage(state.journal, a0.journal.idx);
             if (!journal) continue;
         }
 
@@ -1058,15 +1056,8 @@ export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity:
     }
 
     if (activity.journal) {
-        if (activity.journal.type === JOURNAL_TYPE_PAGE) {
-            const page = getPageOrUndefined(state.journal, activity.journal.idx);
-            return "Page: " + (page?.data.name ?? "<deleted>");
-        }
-
-        if (activity.journal.type === JOURNAL_TYPE_JOURNAL) {
-            const entry = getJournalEntry(state.journal, activity.journal.idx);
-            return "Log: " + getJournalEntryName(entry);
-        }
+        const page = getPageOrUndefined(state.journal, activity.journal.idx);
+        return "Page: " + (page?.data.name ?? "<deleted>");
     }
 
     return undefined;
@@ -1110,7 +1101,6 @@ export function activityMatchesLastActivity(state: NoteTreeGlobalState, activity
 
     if (lastActivity.journal) {
         return !!activity.journal &&
-            lastActivity.journal.type === activity.journal.type &&
             lastActivity.journal.idx === activity.journal.idx;
     }
 
@@ -1319,9 +1309,9 @@ export function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isN
     pushActivity(state, activity);
 }
 
-export function pushJournalActivity(state: NoteTreeGlobalState, type: number, idx: number) {
+export function pushJournalActivity(state: NoteTreeGlobalState, idx: number) {
     const activity = defaultActivity(new Date());
-    activity.journal =  { type, idx };
+    activity.journal =  { idx };
     pushActivity(state, activity);
 }
 
@@ -1849,6 +1839,9 @@ export function loadState(then: (error: string) => void) {
 }
 
 export function saveState(state: NoteTreeGlobalState, then: (serialize: string) => void) {
+    // TODO: re-enable once we rewrite journals
+    return;
+
     if (state._criticalLoadingError) {
         logTrace("State shouldn't be saved right now - most likely we'll irrecoverably corrupt it");
         then("");

@@ -49,8 +49,7 @@ import {
 } from "src/utils/datetime";
 import { im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH, } from "src/utils/im-js/im-ui";
-import { getJournalEntryOrPageById, getJournalEntryOrPageName } from "./journal-view";
-
+import { getJournalPage } from "./journal-view";
 
 type TaskBlockInfo = {
     // null means it's a break
@@ -88,7 +87,7 @@ function getBlockForHlt(s: DurationsViewState, hlt: TreeNote | null): TaskBlockI
 function getBlockForJournal(s: DurationsViewState, journalId: JournalId): TaskBlockInfo | undefined {
     for (const val of s.hltMap) {
         if (!val.journalId) continue;
-        if (val.journalId.idx === journalId.idx && val.journalId.type === journalId.type) return val;
+        if (val.journalId.idx === journalId.idx) return val;
     }
     return undefined;
 }
@@ -237,7 +236,7 @@ function recomputeDurations(s: DurationsViewState) {
                     s.hltMap.push(block);
                 }
             } else if (activity.journal) {
-                const page = getJournalEntryOrPageById(state.journal, activity.journal);
+                const page = getJournalPage(state.journal, activity.journal.idx);
                 if (!page) continue;
 
                 block = getBlockForJournal(s, activity.journal);
@@ -246,7 +245,7 @@ function recomputeDurations(s: DurationsViewState) {
                         hlt: null,
                         journalId: activity.journal,
                         slots: [],
-                        name: getJournalEntryOrPageName(state.journal, activity.journal),
+                        name: page.data.name,
                     };
                     newBlock = true;
                     s.hltMap.push(block);

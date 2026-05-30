@@ -4,7 +4,7 @@ import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
 import { imUrlViewer } from "src/app-views/url-viewer";
-import { im, ImCache, imdom, key, NormalizedKey } from "src/utils/im-js";
+import { im, ImCache, imdom, NormalizedKey } from "src/utils/im-js";
 import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "src/utils/im-js/im-ui";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
@@ -14,6 +14,7 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
+import { imJournalView } from "./app-views/journal-view";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
@@ -52,7 +53,6 @@ import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { formatDateTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
-import { imJournalView } from "./app-views/journal-view";
 
 
 function getIcon(theme: AppTheme) {
@@ -156,136 +156,138 @@ function imMainInner(c: ImCache) {
                         displayColon.val = !displayColon.val;
                     }
 
-                    if (im.If(c) && ctx.notLockedIn) {
-                        imui.Begin(c, ROW); imui.Align(c); {
-                            imui.Begin(c, ROW); imButton(c); imui.Align(c); imui.Justify(c); imui.Size(c, 0, NA, 100, PERCENT); {
-                                imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+                    imui.Begin(c, ROW); imui.Align(c); {
+                        imui.Begin(c, ROW); imButton(c); imui.Align(c); imui.Justify(c); imui.Size(c, 0, NA, 100, PERCENT); {
+                            imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
 
-                                const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
-                                let icon = getIcon(state.currentTheme);
-                                if (imdom.hasMouseOver(c)) {
-                                    icon = getIcon(nextTheme);
-                                }
+                            const nextTheme = state.currentTheme === "Dark" ? "Light" : "Dark";
+                            let icon = getIcon(state.currentTheme);
+                            if (imdom.hasMouseOver(c)) {
+                                icon = getIcon(nextTheme);
+                            }
 
-                                imAsciiIcon(c, icon, 4.5);
+                            imAsciiIcon(c, icon, 4.5);
 
-                                if (imdom.hasMousePress(c)) {
-                                    state.currentTheme = nextTheme;
-                                    debouncedSave(ctx, state, "Theme change");
-                                }
+                            if (imdom.hasMousePress(c)) {
+                                state.currentTheme = nextTheme;
+                                debouncedSave(ctx, state, "Theme change");
+                            }
 
-                                imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
-                            } imui.End(c);
+                            imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+                        } imui.End(c);
 
-                            imLine(c, LINE_VERTICAL);
+                        imLine(c, LINE_VERTICAL);
 
-                            imui.Begin(c, ROW); imui.Flex(c); {
-                                imAppHeadingBegin(c); {
-                                    imdom.Str(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
-                                } imAppHeadingEnd(c);
-                            } imui.End(c);
+                        imui.Begin(c, ROW); {
+                            imAppHeadingBegin(c); {
+                                imdom.Str(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
+                            } imAppHeadingEnd(c);
+                        } imui.End(c);
 
-                            const root = imui.Begin(c, ROW); imui.Flex(c); imui.Align(c); imui.Justify(c); {
-                                if (im.isFirstishRender(c)) {
-                                    // TODO: standardize
-                                    imdom.setStyle(c, "fontSize", "20px");
-                                    imdom.setStyle(c, "fontWeight", "bold");
-                                }
+                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
-                                if (im.If(c) && ctx.status.statusTextTimeLeftSeconds > 0) {
-                                    ctx.status.statusTextTimeLeftSeconds -= im.getDeltaTimeSeconds(c);
-                                    const statusTextChanged = im.Memo(c, ctx.status.statusText);
+                        const root = imui.Begin(c, ROW); imui.Align(c); imui.Justify(c); {
+                            if (im.isFirstishRender(c)) {
+                                // TODO: standardize
+                                imdom.setStyle(c, "fontSize", "20px");
+                                imdom.setStyle(c, "fontWeight", "bold");
+                            }
 
-                                    let t = im.Get(c, Math.sin);
-                                    if (t === undefined || statusTextChanged) t = 0;
-                                    t = im.Set(c, t + im.getDeltaTimeSeconds(c));
+                            if (im.If(c) && ctx.status.statusTextTimeLeftSeconds > 0) {
+                                ctx.status.statusTextTimeLeftSeconds -= im.getDeltaTimeSeconds(c);
+                                const statusTextChanged = im.Memo(c, ctx.status.statusText);
 
-                                    // bruh
-                                    if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
-                                        imdom.setStyle(c, "opacity", "" + opacity, root);
+                                let t = im.Get(c, Math.sin);
+                                if (t === undefined || statusTextChanged) t = 0;
+                                t = im.Set(c, t + im.getDeltaTimeSeconds(c));
 
-                                        imui.Begin(c, BLOCK); {
-                                            if (im.isFirstishRender(c)) {
-                                                imdom.setStyle(c, "width", "20px");
-                                                imdom.setStyle(c, "height", "20px");
-                                            }
+                                // bruh
+                                if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                    const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
+                                    imdom.setStyle(c, "opacity", "" + opacity, root);
 
-                                            imdom.setStyle(c, "transform", "rotate(" + 5 * t + "rad)");
-                                            imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
-                                        } imui.End(c);
-                                    } else {
-                                        im.IfElse(c);
+                                    imui.Begin(c, BLOCK); {
+                                        if (im.isFirstishRender(c)) {
+                                            imdom.setStyle(c, "width", "20px");
+                                            imdom.setStyle(c, "height", "20px");
+                                        }
 
-                                        imdom.setStyle(c, "opacity", "1", root);
-                                    } im.IfEnd(c);
-
-                                    imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
-
-                                    imui.Begin(c, BLOCK); imdom.Str(c, ctx.status.statusText); imui.End(c);
-
-                                    if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
-                                        imui.Begin(c, BLOCK); {
-                                            imdom.Str(c, ".".repeat(Math.ceil(2 * t % 3)));
-                                        } imui.End(c);
-                                    } im.IfEnd(c);
+                                        imdom.setStyle(c, "transform", "rotate(" + 5 * t + "rad)");
+                                        imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
+                                    } imui.End(c);
                                 } else {
                                     im.IfElse(c);
 
-                                    imui.Begin(c, COL); imui.Align(c); {
-                                        const fpsCounter = im.getFpsCounterState(c);
-                                        imFpsCounterSimple(c, fpsCounter);
-                                        imExtraDiagnosticInfo(c);
-                                    } imui.End(c);
+                                    imdom.setStyle(c, "opacity", "1", root);
                                 } im.IfEnd(c);
-                            } imui.End(c);
-
-                            imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 1, CH); imui.Justify(c, RIGHT); {
-                                // NOTE: these could be buttons.
-                                if (im.isFirstishRender(c)) {
-                                    // TODO: standardize
-                                    imdom.setStyle(c, "fontSize", "18px");
-                                    imdom.setStyle(c, "fontWeight", "bold");
-                                    imdom.setStyle(c, "textAlign", "right");
-                                }
-
-                                const commands = ctx.discoverableCommands; {
-                                    im.For(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
-                                        const command = commands.stabilized[i];
-                                        if (!command.key) continue;
-
-                                        imCommandDescription(c, command.key, command.desc);
-                                    } im.ForEnd(c);
-
-                                    const keys = imdom.getKeyboard();
-
-                                    const anyFulfilled = (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
-                                        (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
-                                        (imdom.isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
-
-                                    if (im.If(c) && !anyFulfilled) {
-                                        if (im.If(c) && commands.shiftAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.shiftKey, "Hold");
-                                        } im.IfEnd(c);
-
-                                        if (im.If(c) && commands.ctrlAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.ctrlKey, "Hold");
-                                        } im.IfEnd(c);
-
-                                        if (im.If(c) && commands.altAvailable) {
-                                            imCommandDescription(c, ctx.keyboard.altKey, "Hold");
-                                        } im.IfEnd(c);
-                                    } im.IfEnd(c);
-
-                                    commands.shiftAvailable = false;
-                                    commands.ctrlAvailable = false;
-                                    commands.altAvailable = false;
-                                } 
 
                                 imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
-                            } imui.End(c);
+
+                                imui.Begin(c, BLOCK); imdom.Str(c, ctx.status.statusText); imui.End(c);
+
+                                if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                                    imui.Begin(c, BLOCK); {
+                                        imdom.Str(c, ".".repeat(Math.ceil(2 * t % 3)));
+                                    } imui.End(c);
+                                } im.IfEnd(c);
+                            } else {
+                                im.IfElse(c);
+
+                                imui.Begin(c, COL); imui.Align(c); {
+                                    const fpsCounter = im.getFpsCounterState(c);
+                                    imFpsCounterSimple(c, fpsCounter);
+                                    imExtraDiagnosticInfo(c);
+                                } imui.End(c);
+                            } im.IfEnd(c);
                         } imui.End(c);
-                    } im.IfEnd(c);
+
+                        imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
+
+                        imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 1, CH); imui.Justify(c, RIGHT); {
+                            // NOTE: these could be buttons.
+                            if (im.isFirstishRender(c)) {
+                                // TODO: standardize
+                                imdom.setStyle(c, "fontSize", "18px");
+                                imdom.setStyle(c, "fontWeight", "bold");
+                                imdom.setStyle(c, "textAlign", "right");
+                            }
+
+                            const commands = ctx.discoverableCommands; {
+                                im.For(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
+                                    const command = commands.stabilized[i];
+                                    if (!command.key) continue;
+
+                                    imCommandDescription(c, command.key, command.desc);
+                                } im.ForEnd(c);
+
+                                const keys = imdom.getKeyboard();
+
+                                const anyFulfilled = (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
+                                    (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
+                                    (imdom.isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
+
+                                if (im.If(c) && !anyFulfilled) {
+                                    if (im.If(c) && commands.shiftAvailable) {
+                                        imCommandDescription(c, ctx.keyboard.shiftKey, "Hold");
+                                    } im.IfEnd(c);
+
+                                    if (im.If(c) && commands.ctrlAvailable) {
+                                        imCommandDescription(c, ctx.keyboard.ctrlKey, "Hold");
+                                    } im.IfEnd(c);
+
+                                    if (im.If(c) && commands.altAvailable) {
+                                        imCommandDescription(c, ctx.keyboard.altKey, "Hold");
+                                    } im.IfEnd(c);
+                                } im.IfEnd(c);
+
+                                commands.shiftAvailable = false;
+                                commands.ctrlAvailable = false;
+                                commands.altAvailable = false;
+                            } 
+
+                            imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
+                        } imui.End(c);
+                    } imui.End(c);
 
                     imLine(c, LINE_HORIZONTAL, 4);
 
@@ -345,12 +347,12 @@ function imMainInner(c: ImCache) {
                                 ctx.currentView !== ctx.views.durations
                             ) {
                                 ctx.leftTab = ctx.currentView;
-                                ctx.notLockedIn = true;
+                                ctx.sideTabExpanded = true;
                             } else {
                                 ctx.leftTab = ctx.views.activities;
                             }
 
-                            if (im.If(c) && ctx.notLockedIn) {
+                            if (im.If(c) && ctx.sideTabExpanded) {
                                 imui.Begin(c, COL); {
                                     if (im.isFirstishRender(c)) {
                                         imdom.setStyle(c, "width", "33%");
@@ -427,15 +429,15 @@ function imMainInner(c: ImCache) {
                     if (hasDiscoverableCommand(
                         ctx,
                         ctx.keyboard.spaceKey,
-                        ctx.notLockedIn ? "Lock in" : "Stop locking in",
+                        ctx.sideTabExpanded ? "Lock in" : "Stop locking in",
                         CTRL | BYPASS_TEXT_AREA,
                     )) {
-                        ctx.notLockedIn = !ctx.notLockedIn;
+                        ctx.sideTabExpanded = !ctx.sideTabExpanded;
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
 
-                    if (!ctx.notLockedIn && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
-                        ctx.notLockedIn = true;
+                    if (!ctx.sideTabExpanded && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
+                        ctx.sideTabExpanded = true;
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                 }
@@ -636,7 +638,7 @@ function imMainInner(c: ImCache) {
                 }
                 ctx.textAreaToFocus = null;
 
-                const lockedInChanged = im.Memo(c, ctx.notLockedIn);
+                const lockedInChanged = im.Memo(c, ctx.sideTabExpanded);
                 if (lockedInChanged) {
                     ctx.focusNextFrame = true;
                 }
@@ -699,6 +701,7 @@ function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
             imdom.Str(c, "]");
         } imui.End(c);
         imui.Begin(c, BLOCK); {
+            if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "0.9rem")
             imdom.Str(c, action);
         } imui.End(c);
     } imui.End(c);

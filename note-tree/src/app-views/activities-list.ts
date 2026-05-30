@@ -29,7 +29,6 @@ import {
     isCurrentlyTakingABreak,
     newBreakActivity,
     pushBreakActivity,
-    setCurrentNote,
     state
 } from "src/state";
 import { arrayAt, boundsCheck } from "src/utils/array-utils";
@@ -37,9 +36,6 @@ import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
 import { ev, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/utils/im-js/im-ui";
-import { journalSetCurrentlyEditing } from "./journal-view";
-
-
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
