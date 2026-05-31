@@ -4,7 +4,7 @@ import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "sr
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { newScrollContainer } from "src/components/scroll-container";
 import { imTextInputOneLine } from "src/components/text-input";
-import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
+import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "src/global-context";
 import { pushJournalActivity, state } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
@@ -14,6 +14,7 @@ import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
 import { BLOCK, COL, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
 import { imTextWithHighlightedRanges } from "./fuzzy-finder";
+import { logTrace } from "src/utils/log";
 
 
 type FinderResult = {
@@ -104,35 +105,54 @@ function findChildPageByName(journal: Journal, page: TreePage, name: string): Tr
     return undefined;
 }
 
-function pushJournalPage(journal: Journal, parent: TreePage, name: string, content = ""): TreePage {
+function addJournalPageUnder(journal: Journal, parent: TreePage, name: string, content = ""): TreePage {
+    return pushJournalPageInternal(journal, parent, name, content, false);
+}
+
+function addJournalPageAfter(journal: Journal, parent: TreePage, name: string, content = ""): TreePage {
+    return pushJournalPageInternal(journal, parent, name, content, false);
+}
+
+function pushJournalPageInternal(journal: Journal, parent: TreePage, name: string, content: string, after: boolean): TreePage {
+    logTrace("Created new page: " + name);
+
     const newPage = newJournalPage(name);
     newPage.content = content;
     const newPageNode = itree.newTreeNode(newPage);
-    itree.addUnder(journal.pages, parent, newPageNode);
+
+    if (after) {
+        itree.addAfter(journal.pages, parent, newPageNode);
+    } else {
+        itree.addUnder(journal.pages, parent, newPageNode);
+    }
+
     return newPageNode;
 }
 
 function findOrPushChildPageByName(journal: Journal, parent: TreePage, name: string): TreePage {
     let page = findChildPageByName(journal, parent, name)
     if (!page) {
-        page = pushJournalPage(journal, parent, name);
+        page = addJournalPageUnder(journal, parent, name);
     }
     return page;
 }
 
+const JOURNAL_ROOT_NAME = "Journal"
+
 // TODO: figure out a good time to call this
 export function getOrCreateJournalLogPageForDate(journal: Journal, date: Date): TreePage {
     const root = itree.getNode(journal.pages, itree.ROOT_ID);
-    let logPage = findOrPushChildPageByName(journal, root, "Journal")
-    const yearKey = "" + date.getFullYear();
-    let yearPage = findOrPushChildPageByName(journal, logPage, yearKey);
+    let logPage = findOrPushChildPageByName(journal, root, JOURNAL_ROOT_NAME)
 
-    const monthKey = MONTH_NAMES[date.getMonth()];
-    const monthPage = findOrPushChildPageByName(journal, yearPage, monthKey);
+    const yearPageName = "" + date.getFullYear();
+    let yearPage = findOrPushChildPageByName(journal, logPage, yearPageName);
+
+    const monthPageName = MONTH_NAMES[date.getMonth()];
+    const monthPage = findOrPushChildPageByName(journal, yearPage, monthPageName);
 
     const dayStr = DAYS_OF_THE_WEEK_ABBREVIATED[date.getDay()];
-    const dateKey = dayStr + " " + pad2(date.getDate());
-    const datePage = findOrPushChildPageByName(journal, monthPage, dateKey)
+    const datePageName = dayStr + " " + pad2(date.getDate());
+    const datePage = findOrPushChildPageByName(journal, monthPage, datePageName)
 
     return datePage;
 }
@@ -157,7 +177,7 @@ function getCurrentPage(journal: Journal): TreePage {
         }
 
         if (!currentPage) {
-            currentPage = pushJournalPage(journal, root, "First page", "This is the first ever page!!!");
+            currentPage = addJournalPageUnder(journal, root, "First page", "This is the first ever page!!!");
         }
     }
 
@@ -453,7 +473,6 @@ function handleKeyboardInput(
             s.finder.resultsIdx = input.newIdx;
             handled = true;
         }
-
     } else if (s.sidebarHasFocus) {
         const parent = itree.getNode(journal.pages, currentPage.parentId);
         const parentPage = parent.data;
@@ -488,7 +507,7 @@ function handleKeyboardInput(
                 handled = true;
             }
 
-            if (currentPage.childIds.length > 0 && hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)) {
+            if (currentPage.childIds.length > 0 && hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT | HIDDEN)) {
                 let nextPageIdx = arrayAt(currentPage.childIds, currentPage.data.focusedChildIdx) ?? 0;
                 setCurrentlyEditingPageIdx(s, journal, nextPageIdx);
                 handled = true;
@@ -515,18 +534,13 @@ function handleKeyboardInput(
         }
 
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New after", SHIFT)) {
-            const newPage = newJournalPage("");
-            const node = itree.newTreeNode(newPage);
-            itree.addAfter(journal.pages, currentPage, node);
+            const node = addJournalPageAfter(journal, currentPage, "");
             setCurrentlyEditingPageIdx(s, journal, node.id);
-
             handled = true;
         }
 
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New under", CTRL)) {
-            const newPage = newJournalPage("");
-            const node = itree.newTreeNode(newPage);
-            itree.addUnder(journal.pages, currentPage, node);
+            const node = addJournalPageUnder(journal, currentPage, "");
             setCurrentlyEditingPageIdx(s, journal, node.id);
             handled = true;
         }
@@ -578,6 +592,12 @@ function handleKeyboardInput(
     ) {
         s.finder.isFinding = true;
         s.sidebarHasFocus = true;
+        handled = true;
+    }
+
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.tKey, "Today's page")) {
+        const page = getOrCreateJournalLogPageForDate(journal, new Date());
+        setCurrentlyEditingPageIdx(s, journal, page.id)
         handled = true;
     }
 

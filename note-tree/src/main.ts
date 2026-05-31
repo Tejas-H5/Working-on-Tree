@@ -14,7 +14,7 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
-import { imJournalView } from "./app-views/journal-view";
+import { imJournalView, setCurrentlyEditingPageIdx } from "./app-views/journal-view";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
@@ -41,8 +41,8 @@ import { validateSchemas } from "./schema";
 import {
     Activity,
     AppTheme,
-    getFirstActivityWithNoteIdx,
-    getLastActivityWithNoteIdx,
+    getNextActivityIdxWithItem,
+    getLastActivityIdxWithItem,
     idIsNilOrRoot,
     loadState,
     setCurrentNote,
@@ -50,7 +50,7 @@ import {
     state
 } from "./state";
 import { arrayAt, getWrappedIdx } from "./utils/array-utils";
-import { formatDateTime } from "./utils/datetime";
+import { formatDate, formatDateTime, formatTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
 
@@ -166,7 +166,7 @@ function imMainInner(c: ImCache) {
                                 icon = getIcon(nextTheme);
                             }
 
-                            imAsciiIcon(c, icon, 4.5);
+                            imAsciiIcon(c, icon, 3.5);
 
                             if (imdom.hasMousePress(c)) {
                                 state.currentTheme = nextTheme;
@@ -178,18 +178,30 @@ function imMainInner(c: ImCache) {
 
                         imLine(c, LINE_VERTICAL);
 
-                        imui.Begin(c, ROW); {
-                            imAppHeadingBegin(c); {
-                                imdom.Str(c, formatDateTime(new Date(), displayColon.val ? ":" : "\xa0", true));
-                            } imAppHeadingEnd(c);
-                        } imui.End(c);
+                        imAppHeadingBegin(c); imui.NoWrap(c); {
+                            if (im.isFirstishRender(c)) {
+                                // TODO: standardize
+                                imdom.setStyle(c, "fontSize", "1em");
+                            }
+                            imui.Begin(c, COL); imui.Align(c); {
+                                const date = new Date();
+                                imui.Begin(c, ROW); {
+                                    const dateFormatted = formatDate(date, true);
+                                    imdom.Str(c, dateFormatted);
+                                } imui.End(c);
+                                imui.Begin(c, ROW); {
+                                    const timeFormatted = formatTime(date, displayColon.val ? ":" : "\xa0");
+                                    imdom.Str(c, timeFormatted);
+                                } imui.End(c);
+                            } imui.End(c);
+                        } imAppHeadingEnd(c);
 
                         imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
                         const root = imui.Begin(c, ROW); imui.Align(c); imui.Justify(c); {
                             if (im.isFirstishRender(c)) {
                                 // TODO: standardize
-                                imdom.setStyle(c, "fontSize", "20px");
+                                imdom.setStyle(c, "fontSize", "0.9em");
                                 imdom.setStyle(c, "fontWeight", "bold");
                             }
 
@@ -233,7 +245,7 @@ function imMainInner(c: ImCache) {
                             } else {
                                 im.IfElse(c);
 
-                                imui.Begin(c, COL); imui.Align(c); {
+                                imui.Begin(c, COL); imui.Align(c); imui.NoWrap(c); {
                                     const fpsCounter = im.getFpsCounterState(c);
                                     imFpsCounterSimple(c, fpsCounter);
                                     imExtraDiagnosticInfo(c);
@@ -243,7 +255,7 @@ function imMainInner(c: ImCache) {
 
                         imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
-                        imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 1, CH); imui.Justify(c, RIGHT); {
+                        imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 0.5, CH); imui.Justify(c, RIGHT); {
                             // NOTE: these could be buttons.
                             if (im.isFirstishRender(c)) {
                                 // TODO: standardize
@@ -317,6 +329,7 @@ function imMainInner(c: ImCache) {
                                     imJournalView(c, ctx, ctx.views.journalView, state.journal);
                                     addView(
                                         navList,
+                                        // Although in hindsight, I should have probaly explained why xDD
                                         ctx.views.noteTree, // not a typo
                                         "Journal"
                                     );
@@ -422,22 +435,10 @@ function imMainInner(c: ImCache) {
 
             // post-process events, etc
             {
-
-
                 // toggle activity view open
                 {
-                    if (hasDiscoverableCommand(
-                        ctx,
-                        ctx.keyboard.spaceKey,
-                        ctx.sideTabExpanded ? "Lock in" : "Stop locking in",
-                        CTRL | BYPASS_TEXT_AREA,
-                    )) {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.spaceKey, "Side panel", CTRL | BYPASS_TEXT_AREA)) {
                         ctx.sideTabExpanded = !ctx.sideTabExpanded;
-                        setCurrentView(ctx, ctx.views.noteTree);
-                    }
-
-                    if (!ctx.sideTabExpanded && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop locking in")) {
-                        ctx.sideTabExpanded = true;
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                 }
@@ -490,7 +491,7 @@ function imMainInner(c: ImCache) {
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
-                }  
+                }
 
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close journal", BYPASS_TEXT_AREA)) {
                     setCurrentView(ctx, ctx.views.noteTree);
@@ -499,6 +500,7 @@ function imMainInner(c: ImCache) {
 
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
                     ctx.viewingJournal = !ctx.viewingJournal;
+                    ctx.sideTabExpanded = false;
                 }
 
                 if (
@@ -550,10 +552,10 @@ function imMainInner(c: ImCache) {
                         // Activities for the same note can re-appear at different indices, so it is more correct to
                         // use indices here instead of activity -> note id
 
-                        const firstActivityIdx = getFirstActivityWithNoteIdx(state);
-                        const lastActivityIdx = getLastActivityWithNoteIdx(state);
+                        const firstActivityIdx = getNextActivityIdxWithItem(state);
+                        const lastActivityIdx = getLastActivityIdxWithItem(state);
 
-                        let newActivity: Activity | undefined;
+                        const prevActivityTraversalIdx = state._activitiesTraversalIdx;
 
                         // We actually are forced to handle repeats here - otherwise we'll start selecting text.
                         const flags = CTRL | SHIFT | REPEAT;
@@ -567,10 +569,10 @@ function imMainInner(c: ImCache) {
                                 setCurrentNote(state, state._jumpBackToId);
                                 state._jumpBackToId = NIL_ID;
                             } else {
-                                while (state._activitiesTraversalIdx > firstActivityIdx) {
-                                    state._activitiesTraversalIdx--;
-                                    newActivity = state.activities[state._activitiesTraversalIdx]
-                                    if (newActivity.nId) break;
+                                if (state._activitiesTraversalIdx === -1) {
+                                    state._activitiesTraversalIdx = getLastActivityIdxWithItem(state);
+                                } else {
+                                    state._activitiesTraversalIdx = getLastActivityIdxWithItem(state, state._activitiesTraversalIdx - 1);
                                 }
                             }
                         }
@@ -579,15 +581,18 @@ function imMainInner(c: ImCache) {
                         if (
                             hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Next activity", flags | (canGoForward ? 0 : HIDDEN))
                         ) {
-                            while (state._activitiesTraversalIdx < lastActivityIdx) {
-                                state._activitiesTraversalIdx++;
-                                newActivity = state.activities[state._activitiesTraversalIdx]
-                                if (newActivity.nId) break;
-                            }
+                            state._activitiesTraversalIdx = getNextActivityIdxWithItem(state, state._activitiesTraversalIdx + 1);
                         }
 
-                        if (newActivity && newActivity.nId) {
-                            setCurrentNote(state, newActivity.nId);
+                        if (prevActivityTraversalIdx !== state._activitiesTraversalIdx) {
+                            const newActivity = state.activities[state._activitiesTraversalIdx]
+                            if (newActivity) {
+                                if (newActivity.nId) {
+                                    setCurrentNote(state, newActivity.nId);
+                                } else  if (newActivity.journal) {
+                                    setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, newActivity.journal.idx);
+                                }
+                            }
                         }
                     }
                 }
@@ -701,7 +706,7 @@ function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
             imdom.Str(c, "]");
         } imui.End(c);
         imui.Begin(c, BLOCK); {
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "0.9rem")
+            if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "0.8rem")
             imdom.Str(c, action);
         } imui.End(c);
     } imui.End(c);

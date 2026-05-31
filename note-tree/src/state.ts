@@ -51,7 +51,7 @@ export type NoteTreeGlobalState = {
     /** Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them */
     notes: TreeNoteTree;
     /** See {@link notesMutated} */
-    _notesMutationCounter: number; 
+    _notesMutationCounter: number;
     // NOTE: kinda need to be references - some code will toggle between whenether we're using 
     _isEditingFocusedNote: boolean;
 
@@ -92,7 +92,7 @@ export type NoteTreeGlobalState = {
     // If true, error modals will include additional info on where to report the error.
     // If false, the user can do something about it, and they don't have anything to report.
     _criticalLoadingErrorWasOurFault: boolean;
-    
+
     _activitiesFromIdx: number;
     _activitiesToIdx: number;
 
@@ -195,8 +195,8 @@ function getDoneNoteSuffix(note: Note): string | undefined {
 }
 
 function isNoteShelved(note: Note): boolean {
-    return note.text.trimEnd().endsWith("SHELVED") || 
-           note.text.trimStart().startsWith("SHELVED");
+    return note.text.trimEnd().endsWith("SHELVED") ||
+        note.text.trimStart().startsWith("SHELVED");
 }
 
 export function getNoteTextWithoutPriority(note: Note): string {
@@ -238,7 +238,7 @@ export function getTodoNotePriority(note: Note): number {
     return priority;
 }
 
-type  NoteStatusInstance = number & { __noteStatus: void; };
+type NoteStatusInstance = number & { __noteStatus: void; };
 
 export const STATUS_NOT_COMPUTED = 0 as NoteStatusInstance;
 
@@ -279,7 +279,7 @@ export function isStatusInProgressOrInfo(note: TreeNote) {
 }
 
 
-export type NoteStatus = 
+export type NoteStatus =
     typeof STATUS_NOT_COMPUTED |
     typeof STATUS_IN_PROGRESS |
     typeof STATUS_ASSUMED_DONE |
@@ -289,11 +289,11 @@ export type NoteStatus =
 
 export function noteStatusToString(note: TreeNote) {
     switch (note.data._status) {
-        case STATUS_IN_PROGRESS:  return "[ ]";
+        case STATUS_IN_PROGRESS: return "[ ]";
         case STATUS_ASSUMED_DONE: return "[*]";
-        case STATUS_DONE:         return "[x]";
-        case STATUS_SHELVED:      return "[-]";
-        case STATUS_INFO:         return "(i)";
+        case STATUS_DONE: return "[x]";
+        case STATUS_SHELVED: return "[-]";
+        case STATUS_INFO: return "(i)";
     }
 
     return "??";
@@ -425,37 +425,22 @@ export function getLastActivity(state: NoteTreeGlobalState): Activity | undefine
     return state.activities[state.activities.length - 1];
 }
 
-export function getLastActivityWithNote(state: NoteTreeGlobalState): Activity | undefined {
-    const idx = getLastActivityWithNoteIdx(state);
-    if (idx === -1) return undefined;
-    return state.activities[idx];
-}
-
-export function getFirstActivityWithNote(state: NoteTreeGlobalState): Activity | undefined {
-    const idx = getFirstActivityWithNoteIdx(state);
-    if (idx === -1) return undefined;
-    return state.activities[idx];
-}
-
-export function getLastActivityWithNoteIdx(state: NoteTreeGlobalState): number {
-    for (let i = state.activities.length - 1; i >= 0; i--) {
+export function getLastActivityIdxWithItem(state: NoteTreeGlobalState, idx = state.activities.length - 1): number {
+    for (let i = idx; i >= 0; i--) {
         if (state.activities[i].nId) return i;
+        if (state.activities[i].journal) return i;
     }
     return -1;
 }
 
-export function getFirstActivityWithNoteIdx(state: NoteTreeGlobalState): number {
-    for (let i = 0; i < state.activities.length; i++) {
+export function getNextActivityIdxWithItem(state: NoteTreeGlobalState, idx = 0): number {
+    for (let i = idx; i < state.activities.length; i++) {
         if (state.activities[i].nId) return i;
+        if (state.activities[i].journal) return i;
     }
-    return -1;
-}
+    
 
-export function getLastActivityForNoteIdx(state: NoteTreeGlobalState, id: NoteId): number {
-    for (let i = state.activities.length - 1; i >= 0; i--) {
-        if (state.activities[i].nId === id) return i;
-    }
-    return -1;
+    return getLastActivityIdxWithItem(state);
 }
 
 export function defaultNote(): Note {
@@ -543,50 +528,50 @@ export function recomputeNoteStatusRecursivelyLegacyComputation(
     if (note.childIds.length === 0) {
         recomputeParents = true;
     } else if (note.childIds.length > 0) {
-    /** --------------------- Deprecated ----------------------- */
+        /** --------------------- Deprecated ----------------------- */
         let status = STATUS_IN_PROGRESS;
 
         // if the last note in the list is DONE, then we can default to DONE instead. 
         // Same for SHELVED.
-    /** --------------------- Deprecated ----------------------- */
+        /** --------------------- Deprecated ----------------------- */
         {
             const lastId = note.childIds[note.childIds.length - 1];
             const lastNote = getNote(state.notes, lastId);
 
-    /** --------------------- Deprecated ----------------------- */
+            /** --------------------- Deprecated ----------------------- */
             if (getDoneNotePrefixOrSuffix(lastNote.data)) {
                 status = STATUS_DONE;
-    /** --------------------- Deprecated ----------------------- */
+                /** --------------------- Deprecated ----------------------- */
             } else if (isNoteShelved(lastNote.data)) {
                 status = STATUS_SHELVED;
             }
         }
 
-    /** --------------------- Deprecated ----------------------- */
+        /** --------------------- Deprecated ----------------------- */
         let foundDoneNoteUnderThisParent = false;
         let foundShelvedNoteUnderThisParent = false;
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
             const child = getNote(state.notes, id);
-    /** --------------------- Deprecated ----------------------- */
+            /** --------------------- Deprecated ----------------------- */
 
             if (child.childIds.length > 0) {
                 if (foundShelvedNoteUnderThisParent) {
                     shelveNotesRecursively(state, child);
                 } else if (child.data._status === STATUS_NOT_COMPUTED) {
-    /** --------------------- Deprecated ----------------------- */
+                    /** --------------------- Deprecated ----------------------- */
                     recomputeNoteStatusRecursivelyLegacyComputation(state, child, false, true);
                     assert(child.data._status !== STATUS_NOT_COMPUTED);
                 }
-    /** --------------------- Deprecated ----------------------- */
+                /** --------------------- Deprecated ----------------------- */
             } else {
                 if (getDoneNotePrefixOrSuffix(child.data) || foundDoneNoteUnderThisParent) {
                     child.data._status = STATUS_DONE;
-    /** --------------------- Deprecated ----------------------- */
+                    /** --------------------- Deprecated ----------------------- */
                     foundDoneNoteUnderThisParent = true;
                 } else if (isNoteShelved(child.data) || foundShelvedNoteUnderThisParent) {
                     foundShelvedNoteUnderThisParent = true;
-    /** --------------------- Deprecated ----------------------- */
+                    /** --------------------- Deprecated ----------------------- */
                     recomputeChildren = false;
                     child.data._status = STATUS_SHELVED;
                 } else if (i === note.childIds.length - 1) {
@@ -595,40 +580,40 @@ export function recomputeNoteStatusRecursivelyLegacyComputation(
                     if (getTodoNotePriority(child.data) === 0) {
                         child.data._status = STATUS_ASSUMED_DONE;
                     } else {
-    /** --------------------- Deprecated ----------------------- */
+                        /** --------------------- Deprecated ----------------------- */
                         child.data._status = STATUS_IN_PROGRESS;
                     }
                 }
             }
 
             if (
-    /** --------------------- Deprecated ----------------------- */
+                /** --------------------- Deprecated ----------------------- */
                 child.data._status !== STATUS_DONE &&
                 child.data._status !== STATUS_SHELVED
             ) {
                 status = STATUS_IN_PROGRESS;
             }
-    /** --------------------- Deprecated ----------------------- */
+            /** --------------------- Deprecated ----------------------- */
         }
 
         const previousStatus = note.data._status;
         const noteStatusChanged = previousStatus !== status;
-    /** --------------------- Deprecated ----------------------- */
+        /** --------------------- Deprecated ----------------------- */
         if (noteStatusChanged) {
             note.data._status = status;
 
             // if it isn't computed, we're already computing the parents.
             if (previousStatus !== STATUS_NOT_COMPUTED) {
-    /** --------------------- Deprecated ----------------------- */
+                /** --------------------- Deprecated ----------------------- */
                 recomputeParents = true;
             }
 
-    /** --------------------- Deprecated ----------------------- */
+            /** --------------------- Deprecated ----------------------- */
             if (previousStatus === STATUS_SHELVED) {
                 // Need to recompute all the children recursively, now that this note is no longer shelved.
                 clearNoteStatusRecursively(state, note);
                 recomputeNoteStatusRecursivelyLegacyComputation(state, note, false, true);
-    /** --------------------- Deprecated ----------------------- */
+                /** --------------------- Deprecated ----------------------- */
             }
         }
     }
@@ -637,10 +622,10 @@ export function recomputeNoteStatusRecursivelyLegacyComputation(
     if (recomputeParents) {
         if (!idIsNil(note.parentId)) {
             const parent = getNote(state.notes, note.parentId);
-    /** --------------------- Deprecated ----------------------- */
+            /** --------------------- Deprecated ----------------------- */
             recomputeNoteStatusRecursivelyLegacyComputation(state, parent, true, false);
         }
-    /** --------------------- Deprecated ----------------------- */
+        /** --------------------- Deprecated ----------------------- */
     }
 }
 
@@ -676,7 +661,7 @@ export function recomputeMarkNavigation(state: NoteTreeGlobalState) {
         if (depth > 0 && state.rootMarks.includes(note.id)) return;
 
         if (
-            note.data._treeVisualsFlowEndsHere && 
+            note.data._treeVisualsFlowEndsHere &&
             note.childIds.length === 0
         ) {
             marks.push(note.id);
@@ -830,8 +815,8 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
     });
 
     // NOT_FOUND < HLT < TASK
-    const NOT_FOUND  = 0;
-    const FOUND_HLT  = 1;
+    const NOT_FOUND = 0;
+    const FOUND_HLT = 1;
     const FOUND_TASK = 2;
 
     const dfs = (note: TreeNote) => {
@@ -982,7 +967,7 @@ export function recomputeAllNoteDurations(
 
         // TODO: update this to work for activities with start/end times that overlap into the current range
         if (
-            (!activitiesFrom || activitiesFrom <= getActivityDate(a0)) && 
+            (!activitiesFrom || activitiesFrom <= getActivityDate(a0)) &&
             (!activitiesTo || getActivityDate(a1) <= activitiesTo)
         ) {
             if (state._activitiesFromIdx === -1) {
@@ -1018,9 +1003,9 @@ export function parentNoteContains(state: NoteTreeGlobalState, parentId: NoteId,
     return false;
 }
 
-export const NOT_COLLAPSED    = 0;
-export const COLLAPSED_HLT    = 1;
-export const COLLAPSED_ROOT   = 2;
+export const NOT_COLLAPSED = 0;
+export const COLLAPSED_HLT = 1;
+export const COLLAPSED_ROOT = 2;
 export const COLLAPSED_STATUS = 3;
 
 export type CollapsedStatus
@@ -1031,8 +1016,8 @@ export type CollapsedStatus
 
 // When we have a particular note selected, and our view is rooted somewhere, can we see this note?
 export function isNoteCollapsed(note: TreeNote): CollapsedStatus {
-    if (isHigherLevelTask(note))                  return COLLAPSED_HLT;
-    if (idIsNilOrRoot(note.id))                   return COLLAPSED_ROOT;
+    if (isHigherLevelTask(note)) return COLLAPSED_HLT;
+    if (idIsNilOrRoot(note.id)) return COLLAPSED_ROOT;
     if (note.data._status !== STATUS_IN_PROGRESS) return COLLAPSED_STATUS;
     return NOT_COLLAPSED;
 }
@@ -1311,7 +1296,7 @@ export function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isN
 
 export function pushJournalActivity(state: NoteTreeGlobalState, idx: number) {
     const activity = defaultActivity(new Date());
-    activity.journal =  { idx };
+    activity.journal = { idx };
     pushActivity(state, activity);
 }
 
@@ -1426,7 +1411,7 @@ export function setIsEditingCurrentNote(state: NoteTreeGlobalState, isEditing: b
 
         state._isEditingFocusedNote = true;
 
-        state.textOnArrival       = currentNote.data.text;
+        state.textOnArrival = currentNote.data.text;
         state.textOnArrivalNoteId = currentNote.id;
     } else {
         state._isEditingFocusedNote = false;
@@ -1992,7 +1977,7 @@ export function toggleNoteRootMark(state: NoteTreeGlobalState, id: NoteId, idx: 
     if (state.rootMarks[idx] === id) {
         state.rootMarks[idx] = null;
     } else {
-        if  (state.rootMarks[idx]) {
+        if (state.rootMarks[idx]) {
             // Don't just overwrite an existing mark
             setCurrentNote(state, state.rootMarks[idx], state.currentNoteId);
         } else {
