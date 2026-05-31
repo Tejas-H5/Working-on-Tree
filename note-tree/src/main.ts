@@ -510,13 +510,6 @@ function imMainInner(c: ImCache) {
                     setCurrentView(ctx, ctx.views.settings);
                 }
 
-                if (
-                    ctx.currentView !== ctx.views.mappings &&
-                    hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Graph")
-                ) {
-                    setCurrentView(ctx, ctx.views.mappings);
-                }
-
                 // back to the last note when escape pressed
                 {
                     if (

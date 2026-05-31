@@ -5,22 +5,27 @@ import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { newScrollContainer } from "src/components/scroll-container";
 import { imTextInputOneLine } from "src/components/text-input";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "src/global-context";
-import { pushJournalActivity, state } from "src/state";
+import { notesMutated, pushJournalActivity, state } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, MONTH_NAMES, pad2 } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
-import { BLOCK, COL, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
+import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
 import { imTextWithHighlightedRanges } from "./fuzzy-finder";
 import { logTrace } from "src/utils/log";
+import { imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
+import { cnApp } from "src/app-styling";
 
 
 type FinderResult = {
     id: number;
     ranges: FuzzyFindRange[];
 }
+
+const VIEWING_PAGE = 0;
+const VIEWING_GRAPH = 1;
 
 export type JournalViewState = {
     sidebarHasFocus: boolean;
@@ -29,6 +34,7 @@ export type JournalViewState = {
         parents: TreePage[];
         version: number;
         isRenaming: boolean;
+        view: number;
     };
 
     finder: {
@@ -47,6 +53,7 @@ export function newJournalViewState(): JournalViewState {
             parents: [],
             version: 0,
             isRenaming: false,
+            view: VIEWING_PAGE,
         },
 
         finder: {
@@ -71,7 +78,7 @@ export function newJournal(): Journal {
     };
 }
 
-type TreePage = itree.TreeNode<JournalPage>;
+export type TreePage = itree.TreeNode<JournalPage>;
 
 export type Journal = {
     currentlyEditing: {
@@ -85,6 +92,7 @@ export type JournalPage = {
     name: string;
     createdAt: Date;
     content: string;
+    graph: { g: MappingGraph; v: MappingGraphView } | undefined;
     focusedChildIdx: number;
 }
 
@@ -93,6 +101,7 @@ export function newJournalPage(name: string, createdAt = new Date()):JournalPage
         name: name,
         createdAt: createdAt,
         content: "",
+        graph: undefined,
         focusedChildIdx: 0,
     };
 }
@@ -170,18 +179,19 @@ function getCurrentPage(journal: Journal): TreePage {
         for (let pageIdx = 1; pageIdx < journal.pages.nodes.length; pageIdx++) {
             const page = journal.pages.nodes[pageIdx]
             if (page) {
-                journal.currentlyEditing.pageIdx = pageIdx;
                 currentPage = page;
+                journal.currentlyEditing.pageIdx = pageIdx;
                 break
             }
         }
 
         if (!currentPage) {
             currentPage = addJournalPageUnder(journal, root, "First page", "This is the first ever page!!!");
+            journal.currentlyEditing.pageIdx = currentPage.id;
         }
     }
 
-    return currentPage || undefined;
+    return currentPage;
 }
 
 export function imJournalView(
@@ -334,22 +344,37 @@ export function imJournalView(
             } else {
                 im.Else(c);
 
-                imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
-                    imdom.Str(c, "Page - ");
-                    imdom.Str(c, getPageName(currentPage.data));
-                } imdom.ElEnd(c, el.H2);
+                imui.Begin(c, ROW); imui.Align(c); {
+                    imui.Begin(c, BLOCK); imui.Fg(c, s.pages.view === VIEWING_GRAPH ? "" :  cssVars.mg); {
+                        if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
+                        imdom.Str(c, "[G]raph")
+                    } imui.End(c);
+
+                    imui.Flex1(c);
+
+                    imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
+                        imdom.Str(c, "Page - ");
+                        imdom.Str(c, getPageName(currentPage.data));
+                    } imdom.ElEnd(c, el.H2);
+
+                    imui.Flex1(c);
+                } imui.End(c);
 
                 imLine(c, LINE_HORIZONTAL, 1);
 
-                imPageEditor(c, ctx, currentPage.data, viewHasFocus && !s.sidebarHasFocus, false);
+                imPageEditor(c, ctx, s, currentPage.data, viewHasFocus && !s.sidebarHasFocus, false);
             } im.IfEnd(c);
         } imui.End(c);
     } imui.End(c);
 
-    if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
-        s.finder.isFinding = false;
-    } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
-        s.sidebarHasFocus = true;
+    if (!ctx.handled) {
+        if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
+            s.finder.isFinding = false;
+        } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
+            s.sidebarHasFocus = true;
+        } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+            s.pages.view = VIEWING_PAGE;
+        }
     }
 }
 
@@ -397,47 +422,72 @@ function imPageListRow(
     } imNavListRowEnd(c);
 }
 
-function imPageEditor(c: ImCache, ctx: GlobalContext, page: JournalPage, editing: boolean, readonly: boolean) {
+function imPageEditor(
+    c: ImCache,
+    ctx: GlobalContext,
+    journalViewState: JournalViewState,
+    page: JournalPage,
+    editing: boolean,
+    readonly: boolean
+) {
     const s = im.GetInline(c, imPageEditor)
         ?? im.Set(c, { version: 0 });
 
-    imui.Begin(c, BLOCK); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
-        if (im.If(c) && editing) {
-        const [root, textArea] = imTextAreaBegin(c, {
-            value: page.content,
-            version: s.version
-        }); {
-                if (im.isFirstishRender(c)) {
-                    imdom.setStyleProperty(c, "--focusColor", "", root);
-                }
+    if (im.If(c) && journalViewState.pages.view === VIEWING_GRAPH) {
+        if (!page.graph) {
+            // Lazily create this data directly in the UI render pass. React devs would not like this
+            page.graph = {
+                g: newMappingGraph(),
+                v: newMappingGraphView(),
+            };
+            notesMutated(state);
+        }
 
-                const input = imdom.On(c, ev.INPUT);
-                const change = imdom.On(c, ev.CHANGE);
+        imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
+            const graphViewState = im.State(c, newGraphMappingsViewState);
+            imGraphMappingsEditorView(c, graphViewState, page.graph.g, page.graph.v)
+        } imui.End(c);
+    } else {
+        im.Else(c);
 
-                if (input || change) {
-                    if (!readonly) {
-                        page.content = textArea.value;
-                        debouncedSave(ctx, state, "imPageEditor - journal edit");
+        imui.Begin(c, BLOCK); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
+            if (im.If(c) && editing) {
+                const [root, textArea] = imTextAreaBegin(c, {
+                    value: page.content,
+                    version: s.version
+                }); {
+                    if (im.isFirstishRender(c)) {
+                        imdom.setStyleProperty(c, "--focusColor", "", root);
                     }
-                    s.version++;
-                }
 
-                const keyDown = imdom.On(c, ev.KEYDOWN);
-                if (keyDown) {
-                    ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {
-                        tabStopSize: state.settings.tabStopSize,
-                        useSpacesInsteadOfTabs: state.settings.spacesInsteadOfTabs,
-                    })
-                }
+                    const input = imdom.On(c, ev.INPUT);
+                    const change = imdom.On(c, ev.CHANGE);
 
-                ctx.textAreaToFocus = textArea;
-            } imTextAreaEnd(c);
-        } else {
-            im.Else(c);
+                    if (input || change) {
+                        if (!readonly) {
+                            page.content = textArea.value;
+                            debouncedSave(ctx, state, "imPageEditor - journal edit");
+                        }
+                        s.version++;
+                    }
 
-            imdom.Str(c, page.content);
-        } im.IfEnd(c);
-    } imui.End(c);
+                    const keyDown = imdom.On(c, ev.KEYDOWN);
+                    if (keyDown) {
+                        ctx.handled = doExtraTextAreaInputHandling(keyDown, textArea, {
+                            tabStopSize: state.settings.tabStopSize,
+                            useSpacesInsteadOfTabs: state.settings.spacesInsteadOfTabs,
+                        })
+                    }
+
+                    ctx.textAreaToFocus = textArea;
+                } imTextAreaEnd(c);
+            } else {
+                im.Else(c);
+
+                imdom.Str(c, page.content);
+            } im.IfEnd(c);
+        } imui.End(c);
+    } im.IfEnd(c);
 }
 
 export function getJournalPage(journal: Journal, id: number): TreePage {
@@ -588,18 +638,24 @@ function handleKeyboardInput(
         }
     }
 
-    if (
-        !s.finder.isFinding &&
-        hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)
-    ) {
-        s.finder.isFinding = true;
-        s.sidebarHasFocus = true;
-        handled = true;
-    }
-
     if (hasDiscoverableCommand(ctx, ctx.keyboard.tKey, "Today's page")) {
         const page = getOrCreateJournalLogPageForDate(journal, new Date());
         setCurrentlyEditingPageIdx(s, journal, page.id)
+        handled = true;
+    }
+
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Graph", HIDDEN)) {
+        if (s.pages.view !== VIEWING_GRAPH) {
+            s.pages.view = VIEWING_GRAPH;
+        } else {
+            s.pages.view = VIEWING_PAGE;
+        }
+        handled = true;
+    }
+
+    if ( hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)) {
+        s.finder.isFinding = true;
+        s.sidebarHasFocus = true;
         handled = true;
     }
 
@@ -608,6 +664,8 @@ function handleKeyboardInput(
 
 
 export function setCurrentlyEditingPageIdx(s: JournalViewState, journal: Journal, pageIdx: number) {
+    s.pages.view = VIEWING_PAGE;
+
     // Delete the last page, if applicable
     const prevPage = itree.getNodeOrUndefined(journal.pages, journal.currentlyEditing.pageIdx);
     if (prevPage) {

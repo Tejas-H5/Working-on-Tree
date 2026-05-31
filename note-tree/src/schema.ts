@@ -31,7 +31,7 @@ import {
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
 import { logTrace } from "./utils/log";
-import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage } from "./app-views/journal-view";
+import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import { formatIsoDate } from "./utils/datetime";
 
 function asNoteIds(val: unknown) {
@@ -84,7 +84,7 @@ export function asNoteTreeGlobalState(val: unknown) {
             for (const note of state.notes.nodes) {
                 if (!note) continue;
                 if (note.childIds.length > 0) continue;
-                
+
                 let current = note;
                 const editedAt = note.data.openedAt;
                 while (!idIsNilOrRoot(current.id)) {
@@ -139,41 +139,7 @@ export function asNoteTreeGlobalState(val: unknown) {
 
     const mappingGraphObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "mappingGraph"));
     if (mappingGraphObj) {
-        const concepts = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "concepts")));
-        state.mappingGraph.concepts = concepts.map(conceptVal => {
-            const obj = asObject(conceptVal);
-            if (!obj) return null;
-
-            const value = newGraphMappingConcept(-1, -1, "");
-            deserializeObject(value, obj, "mappingGraph.concepts");
-            return value;
-        });
-
-        const relationships = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "relationships")));
-        state.mappingGraph.relationships = relationships.map(relationshipVal => {
-            const obj = asObject(relationshipVal);
-            if (!obj) return null;
-            
-            const value = newGraphMappingRelationship(-1, -1, "");
-            deserializeObject(value, obj, "mappingGraph.concepts");
-            return value;
-        });
-
-        const subsets = asArray(extractKey<MappingGraph>(mappingGraphObj, "subsets"));
-        if (subsets) {
-            state.mappingGraph.subsets = subsets.map(subsetsVal => {
-                const obj = mustGetDefined(asObject(subsetsVal));
-                const value = newConceptSubset();
-
-                const subsets = mustGetDefined(asArray(extractKey<ConceptSubset>(obj, "conceptIds")));
-                value.conceptIds = subsets.map(u => mustGetDefined(asNumber(u)));
-
-                deserializeObject(value, obj, "mappingGraph.subsets");
-                return value;
-            });
-        }
-
-        deserializeObject(state.mappingGraph, mappingGraphObj);
+        state.mappingGraph = asMappingGraph(mappingGraphObj, state.mappingGraph);
     }
 
     const rootMarksArr = asArray(extractKey<NoteTreeGlobalState>(stateObj, "rootMarks"));
@@ -202,8 +168,14 @@ export function asNoteTreeGlobalState(val: unknown) {
         state.journal.pages.nodes = nodesArr.map((val) => {
             const obj = asObject(val);
             if (!obj) return null;
-            const node = tree.newTreeNode(newJournalPage(""));
-            node.childIds = mustGetDefined(asNoteIds(extractKey<TreeNote>(obj, "childIds")));
+            const node: TreePage = tree.newTreeNode(newJournalPage(""));
+
+            // Broo I cant be bothered. TODO: We need to figure out a better way to parse the schema, or stor the data
+            // in such a way that this isn't such a big deal. This code should work though - we just
+            // won't get the same hidden class, which. who cares at this point.
+            node.childIds = mustGetDefined(asNoteIds(extractKey<TreePage>(obj, "childIds")));
+            node.data     = mustGetDefined(asObject(extractKey<TreePage>(obj, "data"))) as JournalPage;
+
             deserializeObject(node, obj, "state.journal.pages.nodes[]");
             return node;
         });
@@ -277,6 +249,46 @@ export function asNoteTreeGlobalState(val: unknown) {
     }
 
     return state;
+}
+
+function asMappingGraph(mappingGraphObj: Record<string, unknown>, defaultValue: MappingGraph): MappingGraph {
+    const concepts = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "concepts")));
+
+    defaultValue.concepts = concepts.map(conceptVal => {
+        const obj = asObject(conceptVal);
+        if (!obj) return null;
+
+        const value = newGraphMappingConcept(-1, -1, "");
+        deserializeObject(value, obj, "mappingGraph.concepts");
+        return value;
+    });
+
+    const relationships = mustGetDefined(asArray(extractKey<MappingGraph>(mappingGraphObj, "relationships")));
+    defaultValue.relationships = relationships.map(relationshipVal => {
+        const obj = asObject(relationshipVal);
+        if (!obj) return null;
+        
+        const value = newGraphMappingRelationship(-1, -1, "");
+        deserializeObject(value, obj, "mappingGraph.concepts");
+        return value;
+    });
+
+    const subsets = asArray(extractKey<MappingGraph>(mappingGraphObj, "subsets"));
+    if (subsets) {
+        defaultValue.subsets = subsets.map(subsetsVal => {
+            const obj = mustGetDefined(asObject(subsetsVal));
+            const value = newConceptSubset();
+
+            const subsets = mustGetDefined(asArray(extractKey<ConceptSubset>(obj, "conceptIds")));
+            value.conceptIds = subsets.map(u => mustGetDefined(asNumber(u)));
+
+            deserializeObject(value, obj, "mappingGraph.subsets");
+            return value;
+        });
+    }
+
+    deserializeObject(defaultValue, mappingGraphObj);
+    return defaultValue;
 }
 
 
