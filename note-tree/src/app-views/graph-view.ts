@@ -1630,3 +1630,11 @@ function onSelectionUpdated(s: GraphMappingsViewState) {
         }
     }
 }
+
+export function getMappingGraphCount(m: MappingGraph): number {
+    let count = 0;
+    for (const concept of m.concepts) {
+        if (concept) count += 1
+    }
+    return count;
+}

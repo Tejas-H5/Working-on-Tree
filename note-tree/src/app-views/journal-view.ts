@@ -15,7 +15,7 @@ import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
 import { imTextWithHighlightedRanges } from "./fuzzy-finder";
 import { logTrace } from "src/utils/log";
-import { imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
+import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { cnApp } from "src/app-styling";
 
 
@@ -344,10 +344,16 @@ export function imJournalView(
             } else {
                 im.Else(c);
 
-                imui.Begin(c, ROW); imui.Align(c); {
+                imui.Begin(c, ROW); imui.Align(c); imui.Gap(c, 10, PX); {
                     imui.Begin(c, BLOCK); imui.Fg(c, s.pages.view === VIEWING_GRAPH ? "" :  cssVars.mg); {
                         if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
                         imdom.Str(c, "[G]raph")
+                        if (im.If(c) && currentPage.data.graph) {
+                            const count = getMappingGraphCount(currentPage.data.graph.g)
+                            if (im.If(c) && count > 0) {
+                                imdom.Str(c, "("); imdom.Str(c, count); imdom.Str(c, ")");
+                            } im.IfEnd(c);
+                        } im.IfEnd(c);
                     } imui.End(c);
 
                     imui.Flex1(c);
