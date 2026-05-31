@@ -1631,7 +1631,9 @@ function onSelectionUpdated(s: GraphMappingsViewState) {
     }
 }
 
-export function getMappingGraphCount(m: MappingGraph): number {
+export function getMappingGraphCount(m: MappingGraph | undefined): number {
+    if (!m) return 0;
+
     let count = 0;
     for (const concept of m.concepts) {
         if (concept) count += 1

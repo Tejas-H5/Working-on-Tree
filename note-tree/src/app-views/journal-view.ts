@@ -24,8 +24,10 @@ type FinderResult = {
     ranges: FuzzyFindRange[];
 }
 
-const VIEWING_PAGE = 0;
+const VIEWING_PAGE  = 0;
 const VIEWING_GRAPH = 1;
+const VIEWING_CODE  = 2;
+const VIEWING_NOTES = 3;
 
 export type JournalViewState = {
     sidebarHasFocus: boolean;
@@ -344,19 +346,17 @@ export function imJournalView(
             } else {
                 im.Else(c);
 
-                imui.Begin(c, ROW); imui.Align(c); imui.Gap(c, 10, PX); {
-                    imui.Begin(c, BLOCK); imui.Fg(c, s.pages.view === VIEWING_GRAPH ? "" :  cssVars.mg); {
-                        if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
-                        imdom.Str(c, "[G]raph")
-                        if (im.If(c) && currentPage.data.graph) {
-                            const count = getMappingGraphCount(currentPage.data.graph.g)
-                            if (im.If(c) && count > 0) {
-                                imdom.Str(c, "("); imdom.Str(c, count); imdom.Str(c, ")");
-                            } im.IfEnd(c);
-                        } im.IfEnd(c);
-                    } imui.End(c);
+                imui.Begin(c, ROW); imui.Align(c); {
+                    imui.Begin(c, ROW); imui.Flex(c); imui.Gap(c, 10, PX); {
+                        const graphCount = getMappingGraphCount(currentPage.data.graph?.g)
+                        imToggleableViewIcon(c, s, VIEWING_GRAPH, "[G]raph", graphCount);
 
-                    imui.Flex1(c);
+                        // TODO: implement code
+                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", graphCount);
+
+                        // TODO: implement todo
+                        imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", graphCount);
+                    } imui.End(c);
 
                     imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
                         imdom.Str(c, "Page - ");
@@ -398,7 +398,7 @@ function imPageListRow(
     const itemHighlighted = viewHasFocus && journal.currentlyEditing.pageIdx === page.id;
     const itemSelected = s.sidebarHasFocus && itemHighlighted;
 
-    imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
+    imNavListRowBegin(c, list, itemSelected, itemHighlighted); imui.Align(c); {
         imui.Begin(c, ROW); imui.Align(c); imListRowCellStyle(c); {
             imui.Begin(c, BLOCK); imui.Size(c, depth * 20, PX, 0, NA); imui.End(c);
             if (im.If(c) && itemSelected && s.pages.isRenaming) {
@@ -659,6 +659,24 @@ function handleKeyboardInput(
         handled = true;
     }
 
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.cKey, "Code", HIDDEN)) {
+        if (s.pages.view !== VIEWING_CODE) {
+            s.pages.view = VIEWING_CODE;
+        } else {
+            s.pages.view = VIEWING_PAGE;
+        }
+        handled = true;
+    }
+
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.nKey, "Notes", HIDDEN)) {
+        if (s.pages.view !== VIEWING_NOTES) {
+            s.pages.view = VIEWING_NOTES;
+        } else {
+            s.pages.view = VIEWING_PAGE;
+        }
+        handled = true;
+    }
+
     if ( hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)) {
         s.finder.isFinding = true;
         s.sidebarHasFocus = true;
@@ -726,4 +744,14 @@ function findJournalResults(
     });
 
     if (s.finder.results.length === 0) s.finder.results = null;
+}
+
+function imToggleableViewIcon(c: ImCache, s: JournalViewState, view: number, name: string, count: number) {
+    imui.Begin(c, BLOCK); imui.Fg(c, s.pages.view === view ? "" :  cssVars.mg); {
+        if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
+        imdom.Str(c, name)
+        if (im.If(c) && count > 0) {
+            imdom.Str(c, "("); imdom.Str(c, count); imdom.Str(c, ")");
+        } im.IfEnd(c);
+    } imui.End(c);
 }
