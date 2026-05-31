@@ -110,7 +110,7 @@ function addJournalPageUnder(journal: Journal, parent: TreePage, name: string, c
 }
 
 function addJournalPageAfter(journal: Journal, parent: TreePage, name: string, content = ""): TreePage {
-    return pushJournalPageInternal(journal, parent, name, content, false);
+    return pushJournalPageInternal(journal, parent, name, content, true);
 }
 
 function pushJournalPageInternal(journal: Journal, parent: TreePage, name: string, content: string, after: boolean): TreePage {
@@ -372,7 +372,7 @@ function imPageListRow(
             imui.Begin(c, BLOCK); imui.Size(c, depth * 20, PX, 0, NA); imui.End(c);
             if (im.If(c) && itemSelected && s.pages.isRenaming) {
                 const ev = imTextInputOneLine(c, page.data.name, "Name...", true, false);
-                if (ev) {
+                if (!ctx.handled && ev) {
                     if (ev.newName !== undefined) {
                         page.data.name = ev.newName;
                         debouncedSave(ctx, state, "imPageListRow - journal rename");
@@ -536,12 +536,14 @@ function handleKeyboardInput(
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New after", SHIFT)) {
             const node = addJournalPageAfter(journal, currentPage, "");
             setCurrentlyEditingPageIdx(s, journal, node.id);
+            s.pages.isRenaming = true;
             handled = true;
         }
 
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New under", CTRL)) {
             const node = addJournalPageUnder(journal, currentPage, "");
             setCurrentlyEditingPageIdx(s, journal, node.id);
+            s.pages.isRenaming = true;
             handled = true;
         }
 
