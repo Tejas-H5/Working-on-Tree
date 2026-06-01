@@ -492,143 +492,6 @@ export function setNoteText(
     }
 }
 
-// Incrementally recompute status of notes in the tree. Rules:
-// - Only the very last note under another note can be considered STATUS_IN_PROGRESS, if it has no children. All notes before this are STATUS_ASSUMED_DONE.
-//      - If the last note has children, it can't be in progress. in fact, no other note can be in progress either.
-// - If a note has no children, and ends with a 'done suffix', then that note, and every other note on that level before it without children can
-//      be  marked as STATUS_DONE. No longer an assumption.
-// - A note with children is only done when all of it's children have a DONE status.
-/** @deprecated We don't do it like this anymore. */
-export function recomputeNoteStatusRecursivelyLegacyComputation(
-    state: NoteTreeGlobalState,
-    note: TreeNote,
-    recomputeParents = true,
-    recomputeChildren = true
-) {
-    function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote) {
-        note.data._status = STATUS_SHELVED;
-        for (let i = 0; i < note.childIds.length; i++) {
-            const child = getNote(state.notes, note.childIds[i]);
-            shelveNotesRecursively(state, child);
-        }
-    }
-
-    function getDoneNotePrefixOrSuffix(note: Note): string | undefined {
-        for (let i = 0; i < doneSuffixes.length; i++) {
-            const suffix = doneSuffixes[i];
-            if (note.text.trimEnd().endsWith(suffix) || note.text.trimStart().startsWith(suffix)) {
-                return suffix;
-            }
-        }
-
-        return undefined;
-    }
-
-    /** --------------------- Deprecated ----------------------- */
-    if (note.childIds.length === 0) {
-        recomputeParents = true;
-    } else if (note.childIds.length > 0) {
-        /** --------------------- Deprecated ----------------------- */
-        let status = STATUS_IN_PROGRESS;
-
-        // if the last note in the list is DONE, then we can default to DONE instead. 
-        // Same for SHELVED.
-        /** --------------------- Deprecated ----------------------- */
-        {
-            const lastId = note.childIds[note.childIds.length - 1];
-            const lastNote = getNote(state.notes, lastId);
-
-            /** --------------------- Deprecated ----------------------- */
-            if (getDoneNotePrefixOrSuffix(lastNote.data)) {
-                status = STATUS_DONE;
-                /** --------------------- Deprecated ----------------------- */
-            } else if (isNoteShelved(lastNote.data)) {
-                status = STATUS_SHELVED;
-            }
-        }
-
-        /** --------------------- Deprecated ----------------------- */
-        let foundDoneNoteUnderThisParent = false;
-        let foundShelvedNoteUnderThisParent = false;
-        for (let i = note.childIds.length - 1; i >= 0; i--) {
-            const id = note.childIds[i];
-            const child = getNote(state.notes, id);
-            /** --------------------- Deprecated ----------------------- */
-
-            if (child.childIds.length > 0) {
-                if (foundShelvedNoteUnderThisParent) {
-                    shelveNotesRecursively(state, child);
-                } else if (child.data._status === STATUS_NOT_COMPUTED) {
-                    /** --------------------- Deprecated ----------------------- */
-                    recomputeNoteStatusRecursivelyLegacyComputation(state, child, false, true);
-                    assert(child.data._status !== STATUS_NOT_COMPUTED);
-                }
-                /** --------------------- Deprecated ----------------------- */
-            } else {
-                if (getDoneNotePrefixOrSuffix(child.data) || foundDoneNoteUnderThisParent) {
-                    child.data._status = STATUS_DONE;
-                    /** --------------------- Deprecated ----------------------- */
-                    foundDoneNoteUnderThisParent = true;
-                } else if (isNoteShelved(child.data) || foundShelvedNoteUnderThisParent) {
-                    foundShelvedNoteUnderThisParent = true;
-                    /** --------------------- Deprecated ----------------------- */
-                    recomputeChildren = false;
-                    child.data._status = STATUS_SHELVED;
-                } else if (i === note.childIds.length - 1) {
-                    child.data._status = STATUS_IN_PROGRESS;
-                } else {
-                    if (getTodoNotePriority(child.data) === 0) {
-                        child.data._status = STATUS_ASSUMED_DONE;
-                    } else {
-                        /** --------------------- Deprecated ----------------------- */
-                        child.data._status = STATUS_IN_PROGRESS;
-                    }
-                }
-            }
-
-            if (
-                /** --------------------- Deprecated ----------------------- */
-                child.data._status !== STATUS_DONE &&
-                child.data._status !== STATUS_SHELVED
-            ) {
-                status = STATUS_IN_PROGRESS;
-            }
-            /** --------------------- Deprecated ----------------------- */
-        }
-
-        const previousStatus = note.data._status;
-        const noteStatusChanged = previousStatus !== status;
-        /** --------------------- Deprecated ----------------------- */
-        if (noteStatusChanged) {
-            note.data._status = status;
-
-            // if it isn't computed, we're already computing the parents.
-            if (previousStatus !== STATUS_NOT_COMPUTED) {
-                /** --------------------- Deprecated ----------------------- */
-                recomputeParents = true;
-            }
-
-            /** --------------------- Deprecated ----------------------- */
-            if (previousStatus === STATUS_SHELVED) {
-                // Need to recompute all the children recursively, now that this note is no longer shelved.
-                clearNoteStatusRecursively(state, note);
-                recomputeNoteStatusRecursivelyLegacyComputation(state, note, false, true);
-                /** --------------------- Deprecated ----------------------- */
-            }
-        }
-    }
-
-    /** --------------------- Deprecated ----------------------- */
-    if (recomputeParents) {
-        if (!idIsNil(note.parentId)) {
-            const parent = getNote(state.notes, note.parentId);
-            /** --------------------- Deprecated ----------------------- */
-            recomputeNoteStatusRecursivelyLegacyComputation(state, parent, true, false);
-        }
-        /** --------------------- Deprecated ----------------------- */
-    }
-}
-
 export function recomputeNoteStatusRecursively(
     state: NoteTreeGlobalState,
     note: TreeNote,
@@ -786,25 +649,6 @@ export function recomputeNoteStatusRecursivelyInternal(
     return didSomething;
 }
 
-function getNoteSortPriority(a: TreeNote): number {
-    if (!isStatusInProgressOrInfo(a)) {
-        if (getTodoNotePriority(a.data) === 2) {
-            return PRIORITY_SUBTASK_NOT_IN_PROGRESS
-        }
-        return PRIORITY_NOT_IN_PROGRESS;
-    }
-
-    if (getTodoNotePriority(a.data) === 2) {
-        return PRIORITY_SUBTASK_IN_PROGRESS
-    }
-    return PRIORITY_IN_PROGRESS;
-}
-
-const PRIORITY_SUBTASK_NOT_IN_PROGRESS = 0;
-const PRIORITY_NOT_IN_PROGRESS = 1;
-const PRIORITY_SUBTASK_IN_PROGRESS = 2;
-const PRIORITY_IN_PROGRESS = 3;
-
 // NOTE: also recomputes tree visuals
 export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalState) {
     itree.forEachNode(state.notes, note => {
@@ -874,22 +718,6 @@ export function recomputeNumTasksInProgressRecursively(state: NoteTreeGlobalStat
             }
         })
     }
-}
-
-function findDeepestFirstInProgressNote(state: NoteTreeGlobalState, note: TreeNote): TreeNote | null {
-    if (note.data._status !== STATUS_IN_PROGRESS) return null;
-
-    for (const childId of note.childIds) {
-        const child = getNote(state.notes, childId);
-        if (
-            child.data._status !== STATUS_IN_PROGRESS ||
-            isHigherLevelTask(child)
-        ) continue;
-
-        return findDeepestFirstInProgressNote(state, child);
-    }
-
-    return note;
 }
 
 function shelveNotesRecursively(state: NoteTreeGlobalState, note: TreeNote): boolean {

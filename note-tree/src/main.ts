@@ -39,7 +39,6 @@ import {
 } from "./global-context";
 import { validateSchemas } from "./schema";
 import {
-    Activity,
     AppTheme,
     getNextActivityIdxWithItem,
     getLastActivityIdxWithItem,
@@ -50,7 +49,7 @@ import {
     state
 } from "./state";
 import { arrayAt, getWrappedIdx } from "./utils/array-utils";
-import { formatDate, formatDateTime, formatTime } from "./utils/datetime";
+import { formatDate, formatTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
 
@@ -302,7 +301,6 @@ function imMainInner(c: ImCache) {
                     } imui.End(c);
 
                     imLine(c, LINE_HORIZONTAL, 4);
-
 
                     if (im.If(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);

@@ -12,26 +12,19 @@ import {
     serializeToJSON,
 } from "src/utils/serialization-utils";
 import { ConceptSubset, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
+import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import {
     Activity,
     defaultActivity,
     defaultNote,
-    DONE_SUFFIX,
-    getNote,
-    idIsNilOrRoot,
     newNoteTreeGlobalState,
     Note,
     NoteId,
     NoteTreeGlobalState,
-    recomputeNoteStatusRecursivelyLegacyComputation,
-    STATUS_ASSUMED_DONE,
-    STATUS_DONE,
     TreeNote
 } from "./state";
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
-import { logTrace } from "./utils/log";
-import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import { formatIsoDate } from "./utils/datetime";
 
 function asNoteIds(val: unknown) {
@@ -47,24 +40,13 @@ export function asNoteTreeGlobalState(val: unknown) {
     const stateNotesObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "notes"));
     if (stateNotesObj) {
         const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(stateNotesObj, "nodes"));
-        let editedAtNeedsBackfill = false;
-
         if (nodesArr) {
-            // NOTE: we no longer handle schema 1. All 2 users (both of which are me) have migrated off it.
-
             state.notes.nodes = nodesArr.map(nodeArrVal => {
                 const nodeObj = mustGetDefined(asObject(nodeArrVal) || asNull(nodeArrVal));
                 if (nodeObj === null) return null;
 
                 const noteObjDataObj = mustGetDefined(asObject(extractKey<TreeNote>(nodeObj, "data")));
                 const noteData = defaultNote();
-
-                const editedAt = asDate(extractKey<Note>(noteObjDataObj, "editedAt"));
-                if (editedAt) {
-                    noteData.editedAt = editedAt;
-                } else {
-                    editedAtNeedsBackfill = true;
-                }
 
                 deserializeObject(noteData, noteObjDataObj, "note.nodes[].data");
 
@@ -79,20 +61,6 @@ export function asNoteTreeGlobalState(val: unknown) {
         }
 
         deserializeObject(state.notes, stateNotesObj, "notes");
-
-        if (editedAtNeedsBackfill) {
-            for (const note of state.notes.nodes) {
-                if (!note) continue;
-                if (note.childIds.length > 0) continue;
-
-                let current = note;
-                const editedAt = note.data.openedAt;
-                while (!idIsNilOrRoot(current.id)) {
-                    current.data.editedAt = new Date(editedAt);
-                    current = getNote(state.notes, current.parentId);
-                }
-            }
-        }
     }
 
     const activitiesArr = mustGetDefined(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
@@ -226,26 +194,7 @@ export function asNoteTreeGlobalState(val: unknown) {
 
     // Perform migrations
     {
-        // Replace ASSUMED_DONE with DONE status
-        if (!state.schemaMajorVersion || state.schemaMajorVersion < 3) {
-            logTrace("migrating to schema major version 3");
-            state.schemaMajorVersion = 3;
-            let numBackfilled = 0;
-            recomputeNoteStatusRecursivelyLegacyComputation(state, tree.getNode(state.notes, tree.ROOT_ID), true, true);
-            tree.forEachNode(state.notes, note => {
-                if (
-                    note.data._status === STATUS_ASSUMED_DONE ||
-                    note.data._status === STATUS_DONE
-                ) {
-                    if (!note.data.text.endsWith(DONE_SUFFIX)) {
-                        note.data.text += DONE_SUFFIX;
-                        note.data._status = STATUS_DONE;
-                        numBackfilled += 1;
-                    }
-                }
-            });
-            logTrace("notes backfilled: " + numBackfilled);
-        }
+        // Delete migrations when they have been successfully applied on all target deployments
     }
 
     return state;
