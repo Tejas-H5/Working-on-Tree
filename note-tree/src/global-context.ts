@@ -1,5 +1,4 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
-import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
@@ -40,7 +39,6 @@ export type GlobalContext = {
         fastTravel: NoteTraversalViewState;
         finder:     FuzzyFinderViewState;
         settings:   SettingsViewState;
-        durations:  DurationsViewState;
         mappings:   GraphMappingsViewState;
         journalView: JournalViewState;
     };
@@ -70,7 +68,7 @@ export type GlobalContext = {
 
 export function setCurrentView(ctx: GlobalContext, view: unknown) {
     ctx.currentView = view;
-    const currentNote = getNoteOrUndefined(state.notes, state.currentNoteId);
+    const currentNote = getNoteOrUndefined(state.noteTree, state.noteTree.currentNoteId);
     if (view !== ctx.views.noteTree) {
         if (currentNote) {
             ctx.noteBeforeFocus = currentNote;
@@ -156,7 +154,6 @@ export function newGlobalContext(): GlobalContext {
             fastTravel: newNoteTraversalViewState(),
             finder:     newFuzzyFinderViewState(),
             settings:   newSettingsViewState(),
-            durations:  newDurationsViewState(),
             mappings:   newGraphMappingsViewState(),
             journalView: newJournalViewState(),
         },
@@ -670,7 +667,7 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
             const time = !lastActivity ? lastCheckTime.getTime() :
                 Math.max(lastCheckTime.getTime(), getActivityDate(lastActivity).getTime());
 
-            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
+            pushBreakActivity(state, state.noteTree, newBreakActivity("Auto-inserted break", new Date(time), true));
         }
     } catch (e) {
         console.error("[autoInsertBreakIfRequired] - an error occured: ", e);
@@ -691,7 +688,7 @@ export function focusItem(
     // This view should only move the note if it is focused
     if (noteId != null) {
         ctx.viewingJournal = false;
-        setCurrentNote(state, noteId, ctx.noteBeforeFocus?.id);
+        setCurrentNote(state, state.noteTree, noteId, ctx.noteBeforeFocus?.id);
     } else if (journalId) {
         ctx.viewingJournal = true;
         setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, journalId.idx);

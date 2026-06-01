@@ -13,10 +13,9 @@ import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
 import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
-import { imTextWithHighlightedRanges } from "./fuzzy-finder";
 import { logTrace } from "src/utils/log";
+import { imTextWithHighlightedRanges } from "./fuzzy-finder";
 import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
-import { cnApp } from "src/app-styling";
 
 
 type FinderResult = {
@@ -446,7 +445,7 @@ function imPageEditor(
                 g: newMappingGraph(),
                 v: newMappingGraphView(),
             };
-            notesMutated(state);
+            notesMutated(state.noteTree);
         }
 
         imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {

@@ -14,7 +14,6 @@ import {
     newListPosition
 } from "src/app-components/navigable-list";
 import { cssVarsApp } from "src/app-styling";
-import { imui, BLOCK, ROW, COL, PX, NA, PERCENT, STRETCH } from "src/utils/im-js/im-ui";
 import { imB, imBEnd, imI, imIEnd } from "src/components/core/text";
 import { newScrollContainer, } from "src/components/scroll-container";
 import {
@@ -37,10 +36,11 @@ import {
 import { arrayAt } from "src/utils/array-utils";
 import { formatDateTime } from "src/utils/datetime";
 import { downloadTextAsFile, loadFile } from "src/utils/file-download";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { el, im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH } from "src/utils/im-js/im-ui";
 
-import { VERSION_NUMBER } from "src/version-number";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
+import { VERSION_NUMBER } from "src/version-number";
 
 const REQUIRED_PRESSES = 5;
 
@@ -197,7 +197,7 @@ const menus: MenuItem[] = [
                     if (!errRef) errRef = im.Set(c, { val: null as any });
 
                     if (im.If(c) && !errRef.val) {
-                        imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.notes.nodes.length + " notes"); imBEnd(c); imui.End(c);
+                        imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.noteTree.notes.nodes.length + " notes"); imBEnd(c); imui.End(c);
                         imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.activities.length + " activities"); imBEnd(c); imui.End(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
@@ -266,7 +266,7 @@ const menus: MenuItem[] = [
                                 } imui.End(c);
                                 imui.Begin(c, BLOCK); {
                                     imB(c); imdom.Str(c, "Notes: "); imBEnd(c);
-                                    imdom.Str(c, loadedState.notes.nodes.length);
+                                    imdom.Str(c, loadedState.noteTree.notes.nodes.length);
                                 } imui.End(c);
                                 imui.Begin(c, BLOCK); {
                                     imB(c); imdom.Str(c, "Activities: "); imBEnd(c); 

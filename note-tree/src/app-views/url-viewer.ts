@@ -10,7 +10,6 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
@@ -24,7 +23,8 @@ import {
     TreeNote
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { el, im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, COL, imui, ROW } from "src/utils/im-js/im-ui";
 
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
 
@@ -54,7 +54,7 @@ function setIdx(s: UrlListViewState, idx: number) {
 
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
     const url = s.urls[s.listPosition.idx];
-    setCurrentNote(state, url.note.id);
+    setCurrentNote(state, state.noteTree, url.note.id);
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState) {
@@ -84,16 +84,16 @@ function recomputeUrls(s: UrlListViewState) {
         });
     }
 
-    const currentNote = getCurrentNote(state);
+    const currentNote = getCurrentNote(state, state.noteTree);
 
     // traverse all parents, and 1 level under the parents.
     let notes: TreeNote[] = []; 
     let lastNote = currentNote;
-    forEachParentNote(state.notes, currentNote, note => {
+    forEachParentNote(state.noteTree, currentNote, note => {
         notes.push(note)
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
-            const child = getNote(state.notes, id);
+            const child = getNote(state.noteTree, id);
             notes.push(child)
         }
 
@@ -108,7 +108,7 @@ function recomputeUrls(s: UrlListViewState) {
     const wantedIdx = s.urls.length;
 
     // Dont even need to collect these into an array before rendering them. lmao. 
-    dfsPre(state, currentNote, (note) => {
+    dfsPre(state.noteTree, currentNote, (note) => {
         pushAllUrls(note);
     });
 

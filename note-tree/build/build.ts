@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import * as http from "http";
 import { ChildProcess, spawn } from "node:child_process"
 
-// @Tejas-H5: esbuild-build-script V0.0.4
+// @Tejas-H5: esbuild-build-script V0.0.5
 // Add these scripts to your package.json
 /** 
 	"dev": "node ./build/build.ts devserver",
@@ -185,8 +185,33 @@ if (config === "build") {
 	const { result, error } = await runTscAndGetErrors();
 	if (error.length > 0 || result.length > 0) {
 		// Pipeline should fail
-		if (result) throw new Error(result);
-		throw new Error(error);
+		if (error) throw new Error(error);
+
+		if (result) {
+			let message = result;
+
+			// A count of how many errors occured in each file. Very useful
+			const errorCounts = new Map<string, number>();
+
+			for (const line of result.split("\n")) {
+				const file = line.split(" ", 2)[0];
+				if (!file) continue;
+				if (!file.includes("/")) continue;
+
+				const lineNumberStart = file.indexOf("(");
+				if (lineNumberStart === -1) continue;
+
+				const key = file.substring(0, lineNumberStart);
+				errorCounts.set(key, (errorCounts.get(key) ?? 0) + 1)
+			}
+
+			message += "\n\n"
+			for (const [file, count] of errorCounts) {
+				message += `${count} errors -> ${file}\n`;
+			}
+
+			throw new Error(message);
+		}
 	}
 
 	await esbuild.build({

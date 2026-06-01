@@ -10,7 +10,6 @@ import {
     ListPosition,
     newListPosition
 } from "src/app-components/navigable-list";
-import { imui, BLOCK, ROW, COL, PX, NA, INLINE_BLOCK, INLINE } from "src/utils/im-js/im-ui";
 import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand, REPEAT, setCurrentView } from "src/global-context";
@@ -19,6 +18,7 @@ import {
     getRootNote,
     isHigherLevelTask,
     NoteId,
+    NoteTree,
     recomputeNumTasksInProgressRecursively,
     setCurrentNote,
     state,
@@ -26,7 +26,8 @@ import {
     TreeNote
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, COL, imui, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/utils/im-js/im-ui";
 
 import { getNoteViewRoot } from "./note-tree-view";
 
@@ -54,21 +55,21 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
     };
 }
 
-function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, idx: number) {
+function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree, idx: number) {
     s.listPosition.idx = clampedListIdx(idx, s.notes.length);
     const note = arrayAt(s.notes, s.listPosition.idx);
     if (note) {
         s.lastChildForViewRoot.set(s.viewRoot?.id, note.id);
-        setCurrentNote(state, note.id, ctx.noteBeforeFocus?.id);
+        setCurrentNote(state, noteTree, note.id, ctx.noteBeforeFocus?.id);
     }
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
+function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree) {
     const currentListNote = arrayAt(s.notes, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.notes.length);
     if (listNavigation) {
-        setIdx(ctx, s, listNavigation.newIdx);
+        setIdx(ctx, s, noteTree, listNavigation.newIdx);
     }
 
     if (
@@ -76,7 +77,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)
     ) {
-        recomputeTraversal(s, s.viewRoot.id);
+        recomputeTraversal(s, noteTree, s.viewRoot.id);
     }
 
     if (
@@ -86,7 +87,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
-        recomputeTraversal(s, currentListNote.childIds[0]);
+        recomputeTraversal(s, noteTree, currentListNote.childIds[0]);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
@@ -98,20 +99,20 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState) {
         hasDiscoverableCommand(ctx, ctx.keyboard.fKey, s.isFlat ? "Tree mode" : "Flat mode")
     ) {
         s.isFlat = !s.isFlat;
-        recomputeTraversal(s, currentListNote.id, true);
+        recomputeTraversal(s, noteTree, currentListNote.id, true);
     }
 
     // TODO: left/right should move up/down high level tasks
 }
 
-function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useCurrentNote = false) {
+function recomputeTraversal(s: NoteTraversalViewState, noteTree: NoteTree, noteId: NoteId, useCurrentNote = false) {
     s.notes.length = 0;
-    const current = getNote(state.notes, noteId);
+    const current = getNote(noteTree, noteId);
 
     if (s.isFlat) {
-        s.viewRoot = getRootNote(state);
+        s.viewRoot = getRootNote(noteTree);
     } else {
-        s.viewRoot = getNoteViewRoot(state, current);
+        s.viewRoot = getNoteViewRoot(noteTree, current);
     }
 
     const dfs = (note: TreeNote, pushNote: boolean) => {
@@ -130,13 +131,13 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useCurren
         }
 
         for (const id of note.childIds) {
-            const child = getNote(state.notes, id);
+            const child = getNote(noteTree, id);
             dfs(child, true);
         }
     }
     dfs(s.viewRoot, false);
 
-    recomputeNumTasksInProgressRecursively(state);
+    recomputeNumTasksInProgressRecursively(noteTree);
     s.notes.sort((a, b) => {
         if (
             (a.data._tasksInProgress > 0 && b.data._tasksInProgress > 0) ||
@@ -168,18 +169,18 @@ function recomputeTraversal(s: NoteTraversalViewState, noteId: NoteId, useCurren
             s.listPosition.idx = idx;
         }
 
-        setCurrentNote(state, noteIdToFocus);
+        setCurrentNote(state, noteTree, noteIdToFocus);
     }
 }
 
-export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversalViewState) {
+export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s);
+        handleKeyboardInput(ctx, s, noteTree);
     }
 
-    if (im.Memo(c, state._notesMutationCounter)) {
-        recomputeTraversal(s, state.currentNoteId, true);
+    if (im.Memo(c, noteTree._notesMutationCounter)) {
+        recomputeTraversal(s, noteTree, noteTree.currentNoteId, true);
     }
 
     imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {
@@ -189,7 +190,7 @@ export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversal
 
         imui.Begin(c, BLOCK); imdom.Str(c, "Fast travel"); imui.End(c);
 
-        if (im.If(c) && s.viewRoot && s.viewRoot !== getRootNote(state)) {
+        if (im.If(c) && s.viewRoot && s.viewRoot !== getRootNote(noteTree)) {
             imui.Begin(c, BLOCK); {
                 imdom.Str(c, s.viewRoot.data.text); 
             } imui.End(c);

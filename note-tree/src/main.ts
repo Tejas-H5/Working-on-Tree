@@ -1,4 +1,3 @@
-import { imDurationsView } from "src/app-views/durations-view";
 import { imNoteTraversal } from "src/app-views/fast-travel";
 import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
 import { imNoteTreeView } from "src/app-views/note-tree-view";
@@ -123,8 +122,8 @@ function imMainInner(c: ImCache) {
         if (im.If(c) && !errorState.error && !errorState.irrecoverableError) {
             handleImKeysInput(ctx);
 
-            if (im.Memo(c, state._notesMutationCounter) === im.MEMO_CHANGED) {
-                if (state._notesMutationCounter !== 0) {
+            if (im.Memo(c, state.noteTree._notesMutationCounter) === im.MEMO_CHANGED) {
+                if (state.noteTree._notesMutationCounter !== 0) {
                     debouncedSave(ctx, state, "ImMain memoizer - notes mutation");
                 }
             }
@@ -333,7 +332,7 @@ function imMainInner(c: ImCache) {
                                     );
                                 } else {
                                     im.Else(c);
-                                    imNoteTreeView(c, ctx, ctx.views.noteTree);
+                                    imNoteTreeView(c, ctx, ctx.views.noteTree, state.noteTree);
                                     addView(navList, ctx.views.noteTree, "Notes");
                                 } im.IfEnd(c);
 
@@ -345,8 +344,7 @@ function imMainInner(c: ImCache) {
                                             imdom.setStyle(c, "maxHeight", "33%");
                                         }
 
-                                        imDurationsView(c, ctx, ctx.views.durations);
-                                        addView(navList, ctx.views.durations, "Durations");
+                                        imdom.Str(c, "TODO: rewrite to be journals")
                                     } imui.End(c);
                                 } im.IfEnd(c);
                             } imui.End(c);
@@ -354,8 +352,8 @@ function imMainInner(c: ImCache) {
                             imLine(c, LINE_VERTICAL, 1);
 
                             if (
-                                ctx.currentView !== ctx.views.noteTree &&
-                                ctx.currentView !== ctx.views.durations
+                                ctx.currentView !== ctx.views.noteTree 
+                                // && ctx.currentView !== ctx.views.durations
                             ) {
                                 ctx.leftTab = ctx.currentView;
                                 ctx.sideTabExpanded = true;
@@ -372,7 +370,7 @@ function imMainInner(c: ImCache) {
                                     im.Switch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
                                             imui.Begin(c, COL); imui.Flex(c); {
-                                                imActivitiesList(c, ctx, ctx.views.activities);
+                                                imActivitiesList(c, ctx, ctx.views.activities, state.noteTree);
                                                 addView(navList, ctx.views.activities, "Activities");
 
                                                 if (!IS_RUNNING_FROM_FILE) {
@@ -397,11 +395,11 @@ function imMainInner(c: ImCache) {
                                             } imui.End(c);
                                         } break;
                                         case ctx.views.fastTravel: {
-                                            imNoteTraversal(c, ctx, ctx.views.fastTravel);
+                                            imNoteTraversal(c, ctx, ctx.views.fastTravel, state.noteTree);
                                             addView(navList, ctx.views.fastTravel, "Fast travel");
                                         } break;
                                         case ctx.views.finder: {
-                                            imFuzzyFinder(c, ctx, ctx.views.finder);
+                                            imFuzzyFinder(c, ctx, ctx.views.finder, state.noteTree);
                                             addView(navList, ctx.views.finder, "Finder");
                                         } break;
                                         case ctx.views.urls: {
@@ -451,6 +449,7 @@ function imMainInner(c: ImCache) {
 
                 // timesheet
 
+                /*
                 if (
                     !ctx.viewingDurations && 
                     hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
@@ -490,6 +489,7 @@ function imMainInner(c: ImCache) {
                     }
                     ctx.views.activities.inputs.activityFilter = null;
                 }
+                */
 
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close journal", BYPASS_TEXT_AREA)) {
                     setCurrentView(ctx, ctx.views.noteTree);
@@ -518,7 +518,7 @@ function imMainInner(c: ImCache) {
                         )
                     ) {
                         if (ctx.noteBeforeFocus) {
-                            setCurrentNote(state, ctx.noteBeforeFocus.id);
+                            setCurrentNote(state, state.noteTree, ctx.noteBeforeFocus.id);
                         }
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
@@ -557,7 +557,7 @@ function imMainInner(c: ImCache) {
                             hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Last activity", flags | (canGoBack ? 0 : HIDDEN))
                         ) {
                             if (!idIsNilOrRoot(state._jumpBackToId)) {
-                                setCurrentNote(state, state._jumpBackToId);
+                                setCurrentNote(state, state.noteTree, state._jumpBackToId);
                                 state._jumpBackToId = NIL_ID;
                             } else {
                                 if (state._activitiesTraversalIdx === -1) {
@@ -579,7 +579,7 @@ function imMainInner(c: ImCache) {
                             const newActivity = state.activities[state._activitiesTraversalIdx]
                             if (newActivity) {
                                 if (newActivity.nId) {
-                                    setCurrentNote(state, newActivity.nId);
+                                    setCurrentNote(state, state.noteTree, newActivity.nId);
                                 } else  if (newActivity.journal) {
                                     setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, newActivity.journal.idx);
                                 }
@@ -592,7 +592,7 @@ function imMainInner(c: ImCache) {
                 // Also, shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", SHIFT)) {
                     setCurrentView(ctx, ctx.views.activities);
-                    activitiesViewTakeBreak(ctx, ctx.views.activities);
+                    activitiesViewTakeBreak(ctx, ctx.views.activities, state.noteTree);
                     ctx.handled = true;
                 }
 

@@ -1,8 +1,3 @@
-import { cnApp } from "src/app-styling";
-import { imui, BLOCK, ROW, COL, PX, NA, INLINE } from "src/utils/im-js/im-ui";
-import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
-import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
-import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "src/global-context";
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
 import {
     AXIS_FLAG_BYPASS_TEXT_AREA,
@@ -15,6 +10,10 @@ import {
     imNavListRowBegin,
     imNavListRowEnd
 } from "src/app-components/navigable-list";
+import { cnApp } from "src/app-styling";
+import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
+import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
+import { BYPASS_TEXT_AREA, CTRL, GlobalContext, hasDiscoverableCommand, setCurrentView, SHIFT } from "src/global-context";
 import {
     dfsPre,
     forEachChildNote,
@@ -22,6 +21,7 @@ import {
     getRootNote,
     idIsNil,
     idIsRoot,
+    NoteTree,
     NoteTreeGlobalState,
     setCurrentNote,
     state,
@@ -31,7 +31,8 @@ import {
 } from "src/state";
 import { truncate } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { ev, im, ImCache, imdom } from "src/utils/im-js";
+import { BLOCK, COL, imui, INLINE, ROW } from "src/utils/im-js/im-ui";
 
 
 
@@ -95,7 +96,7 @@ type NoteFuzzyFindMatches = {
 
 
 // NOTE: this thing currently populates the quicklist
-export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: TreeNote, query: string, dstMatches: NoteFuzzyFindMatches[], {
+export function searchAllNotesForText(noteTree: NoteTree, rootNote: TreeNote, query: string, dstMatches: NoteFuzzyFindMatches[], {
     fuzzySearch,
     traverseUpwards,
 }: {
@@ -132,9 +133,9 @@ export function searchAllNotesForText(state: NoteTreeGlobalState, rootNote: Tree
     }
 
     if (idIsRoot(rootNote.id) || !traverseUpwards) {
-        dfsPre(state, rootNote, processNote);
+        dfsPre(noteTree, rootNote, processNote);
     } else {
-        forEachParentNote(state.notes, rootNote, note => forEachChildNote(state, note, processNote));
+        forEachParentNote(noteTree, rootNote, note => forEachChildNote(noteTree, note, processNote));
     }
 
     dstMatches.sort((a, b) => {
@@ -160,6 +161,7 @@ export function newFuzzyFinderViewState(): FuzzyFinderViewState {
 function setIdx(
     ctx: GlobalContext,
     s: FuzzyFinderViewState,
+    noteTree: NoteTree,
     idx: number
 ) {
     const matches = s.fuzzyFindState.matches;
@@ -167,10 +169,10 @@ function setIdx(
 
     s.fuzzyFindState.currentIdx = clampedListIdx(idx, matches.length);
     const match = matches[s.fuzzyFindState.currentIdx];
-    setCurrentNote(state, match.note.id, ctx.noteBeforeFocus?.id);
+    setCurrentNote(state, noteTree, match.note.id, ctx.noteBeforeFocus?.id);
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
+function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
     const finderState = s.fuzzyFindState;
     const matches = finderState.matches;
     const listNavigation = getNavigableListInput(
@@ -179,7 +181,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
     );
 
     if (listNavigation) {
-        setIdx(ctx, s, listNavigation.newIdx);
+        setIdx(ctx, s, noteTree, listNavigation.newIdx);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note", BYPASS_TEXT_AREA)) {
@@ -200,25 +202,25 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState) {
     }
 }
 
-function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindState) {
+function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindState, noteTree: NoteTree) {
     const dst = finderState.matches;
     dst.length = 0;
 
-    const rootNote = finderState.scope === SCOPE_EVERTHING ? getRootNote(state)
+    const rootNote = finderState.scope === SCOPE_EVERTHING ? getRootNote(noteTree)
         : finderState.scope === SCOPE_CHILDREN ? ctx.noteBeforeFocus
         : ctx.noteBeforeFocus;
 
     if (!rootNote) return;
 
 
-    searchAllNotesForText(state, rootNote, finderState.query, dst, {
+    searchAllNotesForText(noteTree, rootNote, finderState.query, dst, {
         fuzzySearch: false,
         traverseUpwards: finderState.scope === SCOPE_SHALLOW_PARENTS,
     });
 
     finderState.exactMatchSucceeded = dst.length > 0;
     if (!finderState.exactMatchSucceeded) {
-        searchAllNotesForText(state, rootNote, finderState.query, dst, {
+        searchAllNotesForText(noteTree, rootNote, finderState.query, dst, {
             fuzzySearch: true,
             traverseUpwards: finderState.scope === SCOPE_SHALLOW_PARENTS,
         });
@@ -247,18 +249,17 @@ function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindS
     }
 }
 
-function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState) {
-    recomputeFuzzyFinderMatches(ctx, s.fuzzyFindState);
-    setIdx(ctx, s, s.fuzzyFindState.currentIdx);
+function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
+    recomputeFuzzyFinderMatches(ctx, s.fuzzyFindState, noteTree);
+    setIdx(ctx, s, noteTree, s.fuzzyFindState.currentIdx);
 }
 
-export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderViewState) {
+export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
     const finderState = s.fuzzyFindState;
     const viewHasFocus = ctx.currentView === s;
 
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s);
-
+        handleKeyboardInput(ctx, s, noteTree);
     }
 
     const viewHasFocusChanged = im.Memo(c, viewHasFocus);
@@ -272,7 +273,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
     if (queryChanged || scopeChanged) {
         t0 = performance.now();
         s.timeTakenMs = 0; // prob doesn't make a difference
-        recomputeTraversal(ctx, s);
+        recomputeTraversal(ctx, s, noteTree);
 
         // get the time at the end of this methd.
     } 
@@ -345,7 +346,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
-            imdom.Str(c, `Narrowed ${state.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
+            imdom.Str(c, `Narrowed ${state.noteTree.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
         } imui.End(c);
     } imui.End(c);
 

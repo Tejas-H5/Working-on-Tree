@@ -33,6 +33,11 @@ export function asFalse(val: unknown): false | undefined {
     return val === false ? false : undefined;
 }
 
+export function mustGet<T>(val: T | undefined): T {
+    if (val === undefined) throw new Error("Should have gotten this value")
+    return val;
+}
+
 export function asObject(val: unknown, reinterpretEntriesAsObject = true): Record<string, unknown> | undefined {
     if (val != null && val.constructor === Object) {
         return val as Record<string, unknown>;
