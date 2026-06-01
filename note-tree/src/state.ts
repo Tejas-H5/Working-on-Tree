@@ -1681,8 +1681,6 @@ export function loadState(then: (error: string) => void) {
 }
 
 export function saveState(state: NoteTreeGlobalState, then: (serialize: string) => void) {
-    return;
-
     if (state._criticalLoadingError) {
         logTrace("State shouldn't be saved right now - most likely we'll irrecoverably corrupt it");
         then("");

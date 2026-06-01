@@ -65,7 +65,6 @@ function imMainInner(c: ImCache) {
     let ctx = im.Get(c, newGlobalContext);
     if (!ctx) ctx = im.Set(c, newGlobalContext());
 
-
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
     if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
     if (im.Memo(c, state.currentTheme)) setTheme(state.currentTheme);
