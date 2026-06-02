@@ -30,6 +30,7 @@ import { im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, COL, imui, INLINE, INLINE_BLOCK, NA, PX, ROW } from "src/utils/im-js/im-ui";
 
 import { getNoteViewRoot } from "./note-tree-view";
+import { TreePage } from "./journal-view";
 
 export type NoteTraversalViewState = {
     viewRoot: TreeNote | null;
@@ -55,21 +56,21 @@ export function newNoteTraversalViewState(): NoteTraversalViewState {
     };
 }
 
-function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree, idx: number) {
+function setIdx(ctx: GlobalContext, s: NoteTraversalViewState, page: TreePage, noteTree: NoteTree, idx: number) {
     s.listPosition.idx = clampedListIdx(idx, s.notes.length);
     const note = arrayAt(s.notes, s.listPosition.idx);
     if (note) {
         s.lastChildForViewRoot.set(s.viewRoot?.id, note.id);
-        setCurrentNote(state, noteTree, note.id, ctx.noteBeforeFocus?.id);
+        setCurrentNote(state, page, noteTree, note.id, ctx.noteBeforeFocus?.id);
     }
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree) {
+function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, page: TreePage, noteTree: NoteTree) {
     const currentListNote = arrayAt(s.notes, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.notes.length);
     if (listNavigation) {
-        setIdx(ctx, s, noteTree, listNavigation.newIdx);
+        setIdx(ctx, s, page, noteTree, listNavigation.newIdx);
     }
 
     if (
@@ -77,7 +78,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, note
         !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)
     ) {
-        recomputeTraversal(s, noteTree, s.viewRoot.id);
+        recomputeTraversal(s, page, noteTree, s.viewRoot.id);
     }
 
     if (
@@ -87,11 +88,11 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, note
         !s.isFlat &&
         hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT)
     ) {
-        recomputeTraversal(s, noteTree, currentListNote.childIds[0]);
+        recomputeTraversal(s, page, noteTree, currentListNote.childIds[0]);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
-        setCurrentView(ctx, ctx.views.noteTree);
+        setCurrentView(ctx, ctx.views.journalView);
     }
 
     if (
@@ -99,13 +100,13 @@ function handleKeyboardInput(ctx: GlobalContext, s: NoteTraversalViewState, note
         hasDiscoverableCommand(ctx, ctx.keyboard.fKey, s.isFlat ? "Tree mode" : "Flat mode")
     ) {
         s.isFlat = !s.isFlat;
-        recomputeTraversal(s, noteTree, currentListNote.id, true);
+        recomputeTraversal(s, page, noteTree, currentListNote.id, true);
     }
 
     // TODO: left/right should move up/down high level tasks
 }
 
-function recomputeTraversal(s: NoteTraversalViewState, noteTree: NoteTree, noteId: NoteId, useCurrentNote = false) {
+function recomputeTraversal(s: NoteTraversalViewState, page: TreePage, noteTree: NoteTree, noteId: NoteId, useCurrentNote = false) {
     s.notes.length = 0;
     const current = getNote(noteTree, noteId);
 
@@ -169,18 +170,18 @@ function recomputeTraversal(s: NoteTraversalViewState, noteTree: NoteTree, noteI
             s.listPosition.idx = idx;
         }
 
-        setCurrentNote(state, noteTree, noteIdToFocus);
+        setCurrentNote(state, page, noteTree, noteIdToFocus);
     }
 }
 
-export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversalViewState, noteTree: NoteTree) {
+export function imNoteTraversal(c: ImCache, ctx: GlobalContext, s: NoteTraversalViewState, page: TreePage, noteTree: NoteTree) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s, noteTree);
+        handleKeyboardInput(ctx, s, page, noteTree);
     }
 
     if (im.Memo(c, noteTree._notesMutationCounter)) {
-        recomputeTraversal(s, noteTree, noteTree.currentNoteId, true);
+        recomputeTraversal(s, page, noteTree, noteTree.currentNoteId, true);
     }
 
     imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {

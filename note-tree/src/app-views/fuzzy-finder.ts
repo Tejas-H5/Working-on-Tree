@@ -22,7 +22,6 @@ import {
     idIsNil,
     idIsRoot,
     NoteTree,
-    NoteTreeGlobalState,
     setCurrentNote,
     state,
     STATUS_IN_PROGRESS,
@@ -33,6 +32,7 @@ import { truncate } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { ev, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, COL, imui, INLINE, ROW } from "src/utils/im-js/im-ui";
+import { TreePage } from "./journal-view";
 
 
 
@@ -161,6 +161,7 @@ export function newFuzzyFinderViewState(): FuzzyFinderViewState {
 function setIdx(
     ctx: GlobalContext,
     s: FuzzyFinderViewState,
+    page: TreePage,
     noteTree: NoteTree,
     idx: number
 ) {
@@ -169,10 +170,10 @@ function setIdx(
 
     s.fuzzyFindState.currentIdx = clampedListIdx(idx, matches.length);
     const match = matches[s.fuzzyFindState.currentIdx];
-    setCurrentNote(state, noteTree, match.note.id, ctx.noteBeforeFocus?.id);
+    setCurrentNote(state, page, noteTree, match.note.id, ctx.noteBeforeFocus?.id);
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
+function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState, page: TreePage, noteTree: NoteTree) {
     const finderState = s.fuzzyFindState;
     const matches = finderState.matches;
     const listNavigation = getNavigableListInput(
@@ -181,11 +182,11 @@ function handleKeyboardInput(ctx: GlobalContext, s: FuzzyFinderViewState, noteTr
     );
 
     if (listNavigation) {
-        setIdx(ctx, s, noteTree, listNavigation.newIdx);
+        setIdx(ctx, s, page, noteTree, listNavigation.newIdx);
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note", BYPASS_TEXT_AREA)) {
-        setCurrentView(ctx, ctx.views.noteTree);
+        setCurrentView(ctx, ctx.views.journalView);
     }
 
     const nextScope = getNextScope(finderState.scope);
@@ -249,17 +250,17 @@ function recomputeFuzzyFinderMatches(ctx: GlobalContext, finderState: FuzzyFindS
     }
 }
 
-function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
+function recomputeTraversal(ctx: GlobalContext, s: FuzzyFinderViewState, page: TreePage, noteTree: NoteTree) {
     recomputeFuzzyFinderMatches(ctx, s.fuzzyFindState, noteTree);
-    setIdx(ctx, s, noteTree, s.fuzzyFindState.currentIdx);
+    setIdx(ctx, s, page, noteTree, s.fuzzyFindState.currentIdx);
 }
 
-export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderViewState, noteTree: NoteTree) {
+export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderViewState, page: TreePage, noteTree: NoteTree) {
     const finderState = s.fuzzyFindState;
     const viewHasFocus = ctx.currentView === s;
 
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s, noteTree);
+        handleKeyboardInput(ctx, s, page, noteTree);
     }
 
     const viewHasFocusChanged = im.Memo(c, viewHasFocus);
@@ -273,7 +274,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
     if (queryChanged || scopeChanged) {
         t0 = performance.now();
         s.timeTakenMs = 0; // prob doesn't make a difference
-        recomputeTraversal(ctx, s, noteTree);
+        recomputeTraversal(ctx, s, page, noteTree);
 
         // get the time at the end of this methd.
     } 
@@ -346,7 +347,7 @@ export function imFuzzyFinder(c: ImCache, ctx: GlobalContext, s: FuzzyFinderView
             const numMatches = finderState.matches.length;
             const resultType = finderState.exactMatchSucceeded ? "exact" : "fuzzy";
             const yourWelcome = numMatches === 0 ? " (you're welcome)" : "";
-            imdom.Str(c, `Narrowed ${state.noteTree.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
+            imdom.Str(c, `Narrowed ${noteTree.notes.nodes.length} to ${numMatches} ${resultType} results in ${s.timeTakenMs}ms${yourWelcome}`);
         } imui.End(c);
     } imui.End(c);
 

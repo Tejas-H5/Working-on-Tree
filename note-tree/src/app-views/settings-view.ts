@@ -197,7 +197,8 @@ const menus: MenuItem[] = [
                     if (!errRef) errRef = im.Set(c, { val: null as any });
 
                     if (im.If(c) && !errRef.val) {
-                        imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.noteTree.notes.nodes.length + " notes"); imBEnd(c); imui.End(c);
+                        const pageCount = state.journal.pages.nodes.length;
+                        imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, pageCount + " pages"); imBEnd(c); imui.End(c);
                         imui.Begin(c, BLOCK); imListRowCellStyle(c); imB(c); imdom.Str(c, state.activities.length + " activities"); imBEnd(c); imui.End(c);
 
                         imListRowBegin(c, true, hasFocus, false); {
@@ -266,7 +267,7 @@ const menus: MenuItem[] = [
                                 } imui.End(c);
                                 imui.Begin(c, BLOCK); {
                                     imB(c); imdom.Str(c, "Notes: "); imBEnd(c);
-                                    imdom.Str(c, loadedState.noteTree.notes.nodes.length);
+                                    imdom.Str(c, loadedState.journal.pages.nodes.length);
                                 } imui.End(c);
                                 imui.Begin(c, BLOCK); {
                                     imB(c); imdom.Str(c, "Activities: "); imBEnd(c); 
@@ -300,7 +301,7 @@ const menus: MenuItem[] = [
                                             if (importModalState.acceptPresses >= REQUIRED_PRESSES && !importModalState.imported) {
                                                 setState(loadedState);
                                                 saveCurrentState(ctx, state, { debounced: false, where: "Backup import" });
-                                                setCurrentView(ctx, ctx.views.noteTree);
+                                                setCurrentView(ctx, ctx.views.journalView);
                                             }
                                         }
                                     }
@@ -521,7 +522,7 @@ const menus: MenuItem[] = [
                             setCurrentView(ctx, null);
 
                             setTimeout(() => {
-                                setCurrentView(ctx, ctx.views.noteTree);
+                                setCurrentView(ctx, ctx.views.journalView);
                             }, 1000);
                         }
                     } im.IfEnd(c);

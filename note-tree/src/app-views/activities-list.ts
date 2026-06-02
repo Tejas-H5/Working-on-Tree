@@ -21,14 +21,10 @@ import {
     getActivityDate,
     getActivityDurationMs,
     getActivityText,
-    getCurrentNote,
-    getHigherLevelTask,
     getLastActivity,
-    getNote,
     isBreak,
     isCurrentlyTakingABreak,
     newBreakActivity,
-    NoteTree,
     pushBreakActivity,
     state
 } from "src/state";
@@ -37,6 +33,7 @@ import { assert } from "src/utils/assert";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
 import { ev, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/utils/im-js/im-ui";
+import { getCurrentPage, Journal } from "./journal-view";
 
 const FOCUS_ACTIVITIES_LIST = 0;
 const FOCUS_DATE_SELECTOR = 1
@@ -142,10 +139,9 @@ function getActivitiesForDateStartIdx(
 export function activitiesViewTakeBreak(
     ctx: GlobalContext,
     s: ActivitiesViewState,
-    noteTree: NoteTree,
 ) {
     if (!isCurrentlyTakingABreak(state)) {
-        pushBreakActivity(state, noteTree, newBreakActivity("Taking a break...", new Date(), NOT_IN_RANGE));
+        pushBreakActivity(state, newBreakActivity("Taking a break...", new Date(), NOT_IN_RANGE));
     } else {
         // allow the next code select the last break for editing
     }
@@ -244,7 +240,7 @@ export function activitiesViewSetIdx(ctx: GlobalContext, s: ActivitiesViewState,
 
         const activity = s.activities[newIdx];
         if (viewHasFocus) {
-            focusItem(ctx, state, activity.nId, activity.journal);
+            focusItem(ctx, state, activity.journal?.idx, activity.nId);
         }
     }
 
@@ -306,7 +302,7 @@ function insertBreak(
     debouncedSave(ctx, state, "Insert break activities list");
 };
 
-function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState, noteTree: NoteTree) {
+function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
     const { keyboard } = ctx;
 
     const [lo, hi] = getActivityRange(s);
@@ -365,9 +361,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState, noteTre
                 ctx.handled = true;
 
                 if (currentActivity?.nId) {
-                    const note = getNote(noteTree, currentActivity.nId);
-                    const hlt = getHigherLevelTask(noteTree, note);
-
+                    const page = getCurrentPage(state.journal);
                     let foundIdx = -1;
 
                     const dir = hDelta > 0 ? 1 : -1;
@@ -377,10 +371,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState, noteTre
                         i += dir
                     ) {
                         const activity = s.activities[i];
-                        if (!activity.nId) continue;
-                        const note = getNote(noteTree, activity.nId);
-                        const noteHlt = getHigherLevelTask(noteTree, note);
-                        if (noteHlt === hlt) {
+                        if (activity.journal?.idx === page.id) {
                             foundIdx = i;
                             break;
                         }
@@ -498,7 +489,7 @@ function getCurrentFocus(s: ActivitiesViewState) {
     return s.currentFocus;
 }
 
-export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesViewState, noteTree: NoteTree) {
+export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesViewState, journal: Journal) {
     const viewHasFocus = ctx.currentView === s;
 
     s.now = ctx.now;
@@ -579,7 +570,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
     s._canMoveToNextDay = s._endActivityIdxEx !== s.activities.length;
 
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s, noteTree);
+        handleKeyboardInput(ctx, s);
     }
 
     imui.Begin(c, COL); imui.Flex(c); {
@@ -669,8 +660,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             viewHasFocus && currentFocus === FOCUS_ACTIVITIES_LIST,
             !!s.isEditing
         ); {
-            const current = getCurrentNote(state, noteTree);
-            const hlt = getHigherLevelTask(noteTree, current);
+            const currentPage = getCurrentPage(journal)
 
             // We want to accumulate activity durations, and display it once it's large enough
             let totalDuration = 0;
@@ -690,17 +680,9 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                     const isEditingActivity = viewHasFocus && itemSelected && s.isEditing === EDITING_ACTIVITY;
                     const isEditingTime = viewHasFocus && itemSelected && s.isEditing === EDITING_TIME;
 
-
-                    let itemHighlighted = itemSelected;
-                    if (!itemHighlighted && hlt) {
-                        if (activity.nId) {
-                            const note = getNote(noteTree, activity.nId);
-                            const noteHlt = getHigherLevelTask(noteTree, note);
-                            if (noteHlt === hlt) {
-                                itemHighlighted = true;
-                            }
-                        }
-                    }
+                    let itemHighlighted = 
+                        itemSelected || 
+                        activity.journal?.idx === currentPage.id;
 
                     const isBreakActivity = isBreak(activity);
 
@@ -741,7 +723,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                             imui.Begin(c, BLOCK); imui.Size(c, 5, PX, 0, NA); imui.End(c);
 
-                            let text = getActivityText(state, noteTree, activity);
+                            let text = getActivityText(state, activity);
                             imui.Begin(c, ROW); imui.Align(c); imui.Justify(c, isBreakActivity ? CENTER : NONE); imui.Flex(c); {
                                 if (im.Memo(c, isBreakActivity)) {
                                     imdom.setStyle(c, "padding", isBreakActivity ? "40px" : "0");

@@ -1,7 +1,7 @@
 import * as tree from "src/utils/int-tree";
+import { TreeId } from "src/utils/int-tree";
 import {
     asArray,
-    asBoolean,
     asDate,
     asNull,
     asNumber,
@@ -11,14 +11,15 @@ import {
     deserializeObject,
     extractKey,
     mustGet,
-    serializeToJSON,
+    serializeToJSON
 } from "src/utils/serialization-utils";
 import { ConceptSubset, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship } from "./app-views/graph-view";
-import { getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
+import { addJournalPageUnder, getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import {
     Activity,
     defaultActivity,
     defaultNote,
+    newNoteTree,
     newNoteTreeGlobalState,
     Note,
     NoteId,
@@ -30,7 +31,6 @@ import {
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
 import { formatIsoDate } from "./utils/datetime";
-import { TreeId } from "src/utils/int-tree";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -41,26 +41,6 @@ export function asNoteTreeGlobalState(val: unknown) {
     if (stateObj === undefined) throw new Error("Expected an object as input");
 
     const state = newNoteTreeGlobalState();
-
-    const noteTreeObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "noteTree"))
-    if (noteTreeObj) {
-        const noteTreeNotesObj = asObject(extractKey<NoteTree>(noteTreeObj, "notes"));
-        if (noteTreeNotesObj) {
-            const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(noteTreeNotesObj, "nodes"));
-            if (nodesArr) {
-                state.noteTree.notes.nodes = nodesArr.map(asTreeNoteOrNull);
-            }
-
-            deserializeObject(state.noteTree.notes, noteTreeNotesObj);
-        }
-
-        const rootMarksArr = asArray(extractKey<NoteTree>(noteTreeObj, "rootMarks"));
-        if (rootMarksArr) {
-            state.noteTree.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
-        }
-
-        deserializeObject(state.noteTree, noteTreeObj);
-    }
 
     type NoteTreeGlobalStateLegacy = {
         notes                 : TreeNoteTree;
@@ -76,20 +56,41 @@ export function asNoteTreeGlobalState(val: unknown) {
 
         const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(stateNotesObj, "nodes"));
         if (nodesArr) {
-            state.noteTree.notes.nodes = nodesArr.map(asTreeNoteOrNull);
+            state._noteTree.notes.nodes = nodesArr.map(asTreeNoteOrNull);
         }
 
-        deserializeObject(state.noteTree.notes, stateNotesObj, "notes");
+        deserializeObject(state._noteTree.notes, stateNotesObj, "notes");
 
         // Pull these off the main object
-        state.noteTree.textOnArrivalNoteId   = mustGet(asNumber(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "textOnArrivalNoteId")) as TreeId);
-        state.noteTree.textOnArrival         = mustGet(asString(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "textOnArrival")));
-        state.noteTree.currentNoteId         = mustGet(asNumber(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "currentNoteId")) as TreeId);
+        state._noteTree.textOnArrivalNoteId   = mustGet(asNumber(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "textOnArrivalNoteId")) as TreeId);
+        state._noteTree.textOnArrival         = mustGet(asString(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "textOnArrival")));
+        state._noteTree.currentNoteId         = mustGet(asNumber(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "currentNoteId")) as TreeId);
 
         const rootMarksArr = asArray(extractKey<NoteTreeGlobalStateLegacy>(stateObj, "rootMarks"));
         if (rootMarksArr) {
-            state.noteTree.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
+            state._noteTree.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
         }
+    }
+
+    // @ts-expect-error This is a legacy field. fr. Yeah we just added it in the last commit. wtf
+    const noteTreeObj = asObject(extractKey<NoteTreeGlobalState>(stateObj, "noteTree"))
+    if (noteTreeObj) {
+        const noteTreeNotesObj = asObject(extractKey<NoteTree>(noteTreeObj, "notes"));
+        if (noteTreeNotesObj) {
+            const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(noteTreeNotesObj, "nodes"));
+            if (nodesArr) {
+                state._noteTree.notes.nodes = nodesArr.map(asTreeNoteOrNull);
+            }
+
+            deserializeObject(state._noteTree.notes, noteTreeNotesObj);
+        }
+
+        const rootMarksArr = asArray(extractKey<NoteTree>(noteTreeObj, "rootMarks"));
+        if (rootMarksArr) {
+            state._noteTree.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
+        }
+
+        deserializeObject(state._noteTree, noteTreeObj);
     }
 
     const activitiesArr = mustGetDefined(asArray(extractKey<NoteTreeGlobalState>(stateObj, "activities")))
@@ -214,6 +215,13 @@ export function asNoteTreeGlobalState(val: unknown) {
         deserializeObject(state.journal, journalObj);
     }
 
+    if (state._noteTree.notes.nodes.length > 1) {
+        const root = tree.getNode(state.journal.pages, tree.ROOT_ID);
+        const page = addJournalPageUnder(state.journal, root, "Legacy notes", "These were the notes you used to have in your note tree. We've moved over to the journal pattern now because it's way cooler and way better! You can still access your old notes here though.")
+        page.data.noteTree = state._noteTree;
+        state._noteTree = newNoteTree();
+    }
+
     deserializeObject(state, stateObj);
 
     // Perform migrations
@@ -290,4 +298,25 @@ function asTreeNoteOrNull(nodeArrVal: unknown): TreeNote | null {
     deserializeObject(node, nodeObj, "note.nodes[]");
 
     return node;
+}
+
+function asNoteTree(noteTreeObj: Record<string, unknown>, noteTree: NoteTree): NoteTree {
+    const noteTreeNotesObj = asObject(extractKey<NoteTree>(noteTreeObj, "notes"));
+    if (noteTreeNotesObj) {
+        const nodesArr = asArray(extractKey<tree.TreeStore<Note>>(noteTreeNotesObj, "nodes"));
+        if (nodesArr) {
+            noteTree.notes.nodes = nodesArr.map(asTreeNoteOrNull);
+        }
+
+        deserializeObject(noteTree.notes, noteTreeNotesObj);
+    }
+
+    const rootMarksArr = asArray(extractKey<NoteTree>(noteTreeObj, "rootMarks"));
+    if (rootMarksArr) {
+        noteTree.rootMarks = rootMarksArr.map(val => (asNumber(val) as NoteId | undefined) ?? null);
+    }
+
+    deserializeObject(noteTree, noteTreeObj);
+
+    return noteTree;
 }

@@ -18,6 +18,7 @@ import {
     forEachParentNote,
     getCurrentNote,
     getNote,
+    NoteTree,
     setCurrentNote,
     state,
     TreeNote
@@ -27,6 +28,7 @@ import { el, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, COL, imui, ROW } from "src/utils/im-js/im-ui";
 
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
+import { TreePage } from "./journal-view";
 
 type UrlListViewUrl = {
     url: string;
@@ -49,20 +51,20 @@ export function newUrlListViewState(): UrlListViewState {
     };
 }
 
-function setIdx(s: UrlListViewState, idx: number) {
+function setIdx(s: UrlListViewState, page: TreePage, noteTree: NoteTree, idx: number) {
     if (s.urls.length === 0) return;
 
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
     const url = s.urls[s.listPosition.idx];
-    setCurrentNote(state, state.noteTree, url.note.id);
+    setCurrentNote(state, page, noteTree, url.note.id);
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState) {
+function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
     const url = arrayAt(s.urls, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.urls.length);
     if (listNavigation) {
-        setIdx(s, listNavigation.newIdx);
+        setIdx(s, page, noteTree, listNavigation.newIdx);
     }
 
     if (url && hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Open in new tab")) {
@@ -70,7 +72,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState) {
     }
 }
 
-function recomputeUrls(s: UrlListViewState) {
+function recomputeUrlsForNoteTree(s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
     s.urls.length = 0;
 
     function pushAllUrls(note: TreeNote) {
@@ -84,16 +86,16 @@ function recomputeUrls(s: UrlListViewState) {
         });
     }
 
-    const currentNote = getCurrentNote(state, state.noteTree);
+    const currentNote = getCurrentNote(state, page, noteTree);
 
     // traverse all parents, and 1 level under the parents.
     let notes: TreeNote[] = []; 
     let lastNote = currentNote;
-    forEachParentNote(state.noteTree, currentNote, note => {
+    forEachParentNote(noteTree, currentNote, note => {
         notes.push(note)
         for (let i = note.childIds.length - 1; i >= 0; i--) {
             const id = note.childIds[i];
-            const child = getNote(state.noteTree, id);
+            const child = getNote(noteTree, id);
             notes.push(child)
         }
 
@@ -108,21 +110,21 @@ function recomputeUrls(s: UrlListViewState) {
     const wantedIdx = s.urls.length;
 
     // Dont even need to collect these into an array before rendering them. lmao. 
-    dfsPre(state.noteTree, currentNote, (note) => {
+    dfsPre(noteTree, currentNote, (note) => {
         pushAllUrls(note);
     });
 
-    setIdx(s, wantedIdx);
+    setIdx(s, page, noteTree, wantedIdx);
 }
 
-export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState) {
+export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s);
+        handleKeyboardInput(ctx, s, page, noteTree);
     }
 
     if (im.Memo(c, viewHasFocus)) {
-        recomputeUrls(s);
+        recomputeUrlsForNoteTree(s, page, noteTree);
     }
 
     imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {

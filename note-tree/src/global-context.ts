@@ -2,11 +2,11 @@ import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activit
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
-import { JournalViewState, newJournalViewState, setCurrentlyEditingPageIdx } from "./app-views/journal-view";
+import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurrentlyEditingPage, TreePage } from "./app-views/journal-view";
 import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, getNoteOrUndefined, isLoadingState, JournalId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, JournalPageId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 
@@ -23,7 +23,6 @@ export type GlobalContext = {
 
     keyboard:          KeyboardState;
     handled:           boolean;
-    noteTreeViewState: NoteTreeViewState;
 
     textAreaToFocus:     HTMLTextAreaElement | null;
     focusNextFrame:      boolean;
@@ -33,7 +32,6 @@ export type GlobalContext = {
     discoverableCommands: DiscoverableCommands;
 
     views: {
-        noteTree:   NoteTreeViewState;
         activities: ActivitiesViewState;
         urls:       UrlListViewState;
         fastTravel: NoteTraversalViewState;
@@ -46,7 +44,6 @@ export type GlobalContext = {
     currentView: unknown;
     leftTab: unknown; // It's actually the right tab?? xd
     viewingDurations: boolean;
-    viewingJournal: boolean;
 
     sideTabExpanded: boolean;
 
@@ -56,6 +53,7 @@ export type GlobalContext = {
     navListNext: NavigationListLink;
     foundFocused: boolean;
 
+    journalPageBeforeFocus: TreePage | null;
     noteBeforeFocus: TreeNote | null;
 
     status: {
@@ -68,11 +66,12 @@ export type GlobalContext = {
 
 export function setCurrentView(ctx: GlobalContext, view: unknown) {
     ctx.currentView = view;
-    const currentNote = getNoteOrUndefined(state.noteTree, state.noteTree.currentNoteId);
-    if (view !== ctx.views.noteTree) {
-        if (currentNote) {
-            ctx.noteBeforeFocus = currentNote;
-        }
+    const currentJournalPage = getCurrentPage(state.journal)
+    ctx.journalPageBeforeFocus = currentJournalPage;
+    if (currentJournalPage.data.noteTree) {
+        ctx.noteBeforeFocus = getCurrentNote(state, currentJournalPage, currentJournalPage.data.noteTree);
+    } else {
+        ctx.noteBeforeFocus = null;
     }
 }
 
@@ -140,7 +139,6 @@ export function newGlobalContext(): GlobalContext {
 
         keyboard,
         handled:           false,
-        noteTreeViewState: newNoteTreeViewState(),
 
         textAreaToFocus:      null,
         focusNextFrame:       false,
@@ -148,7 +146,6 @@ export function newGlobalContext(): GlobalContext {
         focusWithAllSelected: false,
 
         views: {
-            noteTree:   newNoteTreeViewState(),
             activities: newActivitiesViewState(),
             urls:       newUrlListViewState(),
             fastTravel: newNoteTraversalViewState(),
@@ -164,12 +161,12 @@ export function newGlobalContext(): GlobalContext {
         currentView: null,
         leftTab: null,
         viewingDurations: false,
-        viewingJournal: true,
 
         navListPrevious: { view: null, name: "" },
         navListNext: { view: null, name: "" },
         foundFocused: false,
 
+        journalPageBeforeFocus: null,
         noteBeforeFocus: null,
 
         discoverableCommands: newDiscoverableCommands(),
@@ -667,7 +664,7 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
             const time = !lastActivity ? lastCheckTime.getTime() :
                 Math.max(lastCheckTime.getTime(), getActivityDate(lastActivity).getTime());
 
-            pushBreakActivity(state, state.noteTree, newBreakActivity("Auto-inserted break", new Date(time), true));
+            pushBreakActivity(state, newBreakActivity("Auto-inserted break", new Date(time), true));
         }
     } catch (e) {
         console.error("[autoInsertBreakIfRequired] - an error occured: ", e);
@@ -677,20 +674,20 @@ export function autoInsertBreakIfRequired(state: NoteTreeGlobalState) {
     }
 }
 
-
-
 export function focusItem(
     ctx: GlobalContext,
     state: NoteTreeGlobalState,
+    pageId: number | null | undefined,
     noteId: NoteId | null | undefined,
-    journalId: JournalId | null | undefined,
 ) {
     // This view should only move the note if it is focused
-    if (noteId != null) {
-        ctx.viewingJournal = false;
-        setCurrentNote(state, state.noteTree, noteId, ctx.noteBeforeFocus?.id);
-    } else if (journalId) {
-        ctx.viewingJournal = true;
-        setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, journalId.idx);
+    if (pageId) {
+        setCurrentView(ctx, ctx.views.journalView)
+        const page = getPage(state.journal, pageId)
+        setCurrentlyEditingPage(ctx.views.journalView, state.journal, page);
+
+        if (noteId != null && page.data.noteTree) {
+            setCurrentNote(state, page, page.data.noteTree, noteId, ctx.noteBeforeFocus?.id);
+        } 
     }
 }

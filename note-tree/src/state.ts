@@ -8,7 +8,7 @@ import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } 
 import { asNoteTreeGlobalState } from "./schema";
 import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { getJournalPage, getPageOrUndefined, Journal, newJournal } from "./app-views/journal-view";
+import { getCurrentPage, getPage, getPageOrUndefined, Journal, JournalPage, newJournal, TreePage } from "./app-views/journal-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;
@@ -81,7 +81,8 @@ export type NoteTreeGlobalState = {
     // 3 ->         thought of a totally new way to track progress. ASSUMED_DONE is no longer a valid status. We'll need to replace this with DONE
     schemaMajorVersion: number | undefined;
 
-    noteTree: NoteTree;
+    // NOTE: this is an intermediate value for a migration xDDD
+    _noteTree: NoteTree;
 
     /** 
      * Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them 
@@ -118,6 +119,8 @@ export type NoteTreeGlobalState = {
 
     journal: Journal;
 
+    _journalMutated: number;
+
     _activitiesTraversalIdx: number;
     _jumpBackToId: NoteId;
 
@@ -139,6 +142,10 @@ export type NoteTreeGlobalState = {
 export function notesMutated(state: NoteTree) {
     // This is a good place to put a breakpoint
     state._notesMutationCounter++;
+}
+
+export function journalMutated(state: NoteTreeGlobalState) {
+    state._journalMutated += 1;
 }
 
 export type AppSettings = {
@@ -199,14 +206,14 @@ export type Activity = {
     // only apply to breaks:
     breakInfo: string | undefined;
 
-    journal: JournalId | undefined;
+    journal: JournalPageId | undefined;
 
     locked: true | undefined;
     deleted: true | undefined;
 };
 
 // Legacy artifiact - this used to be a {type,idx} pair.
-export type JournalId = {
+export type JournalPageId = {
     idx: number;
 }
 
@@ -343,7 +350,7 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         // Only increment this for massive changes! Otherwise, try to keep migrations bacwards compatible
         schemaMajorVersion: 3,
 
-        noteTree: newNoteTree(),
+        _noteTree: newNoteTree(),
 
         // notes,
         // _notesMutationCounter: 0,
@@ -369,6 +376,8 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
         // _isEditingFocusedNote: false, // global flag to control if we're editing a note
 
         _activitiesTraversalIdx: -1,
+
+        _journalMutated: -1,
 
         _jumpBackToId: itree.NIL_ID,
 
@@ -799,7 +808,7 @@ export function recomputeAllNoteDurations(
             if (!note) continue;
         }
         if (a0.journal) {
-            const journal = getJournalPage(state.journal, a0.journal.idx);
+            const journal = getPage(state.journal, a0.journal.idx);
             if (!journal) continue;
         }
 
@@ -878,18 +887,9 @@ export function isNoteCollapsed(note: TreeNote): CollapsedStatus {
     return NOT_COLLAPSED;
 }
 
-export function getActivityTextOrUndefined(state: NoteTreeGlobalState, noteTree: NoteTree, activity: Activity): string | undefined {
+export function getActivityTextOrUndefined(state: NoteTreeGlobalState, activity: Activity): string | undefined {
     if (activity.nId === 0) {
         return "< deleted root note >";
-    }
-
-    if (activity.nId) {
-        const text = getNote(noteTree, activity.nId).data.text;
-        if (activity.deleted) {
-            return "< used to be under > " + text;
-        }
-
-        return text;
     }
 
     if (activity.breakInfo) {
@@ -898,15 +898,24 @@ export function getActivityTextOrUndefined(state: NoteTreeGlobalState, noteTree:
 
     if (activity.journal) {
         const page = getPageOrUndefined(state.journal, activity.journal.idx);
+
+        if (activity.nId && page && page.data.noteTree) {
+            const text = getNote(page.data.noteTree, activity.nId).data.text;
+            if (activity.deleted) {
+                return "< used to be under > " + text;
+            }
+
+            return text;
+        }
+
         return "Page: " + (page?.data.name ?? "<deleted>");
     }
 
     return undefined;
 }
 
-
-export function getActivityText(state: NoteTreeGlobalState, noteTree: NoteTree, activity: Activity): string {
-    return getActivityTextOrUndefined(state, noteTree, activity) || "< unknown activity text! >";
+export function getActivityText(state: NoteTreeGlobalState, activity: Activity): string {
+    return getActivityTextOrUndefined(state, activity) || "< unknown activity text! >";
 }
 
 export function getActivityDurationMs(activity: Activity, nextActivity: Activity | undefined): number {
@@ -916,7 +925,7 @@ export function getActivityDurationMs(activity: Activity, nextActivity: Activity
 }
 
 
-export function createNewNote(state: NoteTreeGlobalState, noteTree: NoteTree, text: string): TreeNote {
+export function createNewNote(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree, text: string): TreeNote {
     const note = defaultNote();
     note.text = text;
 
@@ -924,11 +933,10 @@ export function createNewNote(state: NoteTreeGlobalState, noteTree: NoteTree, te
     itree.addAsRoot(noteTree.notes, newTreeNode);
     note.id = newTreeNode.id;
 
-    pushNoteActivity(state, newTreeNode.id, true);
+    pushNoteActivity(state, page.id, newTreeNode.id, true);
 
     return newTreeNode;
 }
-
 
 export function activityMatchesLastActivity(state: NoteTreeGlobalState, activity: Activity): boolean {
     const lastActivity = getLastActivity(state);
@@ -1056,33 +1064,33 @@ export function deleteNoteIfEmpty(state: NoteTreeGlobalState, noteTree: NoteTree
     return true;
 }
 
-export function insertNoteAfterCurrent(state: NoteTreeGlobalState, noteTree: NoteTree) {
-    const currentNote = getCurrentNote(state, noteTree);
+export function insertNoteAfterCurrent(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree) {
+    const currentNote = getCurrentNote(state, page, noteTree);
     if (idIsNil(currentNote.parentId)) throw new Error("Cant insert after the root note");
     if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return false;
     }
 
-    const newNote = createNewNote(state, noteTree, "");
+    const newNote = createNewNote(state, page, noteTree, "");
     itree.addAfter(noteTree.notes, currentNote, newNote)
-    setCurrentNote(state, noteTree, newNote.id);
-    setIsEditingCurrentNote(state, noteTree, true);
+    setCurrentNote(state, page, noteTree, newNote.id);
+    setIsEditingCurrentNote(state, page, noteTree, true);
     return true;
 }
 
-export function insertChildNote(state: NoteTreeGlobalState, noteTree: NoteTree): TreeNote | null {
-    const currentNote = getCurrentNote(state, noteTree);
+export function insertChildNote(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree): TreeNote | null {
+    const currentNote = getCurrentNote(state, page, noteTree);
     if (idIsNil(currentNote.parentId)) throw new Error("Cant insert under the root note");
     if (!currentNote.data.text.trim()) {
         // REQ: don't insert new notes while we're editing blank notes
         return null;
     }
 
-    const newNote = createNewNote(state, noteTree, "");
+    const newNote = createNewNote(state, page, noteTree, "");
     itree.addUnder(noteTree.notes, currentNote, newNote);
-    setCurrentNote(state, noteTree, newNote.id);
-    setIsEditingCurrentNote(state, noteTree, true);
+    setCurrentNote(state, page, noteTree, newNote.id);
+    setIsEditingCurrentNote(state, page, noteTree, true);
     return newNote;
 }
 
@@ -1125,14 +1133,14 @@ export function getNoteOrUndefined(tree: NoteTree, id: NoteId | null | undefined
 }
 
 // Guaranteed to get a note - this function will actually make a new note if we don't have any notes.
-export function getCurrentNote(state: NoteTreeGlobalState, noteTree: NoteTree) {
+export function getCurrentNote(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree) {
     if (!hasNote(noteTree, noteTree.currentNoteId)) {
         // set currentNoteId to the last root note if it hasn't yet been set
 
         const rootChildIds = getRootNote(noteTree).childIds;
         if (rootChildIds.length === 0) {
             // create the first note if we have no notes
-            const newNote = createNewNote(state, noteTree, "First Note");
+            const newNote = createNewNote(state, page, noteTree, "First Note");
             itree.addUnder(noteTree.notes, getRootNote(noteTree), newNote);
         }
 
@@ -1143,8 +1151,9 @@ export function getCurrentNote(state: NoteTreeGlobalState, noteTree: NoteTree) {
     return getNote(noteTree, noteTree.currentNoteId);
 }
 
-export function pushNoteActivity(state: NoteTreeGlobalState, noteId: NoteId, isNewNote: boolean) {
+export function pushNoteActivity(state: NoteTreeGlobalState, pageId: number, noteId: NoteId, isNewNote: boolean) {
     const activity = defaultActivity(new Date());
+    activity.journal = { idx: pageId };
     activity.nId = noteId;
     activity.c = isNewNote ? 1 : undefined;
     pushActivity(state, activity);
@@ -1178,7 +1187,7 @@ export function newBreakActivity(breakInfoText: string, time: Date, locked: bool
 
 export const DONT_INTERRUPT = 1;
 
-export function pushBreakActivity(state: NoteTreeGlobalState, noteTree: NoteTree, breakActivtiy: Activity, flags = 0) {
+export function pushBreakActivity(state: NoteTreeGlobalState, breakActivtiy: Activity, flags = 0) {
     if (breakActivtiy.nId || !breakActivtiy.breakInfo) {
         throw new Error("Invalid break activity");
     }
@@ -1186,8 +1195,12 @@ export function pushBreakActivity(state: NoteTreeGlobalState, noteTree: NoteTree
     pushActivity(state, breakActivtiy);
 
     if (!(flags & DONT_INTERRUPT)) {
-        if (noteTree._isEditingFocusedNote) {
-            setIsEditingCurrentNote(state, noteTree, false);
+        const page = getCurrentPage(state.journal)
+        const noteTree = page.data.noteTree;
+        if (noteTree) {
+            if (noteTree._isEditingFocusedNote) {
+                setIsEditingCurrentNote(state, page, noteTree, false);
+            }
         }
     }
 }
@@ -1215,6 +1228,7 @@ export function forEachChildNote(noteTree: NoteTree, note: TreeNote, it: (note: 
 
 export function setCurrentNote(
     state: NoteTreeGlobalState,
+    page: TreePage,
     noteTree: NoteTree,
     noteId: NoteId | null,
     noteIdJumpedFrom?: NoteId | undefined
@@ -1228,7 +1242,7 @@ export function setCurrentNote(
         return false;
     }
 
-    const currentNoteBeforeMove = getCurrentNote(state, noteTree);
+    const currentNoteBeforeMove = getCurrentNote(state, page, noteTree);
     if (currentNoteBeforeMove.id === note.id) {
         return;
     }
@@ -1244,7 +1258,7 @@ export function setCurrentNote(
     setNoteAsLastSelected(noteTree, note);
 
     noteTree.currentNoteId = note.id;
-    setIsEditingCurrentNote(state, noteTree, false);
+    setIsEditingCurrentNote(state, page, noteTree, false);
     deleteNoteIfEmpty(state, noteTree, currentNoteBeforeMove);
     recomputeNoteStatusRecursively(noteTree, note, true, true, true);
 
@@ -1260,11 +1274,11 @@ function setNoteAsLastSelected(noteTree: NoteTree, note: TreeNote) {
     parent.data.lastSelectedChildIdx = parent.childIds.indexOf(note.id);
 }
 
-export function setIsEditingCurrentNote(state: NoteTreeGlobalState, noteTree: NoteTree, isEditing: boolean) {
+export function setIsEditingCurrentNote(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree, isEditing: boolean) {
     if (isEditing) {
-        const currentNote = getCurrentNote(state, noteTree);
+        const currentNote = getCurrentNote(state, page, noteTree);
         setNoteAsLastSelected(noteTree, currentNote);
-        pushNoteActivity(state, currentNote.id, false);
+        pushNoteActivity(state, page.id, currentNote.id, false);
 
         noteTree._isEditingFocusedNote = true;
 
@@ -1681,6 +1695,8 @@ export function loadState(then: (error: string) => void) {
 }
 
 export function saveState(state: NoteTreeGlobalState, then: (serialize: string) => void) {
+    return;
+
     if (state._criticalLoadingError) {
         logTrace("State shouldn't be saved right now - most likely we'll irrecoverably corrupt it");
         then("");
@@ -1830,13 +1846,13 @@ export function updateBreakAutoInsertLastPolledTime() {
     return localStorage.setItem(LAST_AUTO_INSERTED_BREAK_KEY, new Date().toISOString());
 }
 
-export function toggleNoteRootMark(state: NoteTreeGlobalState, noteTree: NoteTree, id: NoteId, idx: number) {
+export function toggleNoteRootMark(state: NoteTreeGlobalState, page: TreePage, noteTree: NoteTree, id: NoteId, idx: number) {
     if (noteTree.rootMarks[idx] === id) {
         noteTree.rootMarks[idx] = null;
     } else {
         if (noteTree.rootMarks[idx]) {
             // Don't just overwrite an existing mark
-            setCurrentNote(state, noteTree, noteTree.rootMarks[idx], noteTree.currentNoteId);
+            setCurrentNote(state, page, noteTree, noteTree.rootMarks[idx], noteTree.currentNoteId);
         } else {
             noteTree.rootMarks[idx] = id;
         }

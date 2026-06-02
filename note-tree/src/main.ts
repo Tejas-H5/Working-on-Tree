@@ -1,8 +1,4 @@
-import { imNoteTraversal } from "src/app-views/fast-travel";
-import { imFuzzyFinder } from "src/app-views/fuzzy-finder";
-import { imNoteTreeView } from "src/app-views/note-tree-view";
 import { imSettingsView } from "src/app-views/settings-view";
-import { imUrlViewer } from "src/app-views/url-viewer";
 import { im, ImCache, imdom, NormalizedKey } from "src/utils/im-js";
 import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "src/utils/im-js/im-ui";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
@@ -13,7 +9,7 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
-import { imJournalView, setCurrentlyEditingPageIdx } from "./app-views/journal-view";
+import { getCurrentPage, getPage, imJournalView, journalViewHasFocus, setCurrentlyEditingPage } from "./app-views/journal-view";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
@@ -39,8 +35,8 @@ import {
 import { validateSchemas } from "./schema";
 import {
     AppTheme,
-    getNextActivityIdxWithItem,
     getLastActivityIdxWithItem,
+    getNextActivityIdxWithItem,
     idIsNilOrRoot,
     loadState,
     setCurrentNote,
@@ -66,7 +62,7 @@ function imMainInner(c: ImCache) {
     if (!ctx) ctx = im.Set(c, newGlobalContext());
 
     if (!ctx.leftTab) ctx.leftTab = ctx.views.activities;
-    if (!ctx.currentView) ctx.currentView = ctx.views.noteTree;
+    if (!ctx.currentView) ctx.currentView = ctx.views.journalView;
     if (im.Memo(c, state.currentTheme)) setTheme(state.currentTheme);
 
     if (im.Memo(c, state.settings.tabStopSize)) {
@@ -121,9 +117,15 @@ function imMainInner(c: ImCache) {
         if (im.If(c) && !errorState.error && !errorState.irrecoverableError) {
             handleImKeysInput(ctx);
 
-            if (im.Memo(c, state.noteTree._notesMutationCounter) === im.MEMO_CHANGED) {
-                if (state.noteTree._notesMutationCounter !== 0) {
+            const currentPage = getCurrentPage(state.journal);
+            if (im.Memo(c, currentPage.data.noteTree?._notesMutationCounter) === im.MEMO_CHANGED) {
+                if (currentPage.data.noteTree?._notesMutationCounter) {
                     debouncedSave(ctx, state, "ImMain memoizer - notes mutation");
+                }
+            }
+            if (im.Memo(c, state._journalMutated) === im.MEMO_CHANGED) {
+                if (state._journalMutated !== 0) {
+                    debouncedSave(ctx, state, "ImMain memoizer - journal mutation");
                 }
             }
             if (im.Memo(c, state._activitiesMutationCounter) === im.MEMO_CHANGED) {
@@ -321,18 +323,15 @@ function imMainInner(c: ImCache) {
                             const navList = imViewsList(c, focusRef);
 
                             imui.Begin(c, COL); imui.Flex(c); {
-                                if (im.If(c) && ctx.viewingJournal) {
+                                // TODO: ctx.viewingJournal probably redundant
+                                if (im.If(c) && journalViewHasFocus(ctx)) {
                                     imJournalView(c, ctx, ctx.views.journalView, state.journal);
                                     addView(
                                         navList,
                                         // Although in hindsight, I should have probaly explained why xDD
-                                        ctx.views.noteTree, // not a typo
+                                        ctx.views.journalView, // not a typo
                                         "Journal"
                                     );
-                                } else {
-                                    im.Else(c);
-                                    imNoteTreeView(c, ctx, ctx.views.noteTree, state.noteTree);
-                                    addView(navList, ctx.views.noteTree, "Notes");
                                 } im.IfEnd(c);
 
                                 if (im.If(c) && ctx.viewingDurations) {
@@ -351,7 +350,7 @@ function imMainInner(c: ImCache) {
                             imLine(c, LINE_VERTICAL, 1);
 
                             if (
-                                ctx.currentView !== ctx.views.noteTree 
+                                ctx.currentView !== ctx.views.journalView 
                                 // && ctx.currentView !== ctx.views.durations
                             ) {
                                 ctx.leftTab = ctx.currentView;
@@ -369,7 +368,7 @@ function imMainInner(c: ImCache) {
                                     im.Switch(c, ctx.leftTab); switch (ctx.leftTab) {
                                         case ctx.views.activities: {
                                             imui.Begin(c, COL); imui.Flex(c); {
-                                                imActivitiesList(c, ctx, ctx.views.activities, state.noteTree);
+                                                imActivitiesList(c, ctx, ctx.views.activities, state.journal);
                                                 addView(navList, ctx.views.activities, "Activities");
 
                                                 if (!IS_RUNNING_FROM_FILE) {
@@ -393,6 +392,8 @@ function imMainInner(c: ImCache) {
                                                 }
                                             } imui.End(c);
                                         } break;
+                                        /**
+                                         TODO: move this thing to the page itself.
                                         case ctx.views.fastTravel: {
                                             imNoteTraversal(c, ctx, ctx.views.fastTravel, state.noteTree);
                                             addView(navList, ctx.views.fastTravel, "Fast travel");
@@ -405,6 +406,7 @@ function imMainInner(c: ImCache) {
                                             imUrlViewer(c, ctx, ctx.views.urls);
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
+                                        */
                                     } im.SwitchEnd(c);
                                 } imui.End(c);
                             } im.IfEnd(c);
@@ -434,7 +436,7 @@ function imMainInner(c: ImCache) {
                 {
                     if (hasDiscoverableCommand(ctx, ctx.keyboard.spaceKey, "Side panel", CTRL | BYPASS_TEXT_AREA)) {
                         ctx.sideTabExpanded = !ctx.sideTabExpanded;
-                        setCurrentView(ctx, ctx.views.noteTree);
+                        setCurrentView(ctx, ctx.views.journalView);
                     }
                 }
 
@@ -490,16 +492,6 @@ function imMainInner(c: ImCache) {
                 }
                 */
 
-                if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close journal", BYPASS_TEXT_AREA)) {
-                    setCurrentView(ctx, ctx.views.noteTree);
-                    ctx.viewingJournal = false;
-                }
-
-                if (hasDiscoverableCommand(ctx, ctx.keyboard.jKey, "Journal", CTRL)) {
-                    ctx.viewingJournal = !ctx.viewingJournal;
-                    ctx.sideTabExpanded = false;
-                }
-
                 if (
                     ctx.currentView !== ctx.views.settings &&
                     hasDiscoverableCommand(ctx, ctx.keyboard.commaKey, "Settings", CTRL)
@@ -509,6 +501,7 @@ function imMainInner(c: ImCache) {
 
                 // back to the last note when escape pressed
                 {
+                    /*
                     if (
                         ctx.currentView !== ctx.views.noteTree &&
                         hasDiscoverableCommand(
@@ -516,11 +509,12 @@ function imMainInner(c: ImCache) {
                             ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
                         )
                     ) {
-                        if (ctx.noteBeforeFocus) {
-                            setCurrentNote(state, state.noteTree, ctx.noteBeforeFocus.id);
+                        if (ctx.noteBeforeFocus && ctx.journalPageBeforeFocus) {
+                            setCurrentNote(state, ctx.journalPageBeforeFocus, state.noteTree, ctx.noteBeforeFocus.id);
                         }
                         setCurrentView(ctx, ctx.views.noteTree);
                     }
+                    */
                 }
 
                 // Traverse the history
@@ -556,8 +550,12 @@ function imMainInner(c: ImCache) {
                             hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Last activity", flags | (canGoBack ? 0 : HIDDEN))
                         ) {
                             if (!idIsNilOrRoot(state._jumpBackToId)) {
-                                setCurrentNote(state, state.noteTree, state._jumpBackToId);
-                                state._jumpBackToId = NIL_ID;
+                                const page = getCurrentPage(state.journal)
+                                setCurrentlyEditingPage
+                                if (page.data.noteTree) {
+                                    setCurrentNote(state, page, page.data.noteTree, state._jumpBackToId);
+                                    state._jumpBackToId = NIL_ID;
+                                }
                             } else {
                                 if (state._activitiesTraversalIdx === -1) {
                                     state._activitiesTraversalIdx = getLastActivityIdxWithItem(state);
@@ -577,10 +575,13 @@ function imMainInner(c: ImCache) {
                         if (prevActivityTraversalIdx !== state._activitiesTraversalIdx) {
                             const newActivity = state.activities[state._activitiesTraversalIdx]
                             if (newActivity) {
-                                if (newActivity.nId) {
-                                    setCurrentNote(state, state.noteTree, newActivity.nId);
-                                } else  if (newActivity.journal) {
-                                    setCurrentlyEditingPageIdx(ctx.views.journalView, state.journal, newActivity.journal.idx);
+                                if (newActivity.journal) {
+                                    const page = getPage(state.journal, newActivity.journal.idx);
+                                    setCurrentlyEditingPage(ctx.views.journalView, state.journal, page);
+
+                                    if (newActivity.nId && page.data.noteTree) {
+                                        setCurrentNote(state, page, page.data.noteTree, newActivity.nId);
+                                    }
                                 }
                             }
                         }
@@ -591,7 +592,7 @@ function imMainInner(c: ImCache) {
                 // Also, shouldn't bypass the text area - if it could, we wouldn't be able to type "B"
                 if (hasDiscoverableCommand(ctx, ctx.keyboard.bKey, "Take a break", SHIFT)) {
                     setCurrentView(ctx, ctx.views.activities);
-                    activitiesViewTakeBreak(ctx, ctx.views.activities, state.noteTree);
+                    activitiesViewTakeBreak(ctx, ctx.views.activities);
                     ctx.handled = true;
                 }
 

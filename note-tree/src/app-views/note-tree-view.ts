@@ -82,6 +82,7 @@ import { el, ev, im, ImCache, imdom, } from "src/utils/im-js";
 import * as tree from "src/utils/int-tree";
 
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
+import { JournalPage, TreePage } from "./journal-view";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -105,6 +106,7 @@ export type NoteTreeViewState = {
 // NOTE: recompute status _after_ doing this
 function setNote(
     s: NoteTreeViewState,
+    page: TreePage,
     noteTree: NoteTree,
     note: TreeNote,
     invalidate = false
@@ -120,7 +122,7 @@ function setNote(
         }
 
         s.note = note;
-        setCurrentNote(state, noteTree, note.id);
+        setCurrentNote(state, page, noteTree, note.id);
         recomputeNoteStatusRecursively(noteTree, note, true, true, true);
 
         recomputeVisibleNotes(s, noteTree);
@@ -234,8 +236,8 @@ export function getNoteViewRoot(noteTree: NoteTree, currentNote: TreeNote) {
     return it;
 }
 
-export function newNoteTreeViewState(): NoteTreeViewState {
-    const note = getCurrentNote(state, state.noteTree);
+export function newNoteTreeViewState(page: TreePage, noteTree: NoteTree): NoteTreeViewState {
+    const note = getCurrentNote(state, page, noteTree);
     const viewRoot = note; // needs to be wrong, so that it can be recomputed
     const s: NoteTreeViewState = {
         invalidateNote: false,
@@ -252,7 +254,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
         numVisible:     0,
     };
 
-    setNote(s, state.noteTree, s.note, true);
+    setNote(s, page, noteTree, s.note, true);
 
     return s;
 }
@@ -261,6 +263,7 @@ export function newNoteTreeViewState(): NoteTreeViewState {
 function moveOutOfCurrent(
     ctx: GlobalContext,
     s: NoteTreeViewState,
+    page: TreePage,
     noteTree: NoteTree,
     moveNote: boolean,
 ) {
@@ -277,17 +280,18 @@ function moveOutOfCurrent(
             const parentParent = getNote(noteTree, parent.parentId);
             const parentIdx = parent.idxInParentList;
             tree.insertAt(noteTree.notes, parentParent, note, parentIdx + 1);
-            setNote(s, noteTree, note, true);
+            setNote(s, page, noteTree, note, true);
             recomputeNoteStatusRecursively(noteTree, parent, true, true, true);
             debouncedSave(ctx, state, "Moved a note");
         }
     } else {
-        setNote(s, noteTree, parent, false);
+        setNote(s, page, noteTree, parent, false);
     }
 }
 
 function moveIntoCurrent(
     s: NoteTreeViewState,
+    page: TreePage,
     noteTree: NoteTree,
     moveNote: boolean,
 ) {
@@ -305,7 +309,7 @@ function moveIntoCurrent(
             let idxUnderPrev = clampedListIdx(prevNote.data.lastSelectedChildIdx, prevNote.childIds.length) + 1;
             tree.insertAt(noteTree.notes, prevNote, note, idxUnderPrev);
             prevNote.data.lastSelectedChildIdx = idxUnderPrev;
-            setNote(s, noteTree, note, true);
+            setNote(s, page, noteTree, note, true);
             recomputeNoteStatusRecursively(noteTree, prevNote, true, true, true);
             notesMutated(noteTree);
         }
@@ -319,19 +323,24 @@ function moveIntoCurrent(
 
             const nextChildId = nextRoot.childIds[nextRoot.data.lastSelectedChildIdx];
             const nextChild = getNote(noteTree, nextChildId);
-            setNote(s, noteTree, nextChild, false);
+            setNote(s, page, noteTree, nextChild, false);
         }
     }
 }
 
 
-export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewState, noteTree: NoteTree) {
-    const viewFocused = ctx.currentView === s;
-
+export function imNoteTreeView(
+    c: ImCache,
+    ctx: GlobalContext,
+    page: TreePage,
+    s: NoteTreeViewState,
+    noteTree: NoteTree,
+    viewFocused: boolean,
+) {
     if (!s.note) {
-        s.note = getCurrentNote(state, noteTree);
+        s.note = getCurrentNote(state, page, noteTree);
         const viewRoot = s.note; // needs to be wrong, so that it can be recomputed
-        setNote(s, noteTree, viewRoot, true);
+        setNote(s, page, noteTree, viewRoot, true);
     }
 
     if (im.Memo(c, noteTree._notesMutationCounter)) {
@@ -339,14 +348,14 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     }
 
     // Only push an activity for the current note once we've moved to it, _AND_ this view is in focus.
-    const currentNote = getCurrentNote(state, noteTree);
+    const currentNote = getCurrentNote(state, page, noteTree);
     if (im.Memo(c, currentNote) | im.Memo(c, viewFocused)) {
         if (viewFocused) {
             const lastActivity = getLastActivity(state);
             if (lastActivity && !isBreak(lastActivity)) {
-                const currentNote = getCurrentNote(state, noteTree);
+                const currentNote = getCurrentNote(state, page, noteTree);
                 if (currentNote.id !== lastActivity.nId) {
-                    pushNoteActivity(state, currentNote.id, false);
+                    pushNoteActivity(state, page.id, currentNote.id, false);
                 }
             }
         }
@@ -356,16 +365,16 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     // invalidate properties as needed
     {
         // When we reload our state, the note object reference will change, so we need to memoize on that, not the ID.
-        const currentNote = getCurrentNote(state, noteTree);
+        const currentNote = getCurrentNote(state, page, noteTree);
         if (im.Memo(c, currentNote)) {
-            setNote(s, noteTree, currentNote);
+            setNote(s, page, noteTree, currentNote);
         }
     }
 
     // recompute invalidated properties in order
     {
         if (s.invalidateNote) {
-            setNote(s, noteTree, s.note, true);
+            setNote(s, page, noteTree, s.note, true);
         }
 
         if (s.invalidateVisibleNotes) {
@@ -374,7 +383,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
     }
 
     if (viewFocused) {
-        handleKeyboardInput(ctx, noteTree, s);
+        handleKeyboardInput(ctx, page, noteTree, s);
     }
 
 
@@ -457,7 +466,7 @@ export function imNoteTreeView(c: ImCache, ctx: GlobalContext, s: NoteTreeViewSt
 
         imLine(c, LINE_HORIZONTAL, 1);
 
-        const currentNote = getCurrentNote(state, noteTree);
+        const currentNote = getCurrentNote(state, page, noteTree);
         imui.Begin(c, ROW); imui.Gap(c, 10, PX); {
             imui.Begin(c, BLOCK); imdom.Str(c, "Created " + formatDateTime(currentNote.data.openedAt)); imui.End(c);
             imui.Begin(c, BLOCK); imdom.Str(c, "|"); imui.End(c);
@@ -533,16 +542,17 @@ const AFTER = 2;
 function addNoteAtCurrent(
     _ctx: GlobalContext,
     s: NoteTreeViewState,
+    page: TreePage,
     noteTree: NoteTree,
     insertType: typeof UNDER | typeof AFTER
 ): TreeNote {
     assert(!!s.note);
     assert(!idIsNil(s.note.parentId)); // Cant insert after the root note
 
-    const currentNote = getCurrentNote(state, noteTree);
+    const currentNote = getCurrentNote(state, page, noteTree);
     assert(!isNoteEmpty(currentNote)); // was checked before we called this, hopefully
 
-    const newNote = createNewNote(state, noteTree, "");
+    const newNote = createNewNote(state, page, noteTree, "");
     if (insertType === UNDER) {
         tree.addUnder(noteTree.notes, s.note, newNote);
     } else if (insertType === AFTER) {
@@ -559,6 +569,7 @@ function addNoteAtCurrent(
 function moveToLocalidx(
     _ctx: GlobalContext,
     s: NoteTreeViewState,
+    page: TreePage,
     noteTree: NoteTree,
     idx: number,
     moveNote: boolean
@@ -572,21 +583,21 @@ function moveToLocalidx(
 
     if (moveNote) {
         tree.insertAt(noteTree.notes, parent, s.note, idx);
-        setNote(s, noteTree, s.note);
+        setNote(s, page, noteTree, s.note);
         recomputeNoteStatusRecursively(noteTree, s.note, true, true, true);
         notesMutated(noteTree);
     } else {
         const childId = parent.childIds[idx];
         const note = getNote(noteTree, childId);
-        setNote(s, noteTree, note, false);
+        setNote(s, page, noteTree, note, false);
     }
 }
 
-function toggleMark(noteTree: NoteTree, currentNote: TreeNote, idx: number) {
-    toggleNoteRootMark(state, noteTree, currentNote.id, idx);
+function toggleMark(page: TreePage, noteTree: NoteTree, currentNote: TreeNote, idx: number) {
+    toggleNoteRootMark(state, page, noteTree, currentNote.id, idx);
 }
 
-function navigateToMark(noteTree: NoteTree, currentNote: TreeNote, idx: number) {
+function navigateToMark(page: TreePage, noteTree: NoteTree, currentNote: TreeNote, idx: number) {
     const allMarks = arrayAt(noteTree._computedMarks, idx);
     if (!allMarks)             return;
     if (allMarks.length === 0) return;
@@ -600,18 +611,18 @@ function navigateToMark(noteTree: NoteTree, currentNote: TreeNote, idx: number) 
     }
 
     const note = getNote(noteTree, noteId);
-    setCurrentNote(state, noteTree, note.id, currentNote.id);
+    setCurrentNote(state, page, noteTree, note.id, currentNote.id);
 }
 
-function handleKeyboardInput(ctx: GlobalContext, noteTree: NoteTree, s: NoteTreeViewState) {
+function handleKeyboardInput(ctx: GlobalContext, page: TreePage, noteTree: NoteTree, s: NoteTreeViewState) {
     const { keyboard } = ctx;
 
-    const currentNote = getCurrentNote(state, noteTree);
+    const currentNote = getCurrentNote(state, page, noteTree);
     const parent = getNote(noteTree, currentNote.parentId);
 
     if (noteTree._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.escapeKey, "Stop editing", BYPASS_TEXT_AREA)) {
-            setIsEditingCurrentNote(state, noteTree, false);
+            setIsEditingCurrentNote(state, page, noteTree, false);
         }
     }
 
@@ -628,12 +639,12 @@ function handleKeyboardInput(ctx: GlobalContext, noteTree: NoteTree, s: NoteTree
             const ctrlOrShift = imdom.isKeyHeld(keys, keyboard.ctrlKey) || imdom.isKeyHeld(keys, keyboard.shiftKey);
 
             if (listNavInput) {
-                moveToLocalidx(ctx, s, noteTree, listNavInput.newIdx, moveNote);
+                moveToLocalidx(ctx, s, page, noteTree, listNavInput.newIdx, moveNote);
             } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.leftKey) && !ctrlOrShift) {
-                moveOutOfCurrent(ctx, s, noteTree, moveNote);
+                moveOutOfCurrent(ctx, s, page, noteTree, moveNote);
                 ctx.handled = true;
             } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.rightKey) && !ctrlOrShift) {
-                moveIntoCurrent(s, noteTree, moveNote);
+                moveIntoCurrent(s, page, noteTree, moveNote);
                 ctx.handled = true;
             }
         }
@@ -651,32 +662,32 @@ function handleKeyboardInput(ctx: GlobalContext, noteTree: NoteTree, s: NoteTree
             setCurrentView(ctx, ctx.views.urls);
         }
 
-        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "toggle mark 0", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 0);
-        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "toggle mark 1", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 1);
-        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "toggle mark 2", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 2);
-        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "toggle mark 3", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 3);
-        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "toggle mark 4", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 4);
-        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "toggle mark 5", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 5);
-        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "toggle mark 6", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 6);
-        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "toggle mark 7", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 7);
-        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "toggle mark 8", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 8);
-        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "toggle mark 9", HIDDEN | SHIFT)) toggleMark(noteTree, currentNote, 9);
+        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "toggle mark 0", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 0);
+        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "toggle mark 1", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 1);
+        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "toggle mark 2", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 2);
+        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "toggle mark 3", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 3);
+        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "toggle mark 4", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 4);
+        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "toggle mark 5", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 5);
+        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "toggle mark 6", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 6);
+        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "toggle mark 7", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 7);
+        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "toggle mark 8", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 8);
+        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "toggle mark 9", HIDDEN | SHIFT)) toggleMark(page, noteTree, currentNote, 9);
 
-        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "navigate to mark 0", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 0);
-        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "navigate to mark 1", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 1);
-        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "navigate to mark 2", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 2);
-        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "navigate to mark 3", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 3);
-        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "navigate to mark 4", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 4);
-        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "navigate to mark 5", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 5);
-        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "navigate to mark 6", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 6);
-        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "navigate to mark 7", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 7);
-        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "navigate to mark 8", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 8);
-        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN | REPEAT)) navigateToMark(noteTree, currentNote, 9);
+        if (hasDiscoverableCommand(ctx, keyboard.num1Key, "navigate to mark 0", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 0);
+        if (hasDiscoverableCommand(ctx, keyboard.num2Key, "navigate to mark 1", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 1);
+        if (hasDiscoverableCommand(ctx, keyboard.num3Key, "navigate to mark 2", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 2);
+        if (hasDiscoverableCommand(ctx, keyboard.num4Key, "navigate to mark 3", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 3);
+        if (hasDiscoverableCommand(ctx, keyboard.num5Key, "navigate to mark 4", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 4);
+        if (hasDiscoverableCommand(ctx, keyboard.num6Key, "navigate to mark 5", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 5);
+        if (hasDiscoverableCommand(ctx, keyboard.num7Key, "navigate to mark 6", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 6);
+        if (hasDiscoverableCommand(ctx, keyboard.num8Key, "navigate to mark 7", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 7);
+        if (hasDiscoverableCommand(ctx, keyboard.num9Key, "navigate to mark 8", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 8);
+        if (hasDiscoverableCommand(ctx, keyboard.num0Key, "navigate to mark 9", HIDDEN | REPEAT)) navigateToMark(page, noteTree, currentNote, 9);
     }
 
     if (hasDiscoverableCommand(ctx, keyboard.dKey, "DONE", CTRL | BYPASS_TEXT_AREA)) {
         if (!reviveNote(noteTree, currentNote)) {
-            completeNote(noteTree, currentNote)
+            completeNote(noteTree, page, currentNote)
         }
     }
 
@@ -686,22 +697,22 @@ function handleKeyboardInput(ctx: GlobalContext, noteTree: NoteTree, s: NoteTree
 
         if (!isNoteEmpty(currentNote)) {
             if (hasDiscoverableCommand(ctx, keyboard.enterKey, "New after", SHIFT | BYPASS_TEXT_AREA)) {
-                noteToSet = addNoteAtCurrent(ctx, s, noteTree, AFTER);
+                noteToSet = addNoteAtCurrent(ctx, s, page, noteTree, AFTER);
             } else if (hasDiscoverableCommand(ctx, keyboard.enterKey, "New under", CTRL | BYPASS_TEXT_AREA)) {
-                noteToSet = addNoteAtCurrent(ctx, s, noteTree, UNDER);
+                noteToSet = addNoteAtCurrent(ctx, s, page, noteTree, UNDER);
             }
         }
 
         if (noteToSet) {
-            setNote(s, noteTree, noteToSet, true);
-            setIsEditingCurrentNote(state, noteTree, true);
+            setNote(s, page, noteTree, noteToSet, true);
+            setIsEditingCurrentNote(state, page, noteTree, true);
             ctx.handled = true;
         }
     }
 
     if (!noteTree._isEditingFocusedNote) {
         if (hasDiscoverableCommand(ctx, keyboard.enterKey, "Edit")) {
-            setIsEditingCurrentNote(state, noteTree, true);
+            setIsEditingCurrentNote(state, page, noteTree, true);
         }
     }
 }
@@ -719,9 +730,9 @@ function reviveNote(noteTree: NoteTree, note: TreeNote): boolean {
     return true;
 }
 
-function completeNote(noteTree: NoteTree, note: TreeNote): void {
+function completeNote(noteTree: NoteTree, page: TreePage, note: TreeNote): void {
     if (isCurrentlyTakingABreak(state)) {
-        pushNoteActivity(state, note.id, false);
+        pushNoteActivity(state, page.id, note.id, false);
     }
 
     if (note.childIds.length > 0) {
@@ -733,7 +744,7 @@ function completeNote(noteTree: NoteTree, note: TreeNote): void {
         });
 
         if (incompleteChild) {
-            setCurrentNote(state, noteTree, incompleteChild.id);
+            setCurrentNote(state, page, noteTree, incompleteChild.id);
             return;
         }
     }
@@ -745,11 +756,11 @@ function completeNote(noteTree: NoteTree, note: TreeNote): void {
     if (noteTree._isEditingFocusedNote) {
         // After marking a note as DONE while editing, we create and move to a new note directly under it.
 
-        const newNote = createNewNote(state, noteTree, "");
+        const newNote = createNewNote(state, page, noteTree, "");
         tree.addAfter(noteTree.notes, note, newNote);
 
-        setCurrentNote(state, noteTree, newNote.id);
-        setIsEditingCurrentNote(state, noteTree, true);
+        setCurrentNote(state, page, noteTree, newNote.id);
+        setIsEditingCurrentNote(state, page, noteTree, true);
     }
 
     recomputeNoteStatusRecursively(noteTree, note, true, true, true);
