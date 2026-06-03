@@ -43,14 +43,15 @@ export type NoteTree = {
     textOnArrivalNoteId: NoteId;
     textOnArrival: string;
     currentNoteId: NoteId;
+    rootMarks: (NoteId | null)[];
     /** See {@link notesMutated} */
     _notesMutationCounter: number;
     // NOTE: kinda need to be references - some code will toggle between whenether we're using 
     _isEditingFocusedNote: boolean;
     // A root mark allows us to cycle through the start of all incomplete threads of tasks 
     // recursively under a particular tree.
-    rootMarks: (NoteId | null)[];
     _computedMarks: NoteId[][];
+    _leftTab: number;
 }
 
 export function newNoteTree(): NoteTree {
@@ -62,10 +63,11 @@ export function newNoteTree(): NoteTree {
         textOnArrivalNoteId: itree.NIL_ID,
         textOnArrival: "",
         currentNoteId: itree.NIL_ID,
+        rootMarks: [],
         _notesMutationCounter: 0,
         _isEditingFocusedNote: false,
-        rootMarks: [],
         _computedMarks: [],
+        _leftTab: 0,
     }
 }
 

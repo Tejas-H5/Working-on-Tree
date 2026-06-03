@@ -11,7 +11,7 @@ import { assert } from "src/utils/assert";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, MONTH_NAMES, pad2 } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
-import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
+import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW } from "src/utils/im-js/im-ui";
 import * as itree from "src/utils/int-tree";
 import { logTrace } from "src/utils/log";
 import { imTextWithHighlightedRanges } from "./fuzzy-finder";
@@ -352,7 +352,6 @@ export function imJournalView(
                         // TODO: implement code
                         imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", 0);
 
-                        // TODO: implement todo
                         imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
                     } imui.End(c);
 
@@ -380,10 +379,11 @@ export function imJournalView(
     if (!ctx.handled) {
         if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
             s.finder.isFinding = false;
-        } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
-            s.sidebarHasFocus = true;
         } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
             s.pages.view = VIEWING_PAGE;
+            s.sidebarHasFocus = false;
+        } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
+            s.sidebarHasFocus = true;
         }
     }
 }
@@ -517,7 +517,16 @@ function imPageEditor(
                     noteViewState = im.Set(c, newNoteTreeViewState(page, page.data.noteTree))
                 }
 
-                imNoteTreeView(c, ctx, page, noteViewState, page.data.noteTree, true);
+                imui.Begin(c, ROW); imui.Flex(c); {
+                    imui.Begin(c, COL); imui.Flex(c); {
+                        imNoteTreeView(c, ctx, page, noteViewState, page.data.noteTree, true);
+                    } imui.End(c);
+                    imui.Begin(c, COL); imui.Size(c, 20, PERCENT, 0, NA); {
+                        im.Switch(c, page.data.noteTree._leftTab); switch(page.data.noteTree._leftTab) {
+                            // TODO: the other views!!!
+                        } im.SwitchEnd(c);
+                    } imui.End(c);
+                } imui.End(c);
             } break;
             default: {
                 throw new Error("Unhandled view");
@@ -554,7 +563,7 @@ function handleKeyboardInput(
     let handled = false;
 
     if (s.finder.isFinding && s.finder.results) {
-        const input = getNavigableListInput(ctx, s.finder.resultsIdx, 0, s.finder.results.length, AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA);
+        const input = getNavigableListInput(ctx, s.finder.resultsIdx, 0, s.finder.results.length, AXIS_VERTICAL);
         if (input) {
             s.finder.resultsIdx = input.newIdx;
             handled = true;
@@ -566,7 +575,7 @@ function handleKeyboardInput(
         const keys = imdom.getKeyboard();
         const movePage = imdom.isKeyHeld(keys, ctx.keyboard.altKey);
 
-        const input = getNavigableListInput(ctx, parentPage.focusedChildIdx, 0, parent.childIds.length, AXIS_VERTICAL, AXIS_FLAG_BYPASS_TEXT_AREA);
+        const input = getNavigableListInput(ctx, parentPage.focusedChildIdx, 0, parent.childIds.length, AXIS_VERTICAL);
         if (input) {
             if (movePage) {
                 itree.insertAt(journal.pages, parent, currentPage, input.newIdx);
@@ -687,6 +696,7 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_GRAPH;
         } else {
             s.pages.view = VIEWING_PAGE;
+            s.sidebarHasFocus = false;
         }
         handled = true;
     }
@@ -696,6 +706,7 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_CODE;
         } else {
             s.pages.view = VIEWING_PAGE;
+            s.sidebarHasFocus = false;
         }
         handled = true;
     }
@@ -705,11 +716,12 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_NOTES;
         } else {
             s.pages.view = VIEWING_PAGE;
+            s.sidebarHasFocus = false;
         }
         handled = true;
     }
 
-    if ( hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)) {
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)) {
         s.finder.isFinding = true;
         s.sidebarHasFocus = true;
         handled = true;
