@@ -5,10 +5,10 @@ import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
 import { newScrollContainer } from "src/components/scroll-container";
 import { imTextInputOneLine } from "src/components/text-input";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "src/global-context";
-import { journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "src/state";
+import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { assert } from "src/utils/assert";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, MONTH_NAMES, pad2 } from "src/utils/datetime";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 } from "src/utils/datetime";
 import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
 import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW } from "src/utils/im-js/im-ui";
@@ -98,6 +98,12 @@ export type JournalPage = {
     graph: { g: MappingGraph; v: MappingGraphView } | undefined;
     noteTree: NoteTree | undefined;
     focusedChildIdx: number;
+
+    _durationUnranged: number;
+    _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
+    _durationRanged: number;
+    // TODO: fivure out what this is and document it. I think it has something to do with computing the duration of the most recent note ?
+    _durationRangedOpenSince?: Date;
 }
 
 export function newJournalPage(name: string, createdAt = new Date()):JournalPage {
@@ -108,6 +114,9 @@ export function newJournalPage(name: string, createdAt = new Date()):JournalPage
         focusedChildIdx: 0,
         graph: undefined,
         noteTree: undefined,
+
+        _durationUnranged: 0,
+        _durationRanged: 0,
     };
 }
 
@@ -381,7 +390,6 @@ export function imJournalView(
             s.finder.isFinding = false;
         } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
             s.pages.view = VIEWING_PAGE;
-            s.sidebarHasFocus = false;
         } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
             s.sidebarHasFocus = true;
         }
@@ -398,37 +406,52 @@ function imPageListRow(
     page: TreePage,
     depth: number,
 ) {
-    const viewHasFocus = journalViewHasFocus(ctx);
-    const itemHighlighted = viewHasFocus && journal.currentlyEditing.pageIdx === page.id;
+    // const viewHasFocus = journalViewHasFocus(ctx);
+    const itemHighlighted = journal.currentlyEditing.pageIdx === page.id;
     const itemSelected = s.sidebarHasFocus && itemHighlighted;
 
-    imNavListRowBegin(c, list, itemSelected, itemHighlighted); imui.Align(c); {
-        imui.Begin(c, ROW); imui.Align(c); imListRowCellStyle(c); {
+    imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
+        imui.Begin(c, ROW); imListRowCellStyle(c); imui.Align(c); imui.Flex(c); imui.NoWrap(c); {
             imui.Begin(c, BLOCK); imui.Size(c, depth * 20, PX, 0, NA); imui.End(c);
-            if (im.If(c) && itemSelected && s.pages.isRenaming) {
-                const ev = imTextInputOneLine(c, page.data.name, "Name...", true, false);
-                if (!ctx.handled && ev) {
-                    if (ev.newName !== undefined) {
-                        page.data.name = ev.newName;
-                        debouncedSave(ctx, state, "imPageListRow - journal rename");
+
+            imui.Begin(c, BLOCK); imui.Flex(c, 1); {
+                if (im.If(c) && itemSelected && s.pages.isRenaming) {
+                    const ev = imTextInputOneLine(c, page.data.name, "Name...", true, false);
+                    if (!ctx.handled && ev) {
+                        if (ev.newName !== undefined) {
+                            page.data.name = ev.newName;
+                            debouncedSave(ctx, state, "imPageListRow - journal rename");
+                        }
+                        if (ev.submit || ev.cancel) {
+                            stopRenaming(ctx, s, journal)
+                        }
                     }
-                    if (ev.submit || ev.cancel) {
-                        stopRenaming(ctx, s, journal)
-                    }
-                }
-            } else {
-                im.IfElse(c);
-                imdom.Str(c, getPageName(page.data));
+                } else {
+                    im.IfElse(c);
+                    imdom.Str(c, getPageName(page.data));
+                } im.IfEnd(c);
+            } imui.End(c);
+
+            if (im.If(c) && page.childIds.length > 0) {
+                imui.Begin(c, BLOCK); imui.Size(c, 20, PX, 0, NA); imui.End(c);
+
+                imdom.Str(c, "(");
+                imdom.Str(c, page.childIds.length);
+                imdom.Str(c, ")");
+            } im.IfEnd(c);
+
+            if (im.If(c) && ctx.viewingDurations) {
+                imui.Begin(c, ROW); {
+                    imui.Begin(c, BLOCK); imui.Size(c, 20, PX, 0, NA); imui.End(c);
+
+                    const durationTimesheet = getPageDurationUsingCurrentRange(state, page);
+                    const durationAllTime = getPageDurationWithoutRange(state, page);
+                    imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
+                    imdom.Str(c, " / ");
+                    imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
+                } imui.End(c);
             } im.IfEnd(c);
         } imui.End(c);
-
-        if (im.If(c) && page.childIds.length > 0) {
-            imui.Begin(c, BLOCK); imui.MinSize(c, 40, PX, 0, NA); imui.Flex(c); imui.End(c);
-
-            imdom.Str(c, "(");
-            imdom.Str(c, page.childIds.length);
-            imdom.Str(c, ")");
-        } im.IfEnd(c);
     } imNavListRowEnd(c);
 }
 
@@ -517,15 +540,8 @@ function imPageEditor(
                     noteViewState = im.Set(c, newNoteTreeViewState(page, page.data.noteTree))
                 }
 
-                imui.Begin(c, ROW); imui.Flex(c); {
-                    imui.Begin(c, COL); imui.Flex(c); {
-                        imNoteTreeView(c, ctx, page, noteViewState, page.data.noteTree, true);
-                    } imui.End(c);
-                    imui.Begin(c, COL); imui.Size(c, 20, PERCENT, 0, NA); {
-                        im.Switch(c, page.data.noteTree._leftTab); switch(page.data.noteTree._leftTab) {
-                            // TODO: the other views!!!
-                        } im.SwitchEnd(c);
-                    } imui.End(c);
+                imui.Begin(c, COL); imui.Flex(c); {
+                    imNoteTreeView(c, ctx, page, noteViewState, page.data.noteTree, true);
                 } imui.End(c);
             } break;
             default: {
@@ -539,7 +555,8 @@ export function getPage(journal: Journal, id: number): TreePage {
     return itree.getNode(journal.pages, id);
 }
 
-export function getPageOrUndefined(journal: Journal, id: number): TreePage | undefined{
+export function getPageOrUndefined(journal: Journal, id: number | undefined): TreePage | undefined {
+    if (id === undefined) return undefined;
     return itree.getNodeOrUndefined(journal.pages, id);
 }
 
@@ -696,7 +713,6 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_GRAPH;
         } else {
             s.pages.view = VIEWING_PAGE;
-            s.sidebarHasFocus = false;
         }
         handled = true;
     }
@@ -706,7 +722,6 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_CODE;
         } else {
             s.pages.view = VIEWING_PAGE;
-            s.sidebarHasFocus = false;
         }
         handled = true;
     }
@@ -716,7 +731,6 @@ function handleKeyboardInput(
             s.pages.view = VIEWING_NOTES;
         } else {
             s.pages.view = VIEWING_PAGE;
-            s.sidebarHasFocus = false;
         }
         handled = true;
     }

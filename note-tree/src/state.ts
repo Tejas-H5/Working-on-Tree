@@ -182,11 +182,6 @@ export type Note = {
     // non-serializable fields
     _status: NoteStatus; // used to track if a note is done or not.
     _depth: number; // used to visually indent the notes
-    _durationUnranged: number;
-    _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
-    _durationRanged: number;
-    // TODO: fivure out what this is and document it. I think it has something to do with computing the duration of the most recent note ?
-    _durationRangedOpenSince?: Date;
 
     _tasksInProgress: number; // recursive in nature
     _treeVisualsGoDown: number;
@@ -494,8 +489,6 @@ export function defaultNote(): Note {
 
         _status: STATUS_NOT_COMPUTED,
         _depth: 0,
-        _durationUnranged: 0,
-        _durationRanged: 0,
         _tasksInProgress: 0,
         _treeVisualsGoDown: 0,
         _treeVisualsGoRight: 0,
@@ -784,34 +777,29 @@ function clearNoteStatusRecursively(state: NoteTreeGlobalState, noteTree: NoteTr
     }
 }
 
-export function recomputeAllNoteDurations(
+export function recomputeAllDurations(
     state: NoteTreeGlobalState,
-    noteTree: NoteTree,
+    journal: Journal,
     activitiesFrom: Date | null,
     activitiesTo: Date | null
 ) {
     state._activitiesToIdx = -1;
     state._activitiesFromIdx = -1;
 
-    itree.forEachNode(noteTree.notes, (note) => {
-        note.data._durationUnranged = 0;
-        note.data._durationUnrangedOpenSince = undefined;
-        note.data._durationRanged = 0;
-        note.data._durationRangedOpenSince = undefined;
+    itree.forEachNode(state.journal.pages, (page) => {
+        page.data._durationUnranged = 0;
+        page.data._durationUnrangedOpenSince = undefined;
+        page.data._durationRanged = 0;
+        page.data._durationRangedOpenSince = undefined;
     });
 
     const activities = state.activities;
     for (let i = 0; i < activities.length; i++) {
         // Activities can be old, and might point to invalid notes. Or they can be breaks, and not refer to any note
         const a0 = activities[i];
-        let note;
-        if (a0.nId) {
-            note = getNoteOrUndefined(noteTree, a0.nId);
-            if (!note) continue;
-        }
+        let page;
         if (a0.journal) {
-            const journal = getPage(state.journal, a0.journal.idx);
-            if (!journal) continue;
+            page = getPageOrUndefined(state.journal, a0.journal.idx);
         }
 
         const a1 = activities[i + 1] as Activity | undefined;
@@ -819,16 +807,16 @@ export function recomputeAllNoteDurations(
 
         const isCurrentActivity = !a1;
 
-        if (note) {
-            let parentNote = note;
-            while (!idIsNil(parentNote.parentId)) {
+        if (page) {
+            let parentPage = page;
+            while (!idIsNil(parentPage.parentId)) {
                 if (!isCurrentActivity) {
-                    parentNote.data._durationUnranged += duration;
+                    parentPage.data._durationUnranged += duration;
                 } else {
-                    parentNote.data._durationUnrangedOpenSince = getActivityDate(a0);
+                    parentPage.data._durationUnrangedOpenSince = getActivityDate(a0);
                 }
 
-                parentNote = getNote(noteTree, parentNote.parentId);
+                parentPage = getPage(journal, parentPage.parentId);
             }
         }
 
@@ -842,16 +830,16 @@ export function recomputeAllNoteDurations(
             }
             state._activitiesToIdx = i;
 
-            if (note) {
-                let parentNote = note;
-                while (!idIsNil(parentNote.parentId)) {
+            if (page) {
+                let parentPage = page;
+                while (!idIsNil(parentPage.parentId)) {
                     if (!isCurrentActivity) {
-                        parentNote.data._durationRanged += duration;
+                        parentPage.data._durationRanged += duration;
                     } else {
-                        parentNote.data._durationRangedOpenSince = getActivityDate(a0);
+                        parentPage.data._durationRangedOpenSince = getActivityDate(a0);
                     }
 
-                    parentNote = getNote(noteTree, parentNote.parentId);
+                    parentPage = getPage(journal, parentPage.parentId);
                 }
             }
         }
@@ -1401,18 +1389,18 @@ export function getIndentStr(note: Note) {
     return "    ".repeat(repeats);
 }
 
-export function getNoteDurationUsingCurrentRange(_state: NoteTreeGlobalState, note: TreeNote) {
-    let duration = note.data._durationRanged;
-    if (note.data._durationRangedOpenSince) {
-        duration += Date.now() - note.data._durationRangedOpenSince.getTime();
+export function getPageDurationUsingCurrentRange(_state: NoteTreeGlobalState, page: TreePage) {
+    let duration = page.data._durationRanged;
+    if (page.data._durationRangedOpenSince) {
+        duration += Date.now() - page.data._durationRangedOpenSince.getTime();
     }
     return duration;
 }
 
-export function getNoteDurationWithoutRange(_state: NoteTreeGlobalState, note: TreeNote) {
-    let duration = note.data._durationUnranged;
-    if (note.data._durationUnrangedOpenSince) {
-        duration += Date.now() - note.data._durationUnrangedOpenSince.getTime();
+export function getPageDurationWithoutRange(_state: NoteTreeGlobalState, page: TreePage) {
+    let duration = page.data._durationUnranged;
+    if (page.data._durationUnrangedOpenSince) {
+        duration += Date.now() - page.data._durationUnrangedOpenSince.getTime();
     }
     return duration;
 }
@@ -1697,8 +1685,6 @@ export function loadState(then: (error: string) => void) {
 }
 
 export function saveState(state: NoteTreeGlobalState, then: (serialize: string) => void) {
-    return;
-
     if (state._criticalLoadingError) {
         logTrace("State shouldn't be saved right now - most likely we'll irrecoverably corrupt it");
         then("");

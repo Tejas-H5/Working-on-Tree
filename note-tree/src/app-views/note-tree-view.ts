@@ -43,8 +43,8 @@ import {
     getCurrentNote,
     getLastActivity,
     getNote,
-    getNoteDurationUsingCurrentRange,
-    getNoteDurationWithoutRange,
+    getPageDurationUsingCurrentRange,
+    getPageDurationWithoutRange,
     getNoteOrUndefined,
     getNoteTextWithoutPriority,
     getNumSiblings,
@@ -810,8 +810,6 @@ function imNoteTreeRow(
 
             // The tree visuals
             imui.Begin(c, ROW_REVERSE); {
-                const noteIsParent = s.viewRootParentNotes.includes(note) || idIsRoot(note.id);
-
                 let it = note;
                 let foundLineInPath = false;
                 let depth = -1;
@@ -1069,16 +1067,6 @@ function imNoteTreeRow(
                     } im.IfEnd(c);
                 } imui.End(c);
             } imui.End(c);
-
-            if (im.If(c) && ctx.viewingDurations) {
-                imui.Begin(c, ROW); {
-                    const durationTimesheet = getNoteDurationUsingCurrentRange(state, note);
-                    const durationAllTime = getNoteDurationWithoutRange(state, note);
-                    imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
-                    imdom.Str(c, " / ");
-                    imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
-                } imui.End(c);
-            } im.IfEnd(c);
         } imui.End(c);
     } imNavListRowEnd(c);
 

@@ -9,6 +9,8 @@
 // even know or care about javascript internals. Because what's the point of using plain objects for your state
 // if the engine just de-optimizes all of them as soon as you load them?
 
+import { mustGetDefined } from "./assert";
+
 export function asNull(val: unknown): null | undefined {
     return val === null ? null : undefined;
 }
@@ -38,7 +40,9 @@ export function mustGet<T>(val: T | undefined): T {
     return val;
 }
 
-export function asObject(val: unknown, reinterpretEntriesAsObject = true): Record<string, unknown> | undefined {
+export type LoadedObject<T> = Record<string, unknown> & { __typeId?: T };
+
+export function asObject<T extends JSONRecord>(val: unknown, reinterpretEntriesAsObject = true): LoadedObject<T> | undefined {
     if (val != null && val.constructor === Object) {
         return val as Record<string, unknown>;
     }
@@ -53,11 +57,39 @@ export function asObject(val: unknown, reinterpretEntriesAsObject = true): Recor
     return undefined;
 }
 
+export function getObject<T, K extends string & keyof T, V extends T[K]>(
+    src: LoadedObject<T | null | undefined>,
+    key: K
+): LoadedObject<V> | undefined {
+    return asObject(getVal<T>(src, key)) as LoadedObject<V> | undefined;
+}
+
+export function mustGetObject<T, K extends string & keyof T, V extends T[K]>(
+    src: LoadedObject<T | null | undefined>,
+    key: K,
+): LoadedObject<V> {
+    return mustGetDefined(asObject(getVal<T>(src, key))) as LoadedObject<V>;
+}
+
 export function asArray<T>(val: unknown, castFn?: (u: unknown) => u is T): T[] | undefined {
     if (!Array.isArray(val)) return undefined;
     if (!castFn) return val;
     if (!val.every(castFn)) return undefined;
     return val;
+}
+
+export function getArray<T, K extends string & keyof T, V extends T[K]>(
+    src: LoadedObject<T>,
+    key: K
+): LoadedObject<V>[] | undefined {
+    return asArray(getVal<T>(src, key));
+}
+
+export function mustGetArray<T, K extends string & keyof T, V extends T[K]>(
+    src: LoadedObject<T>,
+    key: K
+): LoadedObject<V>[] {
+    return mustGetDefined(asArray(getVal<T>(src, key)));
 }
 
 export function asDate(val: unknown): Date | undefined {
@@ -252,18 +284,11 @@ export function deserializeObject<T extends JSONRecord>(dst: T, src: JSONRecord,
  * Grabs a value, clears it, then returns it.
  * You can set dryRun = true while you're working on it.
  */
-export function extractKey<T>(src: JSONRecord, key: string & keyof T) {
+export function getVal<T>(src: JSONRecord, key: string & keyof T) {
     const val = src[key];
     src[key] = undefined; // don't 'deserialize' this again
     return val;
 }
-
-export function extractArray<T>(src: JSONRecord, key: string  & keyof T): JSONRecord | undefined {
-    const val = extractKey(src, key);
-    return asObject(val);
-}
-
-
 
 /**
  * Does more than you'd expect.

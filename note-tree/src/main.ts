@@ -47,6 +47,7 @@ import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { formatDate, formatTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
+import { imDurationsView } from "./app-views/durations-view";
 
 
 function getIcon(theme: AppTheme) {
@@ -323,16 +324,8 @@ function imMainInner(c: ImCache) {
                             const navList = imViewsList(c, focusRef);
 
                             imui.Begin(c, COL); imui.Flex(c); {
-                                // TODO: ctx.viewingJournal probably redundant
-                                if (im.If(c) && journalViewHasFocus(ctx)) {
-                                    imJournalView(c, ctx, ctx.views.journalView, state.journal);
-                                    addView(
-                                        navList,
-                                        // Although in hindsight, I should have probaly explained why xDD
-                                        ctx.views.journalView, // not a typo
-                                        "Journal"
-                                    );
-                                } im.IfEnd(c);
+                                imJournalView(c, ctx, ctx.views.journalView, state.journal);
+                                addView(navList, ctx.views.journalView, "Journal");
 
                                 if (im.If(c) && ctx.viewingDurations) {
                                     imLine(c, LINE_HORIZONTAL, 1);
@@ -342,7 +335,8 @@ function imMainInner(c: ImCache) {
                                             imdom.setStyle(c, "maxHeight", "33%");
                                         }
 
-                                        imdom.Str(c, "TODO: rewrite to be journals")
+                                        imDurationsView(c, ctx, ctx.views.durationsView)
+                                        addView(navList, ctx.views.durationsView, "Durations");
                                     } imui.End(c);
                                 } im.IfEnd(c);
                             } imui.End(c);
@@ -450,13 +444,12 @@ function imMainInner(c: ImCache) {
 
                 // timesheet
 
-                /*
                 if (
                     !ctx.viewingDurations && 
                     hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
                 ) {
                     ctx.viewingDurations = true;
-                    setCurrentView(ctx, ctx.views.durations);
+                    setCurrentView(ctx, ctx.views.durationsView);
                 } else if (
                     ctx.viewingDurations &&
                     hasDiscoverableCommand(
@@ -465,32 +458,11 @@ function imMainInner(c: ImCache) {
                     )
                 ) {
                     ctx.viewingDurations = false;
-                    if (ctx.currentView === ctx.views.durations) {
-                        setCurrentView(ctx, ctx.views.noteTree);
+                    if (ctx.currentView === ctx.views.durationsView) {
+                        setCurrentView(ctx, ctx.views.journalView);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
                 } 
-
-                if (
-                    !ctx.viewingDurations && 
-                    hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
-                ) {
-                    ctx.viewingDurations = true;
-                    setCurrentView(ctx, ctx.views.durations);
-                } else if (
-                    ctx.viewingDurations &&
-                    hasDiscoverableCommand(
-                        ctx, ctx.keyboard.escapeKey, "Close timesheet",
-                        ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
-                    )
-                ) {
-                    ctx.viewingDurations = false;
-                    if (ctx.currentView === ctx.views.durations) {
-                        setCurrentView(ctx, ctx.views.noteTree);
-                    }
-                    ctx.views.activities.inputs.activityFilter = null;
-                }
-                */
 
                 if (
                     ctx.currentView !== ctx.views.settings &&

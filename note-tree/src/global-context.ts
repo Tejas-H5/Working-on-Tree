@@ -1,4 +1,5 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
+import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
 import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
 import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
@@ -39,6 +40,7 @@ export type GlobalContext = {
         settings:   SettingsViewState;
         mappings:   GraphMappingsViewState;
         journalView: JournalViewState;
+        durationsView: DurationsViewState;
     };
 
     currentView: unknown;
@@ -153,6 +155,7 @@ export function newGlobalContext(): GlobalContext {
             settings:   newSettingsViewState(),
             mappings:   newGraphMappingsViewState(),
             journalView: newJournalViewState(),
+            durationsView: newDurationsViewState(),
         },
         sideTabExpanded: false,
 
@@ -682,7 +685,6 @@ export function focusItem(
 ) {
     // This view should only move the note if it is focused
     if (pageId) {
-        setCurrentView(ctx, ctx.views.journalView)
         const page = getPage(state.journal, pageId)
         setCurrentlyEditingPage(ctx.views.journalView, state.journal, page);
 
