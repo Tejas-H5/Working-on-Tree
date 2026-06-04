@@ -1208,6 +1208,14 @@ export function forEachParentNote(tree: NoteTree, start: TreeNote, it: (note: Tr
     }
 }
 
+export function forEachParentPage(journal: Journal, start: TreePage, it: (note: TreePage) => void) {
+    let current = start;
+    while (!idIsNilOrRoot(current.id)) {
+        it(current);
+        current = getPage(journal, current.parentId);
+    }
+}
+
 export function forEachChildNote(noteTree: NoteTree, note: TreeNote, it: (note: TreeNote) => void) {
     for (let i = 0; i < note.childIds.length; i++) {
         const id = note.childIds[i];

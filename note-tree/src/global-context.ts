@@ -1,13 +1,10 @@
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
-import { newNoteTraversalViewState, NoteTraversalViewState } from "./app-views/fast-travel";
-import { FuzzyFinderViewState, newFuzzyFinderViewState } from "./app-views/fuzzy-finder";
 import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
 import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurrentlyEditingPage, TreePage } from "./app-views/journal-view";
-import { newNoteTreeViewState, NoteTreeViewState } from "./app-views/note-tree-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
-import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, JournalPageId, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
+import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 import { assert } from "./utils/assert";
 import { parseDateSafe } from "./utils/datetime";
 
@@ -35,8 +32,6 @@ export type GlobalContext = {
     views: {
         activities: ActivitiesViewState;
         urls:       UrlListViewState;
-        fastTravel: NoteTraversalViewState;
-        finder:     FuzzyFinderViewState;
         settings:   SettingsViewState;
         mappings:   GraphMappingsViewState;
         journalView: JournalViewState;
@@ -140,7 +135,7 @@ export function newGlobalContext(): GlobalContext {
         now: new Date(),
 
         keyboard,
-        handled:           false,
+        handled:                 false,
 
         textAreaToFocus:      null,
         focusNextFrame:       false,
@@ -150,8 +145,6 @@ export function newGlobalContext(): GlobalContext {
         views: {
             activities: newActivitiesViewState(),
             urls:       newUrlListViewState(),
-            fastTravel: newNoteTraversalViewState(),
-            finder:     newFuzzyFinderViewState(),
             settings:   newSettingsViewState(),
             mappings:   newGraphMappingsViewState(),
             journalView: newJournalViewState(),
@@ -686,7 +679,7 @@ export function focusItem(
     // This view should only move the note if it is focused
     if (pageId) {
         const page = getPage(state.journal, pageId)
-        setCurrentlyEditingPage(ctx.views.journalView, state.journal, page);
+        setCurrentlyEditingPage(ctx, page);
 
         if (noteId != null && page.data.noteTree) {
             setCurrentNote(state, page, page.data.noteTree, noteId, ctx.noteBeforeFocus?.id);

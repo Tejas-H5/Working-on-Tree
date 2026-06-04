@@ -626,10 +626,6 @@ function handleKeyboardInput(ctx: GlobalContext, page: TreePage, noteTree: NoteT
         }
     }
 
-    if (hasDiscoverableCommand(ctx, keyboard.tKey, "Fast-travel")) {
-        setCurrentView(ctx, ctx.views.fastTravel);
-    }
-
     if (!noteTree._isEditingFocusedNote) {
         if (!ctx.handled) {
             const keys = imdom.getKeyboard();

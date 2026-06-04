@@ -628,6 +628,10 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                         ) {
                             s.mainListHasFocus = false;
                         }
+                    } else if (viewHasFocus) {
+                        if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+                            setCurrentView(ctx, ctx.views.journalView)
+                        }
                     }
                 } imui.End(c);
             } imui.End(c);

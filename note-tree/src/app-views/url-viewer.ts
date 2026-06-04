@@ -14,25 +14,19 @@ import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
 import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
 import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
 import {
-    dfsPre,
-    forEachParentNote,
-    getCurrentNote,
-    getNote,
-    NoteTree,
-    setCurrentNote,
-    state,
-    TreeNote
+    forEachParentPage,
+    state
 } from "src/state";
 import { arrayAt } from "src/utils/array-utils";
 import { el, im, ImCache, imdom } from "src/utils/im-js";
 import { BLOCK, COL, imui, ROW } from "src/utils/im-js/im-ui";
 
 import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
-import { TreePage } from "./journal-view";
+import { getCurrentPage, getPage, setCurrentlyEditingPage, TreePage } from "./journal-view";
 
 type UrlListViewUrl = {
     url: string;
-    note: TreeNote;
+    page: TreePage;
     range: [start: number, end: number];
 };
 
@@ -51,20 +45,20 @@ export function newUrlListViewState(): UrlListViewState {
     };
 }
 
-function setIdx(s: UrlListViewState, page: TreePage, noteTree: NoteTree, idx: number) {
+function setIdx(ctx: GlobalContext, s: UrlListViewState, page: TreePage, idx: number) {
     if (s.urls.length === 0) return;
 
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
     const url = s.urls[s.listPosition.idx];
-    setCurrentNote(state, page, noteTree, url.note.id);
+    setCurrentlyEditingPage(ctx, page);
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
+function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState, page: TreePage) {
     const url = arrayAt(s.urls, s.listPosition.idx);
 
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.urls.length);
     if (listNavigation) {
-        setIdx(s, page, noteTree, listNavigation.newIdx);
+        setIdx(ctx, s, page, listNavigation.newIdx);
     }
 
     if (url && hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Open in new tab")) {
@@ -72,59 +66,40 @@ function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState, page: Tree
     }
 }
 
-function recomputeUrlsForNoteTree(s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
+function recomputeUrlsForNoteTree(ctx: GlobalContext, s: UrlListViewState, page: TreePage) {
     s.urls.length = 0;
 
-    function pushAllUrls(note: TreeNote) {
-        forEachUrlPosition(note.data.text, (start, end) => {
-            const url = note.data.text.substring(start, end);
-            s.urls.push({
-                url,
-                note,
-                range: [start, end],
-            });
+    function pushAllUrls(page: TreePage) {
+        forEachUrlPosition(page.data.content, (start, end) => {
+            const url = page.data.content.substring(start, end);
+            s.urls.push({ url, page, range: [start, end] });
         });
     }
 
-    const currentNote = getCurrentNote(state, page, noteTree);
+    function dfs(page: TreePage) {
+        pushAllUrls(page);
 
-    // traverse all parents, and 1 level under the parents.
-    let notes: TreeNote[] = []; 
-    let lastNote = currentNote;
-    forEachParentNote(noteTree, currentNote, note => {
-        notes.push(note)
-        for (let i = note.childIds.length - 1; i >= 0; i--) {
-            const id = note.childIds[i];
-            const child = getNote(noteTree, id);
-            notes.push(child)
+        // Dont even need to collect these into an array before rendering them. lmao. 
+        for (const id of page.childIds) {
+            const child = getPage(state.journal, id);
+            dfs(child);
         }
-
-        lastNote = note;
-    });
-
-    // we want the urls to appear highest to lowest.
-    for (let i = notes.length - 1; i >= 0; i--) {
-        pushAllUrls(notes[i]);
     }
 
-    const wantedIdx = s.urls.length;
+    const currentPage = getCurrentPage(state.journal);
+    dfs(currentPage);
 
-    // Dont even need to collect these into an array before rendering them. lmao. 
-    dfsPre(noteTree, currentNote, (note) => {
-        pushAllUrls(note);
-    });
-
-    setIdx(s, page, noteTree, wantedIdx);
+    setIdx(ctx, s, page, 0);
 }
 
-export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState, page: TreePage, noteTree: NoteTree) {
+export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState, page: TreePage) {
     const viewHasFocus = ctx.currentView === s;
     if (viewHasFocus) {
-        handleKeyboardInput(ctx, s, page, noteTree);
+        handleKeyboardInput(ctx, s, page);
     }
 
     if (im.Memo(c, viewHasFocus)) {
-        recomputeUrlsForNoteTree(s, page, noteTree);
+        recomputeUrlsForNoteTree(ctx, s, page);
     }
 
     imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {
@@ -132,7 +107,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState,
             imdom.setStyle(c, "fontWeight", "bold");
         }
 
-        imui.Begin(c, BLOCK); imdom.Str(c, "Nearby URLs"); imui.End(c);
+        imui.Begin(c, BLOCK); imdom.Str(c, "URLs"); imui.End(c);
     } imui.End(c);
 
     imLine(c, LINE_HORIZONTAL, 1);
@@ -166,3 +141,4 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState,
         } im.KeyedEnd(c);
     } imNavListEnd(c, list);
 }
+

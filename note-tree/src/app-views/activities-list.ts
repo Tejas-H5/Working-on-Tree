@@ -278,7 +278,7 @@ function insertBreak(
     if (idx === -1) {
         return;
     }
-    
+
     const nextActivity = arrayAt(allActivities, idx + 1);
 
     const timeA = getActivityDate(activity).getTime();

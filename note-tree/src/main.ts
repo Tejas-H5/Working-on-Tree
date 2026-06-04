@@ -8,8 +8,9 @@ import { addView, getTabInput, imViewsList, newFocusRef } from "./app-components
 import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
+import { imDurationsView } from "./app-views/durations-view";
 import { imGraphMappingsEditorView } from "./app-views/graph-view";
-import { getCurrentPage, getPage, imJournalView, journalViewHasFocus, setCurrentlyEditingPage } from "./app-views/journal-view";
+import { getCurrentPage, getPage, imJournalView, setCurrentlyEditingPage } from "./app-views/journal-view";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
@@ -47,7 +48,7 @@ import { arrayAt, getWrappedIdx } from "./utils/array-utils";
 import { formatDate, formatTime } from "./utils/datetime";
 import { NIL_ID } from "./utils/int-tree";
 import { newWebWorker } from "./utils/web-workers";
-import { imDurationsView } from "./app-views/durations-view";
+import { imUrlViewer } from "./app-views/url-viewer";
 
 
 function getIcon(theme: AppTheme) {
@@ -264,6 +265,7 @@ function imMainInner(c: ImCache) {
                                 imdom.setStyle(c, "textAlign", "right");
                             }
 
+                            if (0) {
                             const commands = ctx.discoverableCommands; {
                                 im.For(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
                                     const command = commands.stabilized[i];
@@ -296,6 +298,7 @@ function imMainInner(c: ImCache) {
                                 commands.ctrlAvailable = false;
                                 commands.altAvailable = false;
                             } 
+                            }
 
                             imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
                         } imui.End(c);
@@ -386,21 +389,12 @@ function imMainInner(c: ImCache) {
                                                 }
                                             } imui.End(c);
                                         } break;
-                                        /**
-                                         TODO: move this thing to the page itself.
-                                        case ctx.views.fastTravel: {
-                                            imNoteTraversal(c, ctx, ctx.views.fastTravel, state.noteTree);
-                                            addView(navList, ctx.views.fastTravel, "Fast travel");
-                                        } break;
-                                        case ctx.views.finder: {
-                                            imFuzzyFinder(c, ctx, ctx.views.finder, state.noteTree);
-                                            addView(navList, ctx.views.finder, "Finder");
-                                        } break;
                                         case ctx.views.urls: {
-                                            imUrlViewer(c, ctx, ctx.views.urls);
+                                            const currentPage = getCurrentPage(state.journal);
+                                            imUrlViewer(c, ctx, ctx.views.urls, currentPage);
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
-                                        */
+
                                     } im.SwitchEnd(c);
                                 } imui.End(c);
                             } im.IfEnd(c);
@@ -434,14 +428,6 @@ function imMainInner(c: ImCache) {
                     }
                 }
 
-                // fuzzy finder
-                if (
-                    ctx.currentView !== ctx.views.finder &&
-                    hasDiscoverableCommand(ctx, ctx.keyboard.fKey, "Find", CTRL | BYPASS_TEXT_AREA)
-                ) {
-                    setCurrentView(ctx, ctx.views.finder);
-                }
-
                 // timesheet
 
                 if (
@@ -452,10 +438,7 @@ function imMainInner(c: ImCache) {
                     setCurrentView(ctx, ctx.views.durationsView);
                 } else if (
                     ctx.viewingDurations &&
-                    hasDiscoverableCommand(
-                        ctx, ctx.keyboard.escapeKey, "Close timesheet",
-                        ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
-                    )
+                    hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close timesheet")
                 ) {
                     ctx.viewingDurations = false;
                     if (ctx.currentView === ctx.views.durationsView) {
@@ -471,23 +454,20 @@ function imMainInner(c: ImCache) {
                     setCurrentView(ctx, ctx.views.settings);
                 }
 
-                // back to the last note when escape pressed
-                {
-                    /*
-                    if (
-                        ctx.currentView !== ctx.views.noteTree &&
-                        hasDiscoverableCommand(
-                            ctx, ctx.keyboard.escapeKey, "Back to notes",
-                            ctx.currentView === ctx.views.finder ? BYPASS_TEXT_AREA : 0
-                        )
-                    ) {
-                        if (ctx.noteBeforeFocus && ctx.journalPageBeforeFocus) {
-                            setCurrentNote(state, ctx.journalPageBeforeFocus, state.noteTree, ctx.noteBeforeFocus.id);
-                        }
-                        setCurrentView(ctx, ctx.views.noteTree);
+                // url viewer
+
+                if (ctx.currentView !== ctx.views.urls) {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.slashKey, "URLs", CTRL)) {
+                        ctx.sideTabExpanded = true;
+                        setCurrentView(ctx, ctx.views.urls);
                     }
-                    */
+                } else {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+                        ctx.sideTabExpanded = false;
+                        setCurrentView(ctx, ctx.views.journalView);
+                    }
                 }
+
 
                 // Traverse the history
                 {
@@ -523,7 +503,6 @@ function imMainInner(c: ImCache) {
                         ) {
                             if (!idIsNilOrRoot(state._jumpBackToId)) {
                                 const page = getCurrentPage(state.journal)
-                                setCurrentlyEditingPage
                                 if (page.data.noteTree) {
                                     setCurrentNote(state, page, page.data.noteTree, state._jumpBackToId);
                                     state._jumpBackToId = NIL_ID;
@@ -549,7 +528,7 @@ function imMainInner(c: ImCache) {
                             if (newActivity) {
                                 if (newActivity.journal) {
                                     const page = getPage(state.journal, newActivity.journal.idx);
-                                    setCurrentlyEditingPage(ctx.views.journalView, state.journal, page);
+                                    setCurrentlyEditingPage(ctx, page);
 
                                     if (newActivity.nId && page.data.noteTree) {
                                         setCurrentNote(state, page, page.data.noteTree, newActivity.nId);

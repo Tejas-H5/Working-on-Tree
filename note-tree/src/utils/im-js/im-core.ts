@@ -1,7 +1,4 @@
-// IM-CORE 1.081
-// NOTE: I'm currently working on 3 different apps with this framework,
-// so even though I thought it was mostly finished, the API appears to still be changing slightly.
-// Majority of the last changes have just been updates to the documentation though
+// IM-CORE 1.09
 
 import { assert } from "./assert";
 
@@ -487,28 +484,13 @@ function imGet<T>(
     // Make sure you called Set for the previous state before calling imGet again.
     assert(c[CACHE_CURRENT_WAITING_FOR_SET] === false);
 
+    onMaybeStartedRenderingEntries(c, entries);
+
     // [type, value][type,value],[typ....
     // ^----------->^
     entries[ENTRIES_IDX] += 2;
 
     const idx = entries[ENTRIES_IDX];
-    if (idx === ENTRIES_ITEMS_START) {
-        // Rendering 0 items is the signal to remove an immediate-mode block from the conditional pathway.
-        // This means we can't know that an immediate mode block has re-entered the conditional pathway untill 
-        // it has started rendering the first item, which is what this if-block is handling
-
-        if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === false) {
-            entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = true;
-            entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] = true;
-            entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_NONE;
-        } else {
-            // NOTE: if an error occured in the previous render, then
-            // subsequent things that depended on `startedConditionallyRendering` being true won't run.
-            // I think this is better than re-running all the things that ran successfully over and over again.
-            entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] = false;
-        }
-    }
-
     if (idx < entries.length) {
         if (entries[idx] !== typeId) {
             const expectedName = entries[idx].name;
@@ -531,6 +513,26 @@ function imGet<T>(
     }
 
     return entries[idx + 1];
+}
+
+function onMaybeStartedRenderingEntries(c: ImCache, entries: ImCacheEntries) {
+    const idx = entries[ENTRIES_IDX];
+    if (idx === ENTRIES_ITEMS_START - 2) {
+        // Rendering 0 items is the signal to remove an immediate-mode block from the conditional pathway.
+        // This means we can't know that an immediate mode block has re-entered the conditional pathway untill 
+        // it has started rendering the first item, which is what this if-block is handling
+
+        if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === false) {
+            entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = true;
+            entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] = true;
+            entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_NONE;
+        } else if (entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] !== false) {
+            // NOTE: if an error occured in the previous render, then
+            // subsequent things that depended on `startedConditionallyRendering` being true won't run.
+            // I think this is better than re-running all the things that ran successfully over and over again.
+            entries[ENTRIES_STARTED_CONDITIONALLY_RENDERING] = false;
+        }
+    }
 }
 
 /**
@@ -624,6 +626,8 @@ function __BlockKeyedBegin(c: ImCache, key: ValidKey, removeLevel: RemovedLevel)
     const entries = c[CACHE_CURRENT_ENTRIES];
     entries[ENTRIES_KEYED_MAP_REMOVE_LEVEL] = removeLevel;
 
+    onMaybeStartedRenderingEntries(c, entries);
+
     let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
     if (map === undefined) {
         map = new Map<ValidKey, ListMapBlock>();
@@ -698,9 +702,9 @@ function onImmediateModeBlockDestroyed(c: ImCache, destructor: () => void) {
     c[CACHE_TOTAL_DESTRUCTORS]++;
 }
 
-function CacheEntriesOnRemove(entries: ImCacheEntries) {
+function cacheEntriesOnRemove(entries: ImCacheEntries) {
     if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === true) {
-        recursivelyEnumerateEntries(entries, CacheEntriesRemoveEnumerator);
+        recursivelyEnumerateEntries(entries, cacheEntriesRemoveEnumerator);
     }
 }
 
@@ -744,7 +748,7 @@ function imForEachCacheEntryItem(entries: ImCacheEntries, fn: (t: TypeId<unknown
     }
 }
 
-function CacheEntriesRemoveEnumerator(entries: ImCacheEntries): boolean {
+function cacheEntriesRemoveEnumerator(entries: ImCacheEntries): boolean {
     // don't re-traverse these items.
     if (entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] === true) {
         entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
@@ -754,17 +758,25 @@ function CacheEntriesRemoveEnumerator(entries: ImCacheEntries): boolean {
     return false;
 }
 
-function CacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
+function cacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
     // don't re-traverse these items.
     if (entries[ENTRIES_REMOVE_LEVEL] < REMOVE_LEVEL_DESTROYED) {
         entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
+        console.log("destroyed: ", entries)
         entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
 
         for (let i = ENTRIES_ITEMS_START; i < entries.length; i += 2) {
             const t = entries[i];
             const v = entries[i + 1];
             if (t === imImmediateModeBlockBegin) {
-                CacheEntriesOnDestroy(c, v);
+                cacheEntriesOnDestroy(c, v);
+            }
+        }
+
+        let map = entries[ENTRIES_KEYED_MAP] as (Map<ValidKey, ListMapBlock> | undefined);
+        if (map !== undefined) {
+            for (const block of map.values()) {
+                cacheEntriesOnDestroy(c, block.entries);
             }
         }
 
@@ -822,7 +834,7 @@ function imImmediateModeBlockEnd(c: ImCache, internalType: number = INTERNAL_TYP
         if (removeLevel === REMOVE_LEVEL_DETATCHED) {
             for (const v of map.values()) {
                 if (v.rendered === false) {
-                    CacheEntriesOnRemove(v.entries);
+                    cacheEntriesOnRemove(v.entries);
                 }
             }
         } else if (removeLevel === REMOVE_LEVEL_DESTROYED) {
@@ -830,7 +842,7 @@ function imImmediateModeBlockEnd(c: ImCache, internalType: number = INTERNAL_TYP
             // get destroyed instead of detatched. 
             for (const [k, v] of map) {
                 if (v.rendered === false) {
-                    CacheEntriesOnDestroy(c, v.entries);
+                    cacheEntriesOnDestroy(c, v.entries);
                     map.delete(k);
                 }
             }
@@ -1033,7 +1045,7 @@ function __BlockConditionalEnd(c: ImCache) {
     if (entries[ENTRIES_IDX] === ENTRIES_ITEMS_START - 2) {
         // The index wasn't moved, so nothing was rendered.
         // This tells the conditional block to remove everything rendered under it last. 
-        CacheEntriesOnRemove(entries);
+        cacheEntriesOnRemove(entries);
     }
 
     __BlockDerivedEnd(c, INTERNAL_TYPE_CONDITIONAL_BLOCK);
@@ -1058,7 +1070,7 @@ function __BlockArrayEnd(c: ImCache) {
             const t = entries[i];
             const v = entries[i + 1];
             if (t === imImmediateModeBlockBegin) {
-                CacheEntriesOnRemove(v);
+                cacheEntriesOnRemove(v);
             }
         }
     }
