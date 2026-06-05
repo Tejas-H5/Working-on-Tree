@@ -1,4 +1,4 @@
-// IM-CORE 1.09
+// IM-CORE 1.090
 
 import { assert } from "./assert";
 
@@ -762,7 +762,6 @@ function cacheEntriesOnDestroy(c: ImCache, entries: ImCacheEntries) {
     // don't re-traverse these items.
     if (entries[ENTRIES_REMOVE_LEVEL] < REMOVE_LEVEL_DESTROYED) {
         entries[ENTRIES_REMOVE_LEVEL] = REMOVE_LEVEL_DESTROYED;
-        console.log("destroyed: ", entries)
         entries[ENTRIES_IS_IN_CONDITIONAL_PATHWAY] = false;
 
         for (let i = ENTRIES_ITEMS_START; i < entries.length; i += 2) {
@@ -1191,15 +1190,15 @@ export type TryState = {
 
 /**
  * ```ts
- * const tryState = Try(c); try {
+ * const tryState = im.Try(c); try {
  *      const { err, recover }  tryState;
- *      if (If(c) && !err) {
+ *      if (im.If(c) && !err) {
  *          MainApp(c);
  *      } else {
- *          IfElse(c):
+ *          im.Else(c):
  *
  *          ErrorViewer(c, err, recover);
- *      } IfEnd(c);
+ *      } im.IfEnd(c);
  *      // render your component here
  * } catch(err) {
  *      TryCatch(c, tryState, err);
@@ -1307,8 +1306,8 @@ export const im = {
 
     /** Performance optimization */
 
-    // Is this more-or-less the first render? If the component encountered an error before ending 
-    // the entry list, then this method will continue to be true till we can call CacheEntriesEnd on it.
+    // Is this more-or-less the first render? If the current scope encountered an error before being
+    // ended, then this will remian true on the rerender. Hence, 'firstish' render and not 'first'.
     // You'll want to use this for quite a lot of idempotent things that you dont want running too often, 
     // as it doesn't create any cache entries by itself.
     isFirstishRender, 

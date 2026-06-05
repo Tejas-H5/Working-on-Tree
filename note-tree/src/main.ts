@@ -265,7 +265,6 @@ function imMainInner(c: ImCache) {
                                 imdom.setStyle(c, "textAlign", "right");
                             }
 
-                            if (0) {
                             const commands = ctx.discoverableCommands; {
                                 im.For(c); for (let i = 0; i < commands.stabilizedIdx; i++) {
                                     const command = commands.stabilized[i];
@@ -298,7 +297,6 @@ function imMainInner(c: ImCache) {
                                 commands.ctrlAvailable = false;
                                 commands.altAvailable = false;
                             } 
-                            }
 
                             imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
                         } imui.End(c);
