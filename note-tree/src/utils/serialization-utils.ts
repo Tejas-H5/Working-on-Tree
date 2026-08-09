@@ -274,7 +274,7 @@ export function deserializeObjectKey<T extends JSONRecord, K extends string & ke
 // and serialized sepratately:
 // - nullable values
 // - arrays, maps, sets
-export function deserializeObject<T extends JSONRecord>(dst: T, src: JSONRecord, rootName = "") {
+export function deserializeObject<T extends JSONRecord>(dst: T, src: LoadedObject<T>, rootName = "") {
     for (const k in dst) {
         deserializeObjectKey(dst, src, k, 0, rootName);
     }

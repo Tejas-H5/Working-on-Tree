@@ -36,6 +36,7 @@ import {
 import { filterInPlace } from "./utils/array-utils";
 import { mustGetDefined } from "./utils/assert";
 import { formatIsoDate } from "./utils/datetime";
+import { CodePage, newCodeEditorState, newCodePage } from "./app-views/code-editor";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");
@@ -336,6 +337,11 @@ function asNoteTree(noteTreeObj: LoadedObject<NoteTree>, noteTree: NoteTree): No
     return noteTree;
 }
 
+function asCodePage(codePageObj: LoadedObject<CodePage>, code: CodePage): CodePage {
+    deserializeObject(code, codePageObj);
+    return code;
+}
+
 function asJournalPage(pageObj: LoadedObject<JournalPage>, page: JournalPage): JournalPage {
     const graphObj = getObject(pageObj, "graph")
     if (graphObj) {
@@ -352,6 +358,11 @@ function asJournalPage(pageObj: LoadedObject<JournalPage>, page: JournalPage): J
     const noteTreeObj = getObject(pageObj, "noteTree");
     if (noteTreeObj) {
         page.noteTree = asNoteTree(noteTreeObj, newNoteTree());
+    }
+
+    const codeObj = getObject(pageObj, "code");
+    if (codeObj) {
+        page.code = asCodePage(codeObj, newCodePage());
     }
 
     deserializeObject(page, pageObj);

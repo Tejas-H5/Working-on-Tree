@@ -1055,8 +1055,8 @@ export function imGraphMappingsEditorView(
 
         imui.Begin(c, ROW); imui.Absolute(c, 0, NA, 10, PX, 10, PX, 0, NA); imui.NoSelect(c); {
             if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "1rem");
-            imdom.Str(c, view.pan.x); imdom.Str(c, ", "); imdom.Str(c, view.pan.y);
-            imdom.Str(c, " @ "); imdom.Str(c, view.zoom); imdom.Str(c, "x");
+            imdom.Str(c, view.pan.x.toFixed(3)); imdom.Str(c, ", "); imdom.Str(c, view.pan.y.toFixed(3));
+            imdom.Str(c, " @ "); imdom.Str(c, view.zoom.toFixed(3)); imdom.Str(c, "x");
         } imui.End(c);
     } imui.End(c);
 

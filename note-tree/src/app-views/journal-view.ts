@@ -17,6 +17,7 @@ import { logTrace } from "src/utils/log";
 import { imTextWithHighlightedRanges } from "src/app-components/highlighted-text";
 import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
+import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-editor";
 
 type FinderResult = {
     id: number;
@@ -94,9 +95,10 @@ export type JournalPage = {
     name: string;
     createdAt: Date;
     content: string;
+    focusedChildIdx: number;
     graph: { g: MappingGraph; v: MappingGraphView } | undefined;
     noteTree: NoteTree | undefined;
-    focusedChildIdx: number;
+    code: CodePage | undefined;
 
     _durationUnranged: number;
     _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
@@ -113,6 +115,7 @@ export function newJournalPage(name: string, createdAt = new Date()):JournalPage
         focusedChildIdx: 0,
         graph: undefined,
         noteTree: undefined,
+        code: undefined,
 
         _durationUnranged: 0,
         _durationRanged: 0,
@@ -387,7 +390,7 @@ export function imJournalView(
     if (!ctx.handled) {
         if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
             s.finder.isFinding = false;
-        } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back")) {
+        } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
             s.pages.view = VIEWING_PAGE;
         } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
             s.sidebarHasFocus = true;
@@ -466,21 +469,6 @@ function imPageEditor(
         const s = im.GetInline(c, imPageEditor) ?? im.Set(c, { version: 0 });
 
         im.Switch(c, journalViewState.pages.view); switch (journalViewState.pages.view) {
-            case VIEWING_GRAPH: {
-                if (!page.data.graph) {
-                    // Lazily create this data directly in the UI render pass. React devs would not like this
-                    page.data.graph = {
-                        g: newMappingGraph(),
-                        v: newMappingGraphView(),
-                    };
-                    journalMutated(state);
-                }
-
-                imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
-                    const graphViewState = im.State(c, newGraphMappingsViewState);
-                    imGraphMappingsEditorView(c, graphViewState, page.data.graph.g, page.data.graph.v)
-                } imui.End(c);
-            } break;
             case VIEWING_PAGE: {
                 imui.Begin(c, BLOCK); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
                     if (im.If(c) && editing) {
@@ -520,8 +508,38 @@ function imPageEditor(
                     } im.IfEnd(c);
                 } imui.End(c);
             } break;
+            case VIEWING_GRAPH: {
+                if (!page.data.graph) {
+                    // Lazily create this data directly in the UI render pass. React devs would not like this
+                    page.data.graph = {
+                        g: newMappingGraph(),
+                        v: newMappingGraphView(),
+                    };
+                    journalMutated(state);
+                }
+
+                imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
+                    const graphViewState = im.State(c, newGraphMappingsViewState);
+                    imGraphMappingsEditorView(c, graphViewState, page.data.graph.g, page.data.graph.v)
+                    if (im.Memo(c, page.data.graph.g._version + page.data.graph.v._version)) {
+                        journalMutated(state);
+                    }
+                } imui.End(c);
+            } break;
             case VIEWING_CODE: {
-                imdom.Str(c, "TODO: put the code editor here!");
+                if (!page.data.code) {
+                    page.data.code = newCodePage();
+                    journalMutated(state);
+                }
+
+                const codeEditorState = im.State(c, newCodeEditorState);
+
+                imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
+                    imCodeEditor(c, ctx, codeEditorState, page.data.code);
+                    if (im.Memo(c, codeEditorState.version)) {
+                        journalMutated(state);
+                    }
+                } imui.End(c);
             } break;
             case VIEWING_NOTES: {
                 if (!page.data.noteTree) {
