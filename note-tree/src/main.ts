@@ -613,8 +613,6 @@ function imMainInner(c: ImCache) {
     } im.TryEnd(c, tryState);
 }
 
-const cGlobal: ImCache = [];
-
 function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
     imui.Begin(c, COL); imui.Align(c, CENTER); imui.Pre(c); {
         imui.Begin(c, BLOCK); {
