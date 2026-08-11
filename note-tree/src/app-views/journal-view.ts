@@ -249,7 +249,9 @@ export function imJournalView(
 
     // Journal side bar
     imui.Begin(c, ROW); imui.Flex(c); {
-        imui.Begin(c, COL); imui.MinSize(c, 200, PX, 0, NA); {
+        imui.Begin(c, COL); imui.MinSize(c, 100, PX, 0, NA); {
+            // When I hid the sidebar entirely, something felt missing. I cannot quite describe what it was. 
+            // Either way, rather than completely removing the sidebar, I'm just reducing the font size.
             if (im.IsFirstRender(c)) imdom.setStyle(c, "transition", "font-size 0.05s ease-out");
             imui.FontSize(c, 0.6, s.sidebarHasFocus ? NA : EM);
 
