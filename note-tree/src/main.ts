@@ -342,10 +342,7 @@ function imMainInner(c: ImCache) {
 
                             imLine(c, LINE_VERTICAL, 1);
 
-                            if (
-                                ctx.currentView !== ctx.views.journalView 
-                                // && ctx.currentView !== ctx.views.durations
-                            ) {
+                            if (ctx.currentView !== ctx.views.journalView) {
                                 ctx.leftTab = ctx.currentView;
                                 ctx.sideTabExpanded = true;
                             } else {
@@ -355,7 +352,7 @@ function imMainInner(c: ImCache) {
                             if (im.If(c) && ctx.sideTabExpanded) {
                                 imui.Begin(c, COL); {
                                     if (im.IsFirstRender(c)) {
-                                        imdom.setStyle(c, "width", "33%");
+                                        imdom.setStyle(c, "maxWidth", "33%");
                                     }
 
                                     im.Switch(c, ctx.leftTab); switch (ctx.leftTab) {

@@ -1,6 +1,6 @@
 import { cssVarsApp } from "app-styling";
 import { im, ImCache, imdom } from "im-js";
-import { BLOCK, DisplayType, imui, NA, PX, ROW, SizeUnits } from "im-js/im-ui";
+import { BLOCK, DisplayType, EM, imui, NA, PX, ROW, SizeUnits } from "im-js/im-ui";
 
 
 type RowStatusInstance = number & { __rowStatus: void; };
@@ -62,7 +62,7 @@ export function imListRowBegin(
     const root = imui.Begin(c, ROW); {
         imListCursorBg(c, status);
 
-        imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); {
+        imui.Begin(c, BLOCK); imui.Size(c, 0.65, EM, 0, NA); {
             imListCursorColor(c, status);
         } imui.End(c);
 

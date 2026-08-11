@@ -11,7 +11,7 @@ import { assert } from "assert";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 } from "datetime";
 import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
 import { el, ev, im, ImCache, imdom, key } from "im-js";
-import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "im-js/im-ui";
+import { BLOCK, COL, cssVars, EM, imui, NA, PX, ROW, ROW_REVERSE } from "im-js/im-ui";
 import * as itree from "int-tree";
 import { logTrace } from "log";
 import { imTextWithHighlightedRanges } from "app-components/highlighted-text";
@@ -250,6 +250,9 @@ export function imJournalView(
     // Journal side bar
     imui.Begin(c, ROW); imui.Flex(c); {
         imui.Begin(c, COL); imui.MinSize(c, 200, PX, 0, NA); {
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "transition", "font-size 0.05s ease-out");
+            imui.FontSize(c, 0.6, s.sidebarHasFocus ? NA : EM);
+
             if (im.If(c) && s.finder.isFinding && s.finder.results) {
                 // Journal entries
                 const sc = im.State(c, newScrollContainer);
@@ -302,22 +305,10 @@ export function imJournalView(
         imLine(c, LINE_VERTICAL, 1);
 
         imui.Begin(c, COL); imui.Flex(c); {
+            const finder = s.finder;
+            const currentFilterResult = finder.results && arrayAt(finder.results, finder.resultsIdx);
+
             if (im.If(c) && s.finder.isFinding) {
-                const finder = s.finder;
-
-                const currentFilterResult = finder.results && arrayAt(finder.results, finder.resultsIdx);
-                imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
-                    if (im.If(c) && currentFilterResult == null) {
-                        imdom.Str(c, "No results");
-                    } else {
-                        im.Else(c);
-                        const page = getPage(journal, currentFilterResult!.id);
-                        imdom.Str(c, getPageName(page.data));
-                    } im.IfEnd(c);
-                } imdom.ElEnd(c, el.H2);
-
-                imLine(c, LINE_HORIZONTAL, 1);
-
                 imui.Begin(c, BLOCK); {
                     const ev = imTextInputOneLine(c, finder.query, "Search for text...", true, false);
                     if (ev) {
@@ -342,7 +333,50 @@ export function imJournalView(
                 } imui.End(c);
 
                 imLine(c, LINE_HORIZONTAL, 1);
+            } im.IfEnd(c);
 
+            imui.Begin(c, ROW); imui.Align(c); {
+                imui.Begin(c, ROW); imui.Align(c); imui.Flex(c); imui.Gap(c, 10, PX); {
+                    if (im.If(c) && !s.finder.isFinding) {
+                        const graphCount = getMappingGraphCount(currentPage.data.graph?.g)
+                        imToggleableViewIcon(c, s, VIEWING_GRAPH, "[G]raph", graphCount);
+
+                        // TODO: implement code
+                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", 0);
+
+                        imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
+                    } im.IfEnd(c);
+                } imui.End(c);
+
+                imdom.ElBegin(c, el.H2); imui.Justify(c); {
+                    if (im.If(c) && s.finder.isFinding && !currentFilterResult) {
+                        imdom.Str(c, "No results");
+                    } else {
+                        im.Else(c);
+
+                        imui.Begin(c, ROW_REVERSE); {
+                            let curr: TreePage = currentPage;
+                            im.For(c); while (curr.id !== itree.ROOT_ID) {
+                                if (curr !== currentPage) {
+                                    imui.Begin(c, BLOCK); {
+                                        imdom.Str(c, " / ");
+                                    } imui.End(c);
+                                }
+                                imui.Begin(c, BLOCK); {
+                                    imdom.Str(c, getPageName(curr.data));
+                                } imui.End(c);
+                                curr = getPage(journal, curr.parentId);
+                            } im.ForEnd(c);
+                        } imui.End(c);
+                    } im.IfEnd(c);
+                } imdom.ElEnd(c, el.H2);
+
+                imui.Flex1(c);
+            } imui.End(c);
+
+            imLine(c, LINE_HORIZONTAL, 1);
+
+            if (im.If(c) && s.finder.isFinding) {
                 imui.Begin(c, BLOCK); imui.Flex(c); {
                     if (im.If(c) && currentFilterResult) {
                         const page = getPage(journal, currentFilterResult.id);
@@ -354,27 +388,6 @@ export function imJournalView(
                 } imui.End(c);
             } else {
                 im.Else(c);
-
-                imui.Begin(c, ROW); imui.Align(c); {
-                    imui.Begin(c, ROW); imui.Flex(c); imui.Gap(c, 10, PX); {
-                        const graphCount = getMappingGraphCount(currentPage.data.graph?.g)
-                        imToggleableViewIcon(c, s, VIEWING_GRAPH, "[G]raph", graphCount);
-
-                        // TODO: implement code
-                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", 0);
-
-                        imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
-                    } imui.End(c);
-
-                    imdom.ElBegin(c, el.H2); imui.Layout(c, ROW); imui.Justify(c); {
-                        imdom.Str(c, "Page - ");
-                        imdom.Str(c, getPageName(currentPage.data));
-                    } imdom.ElEnd(c, el.H2);
-
-                    imui.Flex1(c);
-                } imui.End(c);
-
-                imLine(c, LINE_HORIZONTAL, 1);
 
                 imPageEditor(c, ctx, s, currentPage, viewHasFocus && !s.sidebarHasFocus, false);
             } im.IfEnd(c);
@@ -434,24 +447,26 @@ function imPageListRow(
                 } im.IfEnd(c);
             } imui.End(c);
 
-            if (im.If(c) && page.childIds.length > 0) {
-                imui.Begin(c, BLOCK); imui.Size(c, 20, PX, 0, NA); imui.End(c);
-
-                imdom.Str(c, "(");
-                imdom.Str(c, page.childIds.length);
-                imdom.Str(c, ")");
-            } im.IfEnd(c);
-
-            if (im.If(c) && ctx.viewingDurations) {
-                imui.Begin(c, ROW); {
+            if (im.If(c) && s.sidebarHasFocus) {
+                if (im.If(c) && page.childIds.length > 0) {
                     imui.Begin(c, BLOCK); imui.Size(c, 20, PX, 0, NA); imui.End(c);
 
-                    const durationTimesheet = getPageDurationUsingCurrentRange(state, page);
-                    const durationAllTime = getPageDurationWithoutRange(state, page);
-                    imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
-                    imdom.Str(c, " / ");
-                    imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
-                } imui.End(c);
+                    imdom.Str(c, "(");
+                    imdom.Str(c, page.childIds.length);
+                    imdom.Str(c, ")");
+                } im.IfEnd(c);
+
+                if (im.If(c) && ctx.viewingDurations) {
+                    imui.Begin(c, ROW); {
+                        imui.Begin(c, BLOCK); imui.Size(c, 20, PX, 0, NA); imui.End(c);
+
+                        const durationTimesheet = getPageDurationUsingCurrentRange(state, page);
+                        const durationAllTime = getPageDurationWithoutRange(state, page);
+                        imdom.StrFmt(c, durationTimesheet, formatDurationAsHours);
+                        imdom.Str(c, " / ");
+                        imdom.StrFmt(c, durationAllTime, formatDurationAsHours);
+                    } imui.End(c);
+                } im.IfEnd(c);
             } im.IfEnd(c);
         } imui.End(c);
     } imNavListRowEnd(c);

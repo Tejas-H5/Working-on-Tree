@@ -704,7 +704,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
                             let text = getActivityText(state, activity);
                             imui.Begin(c, ROW); imui.Align(c); imui.Justify(c, isBreakActivity ? CENTER : NONE); imui.Flex(c); {
                                 if (im.Memo(c, isBreakActivity)) {
-                                    imdom.setStyle(c, "padding", isBreakActivity ? "40px" : "0");
+                                    imdom.setStyle(c, "padding", isBreakActivity ? "20px" : "0");
                                 }
 
                                 const isEditingActivityChanged = im.Memo(c, isEditingActivity);
