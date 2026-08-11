@@ -1,4 +1,4 @@
-import { imAppHeadingBegin, imAppHeadingEnd } from "src/app-components/app-heading";
+import { imAppHeadingBegin, imAppHeadingEnd } from "app-components/app-heading";
 import {
     addView,
     getNavigableListInput,
@@ -12,10 +12,10 @@ import {
     imViewsList,
     newFocusRef,
     newListPosition
-} from "src/app-components/navigable-list";
-import { cssVarsApp } from "src/app-styling";
-import { imB, imBEnd, imI, imIEnd } from "src/components/core/text";
-import { newScrollContainer, } from "src/components/scroll-container";
+} from "app-components/navigable-list";
+import { cssVarsApp } from "app-styling";
+import { imB, imBEnd, imI, imIEnd } from "components/core/text";
+import { newScrollContainer, } from "components/scroll-container";
 import {
     debouncedSave,
     GlobalContext,
@@ -23,7 +23,7 @@ import {
     saveCurrentState,
     setCurrentView,
     SHIFT
-} from "src/global-context";
+} from "global-context";
 import {
     getCurrentStateAsJSON,
     getLastActivity,
@@ -32,15 +32,15 @@ import {
     resetState,
     setState,
     state
-} from "src/state";
-import { arrayAt } from "src/utils/array-utils";
-import { formatDateTime } from "src/utils/datetime";
-import { downloadTextAsFile, loadFile } from "src/utils/file-download";
-import { el, im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH } from "src/utils/im-js/im-ui";
+} from "state";
+import { arrayAt } from "array-utils";
+import { formatDateTime } from "datetime";
+import { downloadTextAsFile, loadFile } from "file-download";
+import { el, im, ImCache, imdom } from "im-js";
+import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH } from "im-js/im-ui";
 
-import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "src/app-components/list-row";
-import { VERSION_NUMBER } from "src/version-number";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "app-components/list-row";
+import { VERSION_NUMBER } from "version-number";
 
 const REQUIRED_PRESSES = 5;
 
@@ -142,7 +142,7 @@ const menus: MenuItem[] = [
 
                             imNavListRowBegin(c, itemList, false, false); {
                                 imui.Begin(c, ROW); imListRowCellStyle(c); {
-                                    if (im.isFirstishRender(c)) {
+                                    if (im.IsFirstRender(c)) {
                                         imdom.setStyle(c, "whiteSpace", "pre-wrap");
                                     }
 
@@ -447,7 +447,7 @@ const menus: MenuItem[] = [
 
                     imListRowBegin(c, true, hasFocus, false); {
                         imui.Begin(c, BLOCK); imListRowCellStyle(c); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 imdom.setStyle(c, "fontSize", "30px");
                             }
 
@@ -496,7 +496,7 @@ const menus: MenuItem[] = [
                         timer = im.Set(c, timer + im.getDeltaTimeSeconds(c));
 
                         imui.Begin(c, BLOCK); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 imdom.setStyle(c, "fontSize", "30px");
                                 imdom.setStyle(c, "color", "red");
                             }
@@ -546,7 +546,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
         imui.Begin(c, COL); imui.Align(c); imui.Flex(c); {
             imui.Begin(c, ROW); imui.Size(c, 0, NA, 100, PERCENT); {
                 imui.Begin(c, COL);  {
-                    if (im.isFirstishRender(c)) {
+                    if (im.IsFirstRender(c)) {
                         imdom.setStyle(c, "minWidth", "100px");
                     }
 
@@ -598,7 +598,7 @@ export function imSettingsView(c: ImCache, ctx: GlobalContext, s: SettingsViewSt
                 imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
 
                 imui.Begin(c, COL); imui.Flex(c); {
-                    if (im.isFirstishRender(c)) {
+                    if (im.IsFirstRender(c)) {
                         imdom.setStyle(c, "width", "800px");
                     }
 

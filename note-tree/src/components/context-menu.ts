@@ -1,5 +1,5 @@
-import { COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
-import { im, ImCache, imdom } from "src/utils/im-js";
+import { COL, cssVars, imui, NA, PX, ROW } from "im-js/im-ui";
+import { im, ImCache, imdom } from "im-js";
 
 export type ContextMenuState = {
     open: boolean;
@@ -30,10 +30,10 @@ export function imContextMenuBegin(c: ImCache, s: ContextMenuState) {
 
             if (Math.abs(rect.x - rect.y) > 10) {
                 let mouseDistanceFromBorder = 0;
-                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, rect.left - mouse.X);
-                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, mouse.X - rect.right);
-                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, rect.top - mouse.Y);
-                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, mouse.Y - rect.bottom);
+                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, rect.left - mouse.x);
+                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, mouse.x - rect.right);
+                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, rect.top - mouse.y);
+                mouseDistanceFromBorder = Math.max(mouseDistanceFromBorder, mouse.y - rect.bottom);
 
                 if (mouseDistanceFromBorder > s.distanceToClose) {
                     s.open = false;
@@ -45,7 +45,7 @@ export function imContextMenuBegin(c: ImCache, s: ContextMenuState) {
                 s.position.y = wantedTop;
             }
 
-            if (im.isFirstishRender(c)) {
+            if (im.IsFirstRender(c)) {
                 imdom.setStyle(c, "padding", "3px");
                 imdom.setStyle(c, "userSelect", "none");
                 imdom.setStyle(c, "backgroundColor", cssVars.bg);
@@ -78,7 +78,7 @@ export function imContextMenuEnd(c: ImCache, s: ContextMenuState) {
 // This is not as important as imContextMenuBegin/End, and can be changed for something else.
 export function imContextMenuItemBegin(c: ImCache) {
     imui.Begin(c, ROW); imui.Justify(c); {
-        if (im.isFirstishRender(c)) {
+        if (im.IsFirstRender(c)) {
             imdom.setStyle(c, "borderBottom", "1px solid rgba(0,0,0,0.37)");
         }
     } // imui.End
@@ -98,6 +98,6 @@ export function openContextMenu(s: ContextMenuState, x: number, y: number) {
 
 export function openContextMenuAtMouse(s: ContextMenuState) {
     const mouse = imdom.getMouse();
-    openContextMenu(s, mouse.X, mouse.Y);
+    openContextMenu(s, mouse.x, mouse.y);
 }
 

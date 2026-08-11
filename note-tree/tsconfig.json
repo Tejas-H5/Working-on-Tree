@@ -5,9 +5,8 @@
     "module": "ESNext",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "baseUrl": ".",
 
-    "types": [],
+    "paths": {"*": ["./src/*", "./src/vendored/*"]},
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -16,12 +15,12 @@
     "isolatedModules": true,
     "noEmit": true,
 
+    "types": [],
+    "rootDir": ".",
+
     /* Linting */
     "strict": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  "exclude": [
-    "**/legacy-**/*.ts",
-  ]
+  "exclude": ["./build"]
 }

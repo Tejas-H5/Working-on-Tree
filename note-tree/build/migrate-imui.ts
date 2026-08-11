@@ -60,7 +60,7 @@ for await (const file of fs.glob("**/*.ts", { cwd: BASE_DIR })) {
 	newText = newText
 		.replace(/(imui\.)+/g, "imui.")
 
-	newText = replaceBetween(newText, "import ", "core/layout\";", `import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";`);
+	newText = replaceBetween(newText, "import ", "core/layout\";", `import { imui, BLOCK, ROW, COL, PX, NA } from "im-js/im-ui";`);
 	newText = replaceBetween(newText, "import ", "core/stylesheets\";", "");
 	newText = replaceBetween(newText, "import ", "cssb\";", "");
 	newText = replaceBetween(newText, "import ", "dom-utils\";", "");

@@ -1,5 +1,5 @@
-import { im, ImCache } from "src/utils/im-js";
-import { COL, getScrollVHEx, imui, ROW } from "src/utils/im-js/im-ui";
+import { im, ImCache } from "im-js";
+import { COL, getScrollVHEx, imui, ROW } from "im-js/im-ui";
 
 
 // NOTE: if all we need is idx, let's just inline it.

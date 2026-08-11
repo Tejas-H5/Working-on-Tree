@@ -1,6 +1,6 @@
-import { cssVarsApp } from "src/app-styling";
-import { im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, DisplayType, imui, NA, PX, ROW, SizeUnits } from "src/utils/im-js/im-ui";
+import { cssVarsApp } from "app-styling";
+import { im, ImCache, imdom } from "im-js";
+import { BLOCK, DisplayType, imui, NA, PX, ROW, SizeUnits } from "im-js/im-ui";
 
 
 type RowStatusInstance = number & { __rowStatus: void; };
@@ -106,7 +106,7 @@ export function imEndListRowNoPadding(c: ImCache) {
 }
 
 export function imListRowCellStyle(c: ImCache) {
-    if (im.isFirstishRender(c)) {
+    if (im.IsFirstRender(c)) {
         imdom.setStyle(c, "minHeight", "1em");
     }
     imui.Padding(c, 3, PX, 8, PX, 3, PX, 3, PX);

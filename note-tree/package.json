@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-	"dev": "node ./build/build.ts devserver",
-	"build": "node ./build/build.ts build"
+    "dev": "node ./build/build.ts devserver",
+    "build": "node ./build/build.ts build"
   },
   "devDependencies": {
-    "esbuild": "^0.27.3",
-    "typescript": "^5.7.3"
+    "esbuild": "^0.27.7",
+    "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@types/node": "^25.2.3"
+    "@types/node": "^25.2.3",
+    "im-js": "github:Tejas-H5/imjs"
   }
 }

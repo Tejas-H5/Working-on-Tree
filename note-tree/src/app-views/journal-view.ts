@@ -1,23 +1,23 @@
-import { imListRowCellStyle } from "src/app-components/list-row";
-import { AXIS_FLAG_BYPASS_TEXT_AREA, AXIS_VERTICAL, clampedListIdx, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListNextItemArray, imNavListRowBegin, imNavListRowEnd, NavigableListState } from "src/app-components/navigable-list";
-import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
-import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "src/components/im-line";
-import { newScrollContainer } from "src/components/scroll-container";
-import { imTextInputOneLine } from "src/components/text-input";
-import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "src/global-context";
-import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "src/state";
-import { arrayAt } from "src/utils/array-utils";
-import { assert } from "src/utils/assert";
-import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 } from "src/utils/datetime";
-import { fuzzyFind, FuzzyFindRange } from "src/utils/fuzzyfind";
-import { el, ev, im, ImCache, imdom, key } from "src/utils/im-js";
-import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "src/utils/im-js/im-ui";
-import * as itree from "src/utils/int-tree";
-import { logTrace } from "src/utils/log";
-import { imTextWithHighlightedRanges } from "src/app-components/highlighted-text";
+import { imListRowCellStyle } from "app-components/list-row";
+import { AXIS_FLAG_BYPASS_TEXT_AREA, AXIS_VERTICAL, clampedListIdx, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListNextItemArray, imNavListRowBegin, imNavListRowEnd, NavigableListState } from "app-components/navigable-list";
+import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
+import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "components/im-line";
+import { newScrollContainer } from "components/scroll-container";
+import { imTextInputOneLine } from "components/text-input";
+import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
+import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
+import { arrayAt } from "array-utils";
+import { assert } from "assert";
+import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 } from "datetime";
+import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
+import { el, ev, im, ImCache, imdom, key } from "im-js";
+import { BLOCK, COL, cssVars, imui, NA, PX, ROW } from "im-js/im-ui";
+import * as itree from "int-tree";
+import { logTrace } from "log";
+import { imTextWithHighlightedRanges } from "app-components/highlighted-text";
 import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
-import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-editor";
+import { CodePage } from "./code-editor";
 
 type FinderResult = {
     id: number;
@@ -476,7 +476,7 @@ function imPageEditor(
                             value: page.data.content,
                             version: s.version
                         }); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 imdom.setStyleProperty(c, "--focusColor", "", root);
                             }
 
@@ -527,18 +527,18 @@ function imPageEditor(
                 } imui.End(c);
             } break;
             case VIEWING_CODE: {
-                if (!page.data.code) {
-                    page.data.code = newCodePage();
-                    journalMutated(state);
-                }
+                // if (!page.data.code) {
+                //     page.data.code = newCodePage();
+                //     journalMutated(state);
+                // }
 
-                const codeEditorState = im.State(c, newCodeEditorState);
+                // const codeEditorState = im.State(c, newCodeEditorState);
 
                 imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
-                    imCodeEditor(c, ctx, codeEditorState, page.data.code);
-                    if (im.Memo(c, codeEditorState.version)) {
-                        journalMutated(state);
-                    }
+                    // imCodeEditor(c, ctx, codeEditorState, page.data.code);
+                    // if (im.Memo(c, codeEditorState.version)) {
+                    //     journalMutated(state);
+                    // }
                 } imui.End(c);
             } break;
             case VIEWING_NOTES: {
@@ -607,7 +607,7 @@ function handleKeyboardInput(
         const parentPage = parent.data;
 
         const keys = imdom.getKeyboard();
-        const movePage = imdom.isKeyHeld(keys, ctx.keyboard.altKey);
+        const movePage = imdom.isKeyHeld(ctx.keyboard.altKey);
 
         const input = getNavigableListInput(ctx, parentPage.focusedChildIdx, 0, parent.childIds.length, AXIS_VERTICAL);
         if (input) {
@@ -711,8 +711,8 @@ function handleKeyboardInput(
 
         if (!handled) {
             const keys = imdom.getKeyboard();
-            if (imdom.isKeyPressedOrRepeated(keys, key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(keys, key.ARROW_LEFT)) {
-                if (imdom.isKeyHeld(keys, key.ALT)) {
+            if (imdom.isKeyPressedOrRepeated(key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(key.ARROW_LEFT)) {
+                if (imdom.isKeyHeld(key.ALT)) {
                     handled = true;
                 }
             }
@@ -825,7 +825,7 @@ function findJournalResults(
 
 function imToggleableViewIcon(c: ImCache, s: JournalViewState, view: number, name: string, count: number) {
     imui.Begin(c, BLOCK); imui.Fg(c, s.pages.view === view ? "" :  cssVars.mg); {
-        if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
+        if (im.IsFirstRender(c)) imdom.setStyle(c, "fontWeight", "bold");
         imdom.Str(c, name)
         if (im.If(c) && count > 0) {
             imdom.Str(c, "("); imdom.Str(c, count); imdom.Str(c, ")");

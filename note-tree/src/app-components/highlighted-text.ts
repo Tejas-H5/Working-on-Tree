@@ -1,7 +1,7 @@
-import { cnApp } from "src/app-styling";
-import { FuzzyFindRange } from "src/utils/fuzzyfind";
-import { im, ImCache, imdom } from "src/utils/im-js";
-import { imui, INLINE } from "src/utils/im-js/im-ui";
+import { cnApp } from "app-styling";
+import { FuzzyFindRange } from "fuzzyfind";
+import { im, ImCache, imdom } from "im-js";
+import { imui, INLINE } from "im-js/im-ui";
 
 export function imTextWithHighlightedRanges(c: ImCache, text: string, ranges: FuzzyFindRange[], truncate: boolean) {
     const diffState = im.GetInline(c, imTextWithHighlightedRanges) ??
@@ -62,7 +62,7 @@ export function imTextWithHighlightedRanges(c: ImCache, text: string, ranges: Fu
             lastStart = nextLastStart;
 
             imui.Begin(c, INLINE); {
-                if (im.isFirstishRender(c)) {
+                if (im.IsFirstRender(c)) {
                     imdom.setClass(c, cnApp.defocusedText);
                 }
 
@@ -73,7 +73,7 @@ export function imTextWithHighlightedRanges(c: ImCache, text: string, ranges: Fu
 
         if (im.If(c) && lastStart !== text.length) {
             imui.Begin(c, INLINE); {
-                if (im.isFirstishRender(c)) {
+                if (im.IsFirstRender(c)) {
                     imdom.setClass(c, cnApp.defocusedText);
                 }
 

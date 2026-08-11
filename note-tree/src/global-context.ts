@@ -5,13 +5,13 @@ import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurr
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
-import { assert } from "./utils/assert";
-import { parseDateSafe } from "./utils/datetime";
+import { assert } from "assert";
+import { parseDateSafe } from "datetime";
 
-import { imdom, NormalizedKey } from "./utils/im-js";
-import { isEditingTextSomewhereInDocument } from "./utils/im-js/im-ui";
-import { logTrace } from "./utils/log";
-import { bytesToMegabytes, utf8ByteLength } from "./utils/utf8";
+import { imdom, NormalizedKey } from "im-js";
+import { isEditingTextSomewhereInDocument } from "im-js/im-ui";
+import { logTrace } from "log";
+import { bytesToMegabytes, utf8ByteLength } from "utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
 
 const SAVE_DEBOUNCE = 1500;
@@ -206,19 +206,17 @@ export function hasDiscoverableCommand(
 }
 
 function hasCommand(ctx: GlobalContext, command: DiscoverableCommand) {
-    const keys = imdom.getKeyboard();
-
     if (ctx.handled) return false;
 
     if (!(command.flags & BYPASS_TEXT_AREA) && isEditingTextSomewhereInDocument()) return false;
 
-    if (!command.key || !imdom.isKeyPressedOrRepeated(keys, command.key)) return false;
-    if (!(command.flags & REPEAT) && !imdom.isKeyPressed(keys, command.key)) return false;
+    if (!command.key || !imdom.isKeyPressedOrRepeated(command.key)) return false;
+    if (!(command.flags & REPEAT) && !imdom.isKeyPressed(command.key)) return false;
 
     if (!(command.flags & ANY_MODIFIERS)) {
-        if ((command.flags & ALT)   && !imdom.isKeyHeld(keys, ctx.keyboard.altKey))   return false;
-        if ((command.flags & CTRL)  && !imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey))  return false;
-        if ((command.flags & SHIFT) && !imdom.isKeyHeld(keys, ctx.keyboard.shiftKey)) return false;
+        if ((command.flags & ALT)   && !imdom.isKeyHeld(ctx.keyboard.altKey))   return false;
+        if ((command.flags & CTRL)  && !imdom.isKeyHeld(ctx.keyboard.ctrlKey))  return false;
+        if ((command.flags & SHIFT) && !imdom.isKeyHeld(ctx.keyboard.shiftKey)) return false;
     }
 
     return true;
@@ -258,12 +256,10 @@ function pushDiscoverableCommand(
     command.flags  = flags;
 
     if (!(flags & ANY_MODIFIERS)) {
-        const keys = imdom.getKeyboard();
-
         const currentlyHeld = (
-            (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) ? CTRL : 0) |
-            (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) ? SHIFT : 0) |
-            (imdom.isKeyHeld(keys, ctx.keyboard.altKey) ? ALT : 0)
+            (imdom.isKeyHeld(ctx.keyboard.ctrlKey) ? CTRL : 0) |
+            (imdom.isKeyHeld(ctx.keyboard.shiftKey) ? SHIFT : 0) |
+            (imdom.isKeyHeld(ctx.keyboard.altKey) ? ALT : 0)
         );
 
         const commandWants = (CTRL | SHIFT | ALT) & flags;

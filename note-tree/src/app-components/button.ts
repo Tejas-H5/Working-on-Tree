@@ -1,5 +1,5 @@
-import { im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, cssVars, DisplayType, imui } from "src/utils/im-js/im-ui";
+import { im, ImCache, imdom } from "im-js";
+import { BLOCK, cssVars, DisplayType, imui } from "im-js/im-ui";
 
 const cssb = imui.newCssBuilder();
 
@@ -16,7 +16,7 @@ const cnButton = (() => {
 })();
 
 export function imButton(c: ImCache, toggled = false) {
-    if (im.isFirstishRender(c)) imdom.setClass(c, cnButton);
+    if (im.IsFirstRender(c)) imdom.setClass(c, cnButton);
     if (im.Memo(c, toggled))    imdom.setClass(c, "toggled", toggled);
 }
 

@@ -3,7 +3,7 @@ import {
     imListCursorColor,
     imListCursorBg as imListRowBg,
     imListRowCellStyle,
-} from "src/app-components/list-row";
+} from "app-components/list-row";
 import {
     AXIS_HORIZONTAL,
     clampedListIdxRange,
@@ -13,15 +13,27 @@ import {
     imNavListNextItemArray,
     ListPosition,
     newListPosition
-} from "src/app-components/navigable-list";
-import { imB, imBEnd } from "src/components/core/text";
+} from "app-components/navigable-list";
+import { arrayAt } from "array-utils";
+import { assert, mustGetDefined } from "assert";
+import { imB, imBEnd } from "components/core/text";
 import {
     newScrollContainer,
     ScrollContainer,
     scrollToItem,
     startScrolling
-} from "src/components/scroll-container";
-import { focusItem, GlobalContext } from "src/global-context";
+} from "components/scroll-container";
+import {
+    addDays,
+    DAYS_OF_THE_WEEK_ABBREVIATED,
+    floorDateToWeekLocalTime,
+    formatDate,
+    formatDurationAsHours,
+    isSameDate
+} from "datetime";
+import { focusItem, GlobalContext } from "global-context";
+import { im, ImCache, imdom } from "im-js";
+import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW, STRETCH, } from "im-js/im-ui";
 import {
     Activity,
     getActivityDate,
@@ -30,19 +42,7 @@ import {
     isBreak,
     recomputeAllDurations,
     state
-} from "src/state";
-import { arrayAt } from "src/utils/array-utils";
-import { assert, mustGetDefined } from "src/utils/assert";
-import {
-    addDays,
-    DAYS_OF_THE_WEEK_ABBREVIATED,
-    floorDateToWeekLocalTime,
-    formatDate,
-    formatDurationAsHours,
-    isSameDate
-} from "src/utils/datetime";
-import { im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW, STRETCH, } from "src/utils/im-js/im-ui";
+} from "state";
 import { getPageOrUndefined, TreePage } from "./journal-view";
 
 type TaskBlockInfo = {
@@ -330,7 +330,7 @@ export function imDurationsView(
     imui.Begin(c, COL); imui.Flex(c); imui.Bg(c, cssVars.bg); {
         const list = imNavListBegin(c, s.scrollContainer, s.tableRowPos.idx, viewHasFocus); imui.Align(c, STRETCH); {
             imui.Begin(c, BLOCK); {
-                if (im.isFirstishRender(c)) {
+                if (im.IsFirstRender(c)) {
                     imdom.setStyle(c, "display", "grid");
                     imdom.setStyle(c, "gridTemplateColumns", "7fr " + "1fr ".repeat(DAYS_OF_THE_WEEK_ABBREVIATED.length + 1));
                 }

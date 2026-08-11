@@ -1,14 +1,25 @@
 {
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "target": "ES2025",
-    "outDir": "../build/dist",
-    "esModuleInterop": true,
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "strict": true
+
+    "paths": {"*": ["./*"]},
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+
     "types": ["node"],
+    "rootDir": ".",
+
+    /* Linting */
+    "strict": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": ["../build/src/**/*.ts"],
-  "exclude": ["../build/node_modules", "../build/**/*.spec.ts"]
 }

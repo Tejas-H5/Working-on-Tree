@@ -1,6 +1,6 @@
-import { im, ImCache, imdom } from "src/utils/im-js";
+import { im, ImCache, imdom } from "im-js";
 
-import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
+import { imui, BLOCK } from "im-js/im-ui";
 
 export type FpsCounterState = {
     renderStart: number;

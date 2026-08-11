@@ -1,4 +1,4 @@
-import { cssVars, imui } from "src/utils/im-js/im-ui";
+import { cssVars, imui } from "im-js/im-ui";
 
 const cssb = imui.newCssBuilder();
 

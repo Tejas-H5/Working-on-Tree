@@ -1,9 +1,9 @@
-import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
-import { assert } from "src/utils/assert";
-import { addMinutes, clampDate, cloneDate, dateSetLocalTime, formatTimeForInput, parseDurationInput, parseTimeInput, roundToNearestMinutes } from "src/utils/datetime";
+import { imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
+import { assert } from "assert";
+import { addMinutes, clampDate, cloneDate, dateSetLocalTime, formatTimeForInput, parseDurationInput, parseTimeInput, roundToNearestMinutes } from "datetime";
 
-import { ev, im, ImCache, imdom } from "src/utils/im-js";
-import { setInputValue } from "src/utils/im-js/im-ui";
+import { ev, im, ImCache, imdom } from "im-js";
+import { setInputValue } from "im-js/im-ui";
 
 
 type TimeInputStateEditEvent = {

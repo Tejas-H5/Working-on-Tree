@@ -1,38 +1,16 @@
-import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "src/app-components/list-row";
-import {
-    clampedListIdx,
-    clampedListIdxRange,
-    getNavigableListInput,
-    imNavListBegin,
-    imNavListEnd,
-    imNavListRowBegin,
-    imNavListRowEnd,
-    ListPosition,
-    navListNextItemSlice,
-    newListPosition
-} from "src/app-components/navigable-list";
-import { imEditableTime } from "src/app-components/time-input";
-import { imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { newScrollContainer, ScrollContainer, startScrolling } from "src/components/scroll-container";
-import { BYPASS_TEXT_AREA, debouncedSave, focusItem, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "src/global-context";
-import {
-    Activity,
-    getActivityDate,
-    getActivityDurationMs,
-    getActivityText,
-    getLastActivity,
-    isBreak,
-    isCurrentlyTakingABreak,
-    newBreakActivity,
-    pushBreakActivity,
-    state
-} from "src/state";
-import { arrayAt, boundsCheck } from "src/utils/array-utils";
-import { assert } from "src/utils/assert";
-import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "src/utils/datetime";
-import { ev, im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "src/utils/im-js/im-ui";
+import { imListRowBegin, imListRowCellStyle, imListRowEnd, } from "app-components/list-row";
+import { clampedListIdx, clampedListIdxRange, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListRowBegin, imNavListRowEnd, ListPosition, navListNextItemSlice, newListPosition } from "app-components/navigable-list";
+import { imEditableTime } from "app-components/time-input";
+import { arrayAt, boundsCheck } from "array-utils";
+import { assert } from "assert";
+import { imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
+import { imLine, LINE_HORIZONTAL } from "components/im-line";
+import { newScrollContainer, ScrollContainer, startScrolling } from "components/scroll-container";
+import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "datetime";
+import { BYPASS_TEXT_AREA, debouncedSave, focusItem, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "global-context";
+import { ev, im, ImCache, imdom } from "im-js";
+import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "im-js/im-ui";
+import { Activity, getActivityDate, getActivityDurationMs, getActivityText, getLastActivity, isBreak, isCurrentlyTakingABreak, newBreakActivity, pushBreakActivity, state } from "state";
 import { getCurrentPage, Journal } from "./journal-view";
 
 const FOCUS_ACTIVITIES_LIST = 0;
@@ -356,7 +334,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: ActivitiesViewState) {
             const keys = imdom.getKeyboard();
 
             // TODO: make axis discoverable
-            const hDelta = getAxisRaw(imdom.isKeyPressedOrRepeated(keys, keyboard.leftKey), imdom.isKeyPressedOrRepeated(keys, keyboard.rightKey));
+            const hDelta = getAxisRaw(imdom.isKeyPressedOrRepeated(keyboard.leftKey), imdom.isKeyPressedOrRepeated(keyboard.rightKey));
             if (!ctx.handled && hDelta) {
                 ctx.handled = true;
 
@@ -575,7 +553,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
     imui.Begin(c, COL); imui.Flex(c); {
         imui.Begin(c, ROW); imListRowCellStyle(c); imui.Align(c); imui.Justify(c); {
-            if (im.isFirstishRender(c)) {
+            if (im.IsFirstRender(c)) {
                 imdom.setStyle(c, "fontWeight", "bold");
             }
 
@@ -600,7 +578,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
             dateSelectorFocused,
             viewHasFocus && dateSelectorFocused
         ); {
-            if (im.isFirstishRender(c)) {
+            if (im.IsFirstRender(c)) {
                 imdom.setStyle(c, "fontWeight", "bold");
             }
 

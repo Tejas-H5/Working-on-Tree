@@ -1,4 +1,4 @@
-import { imListRowCellStyle } from "src/app-components/list-row";
+import { imListRowCellStyle } from "app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
@@ -9,19 +9,16 @@ import {
     imNavListRowEnd,
     ListPosition,
     newListPosition
-} from "src/app-components/navigable-list";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { newScrollContainer, ScrollContainer } from "src/components/scroll-container";
-import { GlobalContext, hasDiscoverableCommand } from "src/global-context";
-import {
-    forEachParentPage,
-    state
-} from "src/state";
-import { arrayAt } from "src/utils/array-utils";
-import { el, im, ImCache, imdom } from "src/utils/im-js";
-import { BLOCK, COL, imui, ROW } from "src/utils/im-js/im-ui";
+} from "app-components/navigable-list";
+import { imLine, LINE_HORIZONTAL } from "components/im-line";
+import { newScrollContainer, ScrollContainer } from "components/scroll-container";
+import { GlobalContext, hasDiscoverableCommand } from "global-context";
+import { state } from "state";
+import { arrayAt } from "array-utils";
+import { el, im, ImCache, imdom } from "im-js";
+import { BLOCK, COL, imui, ROW } from "im-js/im-ui";
 
-import { forEachUrlPosition, openUrlInNewTab } from "src/utils/url";
+import { forEachUrlPosition, openUrlInNewTab } from "url";
 import { getCurrentPage, getPage, setCurrentlyEditingPage, TreePage } from "./journal-view";
 
 type UrlListViewUrl = {
@@ -49,7 +46,6 @@ function setIdx(ctx: GlobalContext, s: UrlListViewState, page: TreePage, idx: nu
     if (s.urls.length === 0) return;
 
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
-    const url = s.urls[s.listPosition.idx];
     setCurrentlyEditingPage(ctx, page);
 }
 
@@ -103,7 +99,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState,
     }
 
     imui.Begin(c, COL); imListRowCellStyle(c); imui.Align(c); {
-        if (im.isFirstishRender(c)) {
+        if (im.IsFirstRender(c)) {
             imdom.setStyle(c, "fontWeight", "bold");
         }
 

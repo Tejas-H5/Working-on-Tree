@@ -1,14 +1,14 @@
-import { assert } from "src/utils/assert";
-import { formatDateTime } from "src/utils/datetime";
-import * as itree from "src/utils/int-tree";
-import { logTrace } from "src/utils/log";
-import { serializeToJSON } from "src/utils/serialization-utils";
+import { filterInPlace } from "array-utils";
+import { assert } from "assert";
+import { formatDateTime } from "datetime";
+import * as itree from "int-tree";
+import { logTrace } from "log";
+import { serializeToJSON } from "serialization-utils";
 import { darkTheme, lightTheme, setAppTheme } from "./app-styling";
 import { MappingGraph, MappingGraphView, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
+import { getCurrentPage, getPage, getPageOrUndefined, Journal, newJournal, TreePage } from "./app-views/journal-view";
 import { asNoteTreeGlobalState } from "./schema";
-import { filterInPlace } from "./utils/array-utils";
 import { VERSION_NUMBER_MONOTONIC } from "./version-number";
-import { getCurrentPage, getPage, getPageOrUndefined, Journal, JournalPage, newJournal, TreePage } from "./app-views/journal-view";
 
 // Used by webworker and normal code
 export const CHECK_INTERVAL_MS = 1000 * 10;

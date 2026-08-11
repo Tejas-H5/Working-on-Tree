@@ -1,9 +1,9 @@
-import { im, ImCache, imdom, ValidKey } from "src/utils/im-js";
-import { COL, isEditingTextSomewhereInDocument, ROW } from "src/utils/im-js/im-ui";
+import { im, ImCache, imdom, ValidKey } from "im-js";
+import { COL, isEditingTextSomewhereInDocument, ROW } from "im-js/im-ui";
 import { imScrollContainerBegin, imScrollContainerEnd, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
-import { getWrappedIdx } from "../utils/array-utils";
-import { assert } from "../utils/assert";
+import { getWrappedIdx } from "array-utils";
+import { assert } from "assert";
 
 import { imListRowBegin, imListRowEnd } from "./list-row";
 
@@ -73,12 +73,12 @@ export function getNavigableListInput(
     }
 
     const keys = imdom.getKeyboard();
-    if (imdom.isKeyPressedOrRepeated(keys, keyboard.pageUpKey)) newIdx = oldIdx - 10;
-    if (imdom.isKeyPressedOrRepeated(keys, keyboard.pageDownKey)) newIdx = oldIdx + 10;
+    if (imdom.isKeyPressedOrRepeated(keyboard.pageUpKey)) newIdx = oldIdx - 10;
+    if (imdom.isKeyPressedOrRepeated(keyboard.pageDownKey)) newIdx = oldIdx + 10;
     // if I'm editing text, I want to use these for horizontal movements instead of list movements.
     if (!isEditingTextSomewhereInDocument()) {
-        if (imdom.isKeyPressedOrRepeated(keys, keyboard.homeKey)) newIdx = lo;
-        if (imdom.isKeyPressedOrRepeated(keys, keyboard.endKey)) newIdx = hi - 1;
+        if (imdom.isKeyPressedOrRepeated(keyboard.homeKey)) newIdx = lo;
+        if (imdom.isKeyPressedOrRepeated(keyboard.endKey)) newIdx = hi - 1;
     }
 
     if (newIdx === undefined) return null;

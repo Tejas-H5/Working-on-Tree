@@ -1,5 +1,8 @@
-import * as tree from "src/utils/int-tree";
-import { TreeId } from "src/utils/int-tree";
+import { filterInPlace } from "array-utils";
+import { mustGetDefined } from "assert";
+import { formatIsoDate } from "datetime";
+import * as tree from "int-tree";
+import { TreeId } from "int-tree";
 import {
     asArray,
     asDate,
@@ -10,14 +13,15 @@ import {
     asTrue,
     deserializeObject,
     getArray,
-    getVal,
     getObject,
+    getVal,
+    LoadedObject,
+    mustGet,
     mustGetArray,
     mustGetObject,
-    mustGet,
-    LoadedObject,
     serializeToJSON
-} from "src/utils/serialization-utils";
+} from "serialization-utils";
+import { CodePage, newCodePage } from "./app-views/code-editor";
 import { ConceptSubset, GraphMappingConcept, GraphMappingRelationship, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { addJournalPageUnder, getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import {
@@ -33,10 +37,6 @@ import {
     TreeNote,
     TreeNoteTree
 } from "./state";
-import { filterInPlace } from "./utils/array-utils";
-import { mustGetDefined } from "./utils/assert";
-import { formatIsoDate } from "./utils/datetime";
-import { CodePage, newCodeEditorState, newCodePage } from "./app-views/code-editor";
 
 function asNoteIds(val: unknown) {
     return asArray(val, (n): n is tree.TreeId => typeof n === "number");

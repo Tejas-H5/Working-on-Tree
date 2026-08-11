@@ -1,12 +1,12 @@
-import { imui, BLOCK, ROW, COL, PX, NA } from "src/utils/im-js/im-ui";
-import { im, ImCache, imdom, el, ev, } from "src/utils/im-js";
+import { imui, PX, NA } from "im-js/im-ui";
+import { im, ImCache, imdom, el, } from "im-js";
 
 
 
 export function imAppHeadingBegin(c: ImCache) {
     imdom.ElBegin(c, el.H1); 
     imui.Padding(c, 0, NA, 0, NA, 0, NA, 10, PX); {
-        if (im.isFirstishRender(c)) {
+        if (im.IsFirstRender(c)) {
             imdom.setStyle(c, "textOverflow", "ellipsis");
             imdom.setStyle(c, "fontSize", "28px");
         }

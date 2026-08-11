@@ -1,6 +1,6 @@
-import { cssVarsApp } from "src/app-styling";
-import { BLOCK, imui, NA, PERCENT, PX } from "src/utils/im-js/im-ui";
-import { im, ImCache, imdom } from "src/utils/im-js";
+import { cssVarsApp } from "app-styling";
+import { BLOCK, imui, NA, PERCENT, PX } from "im-js/im-ui";
+import { im, ImCache, imdom } from "im-js";
 
 const cssb = imui.newCssBuilder();
 const cnHLine = cssb.cn("hline", [
@@ -24,7 +24,7 @@ export function imLine(
         !isH ? height : 100, !isH ? heightUnit : PERCENT,
          isH ? height : 100,  isH ? heightUnit : PERCENT,
     ); {
-        if (im.isFirstishRender(c)) {
+        if (im.IsFirstRender(c)) {
             imdom.setStyle(c, "backgroundColor", cssVarsApp.fgColor);
             imdom.setClass(c, cnHLine);
         }

@@ -1,6 +1,6 @@
-import { imSettingsView } from "src/app-views/settings-view";
-import { im, ImCache, imdom, NormalizedKey } from "src/utils/im-js";
-import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "src/utils/im-js/im-ui";
+import { imSettingsView } from "app-views/settings-view";
+import { im, ImCache, imdom, NormalizedKey } from "im-js";
+import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "im-js/im-ui";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
 import { imButton } from "./app-components/button";
@@ -44,11 +44,11 @@ import {
     setTheme,
     state
 } from "./state";
-import { arrayAt, getWrappedIdx } from "./utils/array-utils";
-import { formatDate, formatTime } from "./utils/datetime";
-import { NIL_ID } from "./utils/int-tree";
-import { newWebWorker } from "./utils/web-workers";
 import { imUrlViewer } from "./app-views/url-viewer";
+import { arrayAt, getWrappedIdx } from "array-utils";
+import { formatDate, formatTime } from "datetime";
+import { NIL_ID } from "int-tree";
+import { newWebWorker } from "web-workers";
 
 
 function getIcon(theme: AppTheme) {
@@ -141,7 +141,7 @@ function imMainInner(c: ImCache) {
                     const error = state.criticalSavingError || state._criticalLoadingError;
                     if (im.If(c) && error) {
                         imui.Begin(c, BLOCK); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 imdom.setStyle(c, "color", "white");
                                 imdom.setStyle(c, "backgroundColor", "red");
                             }
@@ -180,7 +180,7 @@ function imMainInner(c: ImCache) {
                         imLine(c, LINE_VERTICAL);
 
                         imAppHeadingBegin(c); imui.NoWrap(c); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 // TODO: standardize
                                 imdom.setStyle(c, "fontSize", "1em");
                             }
@@ -200,7 +200,7 @@ function imMainInner(c: ImCache) {
                         imui.Begin(c, BLOCK); imui.Flex(c); imui.End(c);
 
                         const root = imui.Begin(c, ROW); imui.Align(c); imui.Justify(c); {
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 // TODO: standardize
                                 imdom.setStyle(c, "fontSize", "0.9em");
                                 imdom.setStyle(c, "fontWeight", "bold");
@@ -220,7 +220,7 @@ function imMainInner(c: ImCache) {
                                     imdom.setStyle(c, "opacity", "" + opacity, root);
 
                                     imui.Begin(c, BLOCK); {
-                                        if (im.isFirstishRender(c)) {
+                                        if (im.IsFirstRender(c)) {
                                             imdom.setStyle(c, "width", "20px");
                                             imdom.setStyle(c, "height", "20px");
                                         }
@@ -258,7 +258,7 @@ function imMainInner(c: ImCache) {
 
                         imui.Begin(c, ROW); imui.FlexWrap(c); imui.Gap(c, 0.5, CH); imui.Justify(c, RIGHT); {
                             // NOTE: these could be buttons.
-                            if (im.isFirstishRender(c)) {
+                            if (im.IsFirstRender(c)) {
                                 // TODO: standardize
                                 imdom.setStyle(c, "fontSize", "18px");
                                 imdom.setStyle(c, "fontWeight", "bold");
@@ -273,11 +273,9 @@ function imMainInner(c: ImCache) {
                                     imCommandDescription(c, command.key, command.desc);
                                 } im.ForEnd(c);
 
-                                const keys = imdom.getKeyboard();
-
-                                const anyFulfilled = (imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
-                                    (imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
-                                    (imdom.isKeyHeld(keys, ctx.keyboard.altKey) && commands.altAvailable)
+                                const anyFulfilled = (imdom.isKeyHeld(ctx.keyboard.shiftKey) && commands.shiftAvailable) ||
+                                    (imdom.isKeyHeld(ctx.keyboard.ctrlKey) && commands.ctrlAvailable) ||
+                                    (imdom.isKeyHeld(ctx.keyboard.altKey) && commands.altAvailable)
 
                                 if (im.If(c) && !anyFulfilled) {
                                     if (im.If(c) && commands.shiftAvailable) {
@@ -332,7 +330,7 @@ function imMainInner(c: ImCache) {
                                     imLine(c, LINE_HORIZONTAL, 1);
 
                                     imui.Begin(c, COL); imui.Flex(c); {
-                                        if (im.isFirstishRender(c)) {
+                                        if (im.IsFirstRender(c)) {
                                             imdom.setStyle(c, "maxHeight", "33%");
                                         }
 
@@ -356,7 +354,7 @@ function imMainInner(c: ImCache) {
 
                             if (im.If(c) && ctx.sideTabExpanded) {
                                 imui.Begin(c, COL); {
-                                    if (im.isFirstishRender(c)) {
+                                    if (im.IsFirstRender(c)) {
                                         imdom.setStyle(c, "width", "33%");
                                     }
 
@@ -368,7 +366,7 @@ function imMainInner(c: ImCache) {
 
                                                 if (!IS_RUNNING_FROM_FILE) {
                                                     imui.Begin(c, BLOCK); imButton(c); {
-                                                        if (im.isFirstishRender(c)) {
+                                                        if (im.IsFirstRender(c)) {
                                                             imdom.setStyle(c, "padding", "10px");
                                                             imdom.setStyle(c, "borderTop", "1px solid " + cssVars.fg);
                                                             imdom.setStyle(c, "fontWeight", "bold");
@@ -469,9 +467,7 @@ function imMainInner(c: ImCache) {
 
                 // Traverse the history
                 {
-                    const keys = imdom.getKeyboard();
-
-                    const ctrlAndShiftHeld = imdom.isKeyHeld(keys, ctx.keyboard.shiftKey) && imdom.isKeyHeld(keys, ctx.keyboard.ctrlKey);
+                    const ctrlAndShiftHeld = imdom.isKeyHeld(ctx.keyboard.shiftKey) && imdom.isKeyHeld(ctx.keyboard.ctrlKey);
                     if (im.Memo(c, ctrlAndShiftHeld)) {
                         if (ctrlAndShiftHeld) {
                             // Start traversal from the most recent activity
@@ -546,15 +542,13 @@ function imMainInner(c: ImCache) {
                 }
 
                 if (!ctx.handled) {
-                    const keys = imdom.getKeyboard();
-
                     const keyboard = ctx.keyboard;
-                    if (imdom.isKeyPressed(keys, keyboard.aKey) && imdom.isKeyPressed(keys, keyboard.ctrlKey) && !isEditingTextSomewhereInDocument()) {
+                    if (imdom.isKeyPressed(keyboard.aKey) && imdom.isKeyPressed(keyboard.ctrlKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to select all text being in the DOM, actually
                         ctx.handled = true;
                     }
 
-                    if (imdom.isKeyPressed(keys, keyboard.tabKey) && !isEditingTextSomewhereInDocument()) {
+                    if (imdom.isKeyPressed(keyboard.tabKey) && !isEditingTextSomewhereInDocument()) {
                         // no, I don't want to defucs the program, actually
                         ctx.handled = true;
                     }
@@ -624,18 +618,6 @@ function imMainInner(c: ImCache) {
 
 const cGlobal: ImCache = [];
 
-function imMainEntryPoint(c: ImCache) {
-    im.CacheBegin(c, imMainEntryPoint); {
-        imdom.RootBegin(c, document.body); {
-            const ev = imdom.GlobalEventSystemBegin(c);
-
-            imMainInner(c);
-
-            imdom.GlobalEventSystemEnd(c, ev);
-        } imdom.RootEnd(c, document.body);
-    } im.CacheEnd(c);
-};
-
 function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
     imui.Begin(c, COL); imui.Align(c, CENTER); imui.Pre(c); {
         imui.Begin(c, BLOCK); {
@@ -646,7 +628,7 @@ function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
             imdom.Str(c, "]");
         } imui.End(c);
         imui.Begin(c, BLOCK); {
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "0.8rem")
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "fontSize", "0.8rem")
             imdom.Str(c, action);
         } imui.End(c);
     } imui.End(c);
@@ -655,7 +637,7 @@ function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
 validateSchemas();
 
 loadState(() => {
-    imMainEntryPoint(cGlobal);
+    imdom.startAnimationLoop(document.body, imMainInner);
 });
 
 // Using a custom styling solution

@@ -1,6 +1,6 @@
 import {
     imListRowCellStyle
-} from "src/app-components/list-row";
+} from "app-components/list-row";
 import {
     clampedListIdx,
     getNavigableListInput,
@@ -12,17 +12,17 @@ import {
     ListPosition,
     NavigableListState,
     newListPosition
-} from "src/app-components/navigable-list";
-import { cssVarsApp } from "src/app-styling";
-import { BLOCK, CH, COL, EM, EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized, imui, NA, PX, ROW, ROW_REVERSE } from "src/utils/im-js/im-ui";
+} from "app-components/navigable-list";
+import { cssVarsApp } from "app-styling";
+import { BLOCK, CH, COL, EM, EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized, imui, NA, PX, ROW, ROW_REVERSE } from "im-js/im-ui";
 
-import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "src/components/editable-text-area";
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
+import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
+import { imLine, LINE_HORIZONTAL } from "components/im-line";
 import {
     newScrollContainer,
     ScrollContainer,
     startScrolling
-} from "src/components/scroll-container";
+} from "components/scroll-container";
 import {
     BYPASS_TEXT_AREA,
     CTRL,
@@ -33,7 +33,7 @@ import {
     REPEAT,
     setCurrentView,
     SHIFT
-} from "src/global-context";
+} from "global-context";
 import {
     COLLAPSED_STATUS,
     createNewNote,
@@ -43,14 +43,11 @@ import {
     getCurrentNote,
     getLastActivity,
     getNote,
-    getPageDurationUsingCurrentRange,
-    getPageDurationWithoutRange,
     getNoteOrUndefined,
     getNoteTextWithoutPriority,
     getNumSiblings,
     idIsNil,
     idIsNilOrRoot,
-    idIsRoot,
     isBreak,
     isCurrentlyTakingABreak,
     isNoteCollapsed,
@@ -72,17 +69,17 @@ import {
     STATUS_INFO,
     toggleNoteRootMark,
     TreeNote
-} from "src/state";
-import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "src/utils/array-utils";
-import { assert } from "src/utils/assert";
-import { formatDateTime, formatDurationAsHours } from "src/utils/datetime";
+} from "state";
+import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "array-utils";
+import { assert } from "assert";
+import { formatDateTime } from "datetime";
 
-import { el, ev, im, ImCache, imdom, } from "src/utils/im-js";
+import { el, ev, im, ImCache, imdom, } from "im-js";
 
-import * as tree from "src/utils/int-tree";
+import * as tree from "int-tree";
 
 import { activitiesViewSetIdx, NOT_IN_RANGE } from "./activities-list";
-import { JournalPage, TreePage } from "./journal-view";
+import { TreePage } from "./journal-view";
 
 export type NoteTreeViewState = {
     invalidateNote:      boolean; // Only set if we can't recompute the notes immediately - i.e if we're traversing the data structure
@@ -485,10 +482,10 @@ function imMarksList(c: ImCache, noteTree: NoteTree) {
             const rootMarkNote = getNote(noteTree, mark);
 
             imui.Begin(c, ROW); imui.NoWrap(c); {
-                if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
+                if (im.IsFirstRender(c)) imdom.setStyle(c, "overflow", "hidden");
 
                 imui.Begin(c, ROW); {
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "fontWeight", "bold");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "fontWeight", "bold");
                     imdom.StrFmt(c, i, markIdxToString);
                     imdom.Str(c, ": ");
                 } imui.End(c);
@@ -515,7 +512,7 @@ function imMarksList(c: ImCache, noteTree: NoteTree) {
                             imui.Begin(c, ROW); imui.Flex(c, flexRatio); imui.Bg(c, isSelected ? cssVarsApp.bgColorFocus : ""); {
                                 imArrow(c);
 
-                                if (im.isFirstishRender(c)) imdom.setStyle(c, "overflow", "hidden");
+                                if (im.IsFirstRender(c)) imdom.setStyle(c, "overflow", "hidden");
                                 if (im.Memo(c, isSelected)) imdom.setStyle(c, "maxWidth", isSelected ? "1fr" : "");
 
                                 imdom.Str(c, note.data.text);
@@ -531,7 +528,7 @@ function imMarksList(c: ImCache, noteTree: NoteTree) {
 
 function imArrow(c: ImCache) {
     imdom.ElBegin(c, el.B); {
-        if (im.isFirstishRender(c)) imdom.setStyle(c, "padding", "0 10px");
+        if (im.IsFirstRender(c)) imdom.setStyle(c, "padding", "0 10px");
 
         imdom.Str(c, " -> ");
     } imdom.ElEnd(c, el.B);
@@ -630,16 +627,16 @@ function handleKeyboardInput(ctx: GlobalContext, page: TreePage, noteTree: NoteT
         if (!ctx.handled) {
             const keys = imdom.getKeyboard();
 
-            const moveNote = imdom.isKeyHeld(keys, keyboard.altKey);
+            const moveNote = imdom.isKeyHeld(keyboard.altKey);
             const listNavInput = getNavigableListInput(ctx, currentNote.idxInParentList, 0, parent.childIds.length);
-            const ctrlOrShift = imdom.isKeyHeld(keys, keyboard.ctrlKey) || imdom.isKeyHeld(keys, keyboard.shiftKey);
+            const ctrlOrShift = imdom.isKeyHeld(keyboard.ctrlKey) || imdom.isKeyHeld(keyboard.shiftKey);
 
             if (listNavInput) {
                 moveToLocalidx(ctx, s, page, noteTree, listNavInput.newIdx, moveNote);
-            } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.leftKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressedOrRepeated(keyboard.leftKey) && !ctrlOrShift) {
                 moveOutOfCurrent(ctx, s, page, noteTree, moveNote);
                 ctx.handled = true;
-            } else if (imdom.isKeyPressedOrRepeated(keys, keyboard.rightKey) && !ctrlOrShift) {
+            } else if (imdom.isKeyPressedOrRepeated(keyboard.rightKey) && !ctrlOrShift) {
                 moveIntoCurrent(s, page, noteTree, moveNote);
                 ctx.handled = true;
             }
@@ -865,7 +862,7 @@ function imNoteTreeRow(
                             // horizontal line xD
                             if (im.If(c) && hasHLine) {
                                 imui.Begin(c, BLOCK); imui.Absolute(c, midpointLen, midpointUnits, 0, PX, 0, NA, 0, NA); {
-                                    if (im.isFirstishRender(c)) {
+                                    if (im.IsFirstRender(c)) {
                                         imdom.setStyle(c, "transform", "translate(0, -100%)");
                                     }
 

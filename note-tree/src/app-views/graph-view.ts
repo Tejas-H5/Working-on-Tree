@@ -1,13 +1,13 @@
-import { imListRowCellStyle } from "src/app-components/list-row";
-import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "src/components/context-menu";
-import { imui, BLOCK, ROW, COL, PX, NA, cssVars, STRETCH, DisplayType } from "src/utils/im-js/im-ui";
+import { imListRowCellStyle } from "app-components/list-row";
+import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "components/context-menu";
+import { imui, BLOCK, ROW, COL, PX, NA, cssVars, STRETCH, DisplayType } from "im-js/im-ui";
 
-import { imLine, LINE_HORIZONTAL } from "src/components/im-line";
-import { imTextInputOneLine } from "src/components/text-input";
-import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "src/utils/array-utils";
-import { assert } from "src/utils/assert";
-import { im, ImCache, imdom, el, ev, elsvg, } from "src/utils/im-js";
-import { imButton } from "src/app-components/button";
+import { imLine, LINE_HORIZONTAL } from "components/im-line";
+import { imTextInputOneLine } from "components/text-input";
+import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "array-utils";
+import { assert } from "assert";
+import { im, ImCache, imdom, ev, elsvg, } from "im-js";
+import { imButton } from "app-components/button";
 
 
 
@@ -531,8 +531,8 @@ export function imGraphMappingsEditorView(
             // The drag should actually be applied to the selection.
 
             const rect = root.getBoundingClientRect();
-            const mouseX = toGraphX(view, mouse.X - rect.x);
-            const mouseY = toGraphY(view, mouse.Y - rect.y);
+            const mouseX = toGraphX(view, mouse.x - rect.x);
+            const mouseY = toGraphY(view, mouse.y - rect.y);
             const dX = mouseX - s.dragConcept.startX;
             const dY = mouseY - s.dragConcept.startY;
 
@@ -571,8 +571,8 @@ export function imGraphMappingsEditorView(
             // animate zooming in and out. We also need to ensure that the 'center' of the zoom is on the mouse cursor
             if (Math.abs(view.zoom - s.targetZoom) > 0.00001) {
                 const rect = root.getBoundingClientRect();
-                const zoomCenterXScreen = mouse.X - rect.x;
-                const zoomCenterYScreen = mouse.Y - rect.y;
+                const zoomCenterXScreen = mouse.x - rect.x;
+                const zoomCenterYScreen = mouse.y - rect.y;
 
                 const zoomCenterX = toGraphX(view, zoomCenterXScreen);
                 const zoomCenterY = toGraphY(view, zoomCenterYScreen);
@@ -609,8 +609,8 @@ export function imGraphMappingsEditorView(
             const mx = lerpClamped(x0, x1, 0.5);
             const my = lerpClamped(y0, y1, 0.5);
 
-            s.dragEdge.currentX = toGraphX(view, mouse.X - rootRect.x);
-            s.dragEdge.currentY = toGraphY(view, mouse.Y - rootRect.y);
+            s.dragEdge.currentX = toGraphX(view, mouse.x - rootRect.x);
+            s.dragEdge.currentY = toGraphY(view, mouse.y - rootRect.y);
 
             const lineState = imLayoutLine(c, ROW, x0, y0, x1, y1); imui.Align(c); imui.Justify(c); imui.NoSelect(c); {
                 if (im.If(c) && lineState.isUpsideDown === s.dragEdge.srcToDst) {
@@ -625,7 +625,7 @@ export function imGraphMappingsEditorView(
 
                 if (im.If(c) && lineState.isUpsideDown  !== s.dragEdge.srcToDst) {
                     imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
-                        if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
+                        if (im.IsFirstRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
                         imArrowHeadSvg(c);
                     } imui.End(c);
                 } im.IfEnd(c);
@@ -636,7 +636,7 @@ export function imGraphMappingsEditorView(
                 const labelX = mx;
                 const labelY = my;
                 imui.Begin(c, COL); imui.AbsoluteXY(c, labelX, PX, labelY, PX); imui.ZIndex(c, 10); {
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
                     imRelationshipLabel(c, s, rel, s.dragEdge.relId, ctxEv);
                 } imui.End(c);
             } im.IfEnd(c);
@@ -656,9 +656,9 @@ export function imGraphMappingsEditorView(
                     imui.AbsoluteXY(c, toContainerX(view, concept.x), PX, toContainerY(view, concept.y), PX);
                     imui.Padding(c, 20, PX, 20, PX, 20, PX, 20, PX);
 
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "cursor", "pointer");
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "borderRadius", (4 * view.zoom) + "px");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "cursor", "pointer");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "borderRadius", (4 * view.zoom) + "px");
 
                     let hoveredInner = false;
                     const innerRoot = imui.Begin(c, COL); {
@@ -744,8 +744,8 @@ export function imGraphMappingsEditorView(
                                 s.dragEdge.srcId = conceptId;
 
                                 const rect = root.getBoundingClientRect();
-                                const mouseX = toGraphX(view, mouse.X - rect.x);
-                                const mouseY = toGraphY(view, mouse.Y - rect.y);
+                                const mouseX = toGraphX(view, mouse.x - rect.x);
+                                const mouseY = toGraphY(view, mouse.y - rect.y);
                                 s.dragEdge.startX = mouseX;
                                 s.dragEdge.startY = mouseY;
                                 s.dragEdge.currentX = s.dragEdge.startX;
@@ -841,7 +841,7 @@ export function imGraphMappingsEditorView(
                 const labelX = mx;
                 const labelY = my;
                 imui.Begin(c, COL); imui.AbsoluteXY(c, labelX, PX, labelY, PX); imui.ZIndex(c, 10); {
-                    if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
+                    if (im.IsFirstRender(c)) imdom.setStyle(c, "transform", "translate(-50%, -50%");
 
                     im.For(c); for (let idxInGroup = 0; idxInGroup < edgeGroup.relIds.length; idxInGroup++) {
                         const relId = edgeGroup.relIds[idxInGroup];
@@ -882,8 +882,8 @@ export function imGraphMappingsEditorView(
 
                                     if (!isDraggingAnything(s) && mouse.leftMouseButton) {
                                         const rect = root.getBoundingClientRect();
-                                        const mouseX = toGraphX(view, mouse.X - rect.x);
-                                        const mouseY = toGraphY(view, mouse.Y - rect.y);
+                                        const mouseX = toGraphX(view, mouse.x - rect.x);
+                                        const mouseY = toGraphY(view, mouse.y - rect.y);
 
                                         const toSrc = distSquared(src.x, src.y, mouseX, mouseY);
                                         const toDst = distSquared(dst.x, dst.y, mouseX, mouseY);
@@ -925,7 +925,7 @@ export function imGraphMappingsEditorView(
                                 // arrow
                                 if (im.If(c) && lineState.isUpsideDown !== isSrc) {
                                     imui.Begin(c, ROW); imui.Size(c, 20 * view.zoom, PX, 0, NA); imui.Align(c); {
-                                        if (im.isFirstishRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
+                                        if (im.IsFirstRender(c)) imdom.setStyle(c, "transform", "scale(-1, 1)")
                                         imArrowHeadSvg(c);
                                     } imui.End(c);
                                 } im.IfEnd(c);
@@ -948,21 +948,19 @@ export function imGraphMappingsEditorView(
         imSubset(c, s, graph, view, s.selection.selected, root, ctxEv);
 
         if (!isDraggingAnything(s) && imdom.hasMousePress(c) && mouse.leftMouseButton) {
-            const keys = imdom.getKeyboard();
-
-            if (imdom.isKeyHeld(keys, SHIFT)) {
+            if (imdom.isKeyHeld(SHIFT)) {
                 s.boxSelect.isBoxSelecting = true;
 
                 const rect = root.getBoundingClientRect();
-                const mouseX = toGraphX(view, mouse.X - rect.x);
-                const mouseY = toGraphY(view, mouse.Y - rect.y);
+                const mouseX = toGraphX(view, mouse.x - rect.x);
+                const mouseY = toGraphY(view, mouse.y - rect.y);
                 s.boxSelect.startX = mouseX;
                 s.boxSelect.startY = mouseY;
                 s.boxSelect.endX = s.boxSelect.startX;
                 s.boxSelect.endY = s.boxSelect.startY;
             } else {
-                s.panState.startMouseX = toGraphLength(view, mouse.X);
-                s.panState.startMouseY = toGraphLength(view, mouse.Y);
+                s.panState.startMouseX = toGraphLength(view, mouse.x);
+                s.panState.startMouseY = toGraphLength(view, mouse.y);
                 s.panState.startX = view.pan.x;
                 s.panState.startY = view.pan.y;
                 s.panState.isPanning = true;
@@ -971,8 +969,8 @@ export function imGraphMappingsEditorView(
         }
 
         if (s.panState.isPanning) {
-            const dX = toGraphLength(view, mouse.X) - s.panState.startMouseX;
-            const dY = toGraphLength(view, mouse.Y) - s.panState.startMouseY;
+            const dX = toGraphLength(view, mouse.x) - s.panState.startMouseX;
+            const dY = toGraphLength(view, mouse.y) - s.panState.startMouseY;
 
             const TOLERANCE_PX = 5;
             if (!s.panState.actuallyMoved) {
@@ -987,14 +985,14 @@ export function imGraphMappingsEditorView(
 
         if (im.If(c) && s.boxSelect.isBoxSelecting) {
             imui.Begin(c, BLOCK); imui.ZIndex(c, 10000); imui.Bg(c, cssVars.fg025a); {
-                if (im.isFirstishRender(c)) imdom.setStyle(c, "border", "3px dashed " + cssVars.fg);
+                if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "3px dashed " + cssVars.fg);
 
                 let x0 = toContainerX(view, s.boxSelect.startX);
                 let y0 = toContainerY(view, s.boxSelect.startY);
 
                 const rect = root.getBoundingClientRect();
-                const mouseX = mouse.X - rect.x;
-                const mouseY = mouse.Y - rect.y;
+                const mouseX = mouse.x - rect.x;
+                const mouseY = mouse.y - rect.y;
 
                 let x1 = mouseX;
                 let y1 = mouseY;
@@ -1012,16 +1010,15 @@ export function imGraphMappingsEditorView(
                     s.boxSelect.isBoxSelecting = false;
 
                     const rect = root.getBoundingClientRect();
-                    const mouseX = toGraphX(view, mouse.X - rect.x);
-                    const mouseY = toGraphY(view, mouse.Y - rect.y);
+                    const mouseX = toGraphX(view, mouse.x - rect.x);
+                    const mouseY = toGraphY(view, mouse.y - rect.y);
 
                     const minX = Math.min(mouseX, s.boxSelect.startX);
                     const minY = Math.min(mouseY, s.boxSelect.startY);
                     const maxX = Math.max(mouseX, s.boxSelect.startX);
                     const maxY = Math.max(mouseY, s.boxSelect.startY);
 
-                    const keys = imdom.getKeyboard();
-                    const additive = imdom.isKeyHeld(keys, SHIFT)
+                    const additive = imdom.isKeyHeld(SHIFT)
 
                     for (let i = 0; i < graph.concepts.length; i++) {
                         const concept = graph.concepts[i];
@@ -1054,7 +1051,7 @@ export function imGraphMappingsEditorView(
         }
 
         imui.Begin(c, ROW); imui.Absolute(c, 0, NA, 10, PX, 10, PX, 0, NA); imui.NoSelect(c); {
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "fontSize", "1rem");
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "fontSize", "1rem");
             imdom.Str(c, view.pan.x.toFixed(3)); imdom.Str(c, ", "); imdom.Str(c, view.pan.y.toFixed(3));
             imdom.Str(c, " @ "); imdom.Str(c, view.zoom.toFixed(3)); imdom.Str(c, "x");
         } imui.End(c);
@@ -1360,8 +1357,8 @@ function startDraggingConcepts(s: GraphMappingsViewState, graph: MappingGraph, v
     s.dragConcept.isDragging = true;
 
     const rect = root.getBoundingClientRect();
-    const mouseX = toGraphX(view, mouse.X - rect.x);
-    const mouseY = toGraphY(view, mouse.Y - rect.y);
+    const mouseX = toGraphX(view, mouse.x - rect.x);
+    const mouseY = toGraphY(view, mouse.y - rect.y);
     s.dragConcept.startX = mouseX;
     s.dragConcept.startY = mouseY;
 
@@ -1378,13 +1375,13 @@ function startDraggingConcepts(s: GraphMappingsViewState, graph: MappingGraph, v
 
 function imArrowHeadSvg(c: ImCache) {
     imdom.ElSvgBegin(c, elsvg.SVG); imui.Relative(c); {
-        if (im.isFirstishRender(c)) imdom.setAttr(c, "viewBox", "0 0 10 10");
-        if (im.isFirstishRender(c)) imdom.setStyle(c, "width", "100%")
-        if (im.isFirstishRender(c)) imdom.setStyle(c, "height", "100%")
+        if (im.IsFirstRender(c)) imdom.setAttr(c, "viewBox", "0 0 10 10");
+        if (im.IsFirstRender(c)) imdom.setStyle(c, "width", "100%")
+        if (im.IsFirstRender(c)) imdom.setStyle(c, "height", "100%")
 
         imdom.ElSvgBegin(c, elsvg.POLYGON); {
-            if (im.isFirstishRender(c)) imdom.setAttr(c, "points", "0,5 10,10 10,0 0,5");
-            if (im.isFirstishRender(c)) imdom.setAttr(c, "style", `fill:currentColor;stroke-width:0;`);
+            if (im.IsFirstRender(c)) imdom.setAttr(c, "points", "0,5 10,10 10,0 0,5");
+            if (im.IsFirstRender(c)) imdom.setAttr(c, "style", `fill:currentColor;stroke-width:0;`);
         } imdom.ElSvgEnd(c, elsvg.POLYGON);
     } imdom.ElSvgEnd(c, elsvg.SVG);
 }
@@ -1403,7 +1400,7 @@ function imRelationshipLabel(
         const editing = s.currentlyEditing.relId === relId;
 
         imui.Begin(c, ROW); imui.Bg(c, cssVars.bg); imui.Pre(c); {
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "padding", "3px 10px");
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "padding", "3px 10px");
 
             const hovered = s.hoveredRelId === relId;
 
@@ -1598,8 +1595,8 @@ function imSubset(
         imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0, PX, y0, PX);  imui.Size(c, x1 - x0, PX, y1 - y0, PX); {
             const hovered = imdom.hasMouseOver(c);
 
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
-            if (im.isFirstishRender(c)) imdom.setStyle(c, "borderRadius", "10px");
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
+            if (im.IsFirstRender(c)) imdom.setStyle(c, "borderRadius", "10px");
             if (im.Memo(c, hovered)) imdom.setStyle(c, "border", `2px solid ${hovered ? cssVars.fg : cssVars.mg}`);
 
             if (ctxEv && hovered) {
