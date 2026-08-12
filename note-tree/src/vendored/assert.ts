@@ -9,3 +9,6 @@ export function mustGetDefined<T>(val: T | undefined, field = "this value"): T {
     return val;
 }
 
+export function assertNever(val: never): never {
+	throw new Error("Unhandled expression type: " + val);
+}

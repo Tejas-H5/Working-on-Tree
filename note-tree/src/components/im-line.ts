@@ -16,7 +16,7 @@ export function imLine(
     widthPx: number = 2,
     visible = true
 ) {
-    let height = visible ? widthPx : 0;
+    let height = widthPx;
     let heightUnit = PX;
     const isH = type === LINE_HORIZONTAL;
 

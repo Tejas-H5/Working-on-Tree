@@ -17,7 +17,7 @@ import { logTrace } from "log";
 import { imTextWithHighlightedRanges } from "app-components/highlighted-text";
 import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
-import { CodePage } from "./code-editor";
+import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-editor";
 
 type FinderResult = {
     id: number;
@@ -79,6 +79,16 @@ export function newJournal(): Journal {
 
         pages: itree.newTreeStore(rootPage),
     };
+}
+
+function sidebarHasFocus(s: JournalViewState): boolean {
+    if (s.sidebarHasFocus) {
+        if (s.pages.view === VIEWING_PAGE) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 export type TreePage = itree.TreeNode<JournalPage>;
@@ -253,7 +263,7 @@ export function imJournalView(
             // // When I hid the sidebar entirely, something felt missing. I cannot quite describe what it was. 
             // // Either way, rather than completely removing the sidebar, I'm just reducing the font size.
             if (im.IsFirstRender(c)) imdom.setStyle(c, "transition", "font-size 0.05s ease-out");
-            imui.FontSize(c, 0.6, s.sidebarHasFocus ? NA : EM);
+            imui.FontSize(c, 0.6, sidebarHasFocus(s) ? NA : EM);
 
             if (im.If(c) && s.finder.isFinding && s.finder.results) {
                 // Journal entries
@@ -292,7 +302,7 @@ export function imJournalView(
                     imLine(c, LINE_HORIZONTAL);
                 } im.IfEnd(c);
 
-                const list = imNavListBegin(c, sc, currentPageParent.data.focusedChildIdx, viewHasFocus && s.sidebarHasFocus); {
+                const list = imNavListBegin(c, sc, currentPageParent.data.focusedChildIdx, viewHasFocus && sidebarHasFocus(s)); {
                     im.For(c); while (imNavListNextItemArray(list, currentPageParent.childIds)) {
                         const { i } = list;
                         const childId = currentPageParent.childIds[i];
@@ -343,8 +353,20 @@ export function imJournalView(
                         const graphCount = getMappingGraphCount(currentPage.data.graph?.g)
                         imToggleableViewIcon(c, s, VIEWING_GRAPH, "[G]raph", graphCount);
 
-                        // TODO: implement code
-                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", 0);
+                        const lineCounts = im.GetInline(c, imToggleableViewIcon) ?? im.Set(c, { lines: 0 });
+                        const code = currentPage.data.code?.code;
+                        if (im.Memo(c, code)) {
+                            if (code) {
+                                lineCounts.lines = 0;
+                                for (let i = 0; i < code.length; i++) {
+                                    if (code[i] === "\n") {
+                                        lineCounts.lines += 1;
+                                    }
+                                }
+                            }
+                        }
+
+                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", lineCounts.lines);
 
                         imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
                     } im.IfEnd(c);
@@ -379,15 +401,15 @@ export function imJournalView(
             imLine(c, LINE_HORIZONTAL, 1);
 
             if (im.If(c) && s.finder.isFinding) {
-                // imui.Begin(c, BLOCK); imui.Flex(c); {
-                //     if (im.If(c) && currentFilterResult) {
-                //         const page = getPage(journal, currentFilterResult.id);
-                //         imTextWithHighlightedRanges(c, page.data.content, currentFilterResult.ranges, false);
-                //     } else {
-                //         im.Else(c);
-                //         imdom.Str(c, "No results");
-                //     } im.IfEnd(c);
-                // } imui.End(c);
+                imui.Begin(c, BLOCK); imui.Flex(c); {
+                    if (im.If(c) && currentFilterResult) {
+                        const page = getPage(journal, currentFilterResult.id);
+                        imTextWithHighlightedRanges(c, page.data.content, currentFilterResult.ranges, false);
+                    } else {
+                        im.Else(c);
+                        imdom.Str(c, "No results");
+                    } im.IfEnd(c);
+                } imui.End(c);
             } else {
                 im.Else(c);
 
@@ -429,7 +451,7 @@ function imPageListRow(
 
     imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
         imui.Begin(c, ROW); imListRowCellStyle(c); imui.Align(c); imui.Flex(c); imui.NoWrap(c); {
-            imui.Begin(c, BLOCK); imui.Size(c, depth * 20, PX, 0, NA); imui.End(c);
+            imui.Begin(c, BLOCK); imui.Size(c, depth * 0.5, EM, 0, NA); imui.End(c);
 
             imui.Begin(c, BLOCK); imui.Flex(c, 1); {
                 if (im.If(c) && itemSelected && s.pages.isRenaming) {
@@ -544,18 +566,18 @@ function imPageEditor(
                 } imui.End(c);
             } break;
             case VIEWING_CODE: {
-                // if (!page.data.code) {
-                //     page.data.code = newCodePage();
-                //     journalMutated(state);
-                // }
+                if (!page.data.code) {
+                    page.data.code = newCodePage();
+                    journalMutated(state);
+                }
 
-                // const codeEditorState = im.State(c, newCodeEditorState);
+                const codeEditorState = im.State(c, newCodeEditorState);
 
                 imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
-                    // imCodeEditor(c, ctx, codeEditorState, page.data.code);
-                    // if (im.Memo(c, codeEditorState.version)) {
-                    //     journalMutated(state);
-                    // }
+                    imCodeEditor(c, ctx, codeEditorState, page.data.code);
+                    if (im.Memo(c, codeEditorState.version)) {
+                        journalMutated(state);
+                    }
                 } imui.End(c);
             } break;
             case VIEWING_NOTES: {

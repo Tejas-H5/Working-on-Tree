@@ -4,6 +4,8 @@ import { debouncedSave, GlobalContext } from "global-context";
 import { state } from "state";
 import { ev, im, ImCache, imdom } from "im-js";
 import { COL, imui, ROW } from "im-js/im-ui";
+import { pl2 } from "pl2";
+import { Pl2CodeCellOutput, imPl2CodeCellOutput, newCodeCellOutput, updateCodeCellOutput } from "vendored/pl2-visualiser";
 
 export type CodePage = {
     code: string;
@@ -17,20 +19,32 @@ export function newCodePage(): CodePage {
 
 export type CodeEditorState = {
     version: 0,
-    parseResult:     unknown | undefined;
-    interpretResult: unknown | undefined;
+    output: Pl2CodeCellOutput;
 }
 
 export function newCodeEditorState(): CodeEditorState {
     return {
         version: 0,
-        parseResult: undefined,
-        interpretResult: undefined,
+        output: newCodeCellOutput(),
     };
 }
 
 export function imCodeEditor(c: ImCache, ctx: GlobalContext, s: CodeEditorState, page: CodePage) {
+    let shouldRerunCode = false;
+
+    if (im.Memo(c, s.version)) {
+        shouldRerunCode = true;
+    }
+
     imui.Begin(c, ROW); imui.Flex(c); {
+        const { size } = imdom.TrackSize(c);
+        const sizeChanging = im.Memo(c, size.width);
+        const sizeChangingStatus = im.Memo(c, sizeChanging);
+        if (!sizeChanging && sizeChangingStatus) {
+            // Rerun the code when we've finished resizing.
+            shouldRerunCode = true;
+        }
+
         imui.Begin(c, COL); imui.Flex(c); {
             // TODO: use syntax highlighting
             const [root, textArea] = imTextAreaBegin(c, {
@@ -48,7 +62,6 @@ export function imCodeEditor(c: ImCache, ctx: GlobalContext, s: CodeEditorState,
                     page.code = textArea.value;
                     s.version++;
                     debouncedSave(ctx, state, "imPageEditor - journal edit");
-                    rerunCode(s, page);
                 }
 
                 const keyDown = imdom.On(c, ev.KEYDOWN);
@@ -63,15 +76,21 @@ export function imCodeEditor(c: ImCache, ctx: GlobalContext, s: CodeEditorState,
             } imTextAreaEnd(c);
         } imui.End(c);
 
-        imLine(c, LINE_VERTICAL, 1);
+        imLine(c, LINE_VERTICAL, 4, false);
+        imLine(c, LINE_VERTICAL, 2);
+        imLine(c, LINE_VERTICAL, 4, false);
 
-        imui.Begin(c, COL); imui.Flex(c); {
-            // TODO: insert :)
+        imui.Begin(c, COL); imui.Flex(c); imui.ScrollOverflow(c); {
+            imPl2CodeCellOutput(c, s.output);
         } imui.End(c);
     } imui.End(c);
+
+    if (shouldRerunCode) {
+        rerunCode(s, page);
+    }
 }
 
 function rerunCode(s: CodeEditorState, page: CodePage) {
-    // s.parseResult = parse(page.code);
-    // s.interpretResult = interpret(s.parseResult, s.interpretResult);
+    console.log("reran code");
+    updateCodeCellOutput(s.output, page.code);
 }
