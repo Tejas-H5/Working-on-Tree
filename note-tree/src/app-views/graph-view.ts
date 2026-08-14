@@ -55,22 +55,6 @@ export function newGraphMappingRelationship(srcId: number, dstId: number, name: 
     };
 }
 
-export type GraphMappingImplcitGroup = {
-    x: number;
-    y: number;
-    width:  number;
-    height: number;
-};
-
-export function newGraphMappingImplcitGroup(): GraphMappingImplcitGroup {
-    return {
-        x:      0,
-        y:      0,
-        width:  0,
-        height: 0,
-    };
-}
-
 export type MappingGraph = {
     _version: number;
 
@@ -78,11 +62,10 @@ export type MappingGraph = {
     // Also means the UI doesn't need to use keys to render them though, unless it is doing it's own sorting.
     concepts: (GraphMappingConcept | null)[];
     relationships: (GraphMappingRelationship | null)[];
-    implicitGroups: (GraphMappingImplcitGroup | null)[];
 
     // Non-stable indices.
     // NOTE: While subset is the data structure name, the UI calls these 'groups'.
-    // subsets: ConceptSubset[];
+    subsets: ConceptSubset[];
 }
 
 export type MappingGraphView = {
@@ -96,8 +79,7 @@ export function newMappingGraph(): MappingGraph {
         _version: -1,
         concepts: [],
         relationships: [],
-        implicitGroups: [],
-        // subsets: [],
+        subsets: [],
     };
 }
 
@@ -147,16 +129,6 @@ export type GraphMappingsViewState = {
     newName: string;
 
     dragConcept: {isDragging: boolean; startX: number; startY: number;};
-    dragImplicitGroup:  {
-        dragging: GraphMappingImplcitGroup | undefined;
-        scaling: GraphMappingImplcitGroup | undefined;
-        drag: DragState;
-        startX: number;
-        startY: number;
-
-        scalingXDir: number;
-        scalingYDir: number;
-    };
 
     dragEdge: {
         srcId: number;
@@ -276,16 +248,6 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
         newName: "",
 
         dragConcept: {isDragging: false, startX: 0, startY: 0,},
-        dragImplicitGroup: {
-            dragging: undefined,
-            scaling: undefined,
-            drag: newDragState(),
-            startX: 0,
-            startY: 0,
-
-            scalingXDir: 0,
-            scalingYDir: 0,
-        },
 
         targetZoom: 1,
         panState: {
@@ -328,8 +290,6 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
 function isDraggingAnything(s: GraphMappingsViewState): boolean {
     return s.dragConcept.isDragging ||
-        !!s.dragImplicitGroup.dragging ||
-        !!s.dragImplicitGroup.scaling ||
         s.panState.isPanning ||
         s.dragEdge.srcId !== -1 ||
         s.boxSelect.isBoxSelecting;
@@ -540,7 +500,7 @@ function recomputeIndexes(s: GraphMappingsViewState, graph: MappingGraph) {
 function ensureParallelUiSate(s: GraphMappingsViewState, graph: MappingGraph) {
     resizeObjectPool(s.relUiState, newMappingRelationshipsUiState, graph.relationships.length);
     resizeObjectPool(s.conceptsUiState, newMappingConceptUiState, graph.concepts.length);
-    // resizeObjectPool(s.subsetsUiState, newMappingSubsetsUiState, graph.subsets.length);
+    resizeObjectPool(s.subsetsUiState, newMappingSubsetsUiState, graph.subsets.length);
 }
 
 export function imGraphMappingsEditorView(
@@ -720,16 +680,8 @@ export function imGraphMappingsEditorView(
                         imui.Padding(c, 4 * view.zoom, PX, 10 * view.zoom, PX, 4 * view.zoom, PX, 10 * view.zoom, PX);
                         imui.Bg(c, cssVars.bg);
 
-                        if (
-                            im.Memo(c, hoveredInner) |
-                            im.Memo(c, conceptUiState.selected)
-                        ) {
-                            const col = hoveredInner ? cssVars.fg : 
-                                        conceptUiState.selected ? "#1E61FF" :
-                                        cssVars.mg;
+                        imBorderStyle(c, hoveredInner, conceptUiState.selected);
 
-                            imdom.setStyle(c, "border", "2px solid " + col);
-                        }
                         if (im.Memo(c, editing)) imdom.setStyle(c, "cursor", editing ? "" : "pointer");
                         if (im.Memo(c, view.zoom)) imdom.setStyle(c, "borderRadius", (4 * view.zoom) + "px");
 
@@ -983,21 +935,14 @@ export function imGraphMappingsEditorView(
             } im.KeyedEnd(c);
         } im.ForEnd(c);
 
-        im.For(c); for (let idx = 0; idx < graph.implicitGroups.length; idx++) {
-            const group = graph.implicitGroups[idx];
-            if (!group) continue;
-        
-            imImplicitGroup(c, s, view, group, root);
-        } im.ForEnd(c);
+        im.For(c); for (let idx = 0; idx < graph.subsets.length; idx++) {
+            const subset = graph.subsets[idx];
+            if (!subset) continue;
 
-        // im.For(c); for (let idx = 0; idx < graph.subsets.length; idx++) {
-        //     const subset = graph.subsets[idx];
-        //     if (!subset) continue;
-        //
-        //     const ui = s.subsetsUiState[idx];
-        //
-        //     imSubset(c, s, graph, view, subset, ui, root, ctxEv);
-        // } im.ForEnd(c);
+            const ui = s.subsetsUiState[idx];
+
+            imSubset(c, s, graph, view, subset, ui, root, ctxEv);
+        } im.ForEnd(c);
 
         const selectionBoxUi = im.State(c, newMappingSubsetsUiState);
         imSubset(c, s, graph, view, s.selection.selected, selectionBoxUi, root, ctxEv);
@@ -1137,29 +1082,6 @@ export function imGraphMappingsEditorView(
             } imContextMenuItemEnd(c);
 
             imContextMenuItem(c); {
-                imdom.Str(c, "Add group");
-                if (imdom.hasMousePress(c)) {
-                    const rect = root.getBoundingClientRect();
-                    const x = contextMenu.position.x - rect.x;
-                    const y = contextMenu.position.y - rect.y;
-
-                    const size = 100;
-                    const newImplicitGroup = newGraphMappingImplcitGroup();
-                    const graphX = toGraphX(view, x);
-                    const graphY = toGraphY(view, y);
-                    newImplicitGroup.x = graphX - size / 2;
-                    newImplicitGroup.y = graphY - size / 2;
-                    newImplicitGroup.width = size;
-                    newImplicitGroup.height = size;
-
-                    mutation = () => {
-                        pushToNullableArray(graph.implicitGroups, newImplicitGroup);
-                        contextMenu.open = false;
-                    };
-                }
-            } imContextMenuItemEnd(c);
-
-            imContextMenuItem(c); {
                 imdom.Str(c, "Recenter");
                 if (imdom.hasMousePress(c)) {
                     let minX: number | undefined;
@@ -1204,29 +1126,6 @@ export function imGraphMappingsEditorView(
                 const conceptId = s.rightClicked.conceptId;
                 assert(conceptId != null);
 
-                // const conceptState = im.GetInline(c, imContextMenuItem) 
-                //     ?? im.Set(c, {
-                //         subsetsIn: [] as number[],
-                //         closestSubsetIdx: 0,
-                //     });
-                //
-                // if (im.Memo(c, conceptId)) {
-                //     conceptState.subsetsIn.length = 0;
-                //     conceptState.closestSubsetIdx = -1;
-                //
-                //     // TODO: find the closest group, and just toggle it from that
-                //     let closestDist = Infinity;
-                //
-                //     for (let i = 0; i < graph.subsets.length; i++) {
-                //         conceptClickedOn.x
-                //         const subset = graph.subsets[i];
-                //         const idx = subset.conceptIds.indexOf(conceptId);
-                //         if (idx !== -1) {
-                //             conceptState.subsetsIn.push(i);
-                //         }
-                //     }
-                // }
-
                 imLine(c, LINE_HORIZONTAL);
 
                 imContextMenuItem(c); {
@@ -1245,30 +1144,6 @@ export function imGraphMappingsEditorView(
                         contextMenu.open = false;
                     }
                 } imContextMenuItemEnd(c);
-
-
-                // if (im.If(c) && conceptState.closestSubsetIdx !== -1) {
-                //     imContextMenuItem(c); {
-                //         imdom.Str(c, "Insert into group");
-                //         if (imdom.hasMousePress(c)) {
-                //             const closestSubset = graph.subsets[conceptState.closestSubsetIdx];
-                //             assert(!closestSubset.conceptIds.includes(conceptId));
-                //             closestSubset.conceptIds.push(conceptId);
-                //         }
-                //     } imContextMenuItemEnd(c);
-                // } im.IfEnd(c);
-
-                // if (im.If(c) && conceptState.subsetsIn.length > 0) {
-                //     imContextMenuItem(c); {
-                //         imdom.Str(c, "Remove from group");
-                //         if (imdom.hasMousePress(c)) {
-                //             for (const idx of conceptState.subsetsIn) {
-                //                 const conceptIds = graph.subsets[idx].conceptIds;
-                //                 filterInPlace(conceptIds, id => id !== conceptId);
-                //             }
-                //         }
-                //     } imContextMenuItemEnd(c);
-                // } im.IfEnd(c);
             } im.IfEnd(c);
 
             const relClickedOn = arrayAt(graph.relationships, s.rightClicked.relId ?? -1);
@@ -1308,7 +1183,7 @@ export function imGraphMappingsEditorView(
                         for (const conceptIdx of subsetClickedOn.conceptIds) {
                             deleteConcept(s, graph, conceptIdx, DONT_CLEANUP);
                         }
-                        // cleanupInvalidRelationshipsAndSubsets(s, graph);
+                        cleanupInvalidRelationshipsAndSubsets(s, graph);
 
                         recomputeIndexes(s, graph);
                         s.edited = true;
@@ -1322,14 +1197,14 @@ export function imGraphMappingsEditorView(
                     imContextMenuItem(c); {
                         imdom.Str(c, "Add group");
                         if (imdom.hasMousePress(c)) {
-                            // graph.subsets.push(s.selection.selected);
-                            // s.selection.selected = newConceptSubset();
-                            //
-                            // for (const ui of s.conceptsUiState) {
-                            //     ui.selected = false;
-                            // }
-                            // onSelectionUpdated(s);
-                            // sortSubsets(graph);
+                            graph.subsets.push(s.selection.selected);
+                            s.selection.selected = newConceptSubset();
+
+                            for (const ui of s.conceptsUiState) {
+                                ui.selected = false;
+                            }
+                            onSelectionUpdated(s);
+                            sortSubsets(graph);
 
                             s.edited = true;
                             contextMenu.open = false;
@@ -1377,26 +1252,26 @@ export function imGraphMappingsEditorView(
                                 pushToNullableArray(graph.relationships, duplicate);
                             }
 
-                            // len = graph.subsets.length;
-                            // for (let i = 0; i < len; i++) {
-                            //     const subset = graph.subsets[i];
-                            //
-                            //     const canDuplicate = subset
-                            //         .conceptIds
-                            //         .every(conceptIdx => remap.has(conceptIdx));
-                            //
-                            //     if (!canDuplicate) continue;
-                            //     
-                            //     const duplicate = newConceptSubset();
-                            //     for (const conceptIdx of subset.conceptIds) {
-                            //         const remapped = remap.get(conceptIdx); assert(!!remapped);
-                            //         duplicate.conceptIds.push(remapped);
-                            //     }
-                            //     graph.subsets.push(duplicate);
-                            // }
+                            len = graph.subsets.length;
+                            for (let i = 0; i < len; i++) {
+                                const subset = graph.subsets[i];
+
+                                const canDuplicate = subset
+                                    .conceptIds
+                                    .every(conceptIdx => remap.has(conceptIdx));
+
+                                if (!canDuplicate) continue;
+                                
+                                const duplicate = newConceptSubset();
+                                for (const conceptIdx of subset.conceptIds) {
+                                    const remapped = remap.get(conceptIdx); assert(!!remapped);
+                                    duplicate.conceptIds.push(remapped);
+                                }
+                                graph.subsets.push(duplicate);
+                            }
 
                             ensureParallelUiSate(s, graph);
-                            // sortSubsets(graph);
+                            sortSubsets(graph);
 
                             for (const ui of s.conceptsUiState) {
                                 ui.selected = false;
@@ -1415,15 +1290,42 @@ export function imGraphMappingsEditorView(
                 } else {
                     im.IfElse(c); 
 
-                    // imContextMenuItem(c); {
-                    //     imdom.Str(c, "Remove group");
-                    //     if (imdom.hasMousePress(c)) {
-                    //         filterInPlace(graph.subsets, s => s !== subsetClickedOn);
-                    //         s.edited = true;
-                    //         contextMenu.open = false;
-                    //     }
-                    // } imContextMenuItemEnd(c);
+                    imContextMenuItem(c); {
+                        imdom.Str(c, "Remove group");
+                        if (imdom.hasMousePress(c)) {
+                            filterInPlace(graph.subsets, s => s !== subsetClickedOn);
+                            s.edited = true;
+                            contextMenu.open = false;
+                        }
+                    } imContextMenuItemEnd(c);
 
+                    if (im.If(c) && s.selection.selected.conceptIds.length > 0) {
+                        imContextMenuItem(c); {
+                            imdom.Str(c, "Add selected");
+                            if (imdom.hasMousePress(c)) {
+                                for (const conceptId of s.selection.selected.conceptIds) {
+                                    if (!subsetClickedOn.conceptIds.includes(conceptId)) {
+                                        subsetClickedOn.conceptIds.push(conceptId);
+                                    }
+                                }
+
+                                s.edited = true;
+                                contextMenu.open = false;
+                            }
+                        } imContextMenuItemEnd(c);
+
+                        imContextMenuItem(c); {
+                            imdom.Str(c, "Remove selected");
+                            if (imdom.hasMousePress(c)) {
+                                for (const conceptId of s.selection.selected.conceptIds) {
+                                    filterInPlace(subsetClickedOn.conceptIds, otherConceptId => otherConceptId !== conceptId);
+                                }
+
+                                s.edited = true;
+                                contextMenu.open = false;
+                            }
+                        } imContextMenuItemEnd(c);
+                    } im.IfEnd(c);
                 } im.IfEnd(c);
             } im.IfEnd(c);
         } imContextMenuEnd(c, contextMenu);
@@ -1471,9 +1373,9 @@ export function imGraphMappingsEditorView(
 // This is a simple way to ensure that 
 // fully overlapping subsets can always be hovered in the order of
 // smallest -> largest, so that they can be removed before larger ones.
-// function sortSubsets(graph: MappingGraph) {
-//     graph.subsets.sort((a, b) => b.conceptIds.length - a.conceptIds.length);
-// }
+function sortSubsets(graph: MappingGraph) {
+    graph.subsets.sort((a, b) => b.conceptIds.length - a.conceptIds.length);
+}
 
 // Set isDragging = true on the concepts you want dragged after calling this.
 function startDraggingConcepts(s: GraphMappingsViewState, graph: MappingGraph, view: MappingGraphView, root: HTMLElement) {
@@ -1647,32 +1549,32 @@ function deleteConcept(s: GraphMappingsViewState, graph: MappingGraph, conceptId
     graph.concepts[conceptId] = null;
 
     if (cleanup) {
-        // cleanupInvalidRelationshipsAndSubsets(s, graph);
+        cleanupInvalidRelationshipsAndSubsets(s, graph);
     }
 }
 
-// function cleanupInvalidRelationshipsAndSubsets(s: GraphMappingsViewState, graph: MappingGraph) {
-//     for (let relId = 0; relId < graph.relationships.length; relId++) {
-//         const rel = graph.relationships[relId];
-//         if (!rel) continue;
-//
-//         const src = graph.concepts[rel.srcId];
-//         const dst = graph.concepts[rel.dstId];
-//         if (!src || !dst) {
-//             graph.relationships[relId] = null;
-//         }
-//     }
-//
-//     const cleanupSubset = (s: ConceptSubset) => {
-//         filterInPlace(s.conceptIds, conceptIdx => !!graph.concepts[conceptIdx]);
-//     }
-//     for (const s of graph.subsets) {
-//         cleanupSubset(s);
-//     }
-//     filterInPlace(graph.subsets, s => s.conceptIds.length > 0);
-//
-//     cleanupSubset(s.selection.selected);
-// }
+function cleanupInvalidRelationshipsAndSubsets(s: GraphMappingsViewState, graph: MappingGraph) {
+    for (let relId = 0; relId < graph.relationships.length; relId++) {
+        const rel = graph.relationships[relId];
+        if (!rel) continue;
+
+        const src = graph.concepts[rel.srcId];
+        const dst = graph.concepts[rel.dstId];
+        if (!src || !dst) {
+            graph.relationships[relId] = null;
+        }
+    }
+
+    const cleanupSubset = (s: ConceptSubset) => {
+        filterInPlace(s.conceptIds, conceptIdx => !!graph.concepts[conceptIdx]);
+    }
+    for (const s of graph.subsets) {
+        cleanupSubset(s);
+    }
+    filterInPlace(graph.subsets, s => s.conceptIds.length > 0);
+
+    cleanupSubset(s.selection.selected);
+}
 
 function deleteRelationship(graph: MappingGraph, relId: number) {
     if (relId < 0 && relId >= graph.relationships.length) return;
@@ -1715,11 +1617,28 @@ function imSubset(
             }
         }
 
-        const padding = toScreenLength(view, 30);
+        // Selecting the padding like this is actually very big brain. 
+        // The issue with a constant padding, is that the border of 
+        // a group within another group will end up touching, but really
+        // we want there to always be a gap, i.e the outer group to have
+        // a larger border padding than the inner group. Now, we _could_ compute
+        // the regular border of every group, then iterate each group 
+        // to see which group overlaps which other groups, then 
+        // infer the 'depth' in the heirarchy of each group and compute
+        // the padding from that. OR, we can realize that a group within
+        // another group must necessarily be visually smaller. 
+        // As such, if the padding between the bounding box of a group
+        // and it's border is a function of the size of the bounding box itself,
+        // a smaller group would naturally get a smaller border, and a
+        // larger group would naturally get a larger border! Pretty neat I think.
+        const paddingX = 0.1 * (maxX - minX);
+        const paddingY = 0.1 * (maxY - minY);
+        const padding =  Math.min(paddingX, paddingY);
         const x0 = minX - padding;
         const x1 = maxX + padding;
         const y0 = minY - padding;
         const y1 = maxY + padding;
+
         imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0, PX, y0, PX);  imui.Size(c, x1 - x0, PX, y1 - y0, PX); {
             const hovered = imdom.hasMouseOver(c);
 
@@ -1746,141 +1665,6 @@ function imSubset(
     } im.IfEnd(c);
 }
 
-function imImplicitGroup(
-    c: ImCache,
-    s: GraphMappingsViewState,
-    view: MappingGraphView,
-    group: GraphMappingImplcitGroup,
-    root: HTMLElement,
-) {
-    const mouse = imdom.getMouse();
-
-    const x0 = toContainerX(view, group.x);
-    const y0 = toContainerY(view, group.y);
-    const x1 = toContainerX(view, group.x + group.width);
-    const y1 = toContainerY(view, group.y + group.height);
-
-    const padding = 20;
-    const borderRoot = imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0 - padding, PX, y0 - padding, PX); {
-        imui.Size(c, x1 - x0 + padding + padding, PX, y1 - y0 + padding + padding, PX);
-
-        if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
-
-        imui.Begin(c, BLOCK); imui.Absolute(c, padding, PX, padding, PX, padding, PX, padding, PX); {
-            imui.Size(c, x1 - x0, PX, y1 - y0, PX);
-
-            if (im.IsFirstRender(c)) imdom.setStyle(c, "cursor", "move");
-
-            const hovered = imdom.hasMouseOver(c);
-
-            if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
-            if (im.IsFirstRender(c)) imdom.setStyle(c, "borderRadius", "10px");
-            if (im.Memo(c, hovered)) imdom.setStyle(c, "border", `2px solid ${hovered ? cssVars.fg : cssVars.mg}`);
-
-            if (!isDraggingAnything(s) && imdom.hasMouseOver(c) && mouse.leftMouseButton && !s.dragImplicitGroup.dragging) {
-                s.dragImplicitGroup.dragging = group;
-                startDrag(s.dragImplicitGroup.drag, root, mouse, view, group.x, group.y);
-            }
-            if (!mouse.leftMouseButton && s.dragImplicitGroup.dragging) {
-                s.dragImplicitGroup.dragging = undefined;
-            }
-            if (s.dragImplicitGroup.dragging === group) {
-                group.x = getDragX(s.dragImplicitGroup.drag, root, mouse, view);
-                group.y = getDragY(s.dragImplicitGroup.drag, root, mouse, view);
-            }
-        } imui.End(c);
-
-        const hovered = imdom.hasMouseOver(c);
-        let cursor = "";
-        if (hovered || !!s.dragImplicitGroup.scaling) {
-            const rect = borderRoot.getBoundingClientRect();
-            const toLeft  = mouse.x - rect.left;
-            const toRight = rect.right - mouse.x;
-            const toTop    = mouse.y - rect.top;
-            const toBottom = rect.bottom - mouse.y;
-
-            let scalingXDir = 0;
-            let scalingYDir = 0;
-
-            const straightDragRatio = 0.25;
-
-            const xRatio = toLeft / (toLeft + toRight);
-            if (xRatio < straightDragRatio) {
-                scalingXDir = -1;
-            } else if ((1 - straightDragRatio) < xRatio) {
-                scalingXDir = 1;
-            }
-
-            const yRatio = toTop / (toTop + toBottom);
-            if (yRatio < straightDragRatio) {
-                scalingYDir = -1;
-            } else if ((1 - straightDragRatio) < yRatio) {
-                scalingYDir = 1;
-            }
-
-            if (scalingYDir === -1) {
-                if (scalingXDir === -1) {
-                    cursor = "nw-resize";
-                } else if (scalingXDir === 1) {
-                    cursor = "ne-resize";
-                } else {
-                    cursor = "n-resize";
-                }
-            } else if (scalingYDir === 1) {
-                if (scalingXDir === -1) {
-                    cursor = "sw-resize";
-                } else if (scalingXDir === 1) {
-                    cursor = "se-resize";
-                } else {
-                    cursor = "s-resize";
-                }
-            } else {
-                if (scalingXDir === -1) {
-                    cursor = "e-resize";
-                } else if (scalingXDir === 1) {
-                    cursor = "w-resize";
-                }
-            }
-
-            if (!isDraggingAnything(s) && hovered && mouse.leftMouseButton && !s.dragImplicitGroup.scaling) {
-                s.dragImplicitGroup.scaling = group;
-                startDrag(s.dragImplicitGroup.drag, root, mouse, view, group.width, group.height);
-                s.dragImplicitGroup.startX = group.x;
-                s.dragImplicitGroup.startY = group.y;
-                s.dragImplicitGroup.scalingXDir = scalingXDir;
-                s.dragImplicitGroup.scalingYDir = scalingYDir;
-            }
-        }
-
-        if (im.Memo(c, cursor)) imdom.setStyle(c, "cursor", cursor);
-
-        if (!mouse.leftMouseButton && s.dragImplicitGroup.scaling) {
-            s.dragImplicitGroup.scaling = undefined;
-        }
-        if (s.dragImplicitGroup.scaling === group) {
-            const dx = getDragDx(s.dragImplicitGroup.drag, root, mouse, view);
-            if (s.dragImplicitGroup.scalingXDir === -1) {
-                group.width = s.dragImplicitGroup.drag.startX - dx;
-                group.x = s.dragImplicitGroup.startX + dx;
-            } else if (s.dragImplicitGroup.scalingXDir === 1) {
-                group.width = s.dragImplicitGroup.drag.startX + dx;
-            }
-            if (group.width < 100) {
-                group.width = 100;
-            }
-            const dy = getDragDy(s.dragImplicitGroup.drag, root, mouse, view);
-            if (s.dragImplicitGroup.scalingYDir === -1) {
-                group.height = s.dragImplicitGroup.drag.startY - dy;
-                group.y = s.dragImplicitGroup.startY + dy;
-            } else if (s.dragImplicitGroup.scalingYDir === 1) {
-                group.height = s.dragImplicitGroup.drag.startY + dy;
-            }
-            if (group.height < 100) {
-                group.height = 100;
-            }
-        }
-    } imui.End(c);
-}
 
 type DragState = { 
     startX: number; 
@@ -1973,4 +1757,29 @@ export function getMappingGraphCount(m: MappingGraph | undefined): number {
         if (concept) count += 1
     }
     return count;
+}
+
+function imBorderStyle(c: ImCache, hovered: boolean, selected: boolean) {
+    if (
+        im.Memo(c, hovered) |
+        im.Memo(c, selected)
+    ) {
+        const col = hovered ? cssVars.fg :
+            selected ? "#1E61FF" : 
+            cssVars.mg;
+
+        imdom.setStyle(c, "border", "2px solid " + col);
+    }
+}
+
+function conceptInRect(c: GraphMappingConcept, x0: number, x1: number, y0: number, y1: number): boolean {
+    let result = false;
+
+    if (x0 <= c.x && c.x <= x1) {
+        if (y0 <= c.y && c.y <= y1) {
+            result = false;
+        }
+    }
+    
+    return result;
 }

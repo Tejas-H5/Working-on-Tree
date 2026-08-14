@@ -22,7 +22,7 @@ import {
     serializeToJSON
 } from "serialization-utils";
 import { CodePage, newCodePage } from "./app-views/code-editor";
-import { ConceptSubset, GraphMappingConcept, GraphMappingImplcitGroup, GraphMappingRelationship, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingImplcitGroup, newGraphMappingRelationship, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
+import { ConceptSubset, GraphMappingConcept, GraphMappingRelationship, MappingGraph, newConceptSubset, newGraphMappingConcept, newGraphMappingRelationship, newMappingGraph, newMappingGraphView } from "./app-views/graph-view";
 import { addJournalPageUnder, getOrCreateJournalLogPageForDate, Journal, JournalPage, newJournalPage, TreePage } from "./app-views/journal-view";
 import {
     Activity,
@@ -270,29 +270,16 @@ function asMappingGraph(mappingGraphObj: LoadedObject<MappingGraph>, defaultValu
         return value;
     });
 
-    // TODO: migrate subsets to implicit groups
-    // const subsets = asArray(getVal<MappingGraph>(mappingGraphObj, "subsets"));
-    // if (subsets) {
-    //     defaultValue.subsets = subsets.map(subsetsVal => {
-    //         const obj = mustGetDefined(asObject<ConceptSubset>(subsetsVal));
-    //         const value = newConceptSubset();
-    //
-    //         const subsets = mustGetArray(obj, "conceptIds")
-    //         value.conceptIds = subsets.map(u => mustGetDefined(asNumber(u)));
-    //
-    //         deserializeObject(value, obj, "mappingGraph.subsets");
-    //         return value;
-    //     });
-    // }
-    //
-    const implicitGroups = asArray(getVal<MappingGraph>(mappingGraphObj, "implicitGroups"));
-    if (implicitGroups) {
-        defaultValue.implicitGroups = implicitGroups.map(relationshipVal => {
-            const obj = asObject<GraphMappingImplcitGroup>(relationshipVal);
-            if (!obj) return null;
-            
-            const value = newGraphMappingImplcitGroup();
-            deserializeObject(value, obj, "mappingGraph.implicitGroups");
+    const subsets = asArray(getVal<MappingGraph>(mappingGraphObj, "subsets"));
+    if (subsets) {
+        defaultValue.subsets = subsets.map(subsetsVal => {
+            const obj = mustGetDefined(asObject<ConceptSubset>(subsetsVal));
+            const value = newConceptSubset();
+
+            const subsets = mustGetArray(obj, "conceptIds")
+            value.conceptIds = subsets.map(u => mustGetDefined(asNumber(u)));
+
+            deserializeObject(value, obj, "mappingGraph.subsets");
             return value;
         });
     }
