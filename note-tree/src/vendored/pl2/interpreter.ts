@@ -3,7 +3,7 @@ import * as ast from "./ast";
 import * as matrix from "./matrix";
 import * as vector from "./vector";
 import { newParser } from "./parser";
-import { TextPosition } from "./text-pos";
+import { newTextPosition, TextPosition } from "./text-pos";
 import { getNextRng, newRandomNumberGenerator, RandomNumberGenerator, setRngSeed } from "./random";
 import { filterInPlace } from "./array-utils";
 
@@ -516,7 +516,15 @@ export type ExprReturn =
 export function interpretProgram(program: ast.Program, iter: ProgramIterator) {
 	setRngSeed(iter.rng, 0);
 
-	evaluateExpressionBlock(program.statements, iter);
+	try {
+		evaluateExpressionBlock(program.statements, iter);
+	} catch(e) {
+		iter.errors.push({
+			message: "Unhandled error while interpreting the code: " + e,
+			pos: newTextPosition(0, 0, 0 ,0),
+			expr: undefined,
+		});
+	}
 
 	assert(iter.scopes.length === 1);
 
@@ -550,6 +558,7 @@ export function interpretCode(code: string, environment?: Map<string, Result>): 
 	} 
 
 	interpretProgram(program, result);
+
 	return result;
 }
 
@@ -662,7 +671,7 @@ export function evaluateCode(code: string, iter: ProgramIterator): [Result, stri
 	const expr = ast.parseExpressionFromText(code);
 	if (!expr) return [NOTHING, "Couldn't parse the expression"];
 	
-	evaluateExpression(expr, iter);
+	evaluateExpression(expr, iter, true);
 	return [iter.lastResult.result, iter.lastResult.error?.message];
 }
 

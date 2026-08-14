@@ -56,7 +56,8 @@ export function newJournalViewState(): JournalViewState {
             parents: [],
             version: 0,
             isRenaming: false,
-            view: VIEWING_PAGE,
+            // view: VIEWING_PAGE,
+            view: VIEWING_GRAPH,
         },
 
         finder: {
@@ -71,7 +72,7 @@ export function newJournalViewState(): JournalViewState {
 export function newJournal(): Journal {
     const rootPage = newJournalPage("Root page");
 
-    return {
+    const journal: Journal = {
         // TODO: flatten - pageIdx = currentlyEditing.pageIdx
         currentlyEditing: {
             pageIdx: 0,
@@ -79,6 +80,11 @@ export function newJournal(): Journal {
 
         pages: itree.newTreeStore(rootPage),
     };
+
+    const rootNode = itree.getNode(journal.pages, itree.ROOT_ID);
+    addJournalPageUnder(journal, rootNode, "First page", "This is the first ever page!!!")
+
+    return journal;
 }
 
 function sidebarHasFocus(s: JournalViewState): boolean {
@@ -557,7 +563,7 @@ function imPageEditor(
                     journalMutated(state);
                 }
 
-                imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
+                imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 0, PX); imui.Flex(c); imui.PreWrap(c); {
                     const graphViewState = im.State(c, newGraphMappingsViewState);
                     imGraphMappingsEditorView(c, graphViewState, page.data.graph.g, page.data.graph.v)
                     if (im.Memo(c, page.data.graph.g._version + page.data.graph.v._version)) {

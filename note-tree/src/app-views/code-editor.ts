@@ -4,7 +4,6 @@ import { debouncedSave, GlobalContext } from "global-context";
 import { state } from "state";
 import { ev, im, ImCache, imdom } from "im-js";
 import { COL, imui, ROW } from "im-js/im-ui";
-import { pl2 } from "pl2";
 import { Pl2CodeCellOutput, imPl2CodeCellOutput, newCodeCellOutput, updateCodeCellOutput } from "vendored/pl2-visualiser";
 
 export type CodePage = {

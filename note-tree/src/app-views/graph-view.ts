@@ -6,12 +6,11 @@ import { imLine, LINE_HORIZONTAL } from "components/im-line";
 import { imTextInputOneLine } from "components/text-input";
 import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "array-utils";
 import { assert } from "assert";
-import { im, ImCache, imdom, ev, elsvg, } from "im-js";
+import { im, ImCache, imdom, ev, elsvg, MouseState, } from "im-js";
 import { imButton } from "app-components/button";
 
-
-
 const SHIFT = imdom.getNormalizedKey("Shift");
+
 
 // One year ago, I had tried making this exact widget. 
 // None of the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept stepping over each other.
@@ -65,6 +64,7 @@ export type MappingGraph = {
     relationships: (GraphMappingRelationship | null)[];
 
     // Non-stable indices.
+    // NOTE: While subset is the data structure name, the UI calls these 'groups'.
     subsets: ConceptSubset[];
 }
 
@@ -111,6 +111,7 @@ export function newConceptSubset(): ConceptSubset {
 export type GraphMappingsViewState = {
     conceptsUiState: MappingConceptUiState[];
     relUiState: MappingRelationshipsUiState[];
+    subsetsUiState: MappingSubsetsUiState[];
 
     indexes: {
         // Keyed on the flat id of a particular connection.
@@ -127,11 +128,7 @@ export type GraphMappingsViewState = {
 
     newName: string;
 
-    dragConcept: {
-        isDragging: boolean;
-        startX: number;
-        startY: number;
-    };
+    dragConcept: {isDragging: boolean; startX: number; startY: number;};
 
     dragEdge: {
         srcId: number;
@@ -226,10 +223,20 @@ function newMappingConceptUiState(): MappingConceptUiState {
     };
 }
 
+type MappingSubsetsUiState = {
+};
+
+function newMappingSubsetsUiState(): MappingSubsetsUiState {
+    return {
+    };
+}
+
+
 export function newGraphMappingsViewState(): GraphMappingsViewState {
     return {
         conceptsUiState: [],
         relUiState: [],
+        subsetsUiState: [],
 
         indexes: {
             edgeGroups: new Map(),
@@ -240,11 +247,7 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
         newName: "",
 
-        dragConcept: {
-            isDragging: false,
-            startX: 0,
-            startY: 0,
-        },
+        dragConcept: {isDragging: false, startX: 0, startY: 0,},
 
         targetZoom: 1,
         panState: {
@@ -497,6 +500,7 @@ function recomputeIndexes(s: GraphMappingsViewState, graph: MappingGraph) {
 function ensureParallelUiSate(s: GraphMappingsViewState, graph: MappingGraph) {
     resizeObjectPool(s.relUiState, newMappingRelationshipsUiState, graph.relationships.length);
     resizeObjectPool(s.conceptsUiState, newMappingConceptUiState, graph.concepts.length);
+    resizeObjectPool(s.subsetsUiState, newMappingSubsetsUiState, graph.subsets.length);
 }
 
 export function imGraphMappingsEditorView(
@@ -676,16 +680,8 @@ export function imGraphMappingsEditorView(
                         imui.Padding(c, 4 * view.zoom, PX, 10 * view.zoom, PX, 4 * view.zoom, PX, 10 * view.zoom, PX);
                         imui.Bg(c, cssVars.bg);
 
-                        if (
-                            im.Memo(c, hoveredInner) |
-                            im.Memo(c, conceptUiState.selected)
-                        ) {
-                            const col = hoveredInner ? cssVars.fg : 
-                                        conceptUiState.selected ? "#1E61FF" :
-                                        cssVars.mg;
+                        imBorderStyle(c, hoveredInner, conceptUiState.selected);
 
-                            imdom.setStyle(c, "border", "2px solid " + col);
-                        }
                         if (im.Memo(c, editing)) imdom.setStyle(c, "cursor", editing ? "" : "pointer");
                         if (im.Memo(c, view.zoom)) imdom.setStyle(c, "borderRadius", (4 * view.zoom) + "px");
 
@@ -939,13 +935,17 @@ export function imGraphMappingsEditorView(
             } im.KeyedEnd(c);
         } im.ForEnd(c);
 
-        im.For(c); for (const subset of graph.subsets) {
+        im.For(c); for (let idx = 0; idx < graph.subsets.length; idx++) {
+            const subset = graph.subsets[idx];
             if (!subset) continue;
 
-            imSubset(c, s, graph, view, subset, root, ctxEv);
+            const ui = s.subsetsUiState[idx];
+
+            imSubset(c, s, graph, view, subset, ui, root, ctxEv);
         } im.ForEnd(c);
 
-        imSubset(c, s, graph, view, s.selection.selected, root, ctxEv);
+        const selectionBoxUi = im.State(c, newMappingSubsetsUiState);
+        imSubset(c, s, graph, view, s.selection.selected, selectionBoxUi, root, ctxEv);
 
         if (!isDraggingAnything(s) && imdom.hasMousePress(c) && mouse.leftMouseButton) {
             if (imdom.isKeyHeld(SHIFT)) {
@@ -1181,7 +1181,7 @@ export function imGraphMappingsEditorView(
                     imdom.Str(c, "Delete concepts");
                     if (imdom.hasMousePress(c)) {
                         for (const conceptIdx of subsetClickedOn.conceptIds) {
-                            deleteConcept(s, graph, conceptIdx, false);
+                            deleteConcept(s, graph, conceptIdx, DONT_CLEANUP);
                         }
                         cleanupInvalidRelationshipsAndSubsets(s, graph);
 
@@ -1299,6 +1299,33 @@ export function imGraphMappingsEditorView(
                         }
                     } imContextMenuItemEnd(c);
 
+                    if (im.If(c) && s.selection.selected.conceptIds.length > 0) {
+                        imContextMenuItem(c); {
+                            imdom.Str(c, "Add selected");
+                            if (imdom.hasMousePress(c)) {
+                                for (const conceptId of s.selection.selected.conceptIds) {
+                                    if (!subsetClickedOn.conceptIds.includes(conceptId)) {
+                                        subsetClickedOn.conceptIds.push(conceptId);
+                                    }
+                                }
+
+                                s.edited = true;
+                                contextMenu.open = false;
+                            }
+                        } imContextMenuItemEnd(c);
+
+                        imContextMenuItem(c); {
+                            imdom.Str(c, "Remove selected");
+                            if (imdom.hasMousePress(c)) {
+                                for (const conceptId of s.selection.selected.conceptIds) {
+                                    filterInPlace(subsetClickedOn.conceptIds, otherConceptId => otherConceptId !== conceptId);
+                                }
+
+                                s.edited = true;
+                                contextMenu.open = false;
+                            }
+                        } imContextMenuItemEnd(c);
+                    } im.IfEnd(c);
                 } im.IfEnd(c);
             } im.IfEnd(c);
         } imContextMenuEnd(c, contextMenu);
@@ -1511,6 +1538,8 @@ function imContextMenuItem(c: ImCache) {
     } // imui.End
 }
 
+const DONT_CLEANUP = false;
+
 // If you pass cleanup = false, don't forget to call cleanupInvalidRelationships yourself!
 function deleteConcept(s: GraphMappingsViewState, graph: MappingGraph, conceptId: number, cleanup = true) {
     if (conceptId < 0 && conceptId >= graph.concepts.length) {
@@ -1558,6 +1587,7 @@ function imSubset(
     graph: MappingGraph,
     view: MappingGraphView,
     subset: ConceptSubset,
+    ui: MappingSubsetsUiState,
     root: HTMLElement,
     ctxEv: MouseEvent | null,
 ) {
@@ -1587,11 +1617,28 @@ function imSubset(
             }
         }
 
-        const padding = toScreenLength(view, 30);
+        // Selecting the padding like this is actually very big brain. 
+        // The issue with a constant padding, is that the border of 
+        // a group within another group will end up touching, but really
+        // we want there to always be a gap, i.e the outer group to have
+        // a larger border padding than the inner group. Now, we _could_ compute
+        // the regular border of every group, then iterate each group 
+        // to see which group overlaps which other groups, then 
+        // infer the 'depth' in the heirarchy of each group and compute
+        // the padding from that. OR, we can realize that a group within
+        // another group must necessarily be visually smaller. 
+        // As such, if the padding between the bounding box of a group
+        // and it's border is a function of the size of the bounding box itself,
+        // a smaller group would naturally get a smaller border, and a
+        // larger group would naturally get a larger border! Pretty neat I think.
+        const paddingX = 0.1 * (maxX - minX);
+        const paddingY = 0.1 * (maxY - minY);
+        const padding =  Math.min(paddingX, paddingY);
         const x0 = minX - padding;
         const x1 = maxX + padding;
         const y0 = minY - padding;
         const y1 = maxY + padding;
+
         imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0, PX, y0, PX);  imui.Size(c, x1 - x0, PX, y1 - y0, PX); {
             const hovered = imdom.hasMouseOver(c);
 
@@ -1618,6 +1665,80 @@ function imSubset(
     } im.IfEnd(c);
 }
 
+
+type DragState = { 
+    startX: number; 
+    startY: number;
+    startMouseX: number;
+    startMouseY: number;
+};
+
+function newDragState(): DragState {
+    return {
+        startX: 0,
+        startY: 0,
+        startMouseX: 0,
+        startMouseY: 0,
+    };
+}
+
+function startDrag(
+    s: DragState,
+    root: HTMLElement,
+    mouse: MouseState,
+    view: MappingGraphView,
+    x: number, y: number,
+) {
+    const rect = root.getBoundingClientRect();
+    const mouseX = toGraphX(view, mouse.x - rect.x);
+    const mouseY = toGraphY(view, mouse.y - rect.y);
+
+    s.startX = x;
+    s.startY = y;
+    s.startMouseX = mouseX;
+    s.startMouseY = mouseY;
+}
+
+function getDragDx(
+    s: DragState,
+    root: HTMLElement,
+    mouse: MouseState,
+    view: MappingGraphView,
+) {
+    const rect = root.getBoundingClientRect();
+    const mouseX = toGraphX(view, mouse.x - rect.x);
+    return mouseX - s.startMouseX;
+}
+
+function getDragX(
+    s: DragState,
+    root: HTMLElement,
+    mouse: MouseState,
+    view: MappingGraphView,
+) {
+    return s.startX + getDragDx(s, root, mouse, view);
+}
+
+function getDragDy(
+    s: DragState,
+    root: HTMLElement,
+    mouse: MouseState,
+    view: MappingGraphView,
+) {
+    const rect = root.getBoundingClientRect();
+    const mouseY = toGraphY(view, mouse.y - rect.y);
+    return mouseY - s.startMouseY;
+}
+
+function getDragY(
+    s: DragState,
+    root: HTMLElement,
+    mouse: MouseState,
+    view: MappingGraphView,
+) {
+    return s.startY + getDragDy(s, root, mouse, view);
+}
+
 function onSelectionUpdated(s: GraphMappingsViewState) {
     s.selection.selected.conceptIds.length = 0;
     for (let conceptId = 0; conceptId < s.conceptsUiState.length; conceptId++) {
@@ -1636,4 +1757,29 @@ export function getMappingGraphCount(m: MappingGraph | undefined): number {
         if (concept) count += 1
     }
     return count;
+}
+
+function imBorderStyle(c: ImCache, hovered: boolean, selected: boolean) {
+    if (
+        im.Memo(c, hovered) |
+        im.Memo(c, selected)
+    ) {
+        const col = hovered ? cssVars.fg :
+            selected ? "#1E61FF" : 
+            cssVars.mg;
+
+        imdom.setStyle(c, "border", "2px solid " + col);
+    }
+}
+
+function conceptInRect(c: GraphMappingConcept, x0: number, x1: number, y0: number, y1: number): boolean {
+    let result = false;
+
+    if (x0 <= c.x && c.x <= x1) {
+        if (y0 <= c.y && c.y <= y1) {
+            result = false;
+        }
+    }
+    
+    return result;
 }
