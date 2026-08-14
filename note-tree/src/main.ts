@@ -71,6 +71,16 @@ function imMainInner(c: ImCache) {
         imdom.setStyle(c, "tabSize", "" + state.settings.tabStopSize);
     }
 
+    if (im.IsFirstRender(c)) {
+        // This is the "Leave site? Changes you made may not be saved" popup. 
+        // Apparently we don't need to literally do alert('u have unsaved changes bro')
+        window.addEventListener("beforeunload", (event) => {
+            if (ctx.status.statusTextType === TASK_IN_PROGRESS) {
+                event.preventDefault();
+            }
+        });
+    }
+
     ctx.now = new Date();
 
     let errorState; errorState = im.GetInline(c, im.Try);
@@ -214,7 +224,6 @@ function imMainInner(c: ImCache) {
                                 if (t === undefined || statusTextChanged) t = 0;
                                 t = im.Set(c, t + im.getDeltaTimeSeconds(c));
 
-                                // bruh
                                 if (im.If(c) && ctx.status.statusTextType === TASK_IN_PROGRESS) {
                                     const opacity = ctx.status.statusTextTimeLeftSeconds / ctx.status.statusTextTimeInitialSeconds;
                                     imdom.setStyle(c, "opacity", "" + opacity, root);
