@@ -1,8 +1,8 @@
 import { imListRowCellStyle } from "app-components/list-row";
 import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "components/context-menu";
-import { BLOCK, COL, cssVars, DisplayType, imui, NA, PX, ROW, STRETCH } from "im-js/im-ui";
+import { BLOCK, COL, cssVars, DisplayType, imui, NA, PERCENT, PX, ROW, STRETCH } from "im-js/im-ui";
 
-import { imButton } from "app-components/button";
+import { imButton, imButtonIsClicked } from "app-components/button";
 import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "array-utils";
 import { assert } from "assert";
 import { imLine, LINE_HORIZONTAL } from "components/im-line";
@@ -123,6 +123,7 @@ export type GraphMappingsViewState = {
         // I have bent over backwards to use a number key here, because they are more performant than string keys.
         // NOTE: we can now only have sqrt(MAX_SAFE_INTEGER) number of edge groups and therefore now. 94,906,265. Yeah I reckon we're good
         edgeGroups: Map<number, RelationshipGroup>;
+        subsetIdsByConceptId: number[];
     };
     selection: {
         selected: ConceptSubset;
@@ -248,6 +249,7 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
 
         indexes: {
             edgeGroups: new Map(),
+            subsetIdsByConceptId: [],
         },
         selection: {
             selected: newConceptSubset(),
@@ -514,6 +516,23 @@ function recomputeIndexes(s: GraphMappingsViewState, graph: MappingGraph) {
             edgeGroup.relIds.push(relId);
         }
     }
+
+    // Subsets each concept is a part of
+    {
+        const subsetIdsByConceptId = s.indexes.subsetIdsByConceptId;
+        subsetIdsByConceptId.length = graph.concepts.length
+        subsetIdsByConceptId.fill(-1);
+
+        for (let subsetId = 0; subsetId < graph.subsets.length; subsetId++) {
+            const subset = graph.subsets[subsetId];
+            for (const conceptId of subset.conceptIds) {
+                const concept = graph.concepts[conceptId]
+                if (concept) {
+                    subsetIdsByConceptId[conceptId] = subsetId;
+                }
+            }
+        }
+    }
 }
 
 function ensureParallelUiSate(s: GraphMappingsViewState, graph: MappingGraph) {
@@ -531,7 +550,10 @@ export function imGraphMappingsEditorViewInternal(
 ) {
     imGraphMappingsEditorView(c, s, graph, view);
 
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Delete selected")) {
+    if (
+        hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Delete selected") ||
+        imdom.isKeyPressed(key.DELETE)
+    ) {
         s.mutation = () => {
             if (s.selection.selected.conceptIds.length > 0) {
                 deleteConceptIds(s, graph, s.selection.selected.conceptIds);
@@ -1165,7 +1187,7 @@ export function imGraphMappingsEditorView(
                     }
                 } else {
                     s.mutation = () => {
-                        deleteRelationship(graph, s.dragEdge.relId);
+                        deleteRelationship(s, graph, s.dragEdge.relId);
 
                         s.dragEdge.srcId = -1;
                         s.dragEdge.relId = -1;
@@ -1279,7 +1301,7 @@ export function imGraphMappingsEditorView(
                 imContextMenuItem(c); {
                     imdom.Str(c, "Delete relationship");
                     if (imdom.hasMousePress(c)) {
-                        deleteRelationship(graph, relId)
+                        deleteRelationship(s, graph, relId)
                         recomputeIndexes(s, graph);
                         contextMenu.open = false;
                     }
@@ -1302,18 +1324,9 @@ export function imGraphMappingsEditorView(
 
                 if (im.If(c) && subsetClickedOn === s.selection.selected) {
                     imContextMenuItem(c); {
-                        imdom.Str(c, "Add group");
+                        imdom.Str(c, "Group");
                         if (imdom.hasMousePress(c)) {
-                            graph.subsets.push(s.selection.selected);
-                            s.selection.selected = newConceptSubset();
-
-                            for (const ui of s.conceptsUiState) {
-                                ui.selected = false;
-                            }
-                            onSelectionUpdated(s);
-                            sortSubsets(graph);
-
-                            s.edited = true;
+                            selectedSubsetToGroupSubset(s, graph);
                             contextMenu.open = false;
                         }
                     } imContextMenuItemEnd(c);
@@ -1398,10 +1411,9 @@ export function imGraphMappingsEditorView(
                     im.IfElse(c); 
 
                     imContextMenuItem(c); {
-                        imdom.Str(c, "Remove group");
+                        imdom.Str(c, "Ungroup");
                         if (imdom.hasMousePress(c)) {
-                            filterInPlace(graph.subsets, s => s !== subsetClickedOn);
-                            s.edited = true;
+                            removeGroup(s, graph, subsetClickedOn);
                             contextMenu.open = false;
                         }
                     } imContextMenuItemEnd(c);
@@ -1661,6 +1673,7 @@ function deleteConcept(s: GraphMappingsViewState, graph: MappingGraph, conceptId
     }
 
     graph.concepts[conceptId] = null;
+    s.edited = true;
 
     if (cleanup) {
         cleanupInvalidRelationshipsAndSubsets(s, graph);
@@ -1688,13 +1701,20 @@ function cleanupInvalidRelationshipsAndSubsets(s: GraphMappingsViewState, graph:
     filterInPlace(graph.subsets, s => s.conceptIds.length > 0);
 
     cleanupSubset(s.selection.selected);
+
+    s.edited = true;
 }
 
-function deleteRelationship(graph: MappingGraph, relId: number) {
+function deleteRelationship(
+    s: GraphMappingsViewState,
+    graph: MappingGraph, relId: number
+) {
     if (relId < 0 && relId >= graph.relationships.length) {
         return;
     }
     graph.relationships[relId] = null;
+
+    s.edited = true;
 }
 
 function imSubset(
@@ -1756,26 +1776,64 @@ function imSubset(
         const y1 = maxY + padding;
 
         imui.Begin(c, BLOCK); imui.AbsoluteXY(c, x0, PX, y0, PX);  imui.Size(c, x1 - x0, PX, y1 - y0, PX); {
-            const hovered = imdom.hasMouseOver(c);
+            imui.Begin(c, BLOCK); imui.Absolute(c, 0, PX, 0, PX, 0, PX, 0, PX); {
+                const hovered = imdom.hasMouseOver(c);
 
-            if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
-            if (im.IsFirstRender(c)) imdom.setStyle(c, "borderRadius", "10px");
-            if (im.Memo(c, hovered)) imdom.setStyle(c, "border", `2px solid ${hovered ? cssVars.fg : cssVars.mg}`);
+                if (im.IsFirstRender(c)) imdom.setStyle(c, "border", "2px solid " + cssVars.fg);
+                if (im.IsFirstRender(c)) imdom.setStyle(c, "borderRadius", "10px");
+                if (im.Memo(c, hovered)) imdom.setStyle(c, "border", `2px solid ${hovered ? cssVars.fg : cssVars.mg}`);
 
-            if (ctxEv && hovered) {
-                // TODO: multiple subsets may be overlapping each other. 
-                // Removal may be ambiguous when clicking on an overlapped region, esp. in subsets
-                // of subsets. We need some way to resolve this. Maybe sort sets by their size?
+                if (ctxEv && hovered) {
+                    // TODO: multiple subsets may be overlapping each other. 
+                    // Removal may be ambiguous when clicking on an overlapped region, esp. in subsets
+                    // of subsets. We need some way to resolve this. Maybe sort sets by their size?
 
-                s.rightClicked = { subset };
-            }
-
-            if (im.If(c) && !isDraggingAnything(s) && imdom.hasMouseOver(c) && mouse.leftMouseButton) {
-                startDraggingConcepts(s, graph, view, root);
-
-                for (const conceptIdx of subset.conceptIds) {
-                    s.conceptsUiState[conceptIdx].dragging.isDragging = true;
+                    s.rightClicked = { subset };
                 }
+
+                if (im.If(c) && !isDraggingAnything(s) && imdom.hasMouseOver(c) && mouse.leftMouseButton) {
+                    startDraggingConcepts(s, graph, view, root);
+
+                    for (const conceptIdx of subset.conceptIds) {
+                        s.conceptsUiState[conceptIdx].dragging.isDragging = true;
+                    }
+                } im.IfEnd(c);
+            } imui.End(c);
+
+            if (im.If(c) && s.selection.selected === subset) {
+                imui.Begin(c, ROW); imui.Gap(c, 10, PX); imui.Absolute(c, 100, PERCENT, 0, PX, 0, NA, 0, PX); {
+                    let existingSubset: ConceptSubset | undefined;
+
+                    for (const subset of graph.subsets) {
+                        if (subset.conceptIds.length !== s.selection.selected.conceptIds.length) {
+                            continue;
+                        }
+
+                        let foundMismatch = false;
+                        for (const conceptId of subset.conceptIds) {
+                            if (!s.selection.selected.conceptIds.includes(conceptId)) {
+                                foundMismatch = true;
+                                break;
+                            }
+                        }
+                        if (!foundMismatch) {
+                            existingSubset = subset;
+                            break;
+                        }
+                    }
+
+                    if (im.If(c) && subset.conceptIds.length > 1 && !existingSubset) {
+                        if (imButtonIsClicked(c, "Group")) {
+                            selectedSubsetToGroupSubset(s, graph);
+                        }
+                    } im.IfEnd(c);
+
+                    if (im.If(c) && subset.conceptIds.length > 1 && existingSubset) {
+                        if (imButtonIsClicked(c, "Ungroup")) {
+                            removeGroup(s, graph, existingSubset);
+                        }
+                    } im.IfEnd(c);
+                } imui.End(c);
             } im.IfEnd(c);
         } imui.End(c);
     } im.IfEnd(c);
@@ -1952,6 +2010,34 @@ function deleteConceptIds(
     }
     cleanupInvalidRelationshipsAndSubsets(s, graph);
 
+    recomputeIndexes(s, graph);
+    s.edited = true;
+}
+
+
+function selectedSubsetToGroupSubset(
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+) {
+    graph.subsets.push(s.selection.selected);
+    s.selection.selected = newConceptSubset();
+    sortSubsets(graph);
+    s.edited = true;
+
+    for (const ui of s.conceptsUiState) {
+        ui.selected = false;
+    }
+    onSelectionUpdated(s);
+
+    recomputeIndexes(s, graph);
+}
+
+function removeGroup(
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    subset: ConceptSubset
+) {
+    filterInPlace(graph.subsets, s => s !== subset);
     recomputeIndexes(s, graph);
     s.edited = true;
 }
