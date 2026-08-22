@@ -1,23 +1,23 @@
+import { imTextWithHighlightedRanges } from "app-components/highlighted-text";
 import { imListRowCellStyle } from "app-components/list-row";
 import { AXIS_FLAG_BYPASS_TEXT_AREA, AXIS_VERTICAL, clampedListIdx, getNavigableListInput, imNavListBegin, imNavListEnd, imNavListNextItemArray, imNavListRowBegin, imNavListRowEnd, NavigableListState } from "app-components/navigable-list";
+import { arrayAt } from "array-utils";
+import { assert } from "assert";
 import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "components/im-line";
 import { newScrollContainer } from "components/scroll-container";
 import { imTextInputOneLine } from "components/text-input";
-import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
-import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
-import { arrayAt } from "array-utils";
-import { assert } from "assert";
 import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 } from "datetime";
 import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
+import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
 import { el, ev, im, ImCache, imdom, key } from "im-js";
 import { BLOCK, COL, cssVars, EM, imui, NA, PX, ROW, ROW_REVERSE } from "im-js/im-ui";
 import * as itree from "int-tree";
 import { logTrace } from "log";
-import { imTextWithHighlightedRanges } from "app-components/highlighted-text";
-import { getMappingGraphCount, imGraphMappingsEditorView, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
-import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
+import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
 import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-editor";
+import { getMappingGraphCount, imGraphMappingsEditorViewInternal, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
+import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
 
 type FinderResult = {
     id: number;
@@ -565,7 +565,7 @@ function imPageEditor(
 
                 imui.Begin(c, COL); imui.PaddingRL(c, 0, NA, 0, PX); imui.Flex(c); imui.PreWrap(c); {
                     const graphViewState = im.State(c, newGraphMappingsViewState);
-                    imGraphMappingsEditorView(c, graphViewState, page.data.graph.g, page.data.graph.v)
+                    imGraphMappingsEditorViewInternal(c, ctx, graphViewState, page.data.graph.g, page.data.graph.v)
                     if (im.Memo(c, page.data.graph.g._version + page.data.graph.v._version)) {
                         journalMutated(state);
                     }

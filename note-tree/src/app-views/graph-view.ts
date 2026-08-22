@@ -1,13 +1,14 @@
 import { imListRowCellStyle } from "app-components/list-row";
 import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "components/context-menu";
-import { imui, BLOCK, ROW, COL, PX, NA, cssVars, STRETCH, DisplayType } from "im-js/im-ui";
+import { BLOCK, COL, cssVars, DisplayType, imui, NA, PX, ROW, STRETCH } from "im-js/im-ui";
 
-import { imLine, LINE_HORIZONTAL } from "components/im-line";
-import { imTextInputOneLine } from "components/text-input";
+import { imButton } from "app-components/button";
 import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "array-utils";
 import { assert } from "assert";
-import { im, ImCache, imdom, ev, elsvg, MouseState, } from "im-js";
-import { imButton } from "app-components/button";
+import { imLine, LINE_HORIZONTAL } from "components/im-line";
+import { imTextInputOneLine } from "components/text-input";
+import { GlobalContext, hasDiscoverableCommand } from "global-context";
+import { elsvg, ev, im, ImCache, imdom, MouseState } from "im-js";
 
 const SHIFT = imdom.getNormalizedKey("Shift");
 
@@ -165,6 +166,10 @@ export type GraphMappingsViewState = {
     currentlyEditing: ItemReference;
 
     edited: boolean;
+
+    handled: boolean;
+
+    root: HTMLElement | undefined;
 };
 
 // NOTE: treat this as a value type. You should never be assigning to these individually.
@@ -284,6 +289,8 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
         currentlyEditing: {},
 
         edited: false,
+        handled: false,
+        root: undefined,
     };
 }
 
@@ -503,12 +510,30 @@ function ensureParallelUiSate(s: GraphMappingsViewState, graph: MappingGraph) {
     resizeObjectPool(s.subsetsUiState, newMappingSubsetsUiState, graph.subsets.length);
 }
 
+export function imGraphMappingsEditorViewInternal(
+    c: ImCache,
+    ctx: GlobalContext,
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    view: MappingGraphView,
+) {
+    imGraphMappingsEditorView(c, s, graph, view);
+
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Delete selected")) {
+        if (s.selection.selected.conceptIds.length > 0) {
+            deleteConceptIds(s, graph, s.selection.selected.conceptIds);
+        }
+    }
+}
+
 export function imGraphMappingsEditorView(
     c: ImCache,
     s: GraphMappingsViewState,
     graph: MappingGraph,
     view: MappingGraphView,
 ) {
+    s.handled = false;
+
     let editedView = false;
     let mutation: (() => void) | undefined;
 
@@ -526,6 +551,7 @@ export function imGraphMappingsEditorView(
     ensureParallelUiSate(s, graph);
 
     const root = imui.Begin(c, COL); imui.Flex(c); imui.Relative(c); imui.ScrollOverflow(c, true, true);
+    s.root = root;
     const rootRect = root.getBoundingClientRect(); imui.NoSelect(c); {
         const isDraggingEdge = s.dragEdge.srcId !== -1;
         if (im.Memo(c, view.zoom)) imdom.setStyle(c, "fontSize", view.zoom + "rem");
@@ -557,6 +583,8 @@ export function imGraphMappingsEditorView(
                     ui.version++;
                 }
             }
+
+            s.handled = true;
         }
 
         const scrollY = imdom.PreventScrollEventPropagation(c);
@@ -719,9 +747,21 @@ export function imGraphMappingsEditorView(
                             imui.Begin(c, BLOCK); imui.NoSelect(c); {
                                 imdom.Str(c, concept.conceptName || "Unnamed");
 
-                                const dblClickEv = imdom.On(c, ev.DBLCLICK);
-                                if (dblClickEv) {
+                                if (imdom.hasMouseDoubleClick(c) && !s.handled) {
                                     s.currentlyEditing.conceptId = conceptId;
+                                    s.handled = true;
+                                }
+
+                                if (imdom.hasMouseClick(c) && !s.handled && !mutation) {
+                                    mutation = () => {
+                                        for (let i = 0; i < graph.concepts.length; i++) {
+                                            const conceptUi = s.conceptsUiState[i];
+                                            conceptUi.selected = i === conceptId;
+                                        }
+
+                                        onSelectionUpdated(s);
+                                    }
+                                    s.handled = true;
                                 }
                             } imui.End(c);
                         } im.IfEnd(c);
@@ -749,33 +789,38 @@ export function imGraphMappingsEditorView(
                                 s.dragEdge.srcToDst = true;
                                 s.dragEdge.relId = -1;
                             }
-                        } else if (s.dragEdge.srcId !== -1 && s.dragEdge.srcId !== conceptId) {
-                            canAcceptInEdge = true;
-
-                            if (!mouse.leftMouseButton) {
-                                // Drag accepted!
-                                mutation = () => {
-                                    if (s.dragEdge.relId === -1) {
-                                        const rel = newGraphMappingRelationship(s.dragEdge.srcId, conceptId, "Unnamed");
-                                        const idx = pushToNullableArray(graph.relationships, rel);
-                                        s.currentlyEditing = { relId: idx };
-                                    } else {
-                                        const rel = graph.relationships[s.dragEdge.relId];
-                                        if (rel) {
-                                            if (s.dragEdge.srcToDst) {
-                                                rel.dstId = conceptId;
-                                            } else {
-                                                rel.srcId = conceptId;
+                        } else if (s.dragEdge.srcId !== -1) {
+                            if (s.dragEdge.srcId !== conceptId) {
+                                canAcceptInEdge = true;
+                                if (!mouse.leftMouseButton) {
+                                    // Drag accepted!
+                                    mutation = () => {
+                                        if (s.dragEdge.relId === -1) {
+                                            const idx = addRelationshipBetweenConcepts(s, graph, s.dragEdge.srcId, conceptId);
+                                            s.currentlyEditing = { relId: idx };
+                                            recomputeIndexes(s, graph);
+                                        } else {
+                                            const rel = graph.relationships[s.dragEdge.relId];
+                                            if (rel) {
+                                                if (s.dragEdge.srcToDst) {
+                                                    rel.dstId = conceptId;
+                                                } else {
+                                                    rel.srcId = conceptId;
+                                                }
                                             }
+                                            recomputeIndexes(s, graph);
                                         }
-                                    }
 
-                                    recomputeIndexes(s, graph);
-                                    s.dragEdge.srcId = -1;
-                                    s.dragEdge.relId = -1;
-                                    editedView = true;
+                                        recomputeIndexes(s, graph);
+                                        s.dragEdge.srcId = -1;
+                                        s.dragEdge.relId = -1;
+                                        editedView = true;
+                                    }
                                 }
                             }
+
+                            // Need to block creating new edges this close.
+                            s.handled = true;
                         }
                     }
 
@@ -1018,8 +1063,6 @@ export function imGraphMappingsEditorView(
                     const maxX = Math.max(mouseX, s.boxSelect.startX);
                     const maxY = Math.max(mouseY, s.boxSelect.startY);
 
-                    const additive = imdom.isKeyHeld(SHIFT)
-
                     for (let i = 0; i < graph.concepts.length; i++) {
                         const concept = graph.concepts[i];
                         if (!concept) continue;
@@ -1033,11 +1076,7 @@ export function imGraphMappingsEditorView(
                             }
                         }
 
-                        if (additive) {
-                            conceptUi.selected ||= selected;
-                        } else {
-                            conceptUi.selected = selected;
-                        }
+                        conceptUi.selected ||= selected;
                     }
 
                     onSelectionUpdated(s);
@@ -1055,6 +1094,41 @@ export function imGraphMappingsEditorView(
             imdom.Str(c, view.pan.x.toFixed(3)); imdom.Str(c, ", "); imdom.Str(c, view.pan.y.toFixed(3));
             imdom.Str(c, " @ "); imdom.Str(c, view.zoom.toFixed(3)); imdom.Str(c, "x");
         } imui.End(c);
+
+        if (!s.handled && imdom.hasMouseDoubleClick(c)) {
+            mutation = () => {
+                const idx = addConceptAtScreenPos(s, graph, view, mouse.x, mouse.y);
+                s.currentlyEditing = { conceptId: idx };
+                contextMenu.open = false;
+                recomputeIndexes(s, graph);
+            }
+            s.handled = true;
+        }
+
+        if (!s.handled && s.dragEdge.srcId !== -1) {
+            if (!mouse.leftMouseButton) {
+                if (s.dragEdge.relId === -1) {
+                    mutation = () => {
+                        const conceptId = addConceptAtScreenPos(s, graph, view, mouse.x, mouse.y);
+                        const relId = addRelationshipBetweenConcepts(s, graph, s.dragEdge.srcId, conceptId);
+
+                        s.currentlyEditing = { relId };
+                        s.dragEdge.srcId = -1;
+                        recomputeIndexes(s, graph);
+                    }
+                } else {
+                    mutation = () => {
+                        deleteRelationship(graph, s.dragEdge.relId);
+
+                        s.dragEdge.srcId = -1;
+                        s.dragEdge.relId = -1;
+                        recomputeIndexes(s, graph);
+                    }
+                }
+
+                s.handled = true;
+            }
+        }
     } imui.End(c);
 
 
@@ -1063,21 +1137,13 @@ export function imGraphMappingsEditorView(
             imContextMenuItem(c); {
                 imdom.Str(c, "Add concept");
                 if (imdom.hasMousePress(c)) {
-                    const rect = root.getBoundingClientRect();
-                    const x = contextMenu.position.x - rect.x;
-                    const y = contextMenu.position.y - rect.y;
-                    const newConcept = newGraphMappingConcept(
-                        toGraphX(view, x),
-                        toGraphY(view, y),
-                        "Unnamed",
-                    );
-
                     mutation = () => {
-                        const idx = pushToNullableArray(graph.concepts, newConcept);
-                        recomputeIndexes(s, graph);
+                        const idx = addConceptAtScreenPos(s, graph, view, contextMenu.position.x, contextMenu.position.y);
                         s.currentlyEditing = { conceptId: idx };
                         contextMenu.open = false;
+                        recomputeIndexes(s, graph);
                     }
+                    s.handled = true;
                 }
             } imContextMenuItemEnd(c);
 
@@ -1180,13 +1246,7 @@ export function imGraphMappingsEditorView(
                 imContextMenuItem(c); {
                     imdom.Str(c, "Delete concepts");
                     if (imdom.hasMousePress(c)) {
-                        for (const conceptIdx of subsetClickedOn.conceptIds) {
-                            deleteConcept(s, graph, conceptIdx, DONT_CLEANUP);
-                        }
-                        cleanupInvalidRelationshipsAndSubsets(s, graph);
-
-                        recomputeIndexes(s, graph);
-                        s.edited = true;
+                        deleteConceptIds(s, graph, subsetClickedOn.conceptIds);
                         contextMenu.open = false;
                     }
                 } imContextMenuItemEnd(c);
@@ -1467,9 +1527,9 @@ function imRelationshipLabel(
                 imui.Begin(c, ROW); imui.NoSelect(c); {
                     imdom.Str(c, rel.relationshipName);
 
-                    const dblClickEv = imdom.On(c, ev.DBLCLICK);
-                    if (dblClickEv) {
+                    if (imdom.hasMouseDoubleClick(c) && !s.handled) {
                         s.currentlyEditing = { relId };
+                        s.handled = true;
                     }
                 } imui.End(c);
             } im.IfEnd(c);
@@ -1577,7 +1637,9 @@ function cleanupInvalidRelationshipsAndSubsets(s: GraphMappingsViewState, graph:
 }
 
 function deleteRelationship(graph: MappingGraph, relId: number) {
-    if (relId < 0 && relId >= graph.relationships.length) return;
+    if (relId < 0 && relId >= graph.relationships.length) {
+        return;
+    }
     graph.relationships[relId] = null;
 }
 
@@ -1782,4 +1844,60 @@ function conceptInRect(c: GraphMappingConcept, x0: number, x1: number, y0: numbe
     }
     
     return result;
+}
+
+function addConceptAtScreenPos(
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    view: MappingGraphView,
+    screenX: number,
+    screenY: number
+): number {
+    assert(!!s.root)
+
+    const rect = s.root.getBoundingClientRect();
+    const x = screenX - rect.x;
+    const y = screenY - rect.y;
+
+    const newConcept = newGraphMappingConcept(
+        toGraphX(view, x),
+        toGraphY(view, y),
+        "Unnamed",
+    );
+
+    s.edited = true;
+
+    const idx = pushToNullableArray(graph.concepts, newConcept);
+
+    return idx;
+}
+
+function addRelationshipBetweenConcepts(
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    srcId: number,
+    dstId: number,
+): number {
+    assert(srcId !== -1);
+    assert(dstId !== -1);
+
+    const rel = newGraphMappingRelationship(srcId, dstId, "Unnamed");
+
+    s.edited = true;
+
+    return pushToNullableArray(graph.relationships, rel);
+}
+
+function deleteConceptIds(
+    s: GraphMappingsViewState,
+    graph: MappingGraph,
+    conceptIds: number[],
+) {
+    for (const conceptIdx of conceptIds) {
+        deleteConcept(s, graph, conceptIdx, DONT_CLEANUP);
+    }
+    cleanupInvalidRelationshipsAndSubsets(s, graph);
+
+    recomputeIndexes(s, graph);
+    s.edited = true;
 }

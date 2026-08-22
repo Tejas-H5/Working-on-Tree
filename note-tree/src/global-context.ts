@@ -1,12 +1,11 @@
+import { assert } from "assert";
+import { parseDateSafe } from "datetime";
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
-import { GraphMappingsViewState, newGraphMappingsViewState } from "./app-views/graph-view";
 import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurrentlyEditingPage, TreePage } from "./app-views/journal-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
-import { assert } from "assert";
-import { parseDateSafe } from "datetime";
 
 import { imdom, NormalizedKey } from "im-js";
 import { isEditingTextSomewhereInDocument } from "im-js/im-ui";
@@ -33,7 +32,6 @@ export type GlobalContext = {
         activities: ActivitiesViewState;
         urls:       UrlListViewState;
         settings:   SettingsViewState;
-        mappings:   GraphMappingsViewState;
         journalView: JournalViewState;
         durationsView: DurationsViewState;
     };
@@ -146,7 +144,6 @@ export function newGlobalContext(): GlobalContext {
             activities: newActivitiesViewState(),
             urls:       newUrlListViewState(),
             settings:   newSettingsViewState(),
-            mappings:   newGraphMappingsViewState(),
             journalView: newJournalViewState(),
             durationsView: newDurationsViewState(),
         },
@@ -183,6 +180,9 @@ export const ALT    = 1 << 3;
 export const HIDDEN = 1 << 4;
 export const BYPASS_TEXT_AREA = 1 << 5;
 export const ANY_MODIFIERS = 1 << 6;
+
+const RELEVANT_FLAGS = CTRL | SHIFT | ALT;
+
 
 // NOTE: always false if ctx.handled.
 // if true, will set ctx.handled = true.
@@ -240,7 +240,7 @@ function pushDiscoverableCommand(
     let found = false;
     for (let i = 0; i < commands.idx; i++) {
         const command = commands.thisFrame[i];
-        if (command.key === key && command.flags === flags) {
+        if (command.key === key && (command.flags & RELEVANT_FLAGS) === (flags & RELEVANT_FLAGS)) {
             found = true;
             break;
         }

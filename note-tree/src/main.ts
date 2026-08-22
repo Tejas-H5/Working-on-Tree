@@ -1,6 +1,10 @@
 import { imSettingsView } from "app-views/settings-view";
+import { arrayAt, getWrappedIdx } from "array-utils";
+import { formatDate, formatTime } from "datetime";
 import { im, ImCache, imdom, NormalizedKey } from "im-js";
 import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "im-js/im-ui";
+import { NIL_ID } from "int-tree";
+import { newWebWorker } from "web-workers";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";
 import { imAsciiIcon } from "./app-components/ascii-icon";
 import { imButton } from "./app-components/button";
@@ -9,8 +13,8 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imDurationsView } from "./app-views/durations-view";
-import { imGraphMappingsEditorView } from "./app-views/graph-view";
 import { getCurrentPage, getPage, imJournalView, setCurrentlyEditingPage } from "./app-views/journal-view";
+import { imUrlViewer } from "./app-views/url-viewer";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
 import { imLine, LINE_HORIZONTAL, LINE_VERTICAL } from "./components/im-line";
@@ -44,11 +48,6 @@ import {
     setTheme,
     state
 } from "./state";
-import { imUrlViewer } from "./app-views/url-viewer";
-import { arrayAt, getWrappedIdx } from "array-utils";
-import { formatDate, formatTime } from "datetime";
-import { NIL_ID } from "int-tree";
-import { newWebWorker } from "web-workers";
 
 
 function getIcon(theme: AppTheme) {
@@ -313,13 +312,6 @@ function imMainInner(c: ImCache) {
 
                     if (im.If(c) && ctx.currentView === ctx.views.settings) {
                         imSettingsView(c, ctx, ctx.views.settings);
-                    } else if (im.IfElse(c) && ctx.currentView === ctx.views.mappings) {
-                        imGraphMappingsEditorView(c, ctx.views.mappings, state.mappingGraph, state.mappingGraphView);
-                        const graphChanged = im.Memo(c, state.mappingGraph._version) === im.MEMO_CHANGED;
-                        const graphViewChanged = im.Memo(c, state.mappingGraphView._version) === im.MEMO_CHANGED;
-                        if (graphChanged || graphViewChanged) {
-                            debouncedSave(ctx, state, "ImMain - graph edit");
-                        }
                     } else {
                         im.IfElse(c);
 
@@ -433,11 +425,14 @@ function imMainInner(c: ImCache) {
                 // timesheet
 
                 if (
-                    !ctx.viewingDurations && 
                     hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Durations")
                 ) {
-                    ctx.viewingDurations = true;
-                    setCurrentView(ctx, ctx.views.durationsView);
+                    ctx.viewingDurations = !ctx.viewingDurations;
+                    if (ctx.viewingDurations) {
+                        setCurrentView(ctx, ctx.views.durationsView);
+                    } else {
+                        setCurrentView(ctx, ctx.views.journalView);
+                    }
                 } else if (
                     ctx.viewingDurations &&
                     hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close timesheet")
