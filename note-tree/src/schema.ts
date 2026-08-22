@@ -248,6 +248,21 @@ export function asNoteTreeGlobalState(val: unknown) {
     return state;
 }
 
+export function serializeMappingGraph(val: MappingGraph): string {
+    console.log("[serializeMappingGraph] serializing graph....");
+    return serializeToJSON(val);
+}
+
+export function deserializeMappingGraph(val: string): MappingGraph {
+    try {
+        const obj = mustGetDefined(asObject<MappingGraph>(JSON.parse(val)));
+        return asMappingGraph(obj, newMappingGraph());
+    } catch(err) {
+        console.error("deserializeMappingGraph - error", err);
+        return newMappingGraph();
+    }
+}
+
 function asMappingGraph(mappingGraphObj: LoadedObject<MappingGraph>, defaultValue: MappingGraph): MappingGraph {
     const concepts = mustGetArray(mappingGraphObj, "concepts");
 

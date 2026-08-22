@@ -1,3 +1,5 @@
+// TODO: rename file to 'size utils'
+
 // https://stackoverflow.com/questions/5515869/string-length-in-bytes-in-javascript
 // Very clever. starts with the utf-16 length, then increments/decrements based on the difference between the utf8 length.
 export function utf8ByteLength(str: string) {
@@ -10,6 +12,10 @@ export function utf8ByteLength(str: string) {
         if (code >= 0xDC00 && code <= 0xDFFF) i--; //trail surrogate
     }
     return s;
+}
+
+export function utf16ByteLength(str: string) {
+    return str.length * 2;
 }
 
 export function bytesToMegabytes(bytes: number) {

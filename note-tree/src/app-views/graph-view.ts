@@ -8,9 +8,10 @@ import { assert } from "assert";
 import { imLine, LINE_HORIZONTAL } from "components/im-line";
 import { imTextInputOneLine } from "components/text-input";
 import { GlobalContext, hasDiscoverableCommand } from "global-context";
-import { elsvg, ev, im, ImCache, imdom, MouseState } from "im-js";
+import { elsvg, ev, im, ImCache, imdom, key, MouseState } from "im-js";
 
-const SHIFT = imdom.getNormalizedKey("Shift");
+import { canRedo, canUndo, JSONUndoBuffer, newJSONUndoBuffer, redo, stepUndoBufferTimer, undo, writeToUndoBuffer, writeToUndoBufferDebounced } from "undo-buffer-json";
+import { deserializeMappingGraph, serializeMappingGraph } from "schema";
 
 
 // One year ago, I had tried making this exact widget. 
@@ -166,8 +167,10 @@ export type GraphMappingsViewState = {
     currentlyEditing: ItemReference;
 
     edited: boolean;
-
+    mutation: (() => void) | undefined;
     handled: boolean;
+
+    undoBuffer: JSONUndoBuffer<MappingGraph>;
 
     root: HTMLElement | undefined;
 };
@@ -288,8 +291,17 @@ export function newGraphMappingsViewState(): GraphMappingsViewState {
         rightClicked: {},
         currentlyEditing: {},
 
-        edited: false,
-        handled: false,
+        edited:   false,
+        mutation: undefined,
+        handled:  false,
+
+        undoBuffer: newJSONUndoBuffer(
+            newMappingGraph(),
+            2,
+            serializeMappingGraph,
+            deserializeMappingGraph,
+        ),
+
         root: undefined,
     };
 }
@@ -520,8 +532,37 @@ export function imGraphMappingsEditorViewInternal(
     imGraphMappingsEditorView(c, s, graph, view);
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.dKey, "Delete selected")) {
-        if (s.selection.selected.conceptIds.length > 0) {
-            deleteConceptIds(s, graph, s.selection.selected.conceptIds);
+        s.mutation = () => {
+            if (s.selection.selected.conceptIds.length > 0) {
+                deleteConceptIds(s, graph, s.selection.selected.conceptIds);
+            }
+        }
+        ctx.handled = true;
+    }
+
+    if (!ctx.handled) {
+        let undoRedoGraph: MappingGraph | undefined;
+
+        if (canUndo(s.undoBuffer) && (
+            (imdom.isKeyHeld(key.CTRL) && !imdom.isKeyHeld(key.SHIFT) && imdom.isKeyPressed(key.Z))
+        )) {
+            undoRedoGraph = undo(s.undoBuffer);
+            ctx.handled = true;
+        }
+
+        if (canRedo(s.undoBuffer) && (
+            (imdom.isKeyHeld(key.CTRL) && imdom.isKeyHeld(key.SHIFT) && imdom.isKeyPressed(key.Z)) ||
+            (imdom.isKeyHeld(key.CTRL) && imdom.isKeyPressed(key.Y))
+        )) {
+            undoRedoGraph = redo(s.undoBuffer);
+            ctx.handled = true;
+        }
+
+        if (undoRedoGraph) {
+            let version = graph._version;
+            Object.assign(graph, undoRedoGraph);
+            graph._version = version + 1;
+            recomputeIndexes(s, graph);
         }
     }
 }
@@ -533,12 +574,18 @@ export function imGraphMappingsEditorView(
     view: MappingGraphView,
 ) {
     s.handled = false;
-
     let editedView = false;
-    let mutation: (() => void) | undefined;
 
     if (im.Memo(c, view)) s.targetZoom = view.zoom;
+
     if (im.Memo(c, graph)) {
+        const UNDO_HISTORY_SIZE = 100;
+        s.undoBuffer = newJSONUndoBuffer(
+            graph,
+            UNDO_HISTORY_SIZE,
+            serializeMappingGraph,
+            deserializeMappingGraph,
+        );
         recomputeIndexes(s, graph);
     }
 
@@ -752,8 +799,8 @@ export function imGraphMappingsEditorView(
                                     s.handled = true;
                                 }
 
-                                if (imdom.hasMouseClick(c) && !s.handled && !mutation) {
-                                    mutation = () => {
+                                if (imdom.hasMouseClick(c) && !s.handled && !s.mutation) {
+                                    s.mutation = () => {
                                         for (let i = 0; i < graph.concepts.length; i++) {
                                             const conceptUi = s.conceptsUiState[i];
                                             conceptUi.selected = i === conceptId;
@@ -794,7 +841,7 @@ export function imGraphMappingsEditorView(
                                 canAcceptInEdge = true;
                                 if (!mouse.leftMouseButton) {
                                     // Drag accepted!
-                                    mutation = () => {
+                                    s.mutation = () => {
                                         if (s.dragEdge.relId === -1) {
                                             const idx = addRelationshipBetweenConcepts(s, graph, s.dragEdge.srcId, conceptId);
                                             s.currentlyEditing = { relId: idx };
@@ -993,7 +1040,7 @@ export function imGraphMappingsEditorView(
         imSubset(c, s, graph, view, s.selection.selected, selectionBoxUi, root, ctxEv);
 
         if (!isDraggingAnything(s) && imdom.hasMousePress(c) && mouse.leftMouseButton) {
-            if (imdom.isKeyHeld(SHIFT)) {
+            if (imdom.isKeyHeld(key.SHIFT)) {
                 s.boxSelect.isBoxSelecting = true;
 
                 const rect = root.getBoundingClientRect();
@@ -1096,7 +1143,7 @@ export function imGraphMappingsEditorView(
         } imui.End(c);
 
         if (!s.handled && imdom.hasMouseDoubleClick(c)) {
-            mutation = () => {
+            s.mutation = () => {
                 const idx = addConceptAtScreenPos(s, graph, view, mouse.x, mouse.y);
                 s.currentlyEditing = { conceptId: idx };
                 contextMenu.open = false;
@@ -1108,7 +1155,7 @@ export function imGraphMappingsEditorView(
         if (!s.handled && s.dragEdge.srcId !== -1) {
             if (!mouse.leftMouseButton) {
                 if (s.dragEdge.relId === -1) {
-                    mutation = () => {
+                    s.mutation = () => {
                         const conceptId = addConceptAtScreenPos(s, graph, view, mouse.x, mouse.y);
                         const relId = addRelationshipBetweenConcepts(s, graph, s.dragEdge.srcId, conceptId);
 
@@ -1117,7 +1164,7 @@ export function imGraphMappingsEditorView(
                         recomputeIndexes(s, graph);
                     }
                 } else {
-                    mutation = () => {
+                    s.mutation = () => {
                         deleteRelationship(graph, s.dragEdge.relId);
 
                         s.dragEdge.srcId = -1;
@@ -1137,7 +1184,7 @@ export function imGraphMappingsEditorView(
             imContextMenuItem(c); {
                 imdom.Str(c, "Add concept");
                 if (imdom.hasMousePress(c)) {
-                    mutation = () => {
+                    s.mutation = () => {
                         const idx = addConceptAtScreenPos(s, graph, view, contextMenu.position.x, contextMenu.position.y);
                         s.currentlyEditing = { conceptId: idx };
                         contextMenu.open = false;
@@ -1391,14 +1438,21 @@ export function imGraphMappingsEditorView(
         } imContextMenuEnd(c, contextMenu);
     } im.IfEnd(c);
 
-    if (mutation) {
-        mutation();
+    if (s.mutation) {
+        try {
+            writeToUndoBuffer(s.undoBuffer, graph);
+            s.mutation();
+        } finally {
+            s.mutation = undefined;
+        }
     }
 
     if (s.edited) {
         s.edited = false;
         graph._version++;
+        writeToUndoBufferDebounced(s.undoBuffer, graph, 1);
     }
+    stepUndoBufferTimer(s.undoBuffer, im.getDeltaTimeSeconds(c));
 
     if (editedView) {
         view._version++;
