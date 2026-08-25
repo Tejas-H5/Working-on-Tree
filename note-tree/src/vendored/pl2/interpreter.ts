@@ -678,15 +678,6 @@ export function evaluateCode(code: string, iter: ProgramIterator): [Result, stri
 export function evaluateFunctionCall(fn: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	let rt: ExprReturn = RETURN_NONE;
 
-	// Needs to be hidden. When we create new variables in this scope
-	pushScope(iter, SCOPE_HIDDEN); {
-		rt = evaluateFunctionCallInternal(fn, iter);
-	} popScope(iter);
-
-	return rt;
-}
-
-function evaluateFunctionCallInternal(fn: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	const functionName = fn.name.name;
 	const userFn = getVar(iter, functionName);
 	if (!userFn) {
@@ -698,40 +689,48 @@ function evaluateFunctionCallInternal(fn: ast.FunctionCall, iter: ProgramIterato
 
 	if (userFn.type === Result_BuiltinFunction) {
 		return userFn.val(fn, iter);
-	} 
-
-	if (userFn.type === Result_Function) {
-		const wantedNumArgs = userFn.val.args.length;
-		const gotNumArgs    = fn.arguments.length;
-		if (wantedNumArgs !== gotNumArgs) {
-			return setError(iter, fn, `Wanted ${wantedNumArgs} arguments for function ${fn.name.name}, got ${gotNumArgs} arguments instead`);
-		}
-
-		for (let i = 0; i < userFn.val.args.length; i++) {
-			const argName = userFn.val.args[i].name.name;
-
-			// TODO: argument types, type validation
-
-			const argExpr = fn.arguments[i];
-			const argResult = evaluateExpressionValue(argExpr, iter); // We allow passing "nothing" into functions. Might change my mind later idk
-			if (!argResult) return RETURN_ERROR;
-			if (createVar(iter, argName, argResult, "An argument with this name already exists", argExpr) === RETURN_ERROR) {
-				return RETURN_ERROR;
-			}
-		}
-
-		// We only set the isolation flag on the current scope _now_ - we needed to read from the parent scope in order to 
-		// populate the current scope. But the function call itself should have an isolated scope. 
-		const scope = getCurrentScope(iter);
-		scope.flags = scope.flags | SCOPE_ISOLATED;
-		scope.flags = scope.flags & ~SCOPE_HIDDEN;
-
-		if (evaluateExpressionBlock(userFn.val.body, iter) === RETURN_ERROR) return RETURN_ERROR;
-		return RETURN_NONE;
 	}
 
-	
+	if (userFn.type === Result_Function) {
+		// Needs to be hidden. When we create new variables in this scope
+		pushScope(iter, SCOPE_HIDDEN); {
+			rt = evaluateFunctionCallInternal(userFn, fn, iter);
+		} popScope(iter);
+
+		return rt;
+	}
+
 	return setError(iter, fn.name, "Value was not a function - it was a " + resultTypeToString(userFn.type));
+}
+
+function evaluateFunctionCallInternal(userFn: ResultFunction, fn: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
+	const wantedNumArgs = userFn.val.args.length;
+	const gotNumArgs    = fn.arguments.length;
+	if (wantedNumArgs !== gotNumArgs) {
+		return setError(iter, fn, `Wanted ${wantedNumArgs} arguments for function ${fn.name.name}, got ${gotNumArgs} arguments instead`);
+	}
+
+	for (let i = 0; i < userFn.val.args.length; i++) {
+		const argName = userFn.val.args[i].name.name;
+
+		// TODO: argument types, type validation
+
+		const argExpr = fn.arguments[i];
+		const argResult = evaluateExpressionValue(argExpr, iter); // We allow passing "nothing" into functions. Might change my mind later idk
+		if (!argResult) return RETURN_ERROR;
+		if (createVar(iter, argName, argResult, "An argument with this name already exists", argExpr) === RETURN_ERROR) {
+			return RETURN_ERROR;
+		}
+	}
+
+	// We only set the isolation flag on the current scope _now_ - we needed to read from the parent scope in order to 
+	// populate the current scope. But the function call itself should have an isolated scope. 
+	const scope = getCurrentScope(iter);
+	scope.flags = scope.flags | SCOPE_ISOLATED;
+	scope.flags = scope.flags & ~SCOPE_HIDDEN;
+
+	if (evaluateExpressionBlock(userFn.val.body, iter) === RETURN_ERROR) return RETURN_ERROR;
+	return RETURN_NONE;	
 }
 
 function evaluateExpressionBlock(block: ast.Expression[], iter: ProgramIterator): ExprReturn {
@@ -1741,8 +1740,12 @@ export const builtins: Record<string, Result> = {
 
 	// Datastructures
 	"len":   { type: Result_BuiltinFunction, val: len },
-	"push":  { type: Result_BuiltinFunction, val: push },
-	"join":  { type: Result_BuiltinFunction, val: join },
+
+	// List
+	"list_push":  { type: Result_BuiltinFunction, val: list_push },
+	"list_pop":   { type: Result_BuiltinFunction, val: list_pop },
+	"list_join":  { type: Result_BuiltinFunction, val: list_join },
+	"list_sort":  { type: Result_BuiltinFunction, val: list_sort },
 
 	// Maths
 	"max":   { type: Result_BuiltinFunction, val: math_max },
@@ -1869,6 +1872,17 @@ function evaluateString(expr: ast.Expression, iter: ProgramIterator): string | u
 	}
 
 	return str.val;
+}
+
+function evaluateFunction(expr: ast.Expression, iter: ProgramIterator): ResultFunction | undefined {
+	const fn = evaluateExpressionValue(expr, iter);
+	if (!fn) return undefined;
+	if (fn.type !== Result_Function) {
+		setExpectedValueTypeError(iter, expr, Result_List, fn.type);
+		return undefined;
+	}
+
+	return fn;
 }
 
 export function math_max(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
@@ -2160,7 +2174,7 @@ export function len(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 }
 
 
-export function push(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
+export function list_push(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	if (call.arguments.length < 2) return setError(iter, call, "Need a list, and then items to push to it. push(list, val1, val2, val3, ....)");
 
 	const list = evaluateList(call.arguments[0], iter);
@@ -2178,7 +2192,7 @@ export function push(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn 
 	return RETURN_NONE;
 }
 
-export function join(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
+export function list_join(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
 
 	const list = evaluateList(call.arguments[0], iter);
@@ -2194,7 +2208,7 @@ export function join(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn 
 	);
 }
 
-export function pop(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
+export function list_pop(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
 
 	const list = evaluateList(call.arguments[0], iter);
@@ -2208,6 +2222,71 @@ export function pop(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	return setResult(iter, val);
 }
 
+export function list_sort(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
+	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+
+	const list = evaluateList(call.arguments[0], iter);
+	if (!list) return RETURN_ERROR;
+
+	const userFn = evaluateFunction(call.arguments[1], iter);
+	if (!userFn) return RETURN_ERROR;
+
+	if (userFn.val.args.length !== 2) {
+		return setError(iter, call, "expected comparator to take in 2 arguments");
+	}
+
+	// Needs to be hidden. When we create new variables in this scope
+	try {
+		list.val.sort((a, b) => {
+			let rt: ExprReturn = RETURN_NONE;
+
+			pushScope(iter, SCOPE_HIDDEN); {
+				const aName = userFn.val.args[0].name.name;
+				const bName = userFn.val.args[1].name.name;
+				assert(
+					createVar(iter, aName, a, "An argument with this name already exists", call.arguments[0])
+					!== RETURN_ERROR
+				);
+				assert(
+					createVar(iter, bName, b, "An argument with this name already exists", call.arguments[1])
+					!== RETURN_ERROR
+				);
+
+				const scope = getCurrentScope(iter);
+				scope.flags = scope.flags | SCOPE_ISOLATED;
+				scope.flags = scope.flags & ~SCOPE_HIDDEN;
+
+				rt = evaluateExpressionBlock(userFn.val.body, iter)
+			} popScope(iter);
+
+			if (rt === RETURN_NONE) {
+				setError(iter, call.arguments[1], "Comparator needs to return a number, but returned nothing")
+				throw rt;
+			} 
+
+			if (rt === RETURN_ERROR) {
+				throw rt;
+			}
+
+			if (rt === RETURN_RESULT) {
+				const val = iter.lastResult.result;
+				if (val.type !== Result_Number) {
+					rt = setError(iter, call.arguments[1], "Comparator needs to return a number")
+					throw rt;
+				}
+
+				return val.val;
+			}
+
+			setError(iter, call.arguments[1], "should be unreachable?");
+			throw rt;
+		});
+	} catch (err) {
+		return RETURN_ERROR;
+	}
+
+	return RETURN_NONE;
+}
 
 export function expr_to_string(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
