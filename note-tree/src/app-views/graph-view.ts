@@ -13,6 +13,7 @@ import { elsvg, ev, im, ImCache, imdom, key, MouseState } from "im-js";
 import { canRedo, canUndo, JSONUndoBuffer, newJSONUndoBuffer, redo, stepUndoBufferTimer, undo, writeToUndoBuffer, writeToUndoBufferDebounced } from "undo-buffer-json";
 import { deserializeMappingGraph, serializeMappingGraph } from "schema";
 
+const EXTRA_SCALE_FACTOR = 10;
 
 // One year ago, I had tried making this exact widget. 
 // None of the coordinate transforms worked. Events kept firing unexpectedly. Hover hitboxes kept stepping over each other.
@@ -621,7 +622,12 @@ export function imGraphMappingsEditorView(
 
     const root = imui.Begin(c, COL); imui.Flex(c); imui.Relative(c); imui.ScrollOverflow(c, true, true);
     s.root = root;
-    const rootRect = root.getBoundingClientRect(); imui.NoSelect(c); {
+    const rootRect = root.getBoundingClientRect(); {
+        imui.NoSelect(c); 
+        imui.Clip(c); 
+        imui.NoWrap(c); 
+        imui.Size(c, EXTRA_SCALE_FACTOR * 100, PERCENT, EXTRA_SCALE_FACTOR * 100, PERCENT);
+
         const isDraggingEdge = s.dragEdge.srcId !== -1;
         if (im.Memo(c, view.zoom)) imdom.setStyle(c, "fontSize", view.zoom + "rem");
         if (im.Memo(c, isDraggingEdge)) imdom.setStyle(c, "cursor", isDraggingEdge ? "crosshair" : "move");
@@ -1164,16 +1170,6 @@ export function imGraphMappingsEditorView(
             imdom.Str(c, " @ "); imdom.Str(c, view.zoom.toFixed(3)); imdom.Str(c, "x");
         } imui.End(c);
 
-        if (!s.handled && imdom.hasMouseDoubleClick(c)) {
-            s.mutation = () => {
-                const idx = addConceptAtScreenPos(s, graph, view, mouse.x, mouse.y);
-                s.currentlyEditing = { conceptId: idx };
-                contextMenu.open = false;
-                recomputeIndexes(s, graph);
-            }
-            s.handled = true;
-        }
-
         if (!s.handled && s.dragEdge.srcId !== -1) {
             if (!mouse.leftMouseButton) {
                 if (s.dragEdge.relId === -1) {
@@ -1242,8 +1238,8 @@ export function imGraphMappingsEditorView(
                     view.zoom = 1;
                     s.targetZoom = 1;
 
-                    const centerX = toGraphX(view, rootRect.width / 2);
-                    const centerY = toGraphY(view, rootRect.height / 2);
+                    const centerX = toGraphX(view, rootRect.width / EXTRA_SCALE_FACTOR / 2);
+                    const centerY = toGraphY(view, rootRect.height / EXTRA_SCALE_FACTOR / 2);
 
                     const dX = wantedX - centerX;
                     const dY = wantedY - centerY;

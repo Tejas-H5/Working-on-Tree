@@ -179,6 +179,32 @@ function getDevHtmlWorkingSourcemaps() {
 		templateEnd;
 }
 
+function getErrorMap(result: string): string {
+	let message = result;
+
+	// A count of how many errors occured in each file. Very useful
+	const errorCounts = new Map<string, number>();
+
+	for (const line of result.split("\n")) {
+		const file = line.split(" ", 2)[0];
+		if (!file) continue;
+		if (!file.includes("/")) continue;
+
+		const lineNumberStart = file.indexOf("(");
+		if (lineNumberStart === -1) continue;
+
+		const key = file.substring(0, lineNumberStart);
+		errorCounts.set(key, (errorCounts.get(key) ?? 0) + 1)
+	}
+
+	message += "\n\n"
+	for (const [file, count] of errorCounts) {
+		message += `${count} errors -> ${file}\n`;
+	}
+
+	return message;
+}
+
 if (config === "build") {
 	log("Building...");
 
@@ -188,28 +214,7 @@ if (config === "build") {
 		if (error) throw new Error(error);
 
 		if (result) {
-			let message = result;
-
-			// A count of how many errors occured in each file. Very useful
-			const errorCounts = new Map<string, number>();
-
-			for (const line of result.split("\n")) {
-				const file = line.split(" ", 2)[0];
-				if (!file) continue;
-				if (!file.includes("/")) continue;
-
-				const lineNumberStart = file.indexOf("(");
-				if (lineNumberStart === -1) continue;
-
-				const key = file.substring(0, lineNumberStart);
-				errorCounts.set(key, (errorCounts.get(key) ?? 0) + 1)
-			}
-
-			message += "\n\n"
-			for (const [file, count] of errorCounts) {
-				message += `${count} errors -> ${file}\n`;
-			}
-
+			const message = getErrorMap(result);
 			throw new Error(message);
 		}
 	}
@@ -338,7 +343,7 @@ if (config === "build") {
 							if (result.result.length === 0) {
 								log("Type errors: None!");
 							} else {
-								log("Type errors: \n\n" + result.result);
+								log("Type errors: \n\n" + getErrorMap(result.result));
 							}
 
 							log("Time taken: " + (performance.now() - lintingStartTime) + "ms");
