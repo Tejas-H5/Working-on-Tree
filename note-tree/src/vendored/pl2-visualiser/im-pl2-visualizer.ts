@@ -1,6 +1,6 @@
 import { assertNever } from "assert";
-import { im, ImCache, imdom, key } from "im-js";
-import { BLOCK, CENTER, COL, cssVars, INLINE, ROW, ROW_WRAP } from "im-js/im-ui";
+import { im, ImCache, imdom, key } from "im-layer";
+import { BLOCK, CENTER, COL, cssVars, INLINE, ROW, ROW_WRAP } from "im-layer/im-ui";
 import { imC2dBegin, imC2dEnd } from "im-canvas-2d";
 import { ast, pl2 } from "pl2";
 import * as c2d from "canvas-2d";
@@ -24,7 +24,7 @@ import {
     imVSpaceSmall,
 } from "./ui-primitives";
 import * as plt from "canvas-2d/plotting";
-import { imButtonPressed } from "im-js/im-ui/components/im-button";
+import { imButtonPressed } from "im-layer/im-ui/components/im-button";
 
 export type Pl2CodeCellOutput = {
 	iter:         pl2.ProgramIterator;

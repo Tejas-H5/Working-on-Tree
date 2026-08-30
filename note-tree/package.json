@@ -13,6 +13,6 @@
   },
   "dependencies": {
     "@types/node": "^25.2.3",
-    "im-js": "github:Tejas-H5/imjs"
+    "im-layer": "github:Tejas-H5/imjs"
   }
 }

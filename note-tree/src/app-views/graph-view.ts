@@ -1,6 +1,6 @@
 import { imListRowCellStyle } from "app-components/list-row";
 import { imContextMenu, imContextMenuBegin, imContextMenuEnd, imContextMenuItemEnd, openContextMenuAtMouse } from "components/context-menu";
-import { BLOCK, COL, cssVars, DisplayType, imui, NA, PERCENT, PX, ROW, STRETCH } from "im-js/im-ui";
+import { BLOCK, COL, cssVars, DisplayType, imui, NA, PERCENT, PX, ROW, STRETCH } from "im-layer/im-ui";
 
 import { imButton, imButtonIsClicked } from "app-components/button";
 import { arrayAt, filterInPlace, pushToNullableArray, resizeObjectPool } from "array-utils";
@@ -8,7 +8,7 @@ import { assert } from "assert";
 import { imLine, LINE_HORIZONTAL } from "components/im-line";
 import { imTextInputOneLine } from "components/text-input";
 import { GlobalContext, hasDiscoverableCommand } from "global-context";
-import { elsvg, ev, im, ImCache, imdom, key, MouseState } from "im-js";
+import { elsvg, ev, im, ImCache, imdom, key, MouseState } from "im-layer";
 
 import { canRedo, canUndo, JSONUndoBuffer, newJSONUndoBuffer, redo, stepUndoBufferTimer, undo, writeToUndoBuffer, writeToUndoBufferDebounced } from "undo-buffer-json";
 import { deserializeMappingGraph, serializeMappingGraph } from "schema";

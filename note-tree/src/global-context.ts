@@ -7,8 +7,8 @@ import { newSettingsViewState, SettingsViewState } from "./app-views/settings-vi
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
 
-import { imdom, NormalizedKey } from "im-js";
-import { isEditingTextSomewhereInDocument } from "im-js/im-ui";
+import { imdom, NormalizedKey } from "im-layer";
+import { isEditingTextSomewhereInDocument } from "im-layer/im-ui";
 import { logTrace } from "log";
 import { bytesToMegabytes, utf8ByteLength } from "utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";

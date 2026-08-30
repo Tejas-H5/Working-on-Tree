@@ -1,4 +1,4 @@
-import { im, ImCache, imdom, el, ev, } from "im-js";
+import { im, ImCache, imdom, el, ev, } from "im-layer";
 
 export type TimerState = {
     t0: number;

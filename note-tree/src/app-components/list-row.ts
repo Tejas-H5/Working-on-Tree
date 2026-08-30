@@ -1,6 +1,6 @@
 import { cssVarsApp } from "app-styling";
-import { im, ImCache, imdom } from "im-js";
-import { BLOCK, DisplayType, EM, imui, NA, PX, ROW, SizeUnits } from "im-js/im-ui";
+import { im, ImCache, imdom } from "im-layer";
+import { BLOCK, DisplayType, EM, imui, NA, PX, ROW, SizeUnits } from "im-layer/im-ui";
 
 
 type RowStatusInstance = number & { __rowStatus: void; };

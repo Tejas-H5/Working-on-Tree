@@ -1,8 +1,8 @@
 import { imSettingsView } from "app-views/settings-view";
 import { arrayAt, getWrappedIdx } from "array-utils";
 import { formatDate, formatTime } from "datetime";
-import { im, ImCache, imdom, NormalizedKey } from "im-js";
-import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "im-js/im-ui";
+import { im, ImCache, imdom, NormalizedKey } from "im-layer";
+import { BLOCK, CENTER, CH, COL, cssVars, imui, isEditingTextSomewhereInDocument, NA, PERCENT, PX, RIGHT, ROW } from "im-layer/im-ui";
 import { NIL_ID } from "int-tree";
 import { newWebWorker } from "web-workers";
 import { imAppHeadingBegin, imAppHeadingEnd, } from "./app-components/app-heading";

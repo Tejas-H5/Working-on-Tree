@@ -1,5 +1,5 @@
-import { im, ImCache, imdom, ValidKey } from "im-js";
-import { COL, isEditingTextSomewhereInDocument, ROW } from "im-js/im-ui";
+import { im, ImCache, imdom, ValidKey } from "im-layer";
+import { COL, isEditingTextSomewhereInDocument, ROW } from "im-layer/im-ui";
 import { imScrollContainerBegin, imScrollContainerEnd, ScrollContainer, scrollParamsChanged, scrollToItem, startScrolling } from "../components/scroll-container";
 import { ANY_MODIFIERS, BYPASS_TEXT_AREA, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "../global-context";
 import { getWrappedIdx } from "array-utils";

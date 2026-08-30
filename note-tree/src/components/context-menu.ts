@@ -1,5 +1,5 @@
-import { COL, cssVars, imui, NA, PX, ROW } from "im-js/im-ui";
-import { im, ImCache, imdom } from "im-js";
+import { COL, cssVars, imui, NA, PX, ROW } from "im-layer/im-ui";
+import { im, ImCache, imdom } from "im-layer";
 
 export type ContextMenuState = {
     open: boolean;

@@ -1,7 +1,7 @@
 import { cssVarsApp } from "app-styling";
 import { AsciiIconData } from "assets/icons";
-import { imui, BLOCK } from "im-js/im-ui";
-import { im, ImCache, imdom, } from "im-js";
+import { imui, BLOCK } from "im-layer/im-ui";
+import { im, ImCache, imdom, } from "im-layer";
 
 
 export function imAsciiIcon(c: ImCache, icon: AsciiIconData, sizePx: number) {

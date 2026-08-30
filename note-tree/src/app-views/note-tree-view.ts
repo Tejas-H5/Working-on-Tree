@@ -14,7 +14,7 @@ import {
     newListPosition
 } from "app-components/navigable-list";
 import { cssVarsApp } from "app-styling";
-import { BLOCK, CH, COL, EM, EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized, imui, NA, PX, ROW, ROW_REVERSE } from "im-js/im-ui";
+import { BLOCK, CH, COL, EM, EXTENT_END, EXTENT_VERTICAL, getElementExtentNormalized, imui, NA, PX, ROW, ROW_REVERSE } from "im-layer/im-ui";
 
 import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
 import { imLine, LINE_HORIZONTAL } from "components/im-line";
@@ -74,7 +74,7 @@ import { arrayAt, boundsCheck, filterInPlace, findLastIndex } from "array-utils"
 import { assert } from "assert";
 import { formatDateTime } from "datetime";
 
-import { el, ev, im, ImCache, imdom, } from "im-js";
+import { el, ev, im, ImCache, imdom, } from "im-layer";
 
 import * as tree from "int-tree";
 

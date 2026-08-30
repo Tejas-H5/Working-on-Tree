@@ -8,8 +8,8 @@ import { imLine, LINE_HORIZONTAL } from "components/im-line";
 import { newScrollContainer, ScrollContainer, startScrolling } from "components/scroll-container";
 import { clampDate, cloneDate, floorDateLocalTime, formatDate, formatDuration, formatTime, isSameDate, ONE_MINUTE } from "datetime";
 import { BYPASS_TEXT_AREA, debouncedSave, focusItem, getAxisRaw, GlobalContext, hasDiscoverableCommand, REPEAT, SHIFT } from "global-context";
-import { ev, im, ImCache, imdom } from "im-js";
-import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "im-js/im-ui";
+import { ev, im, ImCache, imdom } from "im-layer";
+import { BLOCK, CENTER, CH, COL, imui, INLINE_BLOCK, NA, NONE, PX, ROW } from "im-layer/im-ui";
 import { Activity, getActivityDate, getActivityDurationMs, getActivityText, getLastActivity, isBreak, isCurrentlyTakingABreak, newBreakActivity, pushBreakActivity, state } from "state";
 import { getCurrentPage, Journal } from "./journal-view";
 

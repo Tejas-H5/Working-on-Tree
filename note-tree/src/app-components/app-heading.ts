@@ -1,5 +1,5 @@
-import { imui, PX, NA } from "im-js/im-ui";
-import { im, ImCache, imdom, el, } from "im-js";
+import { imui, PX, NA } from "im-layer/im-ui";
+import { im, ImCache, imdom, el, } from "im-layer";
 
 
 
