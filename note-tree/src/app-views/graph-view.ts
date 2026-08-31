@@ -620,6 +620,10 @@ export function imGraphMappingsEditorView(
 
     ensureParallelUiSate(s, graph);
 
+    if (im.IsFirstRender(c)) {
+        imdom.setStyle(c, "overflow", "hidden")
+    }
+
     const root = imui.Begin(c, COL); imui.Flex(c); imui.Relative(c); imui.ScrollOverflow(c, true, true);
     s.root = root;
     const rootRect = root.getBoundingClientRect(); {
