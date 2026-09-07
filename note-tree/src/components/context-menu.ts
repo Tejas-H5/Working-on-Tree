@@ -1,5 +1,5 @@
-import { COL, cssVars, imui, NA, PX, ROW } from "im-layer/im-ui";
-import { im, ImCache, imdom } from "im-layer";
+import { COL, cssVars, imui, NA, PX, ROW } from "imcf/im-ui";
+import { im, ImCache, imdom } from "imcf";
 
 export type ContextMenuState = {
     open: boolean;

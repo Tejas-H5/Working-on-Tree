@@ -1,5 +1,5 @@
-import { el, im, ImCache, imdom } from "im-layer";
-import { BLOCK, cssVars, FIT_CONTENT, imui, INLINE, PERCENT, setInputValue } from "im-layer/im-ui";
+import { el, im, ImCache, imdom } from "imcf";
+import { BLOCK, cssVars, FIT_CONTENT, imui, INLINE, PERCENT, setInputValue } from "imcf/im-ui";
 
 export function getLineBeforePos(text: string, pos: number): string {
     const i = getLineStartPos(text, pos);

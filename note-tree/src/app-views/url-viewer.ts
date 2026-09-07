@@ -15,8 +15,8 @@ import { newScrollContainer, ScrollContainer } from "components/scroll-container
 import { GlobalContext, hasDiscoverableCommand } from "global-context";
 import { state } from "state";
 import { arrayAt } from "array-utils";
-import { el, im, ImCache, imdom } from "im-layer";
-import { BLOCK, COL, imui, ROW } from "im-layer/im-ui";
+import { el, im, ImCache, imdom } from "imcf";
+import { BLOCK, COL, imui, ROW } from "imcf/im-ui";
 
 import { forEachUrlPosition, openUrlInNewTab } from "url";
 import { getCurrentPage, getPage, setCurrentlyEditingPage, TreePage } from "./journal-view";

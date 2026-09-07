@@ -1,6 +1,6 @@
 import { cssVarsApp } from "app-styling";
-import { BLOCK, imui, NA, PERCENT, PX } from "im-layer/im-ui";
-import { im, ImCache, imdom } from "im-layer";
+import { BLOCK, imui, NA, PERCENT, PX } from "imcf/im-ui";
+import { im, ImCache, imdom } from "imcf";
 
 const cssb = imui.newCssBuilder();
 const cnHLine = cssb.cn("hline", [

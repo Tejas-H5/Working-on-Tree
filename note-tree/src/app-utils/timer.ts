@@ -1,4 +1,4 @@
-import { im, ImCache, imdom, el, ev, } from "im-layer";
+import { im, ImCache, imdom, el, ev, } from "imcf";
 
 export type TimerState = {
     t0: number;

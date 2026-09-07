@@ -32,8 +32,8 @@ import {
     isSameDate
 } from "datetime";
 import { focusItem, GlobalContext } from "global-context";
-import { im, ImCache, imdom } from "im-layer";
-import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW, STRETCH, } from "im-layer/im-ui";
+import { im, ImCache, imdom } from "imcf";
+import { BLOCK, COL, cssVars, imui, NA, PERCENT, PX, ROW, STRETCH, } from "imcf/im-ui";
 import {
     Activity,
     getActivityDate,

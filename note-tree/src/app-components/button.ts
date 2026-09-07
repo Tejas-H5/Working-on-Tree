@@ -1,5 +1,5 @@
-import { im, ImCache, imdom } from "im-layer";
-import { BLOCK, cssVars, DisplayType, imui } from "im-layer/im-ui";
+import { im, ImCache, imdom } from "imcf";
+import { BLOCK, cssVars, DisplayType, imui } from "imcf/im-ui";
 
 const cssb = imui.newCssBuilder();
 

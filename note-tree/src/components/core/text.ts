@@ -1,4 +1,4 @@
-import { el, ImCache, imdom } from "im-layer";
+import { el, ImCache, imdom } from "imcf";
 
 export function imB(c: ImCache) { return imdom.ElBegin(c, el.B); }
 export function imBEnd(c: ImCache) { return imdom.ElEnd(c, el.B); }

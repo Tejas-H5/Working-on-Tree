@@ -1,5 +1,5 @@
-import { imdom, el } from "im-layer";
-import { im, ImCache } from "im-layer";
+import { imdom, el } from "imcf";
+import { im, ImCache } from "imcf";
 import * as c2d from "canvas-2d";
 
 export function imC2dBegin(c: ImCache, aspectRatio: number): c2d.State | undefined { 

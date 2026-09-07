@@ -1,5 +1,5 @@
-import { im, ImCache } from "im-layer";
-import { COL, getScrollVHEx, imui, ROW } from "im-layer/im-ui";
+import { im, ImCache } from "imcf";
+import { COL, getScrollVHEx, imui, ROW } from "imcf/im-ui";
 
 
 // NOTE: if all we need is idx, let's just inline it.

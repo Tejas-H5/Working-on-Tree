@@ -1,7 +1,7 @@
 import { cnApp } from "app-styling";
 import { FuzzyFindRange } from "fuzzyfind";
-import { im, ImCache, imdom } from "im-layer";
-import { imui, INLINE } from "im-layer/im-ui";
+import { im, ImCache, imdom } from "imcf";
+import { imui, INLINE } from "imcf/im-ui";
 
 export function imTextWithHighlightedRanges(c: ImCache, text: string, ranges: FuzzyFindRange[], truncate: boolean) {
     const diffState = im.GetInline(c, imTextWithHighlightedRanges) ??

@@ -36,8 +36,8 @@ import {
 import { arrayAt } from "array-utils";
 import { formatDateTime } from "datetime";
 import { downloadTextAsFile, loadFile } from "file-download";
-import { el, im, ImCache, imdom } from "im-layer";
-import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH } from "im-layer/im-ui";
+import { el, im, ImCache, imdom } from "imcf";
+import { BLOCK, COL, imui, NA, PERCENT, PX, ROW, STRETCH } from "imcf/im-ui";
 
 import { imListRowBegin, imListRowCellStyle, imListRowEnd } from "app-components/list-row";
 import { VERSION_NUMBER } from "version-number";

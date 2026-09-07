@@ -1,5 +1,5 @@
-import { el, im, ImCache, imdom } from "im-layer";
-import { BLOCK, cssVars, DisplayType, imui, INLINE, LEFT } from "im-layer/im-ui";
+import { el, im, ImCache, imdom } from "imcf";
+import { BLOCK, cssVars, DisplayType, imui, INLINE, LEFT } from "imcf/im-ui";
 
 export function imHeading(c: ImCache, text: string) {
 	imdom.ElBegin(c, el.H2); {

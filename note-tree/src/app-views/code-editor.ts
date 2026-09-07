@@ -2,8 +2,8 @@ import { doExtraTextAreaInputHandling, imTextAreaBegin, imTextAreaEnd } from "co
 import { imLine, LINE_VERTICAL } from "components/im-line";
 import { debouncedSave, GlobalContext } from "global-context";
 import { state } from "state";
-import { ev, im, ImCache, imdom } from "im-layer";
-import { COL, imui, ROW } from "im-layer/im-ui";
+import { ev, im, ImCache, imdom } from "imcf";
+import { COL, imui, ROW } from "imcf/im-ui";
 import { Pl2CodeCellOutput, imPl2CodeCellOutput, newCodeCellOutput, updateCodeCellOutput } from "vendored/pl2-visualiser";
 
 export type CodePage = {

@@ -2,8 +2,8 @@ import { imTextAreaBegin, imTextAreaEnd } from "components/editable-text-area";
 import { assert } from "assert";
 import { addMinutes, clampDate, cloneDate, dateSetLocalTime, formatTimeForInput, parseDurationInput, parseTimeInput, roundToNearestMinutes } from "datetime";
 
-import { ev, im, ImCache, imdom } from "im-layer";
-import { setInputValue } from "im-layer/im-ui";
+import { ev, im, ImCache, imdom } from "imcf";
+import { setInputValue } from "imcf/im-ui";
 
 
 type TimeInputStateEditEvent = {

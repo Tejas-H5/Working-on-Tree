@@ -1,4 +1,4 @@
-import { cssVars, imui } from "im-layer/im-ui";
+import { cssVars, imui } from "imcf/im-ui";
 
 const cssb = imui.newCssBuilder();
 
