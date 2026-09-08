@@ -86,17 +86,6 @@ export type NoteTreeGlobalState = {
     // NOTE: this is an intermediate value for a migration xDDD
     _noteTree: NoteTree;
 
-    /** 
-     * Tasks organised by problem -> subproblem -> subsubproblem etc., not necessarily in the order we work on them 
-     * @deprecated
-     **/
-    // notes: TreeNoteTree;
-    /** See {@link notesMutated} */
-    // _notesMutationCounter: number;
-    // NOTE: kinda need to be references - some code will toggle between whenether we're using 
-    // _isEditingFocusedNote: boolean;
-
-    // currentNoteId: NoteId;
     currentTheme: AppTheme;
 
     // A stupid bug in chrome ~~~causes~~~ used to cause IndexedDB to be non-functional 
@@ -349,10 +338,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
 
         _noteTree: newNoteTree(),
 
-        // notes,
-        // _notesMutationCounter: 0,
-
-        // currentNoteId: itree.NIL_ID,
         activities: [],
         _activitiesMutationCounter: 0,
         _activitiesLastTouchedIdx: 0,
@@ -366,11 +351,6 @@ export function newNoteTreeGlobalState(): NoteTreeGlobalState {
 
         currentTheme: "Light",
         criticalSavingError: "",
-
-        // textOnArrival: "",
-        // textOnArrivalNoteId: itree.NIL_ID,
-
-        // _isEditingFocusedNote: false, // global flag to control if we're editing a note
 
         _activitiesTraversalIdx: -1,
 

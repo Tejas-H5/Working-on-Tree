@@ -11,7 +11,7 @@ import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 
 import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
 import { el, ev, im, ImCache, imdom, key } from "imcf";
-import { BLOCK, COL, cssVars, EM, imui, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
+import { BLOCK, COL, cssVars, EM, END, imui, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
 import * as itree from "int-tree";
 import { logTrace } from "log";
 import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
@@ -56,8 +56,7 @@ export function newJournalViewState(): JournalViewState {
             parents: [],
             version: 0,
             isRenaming: false,
-            // view: VIEWING_PAGE,
-            view: VIEWING_GRAPH,
+            view: VIEWING_PAGE,
         },
 
         finder: {
@@ -77,6 +76,9 @@ export function newJournal(): Journal {
         currentlyEditing: {
             pageIdx: 0,
         },
+
+        currentTab: 0,
+        tabPageIds: new Array(10).fill(itree.ROOT_ID),
 
         pages: itree.newTreeStore(rootPage),
     };
@@ -103,6 +105,10 @@ export type Journal = {
     currentlyEditing: {
         pageIdx: number;
     };
+
+    // A number in 1..<=9
+    currentTab: number;
+    tabPageIds: number[];
 
     pages: itree.TreeStore<JournalPage>;
 };
@@ -176,6 +182,23 @@ function findOrPushChildPageByName(journal: Journal, parent: TreePage, name: str
         page = addJournalPageUnder(journal, parent, name);
     }
     return page;
+}
+
+function moveTab(ctx: GlobalContext, journal: Journal, tabIdx: number) {
+    assert(tabIdx <= 9);
+    assert(0 <= tabIdx);
+
+    const currentPage = journal.currentlyEditing.pageIdx;
+
+    journal.tabPageIds[journal.currentTab] = currentPage;
+
+    journal.currentTab = tabIdx;
+    if (journal.tabPageIds[tabIdx] === itree.ROOT_ID) {
+        journal.tabPageIds[tabIdx] = currentPage;
+    } else {
+        const page = getPage(journal, journal.tabPageIds[tabIdx]);
+        setCurrentlyEditingPage(ctx, page);
+    }
 }
 
 const JOURNAL_ROOT_NAME = "Journal"
@@ -401,7 +424,11 @@ export function imJournalView(
                     } im.IfEnd(c);
                 } imdom.ElEnd(c, el.H2);
 
-                imui.Flex1(c);
+                imui.Begin(c, ROW); imui.Align(c); imui.Justify(c, END); imui.Flex(c); imui.Gap(c, 10, PX); {
+                    for (let i = 0; i < 10; i++) {
+                        imTabIndicator(c, ctx, journal, i);
+                    }
+                } imui.End(c);
             } imui.End(c);
 
             imLine(c, LINE_HORIZONTAL, 1);
@@ -451,7 +478,6 @@ function imPageListRow(
     page: TreePage,
     depth: number,
 ) {
-    // const viewHasFocus = journalViewHasFocus(ctx);
     const itemHighlighted = journal.currentlyEditing.pageIdx === page.id;
     const itemSelected = s.sidebarHasFocus && itemHighlighted;
 
@@ -876,4 +902,47 @@ function imToggleableViewIcon(c: ImCache, s: JournalViewState, view: number, nam
             imdom.Str(c, "("); imdom.Str(c, count); imdom.Str(c, ")");
         } im.IfEnd(c);
     } imui.End(c);
+}
+
+const tabToKey = [key.A1, key.A2, key.A3, key.A4, key.A5, key.A6, key.A7, key.A8, key.A9, key.A0,];
+
+function imTabIndicator(
+    c: ImCache,
+    ctx: GlobalContext,
+    journal: Journal,
+    tabIdx: number,
+) {
+    const page = journal.tabPageIds[tabIdx];
+
+    if (im.If(c) && page !== itree.ROOT_ID) {
+        imui.Begin(c, BLOCK); {
+            imui.Padding(c,
+                2, PX, 10, PX,
+                2, PX, 10, PX
+            );
+
+            const isCurrentTab = tabIdx === journal.currentTab;
+
+            let fg: string = cssVars.fg;
+            let bg: string = cssVars.bg;
+            if (isCurrentTab) {
+                fg = cssVars.bg;
+                bg = cssVars.fg;
+            }
+
+            if (im.Memo(c, isCurrentTab)) {
+                imdom.setStyle(c, "border", "1px solid " + fg);
+            }
+            imui.Fg(c, fg);
+            imui.Bg(c, bg);
+
+            // Should be a keyboard key. So we want 10 -> 0
+            imdom.Str(c, (tabIdx + 1) % 10);
+        } imui.End(c);
+    } im.IfEnd(c);
+
+    if (hasDiscoverableCommand(ctx, tabToKey[tabIdx], "move to tab", HIDDEN)) {
+        moveTab(ctx, journal, tabIdx);
+        journalMutated(state);
+    }
 }

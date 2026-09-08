@@ -183,6 +183,17 @@ export function asNoteTreeGlobalState(val: unknown) {
             return node;
         });
 
+        const pagesArr = asArray(getVal<Journal>(journalObj, "tabPageIds"));
+        if (pagesArr && pagesArr.length === 10) {
+            state.journal.tabPageIds = pagesArr.map(v => {
+                if (typeof v !== "number") {
+                    return tree.ROOT_ID;
+                }
+                return v;
+            })
+        }
+
+
         deserializeObject(state.journal.pages, pagesObj);
 
         // @ts-expect-error We've removed entries in favour of a dedicated journal page.
