@@ -19,6 +19,22 @@ input.${cnInput}:focus, input.${cnInput}:hover {
 }
 `);
 
+export function imOnBlur(c: ImCache, input: HTMLTextAreaElement | HTMLInputElement) {
+    const blur = imdom.On(c, ev.BLUR);
+    if (!blur) {
+        return undefined;
+    }
+
+    // Specifically on Chrome and not Firefox, mounting an input will trigger the blur event. 
+    // We only care about defocusing.
+    const isActuallyFocused = document.activeElement !== input;
+    if (isActuallyFocused) {
+        return undefined;
+    }
+
+    return blur;
+}
+
 
 export function imTextInputBegin(c: ImCache, {
     value,
@@ -79,8 +95,8 @@ export function imTextInputOneLine(
         }
 
         const inputEvent = imdom.On(c, ev.INPUT);
-        const blur = imdom.On(c, ev.BLUR);
         const keyboard = imdom.getKeyboard();
+        const blur = imOnBlur(c, input);
 
         let lineEnding: string | undefined;
         if (inputEvent) {
