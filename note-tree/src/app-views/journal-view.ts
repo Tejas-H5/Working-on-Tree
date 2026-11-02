@@ -11,13 +11,14 @@ import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 
 import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
 import { el, ev, im, ImCache, imdom, key } from "imcf";
-import { BLOCK, COL, cssVars, EM, END, imui, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
+import { BLOCK, CH, COL, cssVars, EM, END, imui, INLINE_BLOCK, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
 import * as itree from "int-tree";
 import { logTrace } from "log";
 import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
 import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-editor";
 import { getMappingGraphCount, imGraphMappingsEditorViewInternal, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
+import { cssVarsApp } from "app-styling";
 
 type FinderResult = {
     id: number;
@@ -25,10 +26,10 @@ type FinderResult = {
     ranges: FuzzyFindRange[];
 }
 
-const VIEWING_PAGE  = 0;
-const VIEWING_GRAPH = 1;
-const VIEWING_CODE  = 2;
-const VIEWING_NOTES = 3;
+const PAGE_VIEW  = 0;
+const GRAPH_VIEW = 1;
+const CODE_VIEW  = 2;
+const NOTES_VIEW = 3;
 
 export type JournalViewState = {
     sidebarHasFocus: boolean;
@@ -56,7 +57,7 @@ export function newJournalViewState(): JournalViewState {
             parents: [],
             version: 0,
             isRenaming: false,
-            view: VIEWING_PAGE,
+            view: PAGE_VIEW,
         },
 
         finder: {
@@ -91,7 +92,7 @@ export function newJournal(): Journal {
 
 function sidebarHasFocus(s: JournalViewState): boolean {
     if (s.sidebarHasFocus) {
-        if (s.pages.view === VIEWING_PAGE) {
+        if (s.pages.view === PAGE_VIEW) {
             return true;
         }
     }
@@ -121,6 +122,8 @@ export type JournalPage = {
     graph: { g: MappingGraph; v: MappingGraphView } | undefined;
     noteTree: NoteTree | undefined;
     code: CodePage | undefined;
+    cursorStart: number;
+    cursorEnd:   number;
 
     _durationUnranged: number;
     _durationUnrangedOpenSince?: Date; // used for recomputing realtime durations - only notes with this thing set would still be increasing in duration
@@ -138,6 +141,8 @@ export function newJournalPage(name: string, createdAt = new Date()):JournalPage
         graph: undefined,
         noteTree: undefined,
         code: undefined,
+        cursorStart: 0,
+        cursorEnd: 0,
 
         _durationUnranged: 0,
         _durationRanged: 0,
@@ -197,7 +202,7 @@ function moveTab(ctx: GlobalContext, journal: Journal, tabIdx: number) {
         journal.tabPageIds[tabIdx] = currentPage;
     } else {
         const page = getPage(journal, journal.tabPageIds[tabIdx]);
-        setCurrentlyEditingPage(ctx, page);
+        setCurrentlyViewingPage(ctx, page);
     }
 }
 
@@ -256,11 +261,6 @@ export function imJournalView(
     journal: Journal, // We edit this!
 ) {
     const viewHasFocus = journalViewHasFocus(ctx);
-
-    if (im.Memo(c, viewHasFocus)) {
-        s.sidebarHasFocus = true;
-    }
-
     let currentPage = getCurrentPage(state.journal);
 
     if (im.Memo(c, currentPage) | im.Memo(c, s.pages.version)) {
@@ -363,7 +363,7 @@ export function imJournalView(
                             const result = s.finder.results && arrayAt(s.finder.results, s.finder.resultsIdx);
                             if (result) {
                                 const page = getPage(journal, result.id)
-                                setCurrentlyEditingPage(ctx, page);
+                                setCurrentlyViewingPage(ctx, page);
                             }
                         }
                         if (ev.cancel) {
@@ -380,7 +380,7 @@ export function imJournalView(
                 imui.Begin(c, ROW); imui.Align(c); imui.Flex(c); imui.Gap(c, 10, PX); {
                     if (im.If(c) && !s.finder.isFinding) {
                         const graphCount = getMappingGraphCount(currentPage.data.graph?.g)
-                        imToggleableViewIcon(c, s, VIEWING_GRAPH, "[G]raph", graphCount);
+                        imToggleableViewIcon(c, s, GRAPH_VIEW, "[G]raph", graphCount);
 
                         const lineCounts = im.GetInline(c, imToggleableViewIcon) ?? im.Set(c, { lines: 0 });
                         const code = currentPage.data.code?.code;
@@ -395,9 +395,9 @@ export function imJournalView(
                             }
                         }
 
-                        imToggleableViewIcon(c, s, VIEWING_CODE, "[C]ode", lineCounts.lines);
+                        imToggleableViewIcon(c, s, CODE_VIEW, "[C]ode", lineCounts.lines);
 
-                        imToggleableViewIcon(c, s, VIEWING_NOTES, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
+                        imToggleableViewIcon(c, s, NOTES_VIEW, "[N]otes", currentPage.data.noteTree?.notes?.nodes?.length ?? 0);
                     } im.IfEnd(c);
                 } imui.End(c);
 
@@ -460,8 +460,8 @@ export function imJournalView(
     if (!ctx.handled) {
         if (s.finder.isFinding && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Stop finding", BYPASS_TEXT_AREA)) {
             s.finder.isFinding = false;
-        } else if (s.pages.view !== VIEWING_PAGE && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
-            s.pages.view = VIEWING_PAGE;
+        } else if (s.pages.view !== PAGE_VIEW && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Back", BYPASS_TEXT_AREA)) {
+            s.pages.view = PAGE_VIEW;
         } else if (!s.sidebarHasFocus && hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Sidebar", BYPASS_TEXT_AREA)) {
             s.sidebarHasFocus = true;
         }
@@ -540,7 +540,7 @@ function imPageEditor(
         const s = im.GetInline(c, imPageEditor) ?? im.Set(c, { version: 0 });
 
         im.Switch(c, journalViewState.pages.view); switch (journalViewState.pages.view) {
-            case VIEWING_PAGE: {
+            case PAGE_VIEW: {
                 imui.Begin(c, BLOCK); imui.PaddingRL(c, 0, NA, 20, PX); imui.Flex(c); imui.PreWrap(c); {
                     if (im.If(c) && editing) {
                         const [root, textArea] = imTextAreaBegin(c, {
@@ -571,15 +571,39 @@ function imPageEditor(
                             }
 
                             ctx.textAreaToFocus = textArea;
+
+                            if (im.Memo(c, true)) {
+                                // NOTE: right now, pressing escape will just collapse the highlight, but
+                                // we might want to have a way to move tabs without collapsing the highlight later.
+                                textArea.selectionStart = page.data.cursorStart;
+                                textArea.selectionEnd   = page.data.cursorEnd;
+                            }
+                            if (im.Memo(c, textArea.selectionStart)) {
+                                page.data.cursorStart = textArea.selectionStart;
+                            }
+                            if (im.Memo(c, textArea.selectionEnd)) {
+                                page.data.cursorEnd = textArea.selectionEnd;
+                            }
                         } imTextAreaEnd(c);
                     } else {
                         im.Else(c);
 
-                        imdom.Str(c, page.data.content);
+                        const memoized = im.Get(c, imPageEditor) ??
+                            im.Set(c, { beforeCursor: "", afterCursor: "" });
+
+                        if (im.Memo(c, page.data.content) | im.Memo(c, page.data.cursorEnd)) {
+                            memoized.beforeCursor = page.data.content.slice(0, page.data.cursorEnd);
+                            memoized.afterCursor  = page.data.content.slice(page.data.cursorEnd);
+                        }
+
+                        imdom.Str(c, memoized.beforeCursor);
+                        imui.Begin(c, INLINE_BLOCK); imui.Size(c, 1, CH, 1, EM); imui.Bg(c, cssVarsApp.fgColor); {
+                        } imui.End(c);
+                        imdom.Str(c, memoized.afterCursor);
                     } im.IfEnd(c);
                 } imui.End(c);
             } break;
-            case VIEWING_GRAPH: {
+            case GRAPH_VIEW: {
                 if (!page.data.graph) {
                     // Lazily create this data directly in the UI render pass. React devs would not like this
                     page.data.graph = {
@@ -597,7 +621,7 @@ function imPageEditor(
                     }
                 } imui.End(c);
             } break;
-            case VIEWING_CODE: {
+            case CODE_VIEW: {
                 if (!page.data.code) {
                     page.data.code = newCodePage();
                     journalMutated(state);
@@ -612,7 +636,7 @@ function imPageEditor(
                     }
                 } imui.End(c);
             } break;
-            case VIEWING_NOTES: {
+            case NOTES_VIEW: {
                 if (!page.data.noteTree) {
                     // Lazily create this data directly in the UI render pass. React devs would not like this
                     page.data.noteTree = newNoteTree();
@@ -684,11 +708,11 @@ function handleKeyboardInput(
         if (input) {
             if (movePage) {
                 itree.insertAt(journal.pages, parent, currentPage, input.newIdx);
-                setCurrentlyEditingPage(ctx, currentPage);
+                setCurrentlyViewingPage(ctx, currentPage);
             } else {
                 const childId = parent.childIds[input.newIdx]; assert(childId != null);
                 const page = getPage(journal, childId)
-                setCurrentlyEditingPage(ctx, page);
+                setCurrentlyViewingPage(ctx, page);
             }
 
             handled = true;
@@ -702,7 +726,7 @@ function handleKeyboardInput(
                     const prevPage = getPage(journal, prevIdx);
                     let idxUnderPrev = clampedListIdx(prevPage.data.focusedChildIdx, prevPage.childIds.length) + 1;
                     itree.insertAt(journal.pages, prevPage, currentPage, idxUnderPrev);
-                    setCurrentlyEditingPage(ctx, currentPage);
+                    setCurrentlyViewingPage(ctx, currentPage);
                 }
 
                 handled = true;
@@ -711,7 +735,7 @@ function handleKeyboardInput(
             if (currentPage.childIds.length > 0 && hasDiscoverableCommand(ctx, ctx.keyboard.rightKey, "Move in", REPEAT | HIDDEN)) {
                 let nextPageIdx = arrayAt(currentPage.childIds, currentPage.data.focusedChildIdx) ?? 0;
                 const nextPage = getPage(journal, nextPageIdx);
-                setCurrentlyEditingPage(ctx, nextPage);
+                setCurrentlyViewingPage(ctx, nextPage);
                 handled = true;
             }
 
@@ -730,21 +754,21 @@ function handleKeyboardInput(
             }
 
             if (parent.id !== itree.ROOT_ID && hasDiscoverableCommand(ctx, ctx.keyboard.leftKey, "Move out", REPEAT)) {
-                setCurrentlyEditingPage(ctx, parent);
+                setCurrentlyViewingPage(ctx, parent);
                 handled = true;
             }
         }
 
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New after", SHIFT)) {
             const page = addJournalPageAfter(journal, currentPage, "");
-            setCurrentlyEditingPage(ctx, page);
+            setCurrentlyViewingPage(ctx, page);
             s.pages.isRenaming = true;
             handled = true;
         }
 
         if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "New under", CTRL)) {
             const page = addJournalPageUnder(journal, currentPage, "");
-            setCurrentlyEditingPage(ctx, page);
+            setCurrentlyViewingPage(ctx, page);
             s.pages.isRenaming = true;
             handled = true;
         }
@@ -792,33 +816,33 @@ function handleKeyboardInput(
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.tKey, "Today's page")) {
         const page = getOrCreateJournalLogPageForDate(journal, new Date());
-        setCurrentlyEditingPage(ctx, page)
+        setCurrentlyViewingPage(ctx, page)
         handled = true;
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.gKey, "Graph", HIDDEN)) {
-        if (s.pages.view !== VIEWING_GRAPH) {
-            s.pages.view = VIEWING_GRAPH;
+        if (s.pages.view !== GRAPH_VIEW) {
+            s.pages.view = GRAPH_VIEW;
         } else {
-            s.pages.view = VIEWING_PAGE;
+            s.pages.view = PAGE_VIEW;
         }
         handled = true;
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.cKey, "Code", HIDDEN)) {
-        if (s.pages.view !== VIEWING_CODE) {
-            s.pages.view = VIEWING_CODE;
+        if (s.pages.view !== CODE_VIEW) {
+            s.pages.view = CODE_VIEW;
         } else {
-            s.pages.view = VIEWING_PAGE;
+            s.pages.view = PAGE_VIEW;
         }
         handled = true;
     }
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.nKey, "Notes", HIDDEN)) {
-        if (s.pages.view !== VIEWING_NOTES) {
-            s.pages.view = VIEWING_NOTES;
+        if (s.pages.view !== NOTES_VIEW) {
+            s.pages.view = NOTES_VIEW;
         } else {
-            s.pages.view = VIEWING_PAGE;
+            s.pages.view = PAGE_VIEW;
         }
         handled = true;
     }
@@ -832,11 +856,15 @@ function handleKeyboardInput(
     return handled;
 }
 
+export function setCurrentlyViewingPage(ctx: GlobalContext, page: TreePage, cursorPos?: number) {
+    setCurrentPage(ctx, page, false, cursorPos);
+}
 
-export function setCurrentlyEditingPage(ctx: GlobalContext, page: TreePage) {
+export function setCurrentPage(ctx: GlobalContext, page: TreePage, editing: boolean, cursorPos?: number) {
     const journal = state.journal;
     const s = ctx.views.journalView;
-    s.pages.view = VIEWING_PAGE;
+    s.pages.view = PAGE_VIEW;
+    s.sidebarHasFocus = !editing;
 
     // Delete the last page, if applicable
     const prevPage = itree.getNodeOrUndefined(journal.pages, journal.currentlyEditing.pageIdx);
@@ -864,6 +892,13 @@ export function setCurrentlyEditingPage(ctx: GlobalContext, page: TreePage) {
     }
 
     pushJournalActivity(state, page.id);
+
+    if (cursorPos !== undefined) {
+        // MUTATION!! However I dont care if this one in particular is or isn't saved.
+        // TODO: we might need to make this cancelleable, right now it just sets it.
+        page.data.cursorStart = cursorPos;
+        page.data.cursorEnd = cursorPos;
+    }
 }
 
 function findJournalResults(

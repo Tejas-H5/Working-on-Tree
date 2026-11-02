@@ -2,7 +2,7 @@ import { assert } from "assert";
 import { parseDateSafe } from "datetime";
 import { ActivitiesViewState, newActivitiesViewState } from "./app-views/activities-list";
 import { DurationsViewState, newDurationsViewState } from "./app-views/durations-view";
-import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurrentlyEditingPage, TreePage } from "./app-views/journal-view";
+import { getCurrentPage, getPage, JournalViewState, newJournalViewState, setCurrentlyViewingPage, setCurrentPage, TreePage } from "./app-views/journal-view";
 import { newSettingsViewState, SettingsViewState } from "./app-views/settings-view";
 import { newUrlListViewState, UrlListViewState } from "./app-views/url-viewer";
 import { getActivityDate, getBreakAutoInsertLastPolledTime, getCurrentNote, getLastActivity, getLastSavedForAllTabs, getLastSavedForThisTab, isLoadingState, loadState, newBreakActivity, NoteId, NoteTreeGlobalState, pushBreakActivity, saveState, setCurrentNote, state, toDateOrZero, TreeNote, updateBreakAutoInsertLastPolledTime } from "./state";
@@ -12,6 +12,7 @@ import { isEditingTextSomewhereInDocument } from "imcf/im-ui";
 import { logTrace } from "log";
 import { bytesToMegabytes, utf8ByteLength } from "utf8";
 import { VERSION_NUMBER, VERSION_NUMBER_MONOTONIC } from "./version-number";
+import { newTodosViewState, TodosViewState } from "app-views/todos-list";
 
 const SAVE_DEBOUNCE = 1500;
 
@@ -30,10 +31,11 @@ export type GlobalContext = {
 
     views: {
         activities: ActivitiesViewState;
-        urls:       UrlListViewState;
-        settings:   SettingsViewState;
+        urls: UrlListViewState;
+        settings: SettingsViewState;
         journalView: JournalViewState;
         durationsView: DurationsViewState;
+        todosView: TodosViewState;
     };
 
     currentView: unknown;
@@ -142,10 +144,11 @@ export function newGlobalContext(): GlobalContext {
 
         views: {
             activities: newActivitiesViewState(),
-            urls:       newUrlListViewState(),
-            settings:   newSettingsViewState(),
+            urls: newUrlListViewState(),
+            settings: newSettingsViewState(),
             journalView: newJournalViewState(),
             durationsView: newDurationsViewState(),
+            todosView: newTodosViewState(),
         },
         sideTabExpanded: false,
 
@@ -302,6 +305,7 @@ type KeyboardState = {
     aKey: NormalizedKey;
     sKey: NormalizedKey;
     dKey: NormalizedKey;
+    iKey: NormalizedKey;
     jKey: NormalizedKey;
     bKey: NormalizedKey;
     tKey: NormalizedKey;
@@ -356,6 +360,7 @@ function newKeyboardState(): KeyboardState {
         aKey: imdom.getNormalizedKey("A"),
         sKey: imdom.getNormalizedKey("S"),
         dKey: imdom.getNormalizedKey("D"),
+        iKey: imdom.getNormalizedKey("I"),
         jKey: imdom.getNormalizedKey("J"),
         bKey: imdom.getNormalizedKey("B"),
         tKey: imdom.getNormalizedKey("T"),
@@ -679,7 +684,7 @@ export function focusItem(
     // This view should only move the note if it is focused
     if (pageId) {
         const page = getPage(state.journal, pageId)
-        setCurrentlyEditingPage(ctx, page);
+        setCurrentlyViewingPage(ctx, page);
 
         if (noteId != null && page.data.noteTree) {
             setCurrentNote(state, page, page.data.noteTree, noteId, ctx.noteBeforeFocus?.id);

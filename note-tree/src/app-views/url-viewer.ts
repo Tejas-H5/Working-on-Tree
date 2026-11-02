@@ -19,7 +19,8 @@ import { el, im, ImCache, imdom } from "imcf";
 import { BLOCK, COL, imui, ROW } from "imcf/im-ui";
 
 import { forEachUrlPosition, openUrlInNewTab } from "url";
-import { getCurrentPage, getPage, setCurrentlyEditingPage, TreePage } from "./journal-view";
+import { getCurrentPage, getPage, setCurrentPage, TreePage } from "./journal-view";
+import { cssVarsApp } from "app-styling";
 
 type UrlListViewUrl = {
     url: string;
@@ -46,7 +47,7 @@ function setIdx(ctx: GlobalContext, s: UrlListViewState, page: TreePage, idx: nu
     if (s.urls.length === 0) return;
 
     s.listPosition.idx = clampedListIdx(idx, s.urls.length);
-    setCurrentlyEditingPage(ctx, page);
+    setCurrentPage(ctx, page, true);
 }
 
 function handleKeyboardInput(ctx: GlobalContext, s: UrlListViewState, page: TreePage) {
@@ -117,7 +118,7 @@ export function imUrlViewer(c: ImCache, ctx: GlobalContext, s: UrlListViewState,
 
             imNavListRowBegin(c, list, false, false); {
                 imui.Begin(c, BLOCK); imListRowCellStyle(c); {
-                    imdom.ElBegin(c, el.A); {
+                    imdom.ElBegin(c, el.A); imui.Bg(c, cssVarsApp.bgColor); imui.Fg(c, cssVarsApp.fgColor); {
                         if (im.Memo(c,url)) {
                             imdom.setAttr(c,"href", url.url);
                         }

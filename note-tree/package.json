@@ -13,6 +13,6 @@
   },
   "dependencies": {
     "@types/node": "^25.2.3",
-    "imcf": "^0.0.12"
+    "imcf": "0.0.16"
   }
 }

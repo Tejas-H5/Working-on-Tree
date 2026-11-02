@@ -664,7 +664,7 @@ export function imActivitiesList(c: ImCache, ctx: GlobalContext, s: ActivitiesVi
 
                     const isBreakActivity = isBreak(activity);
 
-                    imNavListRowBegin(c, list, itemHighlighted, itemSelected); {
+                    imNavListRowBegin(c, list, itemSelected, itemHighlighted); {
                         imui.Begin(c, ROW); imListRowCellStyle(c); imui.Gap(c, 10, PX); imui.Flex(c); imui.Align(c); {
                             imui.Begin(c, INLINE_BLOCK); {
                                 if (im.If(c) && isEditingTime) {

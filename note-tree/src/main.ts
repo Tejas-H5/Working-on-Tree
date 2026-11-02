@@ -13,7 +13,7 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imDurationsView } from "./app-views/durations-view";
-import { getCurrentPage, getPage, imJournalView, setCurrentlyEditingPage } from "./app-views/journal-view";
+import { getCurrentPage, getPage, imJournalView, setCurrentlyViewingPage, setCurrentPage } from "./app-views/journal-view";
 import { imUrlViewer } from "./app-views/url-viewer";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
@@ -48,6 +48,7 @@ import {
     setTheme,
     state
 } from "./state";
+import { imTodosList } from "app-views/todos-list";
 
 
 function getIcon(theme: AppTheme) {
@@ -350,7 +351,10 @@ function imMainInner(c: ImCache) {
                                 ctx.leftTab = ctx.views.activities;
                             }
 
-                            if (im.If(c) && ctx.sideTabExpanded) {
+                            const sideTabExpanded = ctx.sideTabExpanded || 
+                                                    state._activitiesTraversalIdx !== -1;
+
+                            if (im.If(c) && sideTabExpanded) {
                                 imui.Begin(c, COL); {
                                     if (im.IsFirstRender(c)) {
                                         imdom.setStyle(c, "maxWidth", "33%");
@@ -388,7 +392,13 @@ function imMainInner(c: ImCache) {
                                             imUrlViewer(c, ctx, ctx.views.urls, currentPage);
                                             addView(navList, ctx.views.urls, "Url opener");
                                         } break;
-
+                                        case ctx.views.todosView: {
+                                            imTodosList(c, ctx, ctx.views.todosView);
+                                        } break;
+                                        default: {
+                                            // Unhandled view!!
+                                            imdom.Str(c, "??!!");
+                                        } break;
                                     } im.SwitchEnd(c);
                                 } imui.End(c);
                             } im.IfEnd(c);
@@ -420,6 +430,21 @@ function imMainInner(c: ImCache) {
                         ctx.sideTabExpanded = !ctx.sideTabExpanded;
                         setCurrentView(ctx, ctx.views.journalView);
                     }
+                }
+
+                // TODO items
+                if (ctx.currentView === ctx.views.todosView) {
+                    const esc = hasDiscoverableCommand(ctx, ctx.keyboard.escapeKey, "Close todo list");
+                    const iKey = hasDiscoverableCommand(ctx, ctx.keyboard.iKey, "Close todo list");
+                    if (esc || iKey) {
+                        setCurrentView(ctx, ctx.views.journalView);
+                        ctx.sideTabExpanded = false;
+                    }
+                } else {
+                    if(hasDiscoverableCommand(ctx, ctx.keyboard.iKey, "Todo Items")) {
+                        ctx.viewingDurations = false;
+                        setCurrentView(ctx, ctx.views.todosView);
+                    } 
                 }
 
                 // timesheet
@@ -468,7 +493,9 @@ function imMainInner(c: ImCache) {
 
                 // Traverse the history
                 {
-                    const ctrlAndShiftHeld = imdom.isKeyHeld(ctx.keyboard.shiftKey) && imdom.isKeyHeld(ctx.keyboard.ctrlKey);
+                    const ctrlAndShiftHeld = 
+                        imdom.isKeyHeld(ctx.keyboard.shiftKey) && imdom.isKeyHeld(ctx.keyboard.ctrlKey) &&
+                        !isEditingTextSomewhereInDocument();
                     if (im.Memo(c, ctrlAndShiftHeld)) {
                         if (ctrlAndShiftHeld) {
                             // Start traversal from the most recent activity
@@ -523,7 +550,7 @@ function imMainInner(c: ImCache) {
                             if (newActivity) {
                                 if (newActivity.journal) {
                                     const page = getPage(state.journal, newActivity.journal.idx);
-                                    setCurrentlyEditingPage(ctx, page);
+                                    setCurrentlyViewingPage(ctx, page);
 
                                     if (newActivity.nId && page.data.noteTree) {
                                         setCurrentNote(state, page, page.data.noteTree, newActivity.nId);
