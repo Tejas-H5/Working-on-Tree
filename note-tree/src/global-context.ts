@@ -320,6 +320,7 @@ type KeyboardState = {
     cKey: NormalizedKey;
     zKey: NormalizedKey;
     yKey: NormalizedKey;
+    xKey: NormalizedKey;
 
     enterKey:  NormalizedKey;
     escapeKey: NormalizedKey;
@@ -375,6 +376,7 @@ function newKeyboardState(): KeyboardState {
         cKey: imdom.getNormalizedKey("C"),
         zKey: imdom.getNormalizedKey("Z"),
         yKey: imdom.getNormalizedKey("Y"),
+        xKey: imdom.getNormalizedKey("X"),
 
         enterKey:  imdom.getNormalizedKey("Enter"),
         escapeKey: imdom.getNormalizedKey("Escape"),

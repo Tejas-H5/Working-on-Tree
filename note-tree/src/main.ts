@@ -1,4 +1,5 @@
 import { imSettingsView } from "app-views/settings-view";
+import { imTodosList } from "app-views/todos-list";
 import { arrayAt, getWrappedIdx } from "array-utils";
 import { formatDate, formatTime } from "datetime";
 import { im, ImCache, imdom, NormalizedKey } from "imcf";
@@ -13,7 +14,7 @@ import { cssVarsApp } from "./app-styling";
 import { imTimerRepeat } from "./app-utils/timer";
 import { activitiesViewTakeBreak, imActivitiesList } from "./app-views/activities-list";
 import { imDurationsView } from "./app-views/durations-view";
-import { getCurrentPage, getPage, imJournalView, setCurrentlyViewingPage, setCurrentPage } from "./app-views/journal-view";
+import { getCurrentPage, getPage, imJournalView, setCurrentlyViewingPage } from "./app-views/journal-view";
 import { imUrlViewer } from "./app-views/url-viewer";
 import { ASCII_MOON_STARS, ASCII_SUN } from "./assets/icons";
 import { imExtraDiagnosticInfo, imFpsCounterSimple } from "./components/fps-counter";
@@ -48,7 +49,6 @@ import {
     setTheme,
     state
 } from "./state";
-import { imTodosList } from "app-views/todos-list";
 
 
 function getIcon(theme: AppTheme) {

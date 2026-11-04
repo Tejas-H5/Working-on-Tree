@@ -589,15 +589,17 @@ function imPageEditor(
                         im.Else(c);
 
                         const memoized = im.Get(c, imPageEditor) ??
-                            im.Set(c, { beforeCursor: "", afterCursor: "" });
+                            im.Set(c, { beforeCursor: "", cursor: "", afterCursor: "" });
 
                         if (im.Memo(c, page.data.content) | im.Memo(c, page.data.cursorEnd)) {
                             memoized.beforeCursor = page.data.content.slice(0, page.data.cursorEnd);
-                            memoized.afterCursor  = page.data.content.slice(page.data.cursorEnd);
+                            memoized.cursor = page.data.content[page.data.cursorEnd];
+                            memoized.afterCursor  = page.data.content.slice(page.data.cursorEnd + 1);
                         }
 
                         imdom.Str(c, memoized.beforeCursor);
-                        imui.Begin(c, INLINE_BLOCK); imui.Size(c, 1, CH, 1, EM); imui.Bg(c, cssVarsApp.fgColor); {
+                        imui.Begin(c, INLINE_BLOCK); imui.Bg(c, cssVarsApp.fgColor); imui.Fg(c, cssVarsApp.bgColor); {
+                            imdom.Str(c, memoized.cursor);
                         } imui.End(c);
                         imdom.Str(c, memoized.afterCursor);
                     } im.IfEnd(c);

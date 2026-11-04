@@ -7,8 +7,8 @@ import { GlobalContext, hasDiscoverableCommand, setCurrentView } from "global-co
 import { im, ImCache, imdom } from "imcf";
 import { COL, imui, PX, ROW } from "imcf/im-ui";
 import * as itree from "int-tree";
-import { state } from "state";
-import { getPage, Journal, setCurrentlyViewingPage, setCurrentPage, TreePage } from "./journal-view";
+import { journalMutated, state } from "state";
+import { getPage, Journal, setCurrentlyViewingPage, TreePage } from "./journal-view";
 
 type TodoItem = {
     journalPageId: number;
@@ -32,23 +32,25 @@ export function newTodosViewState(): TodosViewState {
 }
 
 export function recomputeAllTodos(ctx: GlobalContext, journal: Journal, s: TodosViewState) {
-    const dfs = (page: TreePage, dst: TodoItem[]) => {
-        parseAllTodos(page, dst);
+    const dfs = (page: TreePage, dst: TodoItem[], currentPageId: number) => {
+        // Skip done items that aren't from the current page
+        const includeDone = page.id === currentPageId;
+        parseAllTodos(page, dst, includeDone);
 
         for (const id of page.childIds) {
             const childPage = getPage(journal, id);
-            dfs(childPage, dst);
+            dfs(childPage, dst, currentPageId);
         }
     }
     
-    const rootPage = getPage(journal, itree.ROOT_ID);
-    s.todoItems.length = 0;
-    dfs(rootPage, s.todoItems)
-
     const currentPageId = journal.currentlyEditing.pageIdx;
     const currentPage = getPage(journal, currentPageId);
     const cursorPos = currentPage.data.cursorEnd;
 
+    const rootPage = getPage(journal, itree.ROOT_ID);
+    s.todoItems.length = 0;
+
+    dfs(rootPage, s.todoItems, currentPageId)
 
     let currentTodoItemIdx = -1;
     for (let i = 0; i < s.todoItems.length; i++) {
@@ -57,7 +59,7 @@ export function recomputeAllTodos(ctx: GlobalContext, journal: Journal, s: Todos
 
         if (currentTodoItemIdx === -1) {
             // At the very least, select the first todo item on this page
-            // currentTodoItemIdx = i;
+            currentTodoItemIdx = i;
         }
 
         const cursorInsideTodo = todoItem.cursorPos <= cursorPos && cursorPos <= todoItem.cursorPos + todoItem.text.length;
@@ -73,7 +75,7 @@ export function recomputeAllTodos(ctx: GlobalContext, journal: Journal, s: Todos
     }
 }
 
-function parseAllTodos(page: TreePage, dst: TodoItem[]) {
+function parseAllTodos(page: TreePage, dst: TodoItem[], includeDone: boolean) {
     const text = page.data.content;
     let i = 0;
     while (i < text.length) {
@@ -83,6 +85,7 @@ function parseAllTodos(page: TreePage, dst: TodoItem[]) {
         }
         i++;
 
+        let cursorPos = i;
         let done = false;
         let j = i;
         if (
@@ -94,34 +97,37 @@ function parseAllTodos(page: TreePage, dst: TodoItem[]) {
                 done = true;
             }
         }
+
         if (done) {
-            // Actually let's not show all the done items
-            i++;
-            continue;
+            if (!includeDone) {
+                continue;
+            }
         }
 
-        // i + 1 because I dont want [] to count as a TODO item.
-        j = i + 1;
-        for (let k = 0; k < 20; k++) {
-            if (text[j] === "]") break;
-            if (text[j] === "\n") break;
-            j++;
-        }
-        if (text[j] !== "]") {
-            // We fr didn't find a closing bracket.
-            i++;
-            continue;
+        if (!done) {
+            // i + 1 because I dont want [] to count as a TODO item.
+            j = i + 1;
+            for (let k = 0; k < 20; k++) {
+                if (text[j] === "]") break;
+                if (text[j] === "\n") break;
+                j++;
+            }
+            if (text[j] !== "]") {
+                // We fr didn't find a closing bracket.
+                i++;
+                continue;
+            }
         }
 
         const status = text.slice(i, j);
 
         i = j;
         i++;
-        const cursorPos = i;
+        const todoTextStart = i;
         while(i < text.length && text[i] !== "\n") {
             i++;
         }
-        const todoText = text.slice(cursorPos, i);
+        const todoText = text.slice(todoTextStart, i);
         dst.push({journalPageId: page.id, cursorPos, text: todoText, status});
     }
 
@@ -147,6 +153,12 @@ function handleKeyboardInput(ctx: GlobalContext, s: TodosViewState): boolean {
         handled = true;
     }
 
+    if (hasDiscoverableCommand(ctx, ctx.keyboard.xKey, "Toggle")) {
+        toggleCurrentTodo(ctx, s);
+        handled = true;
+    }
+
+
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
         setCurrentView(ctx, ctx.views.journalView);
         ctx.sideTabExpanded = false;
@@ -159,7 +171,7 @@ function handleKeyboardInput(ctx: GlobalContext, s: TodosViewState): boolean {
 export function imTodosList(c: ImCache, ctx: GlobalContext, s: TodosViewState) {
     const viewHasFocus = ctx.currentView === s;
 
-    if (im.Memo(c, state._journalMutated)) {
+    if (im.Memo(c, viewHasFocus)) {
         recomputeAllTodos(ctx, state.journal, s);
     }
 
@@ -210,4 +222,23 @@ export function imTodosList(c: ImCache, ctx: GlobalContext, s: TodosViewState) {
             } im.KeyedEnd(c);
         } imNavListEnd(c, list);
     } imui.End(c);
+}
+
+function toggleCurrentTodo(ctx: GlobalContext, s: TodosViewState) {
+    const todoItem = arrayAt(s.todoItems, s.listPosition.idx);
+    if (todoItem) {
+        const prevStatus = todoItem.status;
+        if (todoItem.status !== "x") {
+            todoItem.status = "x";
+        } else {
+            todoItem.status = " ";
+        }
+
+        const page = getPage(state.journal, todoItem.journalPageId);
+        page.data.content 
+            = page.data.content.slice(0, todoItem.cursorPos) 
+            + todoItem.status 
+            + page.data.content.slice(todoItem.cursorPos + prevStatus.length) 
+        journalMutated(state);
+    }
 }
