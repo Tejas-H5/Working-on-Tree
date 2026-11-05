@@ -9,6 +9,7 @@ import { COL, imui, PX, ROW } from "imcf/im-ui";
 import * as itree from "int-tree";
 import { journalMutated, state } from "state";
 import { getPage, Journal, setCurrentlyViewingPage, TreePage } from "./journal-view";
+import { assert } from "assert";
 
 type TodoItem = {
     journalPageId: number;
@@ -87,15 +88,25 @@ function parseAllTodos(page: TreePage, dst: TodoItem[], includeDone: boolean) {
 
         let cursorPos = i;
         let done = false;
+
         let j = i;
         if (
-            text[j] === "x" ||  // DONE
-            text[j] === "~"     // DECLINED/I dont wanna do this
+            compareAt(text, j, "x]") ||  // DONE
+            compareAt(text, j, "~]")     // DECLINED/I dont wanna do this
         ) {
-            j++;
-            if (text[j] === "]") {
-                done = true;
-            }
+            j += 2;
+            done = true;
+        } else if (
+            compareAt(text, j, " ]") ||  // TODO
+            compareAt(text, j, ".]")     // Idk - blocked or something. Circle back to it..  lol
+        ) {
+            j += 2;
+        } else if (
+            compareAt(text, j, "...]")   // Idk - blocked or something. Circle back to it..  lol
+        ) {
+            j += 4;
+        } else {
+            continue;
         }
 
         if (done) {
@@ -104,22 +115,7 @@ function parseAllTodos(page: TreePage, dst: TodoItem[], includeDone: boolean) {
             }
         }
 
-        if (!done) {
-            // i + 1 because I dont want [] to count as a TODO item.
-            j = i + 1;
-            for (let k = 0; k < 20; k++) {
-                if (text[j] === "]") break;
-                if (text[j] === "\n") break;
-                j++;
-            }
-            if (text[j] !== "]") {
-                // We fr didn't find a closing bracket.
-                i++;
-                continue;
-            }
-        }
-
-        const status = text.slice(i, j);
+        const status = text.slice(i, j - 1);
 
         i = j;
         i++;
@@ -137,9 +133,19 @@ function parseAllTodos(page: TreePage, dst: TodoItem[], includeDone: boolean) {
     }
 }
 
-function handleKeyboardInput(ctx: GlobalContext, s: TodosViewState): boolean {
-    let handled = false;
+function compareAt(text: string, pos: number, query: string): boolean {
+    if (pos + query.length > text.length) {
+        return false;
+    }
 
+    for (let i = 0; i < query.length; i++) {
+        if (text[pos + i] !== query[i]) return false;
+    }
+    return true;
+}
+
+
+function handleKeyboardInput(ctx: GlobalContext, s: TodosViewState) {
     // Moving up/down in the list
     const listNavigation = getNavigableListInput(ctx, s.listPosition.idx, 0, s.todoItems.length);
     if (listNavigation) {
@@ -150,22 +156,56 @@ function handleKeyboardInput(ctx: GlobalContext, s: TodosViewState): boolean {
             const page = getPage(state.journal, todoItem.journalPageId);
             setCurrentlyViewingPage(ctx, page, todoItem.cursorPos);
         }
-        handled = true;
+        ctx.handled = true;
     }
 
-    if (hasDiscoverableCommand(ctx, ctx.keyboard.xKey, "Toggle")) {
-        toggleCurrentTodo(ctx, s);
-        handled = true;
+    const todoItem = arrayAt(s.todoItems, s.listPosition.idx);
+    if (todoItem) {
+        // This is just some internal statusing I've been doing on my notes over the years:
+        // [x] -> DONE
+        // [.] -> Blocked/idk
+        // [...] -> Working on it / in progress
+        // [~] -> Declined / I dont wanna do it
+        // [ ] -. TO-DO
+
+        if (todoItem.status !== "x" && hasDiscoverableCommand(ctx, ctx.keyboard.xKey, "[x] Done")) {
+            setCurrentTodoStatus(ctx, s, todoItem, "x");
+            ctx.handled = true;
+        } 
+        if (todoItem.status === "x" && hasDiscoverableCommand(ctx, ctx.keyboard.xKey, "[ ] Todo")) {
+            setCurrentTodoStatus(ctx, s, todoItem, " ");
+            ctx.handled = true;
+        } 
+
+        if (todoItem.status !== "." && todoItem.status !== "..." && hasDiscoverableCommand(ctx, ctx.keyboard.periodKey, "[.] Blocked")) {
+            setCurrentTodoStatus(ctx, s, todoItem, ".");
+            ctx.handled = true;
+        } 
+        if (todoItem.status === "." && hasDiscoverableCommand(ctx, ctx.keyboard.periodKey, "[...] Working")) {
+            setCurrentTodoStatus(ctx, s, todoItem, "...");
+            ctx.handled = true;
+        } 
+        if (todoItem.status === "..." && hasDiscoverableCommand(ctx, ctx.keyboard.periodKey, "[ ] Todo")) {
+            setCurrentTodoStatus(ctx, s, todoItem, " ");
+            ctx.handled = true;
+        }
+
+        if (todoItem.status !== "~" && hasDiscoverableCommand(ctx, ctx.keyboard.tildeKey, "[~] Declined")) {
+            setCurrentTodoStatus(ctx, s, todoItem, "~");
+            ctx.handled = true;
+        } 
+        if (todoItem.status === "~" && hasDiscoverableCommand(ctx, ctx.keyboard.tildeKey, "[ ] Working")) {
+            setCurrentTodoStatus(ctx, s, todoItem, " ");
+            ctx.handled = true;
+        } 
     }
 
 
     if (hasDiscoverableCommand(ctx, ctx.keyboard.enterKey, "Go to note")) {
         setCurrentView(ctx, ctx.views.journalView);
         ctx.sideTabExpanded = false;
-        handled = true;
+        ctx.handled = true;
     }
-
-    return handled;
 }
 
 export function imTodosList(c: ImCache, ctx: GlobalContext, s: TodosViewState) {
@@ -224,21 +264,14 @@ export function imTodosList(c: ImCache, ctx: GlobalContext, s: TodosViewState) {
     } imui.End(c);
 }
 
-function toggleCurrentTodo(ctx: GlobalContext, s: TodosViewState) {
-    const todoItem = arrayAt(s.todoItems, s.listPosition.idx);
-    if (todoItem) {
-        const prevStatus = todoItem.status;
-        if (todoItem.status !== "x") {
-            todoItem.status = "x";
-        } else {
-            todoItem.status = " ";
-        }
+function setCurrentTodoStatus(ctx: GlobalContext, s: TodosViewState, todoItem: TodoItem, newStatus: string) {
+    const prevStatus = todoItem.status;
+    todoItem.status = newStatus;
 
-        const page = getPage(state.journal, todoItem.journalPageId);
-        page.data.content 
-            = page.data.content.slice(0, todoItem.cursorPos) 
-            + todoItem.status 
-            + page.data.content.slice(todoItem.cursorPos + prevStatus.length) 
-        journalMutated(state);
-    }
+    const page = getPage(state.journal, todoItem.journalPageId);
+    page.data.content 
+        = page.data.content.slice(0, todoItem.cursorPos) 
+        + todoItem.status 
+        + page.data.content.slice(todoItem.cursorPos + prevStatus.length) 
+    journalMutated(state);
 }

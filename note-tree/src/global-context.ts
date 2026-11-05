@@ -301,6 +301,8 @@ type KeyboardState = {
     spaceKey:    NormalizedKey;
     slashKey:    NormalizedKey;
     commaKey:    NormalizedKey;
+    periodKey:   NormalizedKey;
+    tildeKey:    NormalizedKey;
 
     aKey: NormalizedKey;
     sKey: NormalizedKey;
@@ -357,6 +359,8 @@ function newKeyboardState(): KeyboardState {
         spaceKey:    imdom.getNormalizedKey(" "),
         slashKey:    imdom.getNormalizedKey("?"),
         commaKey:    imdom.getNormalizedKey(","),
+        periodKey:   imdom.getNormalizedKey("."),
+        tildeKey:    imdom.getNormalizedKey("~"),
 
         aKey: imdom.getNormalizedKey("A"),
         sKey: imdom.getNormalizedKey("S"),

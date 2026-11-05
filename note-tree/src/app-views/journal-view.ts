@@ -592,9 +592,9 @@ function imPageEditor(
                             im.Set(c, { beforeCursor: "", cursor: "", afterCursor: "" });
 
                         if (im.Memo(c, page.data.content) | im.Memo(c, page.data.cursorEnd)) {
-                            memoized.beforeCursor = page.data.content.slice(0, page.data.cursorEnd);
-                            memoized.cursor = page.data.content[page.data.cursorEnd];
-                            memoized.afterCursor  = page.data.content.slice(page.data.cursorEnd + 1);
+                            memoized.beforeCursor = page.data.content.slice(0, page.data.cursorEnd) ?? "";
+                            memoized.cursor = page.data.content[page.data.cursorEnd] ?? "";
+                            memoized.afterCursor  = page.data.content.slice(page.data.cursorEnd + 1) ?? "";
                         }
 
                         imdom.Str(c, memoized.beforeCursor);
