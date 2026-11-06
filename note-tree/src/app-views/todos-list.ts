@@ -273,5 +273,17 @@ function setCurrentTodoStatus(ctx: GlobalContext, s: TodosViewState, todoItem: T
         = page.data.content.slice(0, todoItem.cursorPos) 
         + todoItem.status 
         + page.data.content.slice(todoItem.cursorPos + prevStatus.length) 
+
+    // Changing a status from [.] to [...] would move every other status on the same page 2 -> that way
+    const lengthChange = newStatus.length - prevStatus.length;
+    if (lengthChange !== 0) {
+        for (const item of s.todoItems) {
+            if (item.journalPageId !== todoItem.journalPageId) continue;
+            if (item.cursorPos > todoItem.cursorPos) {
+                item.cursorPos += lengthChange;
+            }
+        }
+    }
+
     journalMutated(state);
 }
