@@ -2176,13 +2176,13 @@ export function len(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 	if (!args) return RETURN_ERROR;
 
 	const str = checkArgs(args, [["str", Result_String]])
-	if (str) setResultNumber(iter, str[0].val.length);
+	if (str)  return setResultNumber(iter, str[0].val.length);
 
 	const list = checkArgs(args, [["list", Result_List]])
-	if (list) setResultNumber(iter, list[0].val.length);
+	if (list) return setResultNumber(iter, list[0].val.length);
 
 	const map = checkArgs(args, [["map", Result_Map]])
-	if (map) setResultNumber(iter, map[0].val.size);
+	if (map)  return setResultNumber(iter, map[0].val.size);
 
 	return setError(iter, call, "Can't get the length of a " + resultTypeToString(args[0].type));
 }
