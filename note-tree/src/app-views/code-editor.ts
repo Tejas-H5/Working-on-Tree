@@ -85,7 +85,11 @@ export function imCodeEditor(c: ImCache, ctx: GlobalContext, s: CodeEditorState,
     } imui.End(c);
 
     if (shouldRerunCode) {
-        rerunCode(s, page);
+        try {
+            rerunCode(s, page);
+        } catch(e) {
+
+        }
     }
 }
 

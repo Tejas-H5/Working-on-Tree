@@ -1836,10 +1836,7 @@ function evaluateVec(expr: ast.Expression, iter: ProgramIterator): ResultVector 
 	return vec;
 }
 
-function evaluateVec3(expr: ast.Expression, iter: ProgramIterator): vector.Vec3 | undefined {
-	const vec = evaluateVec(expr, iter);
-	if (!vec) return undefined;
-
+function toVec3(expr: ast.Expression, iter: ProgramIterator, vec: ResultVector): vector.Vec3 | undefined {
 	if (vec.val.length !== 2 && vec.val.length !== 3) {
 		setError(iter, expr, "Expected a vector with 2 or 3 numbers here");
 		return undefined;
@@ -1906,26 +1903,67 @@ export function math_min(call: ast.FunctionCall, iter: ProgramIterator): ExprRet
 	return setResultNumber(iter, min);
 }
 
-function checkNumArgs(call: ast.FunctionCall, numArgs: number, iter: ProgramIterator): boolean {
-	if (call.arguments.length !== numArgs) {
-		setError(iter, call, call.name.name + ` requires ${numArgs} arguments`);
-		return false;
+export function evaluateArgs(iter: ProgramIterator, call: ast.FunctionCall): Result[] | undefined {
+	const results: Result[] = [];
+
+	for (const arg of call.arguments) {
+		const result = evaluateExpressionValue(arg, iter);
+		if (!result) {
+			return undefined
+		}
+		results.push(result)
 	}
-	return true;
+
+	return results;
+}
+
+type CheckedArgsOfType<T extends readonly [string, ResultType][]> = { [K in keyof T]: Extract<Result, { type: T[K][1] }> };
+
+export function checkArgs<T extends readonly [string, ResultType][]>(results: Result[], args: Readonly<T>): CheckedArgsOfType<T> | undefined {
+	if (results.length !== args.length) return undefined;
+
+	for (let i = 0; i < results.length; i++) {
+		if (results[i].type !== args[i][1]) return undefined;
+	}
+
+	return results as CheckedArgsOfType<T>;
+}
+
+type ExpectedArgument = {
+	type: ResultType;
+	name: string;
+}
+
+export function evaluateAndCheckArgs<T extends readonly [string, ResultType][]>(
+	iter: ProgramIterator,
+	call: ast.FunctionCall,
+	args: Readonly<T>,
+): CheckedArgsOfType<T> | undefined {
+	const results = evaluateArgs(iter, call);
+	if (!results) return undefined;
+	
+	const checked = checkArgs(results, args)
+	if (!checked) {
+		let message = `This function expected arguments like ${call.name.name}(` + 
+			args.map(([name, type]) => name + ": " + resultTypeToString(type)).join(", ") +
+			")"
+
+		setError(iter, call, message);
+		return undefined;
+	}
+
+	return checked;
 }
 
 export function math_clamp(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 3, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [
+		["val", Result_Number],
+		["min", Result_Number],
+		["max", Result_Number],
+	])
+	if (!args) return RETURN_ERROR;
 
-	const val = evaluateNumber(call.arguments[0], iter);
-	if (!val) return RETURN_ERROR;
-
-	const min = evaluateNumber(call.arguments[1], iter);
-	if (!min) return RETURN_ERROR;
-
-	const max = evaluateNumber(call.arguments[2], iter);
-	if (!max) return RETURN_ERROR;
-
+	const [val, min, max] = args;
 	let clamped = val.val;
 	if (clamped < min.val) clamped = min.val;
 	if (clamped > max.val) clamped = max.val;
@@ -1934,139 +1972,126 @@ export function math_clamp(call: ast.FunctionCall, iter: ProgramIterator): ExprR
 }
 
 export function math_sin(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                      return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.sin(rad.val))
 }
 
 export function math_cos(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                      return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.cos(rad.val))
 }
 
 export function math_tan(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                      return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.tan(rad.val))
 }
 
 export function math_asin(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                     return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.asin(rad.val))
 }
 
 export function math_acos(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                     return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.acos(rad.val))
 }
 
 export function math_atan(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                    return RETURN_ERROR;
-	const rad = evaluateNumber(call.arguments[0], iter);
-	if (!rad) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["rad", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [rad] = args;
 	return setResultNumber(iter, Math.atan(rad.val))
 }
 
 export function math_atan2(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter))                    return RETURN_ERROR;
-
-	const y = evaluateNumber(call.arguments[0], iter);
-	if (!y) return RETURN_ERROR;
-
-	const x = evaluateNumber(call.arguments[1], iter);
-	if (!x) return RETURN_ERROR;
-
+	const args = evaluateAndCheckArgs(iter, call, [["y", Result_Number], ["x", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [y, x] = args;
 	return setResultNumber(iter, Math.atan2(y.val, x.val))
 }
 
 export function math_log2(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                    return RETURN_ERROR;
-	const x = evaluateNumber(call.arguments[0], iter);
-	if (!x) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["x", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [x] = args;
 	return setResultNumber(iter, Math.log2(x.val));
 }
 
 export function math_ln(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                    return RETURN_ERROR;
-	const x = evaluateNumber(call.arguments[0], iter);
-	if (!x) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["x", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [x] = args;
 	return setResultNumber(iter, Math.log(x.val));
 }
 
 export function math_pow(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
-
-	const power = evaluateNumber(call.arguments[1], iter)
-	if (!power) return RETURN_ERROR;
-
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number], ["power", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [val, power] = args;
 	return setResultNumber(iter, Math.pow(val.val, power.val));
 }
 
 export function math_sqrt(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                   return RETURN_ERROR;
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [val] = args;
 	return setResultNumber(iter, Math.sqrt(val.val));
 }
 
 
 export function math_ceil(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                   return RETURN_ERROR;
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [val] = args;
 	return setResultNumber(iter, Math.ceil(val.val));
 }
 
 export function math_floor(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                   return RETURN_ERROR;
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [val] = args;
 	return setResultNumber(iter, Math.floor(val.val));
 }
 
 export function math_round(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter))                   return RETURN_ERROR;
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [val] = args;
 	return setResultNumber(iter, Math.round(val.val));
 }
 
 export function random(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 0, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [])
+	if (!args) return RETURN_ERROR;
 	const val = getNextRng(iter.rng);
 	return setResultNumber(iter, val);
 }
 
 export function random_set_seed(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-
-	const val = evaluateNumber(call.arguments[0], iter)
-	if (!val) return RETURN_ERROR;
-
+	const args = evaluateAndCheckArgs(iter, call, [["val", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const val = args[0];
 	setRngSeed(iter.rng, val.val);
 	return RETURN_NONE;
 }
 
 export function mul(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+	const results = evaluateArgs(iter, call)
+	if (!results) return RETURN_ERROR;
 
-	const a0 = evaluateExpressionValue(call.arguments[0], iter);
-	if (!a0) return RETURN_ERROR;
-
-	const a1 = evaluateExpressionValue(call.arguments[1], iter);
-	if (!a1) return RETURN_ERROR;
-
-	if (a0.type === Result_Matrix && a1.type === Result_Vector) {
+	const matrixVector = checkArgs(results, [["a0", Result_Matrix], ["a1", Result_Vector]])
+	if (matrixVector) {
+		const [a0, a1] = matrixVector;
 		const result: Result = {
 			type: Result_Vector,
 			val:  Array(a0.val.cols).fill(0),
@@ -2078,7 +2103,9 @@ export function mul(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 		return setResult(iter, result);
 	}
 
-	if (a0.type === Result_Matrix && a1.type === Result_Matrix) {
+	const matrixMatrix = checkArgs(results, [["a0", Result_Matrix], ["a1", Result_Matrix]])
+	if (matrixMatrix) {
+		const [a0, a1] = matrixMatrix;
 		const result: Result = {
 			type: Result_Matrix,
 			val: matrix.mulMatrixAllocate(a0.val, a1.val),
@@ -2094,46 +2121,32 @@ export function mul(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
 }
 
 export function vector_len(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (checkNumArgs(call, 1, iter)) {
-		const vec = evaluateVec(call.arguments[0], iter);
-		if (vec) {
-			return setResultNumber(iter, vector.len(vec.val));
-		}
-	}
-	return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["vec", Result_Vector]])
+	if (!args) return RETURN_ERROR;
+	const [vec] = args;
+	return setResultNumber(iter, vector.len(vec.val));
 }
 
 export function vector_dot(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-
-	const a = evaluateVec(call.arguments[0], iter);
-	if (!a) return RETURN_ERROR;
-
-	const b = evaluateVec(call.arguments[1], iter);
-	if (!b) return RETURN_ERROR;
-
+	const args = evaluateAndCheckArgs(iter, call, [["a", Result_Vector], ["b", Result_Vector]])
+	if (!args) return RETURN_ERROR;
+	const [a, b] = args;
 	return setResultNumber(iter, vector.dot(a.val, b.val));
 }
 
 export function vector_cross(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-
-	const a = evaluateVec(call.arguments[0], iter);
-	if (!a) return RETURN_ERROR;
-
-	const b = evaluateVec(call.arguments[1], iter);
-	if (!b) return RETURN_ERROR;
-
+	const args = evaluateAndCheckArgs(iter, call, [["a", Result_Vector], ["b", Result_Vector]])
+	if (!args) return RETURN_ERROR;
+	const [a, b] = args;
 	const vec = vector.vec3();
 	vector.cross(vec, a.val, b.val)
 	return setResult(iter, { type: Result_Vector, val: vec });
 }
 
 export function transpose(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn  {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-	const m = evaluateExpressionValue(call.arguments[0], iter);
-	if (!m)                       return RETURN_ERROR;
-	if (m.type !== Result_Matrix) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["m", Result_Matrix]])
+	if (!args) return RETURN_ERROR;
+	const [m] = args;
 
 	const result: Result = {
 		type: Result_Matrix,
@@ -2144,11 +2157,9 @@ export function transpose(call: ast.FunctionCall, iter: ProgramIterator): ExprRe
 }
 
 export function inverse(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn  {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-
-	const mR = evaluateExpressionValue(call.arguments[0], iter);
-	if (!mR)                         return RETURN_ERROR;
-	if (mR.type !== Result_Matrix)   return setError(iter, call, "Need a matrix");
+	const args = evaluateAndCheckArgs(iter, call, [["mR", Result_Matrix]])
+	if (!args) return RETURN_ERROR;
+	const [mR] = args;
 
 	const result: Result = {
 		type: Result_Matrix,
@@ -2161,16 +2172,19 @@ export function inverse(call: ast.FunctionCall, iter: ProgramIterator): ExprRetu
 }
 
 export function len(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
+	const args = evaluateArgs(iter, call)
+	if (!args) return RETURN_ERROR;
 
-	const val = evaluateExpressionValue(call.arguments[0], iter);
-	if (!val) return RETURN_ERROR;
+	const str = checkArgs(args, [["str", Result_String]])
+	if (str) setResultNumber(iter, str[0].val.length);
 
-	if (val.type === Result_String) return setResultNumber(iter, val.val.length);
-	if (val.type === Result_List)   return setResultNumber(iter, val.val.length);
-	if (val.type === Result_Map)    return setResultNumber(iter, val.val.size);
+	const list = checkArgs(args, [["list", Result_List]])
+	if (list) setResultNumber(iter, list[0].val.length);
 
-	return setError(iter, call, "Can't get the length of a " + resultTypeToString(val.type));
+	const map = checkArgs(args, [["map", Result_Map]])
+	if (map) setResultNumber(iter, map[0].val.size);
+
+	return setError(iter, call, "Can't get the length of a " + resultTypeToString(args[0].type));
 }
 
 
@@ -2193,15 +2207,9 @@ export function list_push(call: ast.FunctionCall, iter: ProgramIterator): ExprRe
 }
 
 export function list_join(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-
-	const list = evaluateList(call.arguments[0], iter);
-	if (!list) return RETURN_ERROR;
-
-	const sep = evaluateExpressionValue(call.arguments[1], iter);
-	if (!sep)                       return RETURN_ERROR;
-	if (sep.type !== Result_String) return setExpectedValueTypeError(iter, call.arguments[1], Result_String, sep.type);
-	
+	const args = evaluateAndCheckArgs(iter, call, [["list", Result_List], ["seperator", Result_String]])
+	if (!args) return RETURN_ERROR;
+	const [list, sep] = args;
 	return setResultString(
 		iter,
 		list.val.map(resultToString).join(sep.val)
@@ -2209,10 +2217,9 @@ export function list_join(call: ast.FunctionCall, iter: ProgramIterator): ExprRe
 }
 
 export function list_pop(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-
-	const list = evaluateList(call.arguments[0], iter);
-	if (!list) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["list", Result_List]])
+	if (!args) return RETURN_ERROR;
+	const [list] = args;
 
 	let val = list.val.pop();
 	if (!val) {
@@ -2223,17 +2230,9 @@ export function list_pop(call: ast.FunctionCall, iter: ProgramIterator): ExprRet
 }
 
 export function list_sort(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-
-	const list = evaluateList(call.arguments[0], iter);
-	if (!list) return RETURN_ERROR;
-
-	const userFn = evaluateFunction(call.arguments[1], iter);
-	if (!userFn) return RETURN_ERROR;
-
-	if (userFn.val.args.length !== 2) {
-		return setError(iter, call, "expected comparator to take in 2 arguments");
-	}
+	const args = evaluateAndCheckArgs(iter, call, [["list", Result_List], ["comparator", Result_Function]])
+	if (!args) return RETURN_ERROR;
+	const [list, userFn] = args;
 
 	// Needs to be hidden. When we create new variables in this scope
 	try {
@@ -2289,43 +2288,33 @@ export function list_sort(call: ast.FunctionCall, iter: ProgramIterator): ExprRe
 }
 
 export function expr_to_string(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
+	if (call.arguments.length !== 1) return setError(iter, call, "Expected at least one argument");
 	return setResultString(iter, ast.expressionToString(iter.program.code, call.arguments[0]));
 }
 
 export function expr_type_to_string(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
+	if (call.arguments.length !== 1) return setError(iter, call, "Expected at least one argument");
 	return setResultString(iter, ast.expressionTypeToString(call.arguments[0].type));
 }
 
 export function to_string(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-	const val = evaluateExpressionValue(call.arguments[0], iter);
-	if (!val) return RETURN_ERROR;
-	return setResultString(iter, resultToString(val));
+	const results = evaluateArgs(iter, call);
+	if (!results) return RETURN_ERROR;
+	if (results.length !== 1) return setError(iter, call, "Expected at least one argument");
+	return setResultString(iter, resultToString(results[0]));
 }
 
 export function type_to_string(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-	const val = evaluateExpressionValue(call.arguments[0], iter);
-	if (!val) return RETURN_ERROR;
-	return setResultString(iter, resultTypeToString(val.type));
+	const results = evaluateArgs(iter, call);
+	if (!results) return RETURN_ERROR;
+	if (results.length !== 1) return setError(iter, call, "Expected at least one argument");
+	return setResultString(iter, resultTypeToString(results[0].type));
 }
 
 export function draw_set_color(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 4, iter)) return RETURN_ERROR;
-	
-	const r = evaluateNumber(call.arguments[0], iter);
-	if (!r) return RETURN_ERROR;
-
-	const g = evaluateNumber(call.arguments[1], iter);
-	if (!g) return RETURN_ERROR;
-
-	const b = evaluateNumber(call.arguments[2], iter);
-	if (!b) return RETURN_ERROR;
-
-	const a = evaluateNumber(call.arguments[3], iter);
-	if (!a) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["r", Result_Number], ["g", Result_Number], ["b", Result_Number], ["a", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [r, g, b, a] = args;
 
 	iter.drawCalls.push({
 		type: DrawCall_SetColor,
@@ -2340,11 +2329,9 @@ export function draw_set_color(call: ast.FunctionCall, iter: ProgramIterator): E
 }
 
 export function draw_set_transform(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-
-	const mat = evaluateExpressionValue(call.arguments[0], iter);
-	if (!mat)                       return RETURN_ERROR;
-	if (mat.type !== Result_Matrix) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["mat", Result_Matrix]])
+	if (!args) return RETURN_ERROR;
+	const [mat] = args;
 
 	matrix.clear(iter.mvpMatrix);
 	matrix.copy(mat.val, iter.mvpMatrix);
@@ -2353,13 +2340,9 @@ export function draw_set_transform(call: ast.FunctionCall, iter: ProgramIterator
 }
 
 export function matrix_transform_cartesian(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
-
-	const width = evaluateNumber(call.arguments[0], iter);
-	if (!width) return RETURN_ERROR;
-
-	const height = evaluateNumber(call.arguments[1], iter);
-	if (!height) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["width", Result_Number], ["height", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [width, height] = args;
 
 	const xScale = iter.drawParams.viewWidth  / width.val;
 	const yScale = iter.drawParams.viewHeight / height.val;
@@ -2373,19 +2356,20 @@ export function matrix_transform_cartesian(call: ast.FunctionCall, iter: Program
 }
 
 export function matrix_transform_3d_pos_target_up_fov(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 4, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["pos", Result_Vector], ["target", Result_Vector], ["up", Result_Vector], ["fov", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [posArg, targetArg, upArg, fov] = args;
 
-	const pos = evaluateVec3(call.arguments[0], iter);
-	if (!pos)    return RETURN_ERROR;
+	const pos = toVec3(call, iter, posArg)
+	if (!pos) return RETURN_ERROR;
 
-	const target = evaluateVec3(call.arguments[1], iter);
+	const target = toVec3(call, iter, targetArg)
 	if (!target) return RETURN_ERROR;
 
-	const up = evaluateVec3(call.arguments[2], iter);
-	if (!up)     return RETURN_ERROR;
+	const up = toVec3(call, iter, upArg)
+	if (!up) return RETURN_ERROR;
 
-	const fov = evaluateNumber(call.arguments[3], iter);
-	if (!fov)    return RETURN_ERROR;
+	if (!pos) return RETURN_ERROR;
 
 	matrix.setIdentity(iter.tempMatrix);
 	matrix.setPosTargetUp(iter.tempMatrix, pos, target, up);
@@ -2411,22 +2395,24 @@ export function matrix_transform_3d_pos_target_up_fov(call: ast.FunctionCall, it
 
 // Orthographic projection
 export function matrix_transform_3d_pos_target_up_width_height(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 5, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [
+		["pos", Result_Vector],
+		["target", Result_Vector],
+		["up", Result_Vector],
+		["width", Result_Number],
+		["height", Result_Number]
+	])
+	if (!args) return RETURN_ERROR;
+	const [posArg, targetArg, upArg, width, height] = args;
 
-	const pos = evaluateVec3(call.arguments[0], iter);
-	if (!pos)    return RETURN_ERROR;
+	const pos = toVec3(call, iter, posArg)
+	if (!pos) return RETURN_ERROR;
 
-	const target = evaluateVec3(call.arguments[1], iter);
+	const target = toVec3(call, iter, targetArg)
 	if (!target) return RETURN_ERROR;
 
-	const up = evaluateVec3(call.arguments[2], iter);
-	if (!up)     return RETURN_ERROR;
-
-	const width = evaluateNumber(call.arguments[3], iter);
-	if (!width)  return RETURN_ERROR;
-
-	const height = evaluateNumber(call.arguments[4], iter);
-	if (!height) return RETURN_ERROR;
+	const up = toVec3(call, iter, upArg)
+	if (!up) return RETURN_ERROR;
 
 	matrix.setIdentity(iter.tempMatrix);
 	matrix.setPosTargetUp(iter.tempMatrix, pos, target, up);
@@ -2443,10 +2429,9 @@ export function matrix_transform_3d_pos_target_up_width_height(call: ast.Functio
 }
 
 export function draw_set_font_size(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
-
-	const size = evaluateNumber(call.arguments[0], iter);
-	if (!size)     return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["size", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [size] = args;
 
 	iter.drawCalls.push({
 		type: DrawCall_SetFontSize,
@@ -2457,16 +2442,15 @@ export function draw_set_font_size(call: ast.FunctionCall, iter: ProgramIterator
 }
 
 export function draw_line_wrapper(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 3, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["p0", Result_Vector], ["p1", Result_Vector], ["thickness", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, p1Arg, radius] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
+	const p0 = toVec3(call, iter, p0Arg);
 	if (!p0)     return RETURN_ERROR;
 
-	const p1 = evaluateVec3(call.arguments[1], iter);
+	const p1 = toVec3(call, iter, p1Arg);
 	if (!p1)     return RETURN_ERROR;
-
-	const radius = evaluateNumber(call.arguments[2], iter);
-	if (!radius) return RETURN_ERROR;
 
 	draw_line(iter, p0, p1, radius.val);
 	return RETURN_NONE;
@@ -2483,13 +2467,12 @@ export function draw_line(iter: ProgramIterator, p0: vector.Vec3, p1: vector.Vec
 }
 
 export function draw_circle(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["pos", Result_Vector], ["radius", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, radius] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
+	const p0 = toVec3(call, iter, p0Arg);
 	if (!p0)     return RETURN_ERROR;
-
-	const radius = evaluateNumber(call.arguments[1], iter);
-	if (!radius) return RETURN_ERROR;
 
 	iter.drawCalls.push({
 		type: DrawCall_Circle,
@@ -2500,13 +2483,12 @@ export function draw_circle(call: ast.FunctionCall, iter: ProgramIterator): Expr
 }
 
 export function draw_square(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["pos", Result_Vector], ["radius", Result_Number]])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, radius] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
+	const p0 = toVec3(call, iter, p0Arg);
 	if (!p0)     return RETURN_ERROR;
-
-	const radius = evaluateNumber(call.arguments[1], iter);
-	if (!radius) return RETURN_ERROR;
 
 	iter.drawCalls.push({
 		type: DrawCall_Square,
@@ -2517,12 +2499,14 @@ export function draw_square(call: ast.FunctionCall, iter: ProgramIterator): Expr
 }
 
 export function draw_rect(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["p0", Result_Vector], ["size", Result_Vector]])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, sizeArg] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
+	const p0 = toVec3(call, iter, p0Arg);
 	if (!p0)     return RETURN_ERROR;
 
-	const p1 = evaluateVec3(call.arguments[1], iter);
+	const p1 = toVec3(call, iter, sizeArg);
 	if (!p1)     return RETURN_ERROR;
 
 	iter.drawCalls.push({
@@ -2534,19 +2518,20 @@ export function draw_rect(call: ast.FunctionCall, iter: ProgramIterator): ExprRe
 }
 
 export function draw_label(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 4, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [
+		["pos", Result_Vector],
+		["text", Result_String],
+		["size", Result_Number],
+		["direction", Result_Vector],
+	])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, label, size, directionArg] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
-	if (!p0)         return RETURN_ERROR;
+	const p0 = toVec3(call, iter, p0Arg);
+	if (!p0)     return RETURN_ERROR;
 
-	const label = evaluateString(call.arguments[1], iter);
-	if (!label)      return RETURN_ERROR;
-
-	const size = evaluateNumber(call.arguments[2], iter);
-	if (!size)       return RETURN_ERROR;
-
-	const direction = evaluateVec3(call.arguments[3], iter);
-	if (!direction)  return RETURN_ERROR;
+	const direction = toVec3(call, iter, directionArg);
+	if (!direction)     return RETURN_ERROR;
 
 	iter.drawCalls.push({
 		type:      DrawCall_Label,
@@ -2554,28 +2539,27 @@ export function draw_label(call: ast.FunctionCall, iter: ProgramIterator): ExprR
 		direction: direction,
 		p0:        p0,
 		rotation:  0,
-		text:      label,
+		text:      label.val,
 	})
 	return RETURN_NONE;
 }
 
 export function draw_label_rotated(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 5, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [
+		["pos", Result_Vector],
+		["text", Result_String],
+		["size", Result_Number],
+		["direction", Result_Vector],
+		["angle", Result_Number],
+	])
+	if (!args) return RETURN_ERROR;
+	const [p0Arg, label, size, directionArg, angle] = args;
 
-	const p0 = evaluateVec3(call.arguments[0], iter);
-	if (!p0)         return RETURN_ERROR;
+	const p0 = toVec3(call, iter, p0Arg);
+	if (!p0)     return RETURN_ERROR;
 
-	const label = evaluateString(call.arguments[1], iter);
-	if (!label)      return RETURN_ERROR;
-
-	const size = evaluateNumber(call.arguments[2], iter);
-	if (!size)       return RETURN_ERROR;
-
-	const direction = evaluateVec3(call.arguments[3], iter);
-	if (!direction)  return RETURN_ERROR;
-
-	const angle = evaluateNumber(call.arguments[4], iter);
-	if (!angle)      return RETURN_ERROR;
+	const direction = toVec3(call, iter, directionArg);
+	if (!direction)     return RETURN_ERROR;
 
 	iter.drawCalls.push({
 		type:      DrawCall_Label,
@@ -2583,13 +2567,14 @@ export function draw_label_rotated(call: ast.FunctionCall, iter: ProgramIterator
 		direction: direction,
 		p0:        p0,
 		rotation:  angle.val,
-		text:      label,
+		text:      label.val,
 	})
 	return RETURN_NONE;
 }
 
 export function draw_background(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 0, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [])
+	if (!args) return RETURN_ERROR;
 	
 	iter.drawCalls.push({
 		type: DrawCall_Background,
@@ -2619,12 +2604,12 @@ export function plot_new_histogram(call: ast.FunctionCall, iter: ProgramIterator
 }
 
 export function plot_new_internal(call: ast.FunctionCall, iter: ProgramIterator, suggestedVisualiser: DataVisualiserType): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["name", Result_String]])
+	if (!args) return RETURN_ERROR;
 
-	const title = evaluateString(call.arguments[0], iter);
-	if (!title) return RETURN_ERROR;
+	const [title] = args;
 
-	newPlotInternal(iter, title, suggestedVisualiser);
+	newPlotInternal(iter, title.val, suggestedVisualiser);
 	return RETURN_NONE;
 }
 
@@ -2641,12 +2626,11 @@ export function plot_new_histogram_3d(call: ast.FunctionCall, iter: ProgramItera
 }
 
 export function plot_new_3d_internal(call: ast.FunctionCall, iter: ProgramIterator, suggestedVisualiser: DataVisualiserType): ExprReturn {
-	if (!checkNumArgs(call, 1, iter)) return RETURN_ERROR;
+	const args = evaluateAndCheckArgs(iter, call, [["name", Result_String]])
+	if (!args) return RETURN_ERROR;
+	const [title] = args;
 
-	const title = evaluateString(call.arguments[0], iter);
-	if (!title) return RETURN_ERROR;
-
-	newPlotInternal(iter, title, suggestedVisualiser);
+	newPlotInternal(iter, title.val, suggestedVisualiser);
 	return RETURN_NONE;
 }
 
@@ -2663,7 +2647,7 @@ function newPlotInternal(iter: ProgramIterator, title: string, type: DataVisuali
 }
 
 export function plot_value(call: ast.FunctionCall, iter: ProgramIterator): ExprReturn {
-	if (!checkNumArgs(call, 2, iter)) return RETURN_ERROR;
+	if (call.arguments.length !== 2) return RETURN_ERROR;
 
 	const output = ensureDataOutput(iter, call);
 	if (!output) return RETURN_ERROR;

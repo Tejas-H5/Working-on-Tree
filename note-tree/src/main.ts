@@ -53,7 +53,7 @@ import {
 
 function getIcon(theme: AppTheme) {
     if (theme === "Light") return ASCII_SUN;
-    if (theme === "Dark")  return ASCII_MOON_STARS;
+    if (theme === "Dark") return ASCII_MOON_STARS;
     return ASCII_MOON_STARS;
 }
 
@@ -303,7 +303,7 @@ function imMainInner(c: ImCache) {
                                 commands.shiftAvailable = false;
                                 commands.ctrlAvailable = false;
                                 commands.altAvailable = false;
-                            } 
+                            }
 
                             imui.Begin(c, BLOCK); imui.Size(c, 10, PX, 0, NA); imui.End(c);
                         } imui.End(c);
@@ -351,8 +351,8 @@ function imMainInner(c: ImCache) {
                                 ctx.leftTab = ctx.views.activities;
                             }
 
-                            const sideTabExpanded = ctx.sideTabExpanded || 
-                                                    state._activitiesTraversalIdx !== -1;
+                            const sideTabExpanded = ctx.sideTabExpanded ||
+                                state._activitiesTraversalIdx !== -1;
 
                             if (im.If(c) && sideTabExpanded) {
                                 imui.Begin(c, COL); {
@@ -419,7 +419,7 @@ function imMainInner(c: ImCache) {
                         } imui.End(c);
                     } im.IfEnd(c);
                 } imui.End(c);
-            } 
+            }
 
 
             // post-process events, etc
@@ -441,10 +441,10 @@ function imMainInner(c: ImCache) {
                         ctx.sideTabExpanded = false;
                     }
                 } else {
-                    if(hasDiscoverableCommand(ctx, ctx.keyboard.iKey, "Todo Items")) {
+                    if (hasDiscoverableCommand(ctx, ctx.keyboard.iKey, "Todo Items")) {
                         ctx.viewingDurations = false;
                         setCurrentView(ctx, ctx.views.todosView);
-                    } 
+                    }
                 }
 
                 // timesheet
@@ -467,7 +467,7 @@ function imMainInner(c: ImCache) {
                         setCurrentView(ctx, ctx.views.journalView);
                     }
                     ctx.views.activities.inputs.activityFilter = null;
-                } 
+                }
 
                 if (
                     ctx.currentView !== ctx.views.settings &&
@@ -493,7 +493,7 @@ function imMainInner(c: ImCache) {
 
                 // Traverse the history
                 {
-                    const ctrlAndShiftHeld = 
+                    const ctrlAndShiftHeld =
                         imdom.isKeyHeld(ctx.keyboard.shiftKey) && imdom.isKeyHeld(ctx.keyboard.ctrlKey) &&
                         !isEditingTextSomewhereInDocument();
                     if (im.Memo(c, ctrlAndShiftHeld)) {
@@ -647,7 +647,7 @@ function imMainInner(c: ImCache) {
 function imCommandDescription(c: ImCache, key: NormalizedKey, action: string) {
     imui.Begin(c, COL); imui.Align(c, CENTER); imui.Pre(c); {
         imui.Begin(c, BLOCK); {
-            imdom.Str(c, "["); 
+            imdom.Str(c, "[");
             imdom.StrFmt(c, key, getKeyStringRepr);
             // imdom.Str(c, " - ");
             // imdom.Str(c, action);
