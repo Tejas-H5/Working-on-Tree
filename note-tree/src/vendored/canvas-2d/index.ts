@@ -74,6 +74,8 @@ export function drawLine(s: State, x0: number, y0: number, x1: number, y1: numbe
 }
 
 export function drawRect(s: State, x0: number, y0: number, width: number, height: number) {
+	if (width <= 0 || height <= 0) return;
+
 	s.ctx.beginPath(); {
 		s.ctx.rect(x0, y0, width, height);
 		s.ctx.fill();
@@ -89,6 +91,8 @@ export function drawBackground(s: State) {
 }
 
 export function drawCircle(s: State, x: number, y: number, radius: number) {
+	if (radius <= 0) return;
+
 	s.ctx.beginPath(); {
 		s.ctx.arc(x, y, radius, 0, 2 * Math.PI);
 		s.ctx.fill();

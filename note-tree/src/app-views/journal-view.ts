@@ -11,7 +11,7 @@ import { DAYS_OF_THE_WEEK_ABBREVIATED, formatDurationAsHours, MONTH_NAMES, pad2 
 import { fuzzyFind, FuzzyFindRange } from "fuzzyfind";
 import { ALT, BYPASS_TEXT_AREA, CTRL, debouncedSave, GlobalContext, hasDiscoverableCommand, HIDDEN, REPEAT, SHIFT } from "global-context";
 import { el, ev, im, ImCache, imdom, key } from "imcf";
-import { BLOCK, CH, COL, cssVars, EM, END, imui, INLINE_BLOCK, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
+import { BLOCK, CH, COL, cssVars, EM, END, imui, INLINE_BLOCK, isEditingTextSomewhereInDocument, NA, PX, ROW, ROW_REVERSE } from "imcf/im-ui";
 import * as itree from "int-tree";
 import { logTrace } from "log";
 import { getPageDurationUsingCurrentRange, getPageDurationWithoutRange, journalMutated, newNoteTree, NoteTree, pushJournalActivity, state } from "state";
@@ -19,6 +19,7 @@ import { CodePage, imCodeEditor, newCodeEditorState, newCodePage } from "./code-
 import { getMappingGraphCount, imGraphMappingsEditorViewInternal, MappingGraph, MappingGraphView, newGraphMappingsViewState, newMappingGraph, newMappingGraphView } from "./graph-view";
 import { imNoteTreeView, newNoteTreeViewState } from "./note-tree-view";
 import { cssVarsApp } from "app-styling";
+import { IS_MACOS } from "vendored/platform";
 
 type FinderResult = {
     id: number;
@@ -807,10 +808,16 @@ function handleKeyboardInput(
         }
 
         if (!handled) {
-            const keys = imdom.getKeyboard();
-            if (imdom.isKeyPressedOrRepeated(key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(key.ARROW_LEFT)) {
-                if (imdom.isKeyHeld(key.ALT)) {
-                    handled = true;
+            if (
+                // On mac, Alt+Left/Right in a textfield is like Ctrl+Left/Right in windows, so we shouldn't block it.
+                // But on windows, Alt+Left/Right navigates the browser, which we do want to block.
+                (IS_MACOS && isEditingTextSomewhereInDocument()) ||
+                !IS_MACOS
+            ) {
+                if (imdom.isKeyPressedOrRepeated(key.ARROW_RIGHT) || imdom.isKeyPressedOrRepeated(key.ARROW_LEFT)) {
+                    if (imdom.isKeyHeld(key.ALT)) {
+                        handled = true;
+                    }
                 }
             }
         }

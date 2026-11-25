@@ -72,51 +72,67 @@ function getDesiredAspectRatio(): number {
 function imDrawCalls(c: ImCache, output: Pl2CodeCellOutput) {
 	const drawCalls = output.iter.drawCalls;
 
+	const state = im.GetInline(c, imDrawCalls) ??
+		im.Set(c, { error: "" })
+
+	if (im.If(c) && state.error) {
+		imBegin(c, BLOCK); {
+			imStr(c, "An error occured while rendering: ");
+			imStr(c, state.error);
+		} imEnd(c)
+	} im.IfEnd(c)
+
 	const s = imC2dBegin(c, getDesiredAspectRatio());
 	if (s) {
 		if (im.Memo(c, drawCalls)) {
 			const t0 = performance.now();
 
-			initializeC2d(s);
+			state.error = "";
+			try {
+				initializeC2d(s);
 
-			for (let i = 0; i < drawCalls.length; i++) {
-				const call = drawCalls[i];
+				for (let i = 0; i < drawCalls.length; i++) {
+					const call = drawCalls[i];
 
-				switch (call.type) {
-					case pl2.DrawCall_Line: {
-						c2d.drawLine(s, call.p0[0], call.p0[1], call.p1[0], call.p1[1], call.thickness);
-					} break;
-					case pl2.DrawCall_Circle: {
-						c2d.drawCircle(s, call.p0[0], call.p0[1], call.radius);
-					} break;
-					case pl2.DrawCall_Square: {
-						c2d.drawSquare(s, call.p0[0], call.p0[1], call.radius);
-					} break;
-					case pl2.DrawCall_Rectangle: {
-						c2d.drawRect(s, call.p0[0], call.p0[1], call.p1[0], call.p1[1]);
-					} break;
-					case pl2.DrawCall_Background: {
-						c2d.drawBackground(s);
-					} break;
-					case pl2.DrawCall_Label: {
-						c2d.setFont(s, s.fontName, call.size);
-						c2d.drawLabelRotated(
-							s,
-							call.p0[0], call.p0[1],
-							call.text,
-							call.direction[0], call.direction[1],
-							s.fontSizePx / 5,
-							call.rotation,
-						);
-					} break;
-					case pl2.DrawCall_SetColor: {
-						c2d.setColor(s, call.color.r, call.color.g, call.color.b, call.color.a);
-					} break;
-					case pl2.DrawCall_SetFontSize: {
-						c2d.setFont(s, s.fontName, call.size);
-					} break;
-					default: assertNever(call)
+					switch (call.type) {
+						case pl2.DrawCall_Line: {
+							c2d.drawLine(s, call.p0[0], call.p0[1], call.p1[0], call.p1[1], call.thickness);
+						} break;
+						case pl2.DrawCall_Circle: {
+							c2d.drawCircle(s, call.p0[0], call.p0[1], call.radius);
+						} break;
+						case pl2.DrawCall_Square: {
+							c2d.drawSquare(s, call.p0[0], call.p0[1], call.radius);
+						} break;
+						case pl2.DrawCall_Rectangle: {
+							c2d.drawRect(s, call.p0[0], call.p0[1], call.p1[0], call.p1[1]);
+						} break;
+						case pl2.DrawCall_Background: {
+							c2d.drawBackground(s);
+						} break;
+						case pl2.DrawCall_Label: {
+							c2d.setFont(s, s.fontName, call.size);
+							c2d.drawLabelRotated(
+								s,
+								call.p0[0], call.p0[1],
+								call.text,
+								call.direction[0], call.direction[1],
+								s.fontSizePx / 5,
+								call.rotation,
+							);
+						} break;
+						case pl2.DrawCall_SetColor: {
+							c2d.setColor(s, call.color.r, call.color.g, call.color.b, call.color.a);
+						} break;
+						case pl2.DrawCall_SetFontSize: {
+							c2d.setFont(s, s.fontName, call.size);
+						} break;
+						default: assertNever(call)
+					}
 				}
+			} catch(e) {
+				state.error = "" + e;
+				console.error(e)
 			}
 
 			output.canvasDrawTime = performance.now() - t0;
